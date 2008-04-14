@@ -226,8 +226,9 @@ void RServer::init(MPList * serverlist)
 	sleep(1); \
 	continue; \
       } \
-      sprintf(buf,"Connection to %s:%s failed", \
-	      _CurrentServer->hostname,_CurrentServer->servicename); \
+      snprintf(buf, sizeof(buf), "Connection to %s:%s failed",\
+	       _CurrentServer->hostname.c_str(),\
+	       _CurrentServer->servicename.c_str()); \
       throw SystemError(buf,errno, ERROR_LOCATION); \
     }
 void RServer::connect()
@@ -236,47 +237,41 @@ void RServer::connect()
 	if (is_connected())
 		return;
 
+	const time_t now = time(NULL);
+	if (now <
+	    _CurrentServer->connectFailed + _CurrentServer->connectBackoff) {
+		throw SystemError("RServer::connect: no connection to news server");
+	}
+
 	string grt, resp;
 	char buf[1024];
-	int i = _CurrentServer->retries;
+	unsigned int i = _CurrentServer->retries;
 	_pServerStream = new sstream;
 
 	for (;;) {
-		// Open connection
-		if (strcmp(_CurrentServer->bindFrom, "") == 0) {
-			slog.
-			    p(Logger::
-			      Debug) << "RServer::connect: Connecting to "
-			    << _CurrentServer->
-			    hostname <<
-			    " from DEFAULT interface to servicename " <<
-			    _CurrentServer->servicename << "\n";
-			_pServerStream->connectTo(_CurrentServer->hostname,
-						  _CurrentServer->
-						  servicename);
-		} else {
-			slog.
-			    p(Logger::
-			      Debug) << "RServer::connect: Connecting to "
-			    << _CurrentServer->
-			    hostname << " from interface " <<
-			    _CurrentServer->
-			    bindFrom << " to servicename " <<
-			    _CurrentServer->servicename << "\n";
-			_pServerStream->connectTo(_CurrentServer->hostname,
-						  _CurrentServer->
-						  servicename,
-						  _CurrentServer->
-						  bindFrom);
-		}
+		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
+		  _CurrentServer->hostname << " to servicename " <<
+		  _CurrentServer->servicename << "\n";
+
+		const struct sockaddr *bindFrom =
+		  (_CurrentServer->bindFrom.ss_family == AF_UNSPEC) ?
+		  NULL : (const struct sockaddr *) &_CurrentServer->bindFrom;
+
+		_pServerStream->connect(_CurrentServer->hostname.c_str(),
+					_CurrentServer->servicename.c_str(),
+					bindFrom,
+					sizeof(_CurrentServer->bindFrom),
+					_CurrentServer->connectTimeout);
 		if (!_pServerStream->good()) {
 			delete _pServerStream;
 			_pServerStream = NULL;
+			_CurrentServer->connectFailed = time(NULL);
 			throw
 			    SystemError
 			    ("RServer::connect: cannot connect to news server",
 			     errno, ERROR_LOCATION);
 		}
+		_pServerStream->setnodelay();
 		_pServerStream->unsetf(ios::skipws);
 
 		//FIXME! repl nlreadline by nntpreadline that transparently
@@ -296,6 +291,7 @@ void RServer::connect()
 			string c("_connect_"), e("20[01]");
 			delete _pServerStream;
 			_pServerStream = NULL;
+			_CurrentServer->connectFailed = time(NULL);
 			throw ResponseError(c, e, grt);
 		}
 
@@ -320,18 +316,19 @@ void RServer::connect()
 		}
 
 		if (_CurrentServer->user[0]) {
-			sprintf(buf, "authinfo user %s\r\n",
-				_CurrentServer->user);
+			snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
+				 _CurrentServer->user.c_str());
 			resp = issue(buf, NULL);
 			if (resp[0] == '3') {
-				sprintf(buf, "authinfo pass %s\r\n",
-					_CurrentServer->passwd);
+				snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
+					 _CurrentServer->passwd.c_str());
 				resp = issue(buf, NULL);
 			}
 			if (resp[0] != '2') {
 				string c("_authenticate_"), e("[23]..");
 				delete _pServerStream;
 				_pServerStream = NULL;
+				_CurrentServer->connectFailed = time(NULL);
 				throw ResponseError(c, e, resp);
 			}
 		}
@@ -364,6 +361,7 @@ void RServer::connect()
 		if (_CurrentGroup.name()[0] != '\0') {
 			selectgroup(_CurrentGroup.name(), 1);
 		}
+		_CurrentServer->connectFailed = 0;
 		return;
 	}
 }
@@ -512,7 +510,7 @@ void RServer::selectgroup(const char *name, int force)
 	}
 
 	setserver(mpe);
-	sprintf(buf, "group %s\r\n", name);
+	snprintf(buf, sizeof(buf), "group %s\r\n", name);
 	resp = issue(buf, NULL);
 
 	p = resp.c_str();
@@ -585,7 +583,6 @@ ActiveDB *RServer::active()
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
 	unsigned int i, flags;
 	char cgroup[MAXGROUPNAMELEN + 1], *cgp, buf[1024];
-	const char *sp;
 	char c;
 
 	ASSERT(if (!_ServerList) {
@@ -618,26 +615,29 @@ ActiveDB *RServer::active()
 			    nntpflags & MPListEntry::
 			    F_LIST_ACTIVE_WILDMAT) {
 				try {
-					sp = _CurrentServer->read;
+					std::string::const_iterator sp =
+					  _CurrentServer->read.begin();
+					const std::string::const_iterator end =
+					  _CurrentServer->read.end();
 					do {
 						// Extract a newsgroup-expression
 						cgp = cgroup;
-						while ((c = *sp++) != ','
-						       && c)
+						while (sp != end &&
+						       (c = *sp++) != ',')
 							*cgp++ = c;
 						*cgp = '\0';
-						sprintf(buf,
-							"list active %s\r\n",
-							cgroup);
+						snprintf(buf, sizeof(buf),
+							 "list active %s\r\n",
+							 cgroup);
 						issue(buf, "215");
 						// read active database and filter unwanted groups
 						_ActiveDB->
 						    read(*_pServerStream,
 							 _ServerList->
 							 makeFilter(i,
-								    cgroup),
+								    cgroup).c_str(),
 							 flags);
-					} while (c);
+					} while (sp != end);
 				}
 				catch(ResponseError & re) {
 					slog.p(Logger::Notice)
@@ -659,7 +659,7 @@ ActiveDB *RServer::active()
 				issue("list active\r\n", "215");
 				_ActiveDB->read(*_pServerStream,
 						_ServerList->makeFilter(i,
-									"*"),
+									"*").c_str(),
 						flags);
 			}
 		}
@@ -794,7 +794,7 @@ void RServer::overviewdb(Newsgroup * ng, unsigned int fst,
 			     ERROR_LOCATION);
 		}
 
-		sprintf(buf, fmt, fst, lst);
+		snprintf(buf, sizeof(buf), fmt, fst, lst);
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
@@ -830,7 +830,7 @@ void RServer::article(const char *gname, unsigned int nbr, Article * art)
 
 	selectgroup(gname);
 
-	sprintf(buf, "article %u\r\n", nbr);
+	snprintf(buf, sizeof(buf), "article %u\r\n", nbr);
 	resp = issue(buf, NULL);
 	p = resp.c_str();
 	if (strncmp(p, "220", 3) != 0) {
@@ -853,7 +853,7 @@ void RServer::article(const char *id, Article * art)
 	const char *p;
 	string resp;
 
-	sprintf(buf, "article %s\r\n", id);
+	snprintf(buf, sizeof(buf), "article %s\r\n", id);
 	if (_CurrentServer) {
 		resp = issue(buf, NULL);
 		p = resp.c_str();
@@ -918,7 +918,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 
 	try {
 		resp = article->getfield("message-id:");
-		sprintf(buf, "stat %s\r\n", resp.c_str());
+		snprintf(buf, sizeof(buf), "stat %s\r\n", resp.c_str());
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (strncmp(p, "223", 3) == 0)
@@ -1020,8 +1020,8 @@ int RServer::post(Article * article)
 	//FIXME! We should use the path field here, or introduce a 
 	//FIXME! new field that shows the cache-posting-chain
 	if (nntp_posting_host[0]) {
-		sprintf(buf, "X-NNTP-Posting-Host: %s\r\n",
-			nntp_posting_host);
+		snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
+			 nntp_posting_host);
 		article->setfield("X-NNTP-Posting-Host:", buf);
 	}
 
@@ -1045,7 +1045,8 @@ int RServer::post(Article * article)
 		strcpy(p, nntp_hostname);
 		pc++;
 
-		sprintf(msgid, "Message-ID: <newscache$%s>\r\n", mid);
+		snprintf(msgid, sizeof(msgid),
+			 "Message-ID: <newscache$%s>\r\n", mid);
 		article->setfield("Message-ID:", msgid);
 	}
 
@@ -1174,7 +1175,7 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 		_OverviewFormat = new OverviewFmt;
 	}
 	if (!_ActiveDB) {
-		sprintf(buf, "%s/.active", spooldir);
+		snprintf(buf, sizeof(buf), "%s/.active", spooldir);
 		_ActiveDB = _NVActiveDB = new NVActiveDB(buf);
 	}
 
@@ -1355,7 +1356,7 @@ int CServer::post(Article * article)
 
 	gettimeofday(&tv, NULL);
 
-	sprintf(fn, "%s/.headerlog", _SpoolDirectory);
+	ssprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
 	fs.open(fn, ios::app);
 	fs << getpid() << " " << tv.tv_sec << endl;
 	article->write(fs, Article::Head);
@@ -1503,7 +1504,7 @@ void CServer::article(const char *id, Article * art)
 	const char *p;
 	string resp;
 
-	sprintf(buf, "article %s\r\n", id);
+	snprintf(buf, sizeof(buf), "article %s\r\n", id);
 	if (_CurrentServer
 	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)) {
 		resp = issue(buf, NULL);

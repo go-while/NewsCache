@@ -1,61 +1,115 @@
 #ifndef __sstream_h__
 #define __sstream_h__
 
-/*
- * Copyright (C) 2002 Herbert Straub
- * Change the original hierachy [(C) Thomas Gschwind] 
- * from fstream -> sstream to iosockinet -> sstream
- * This is for g++ >= 3.0 necessary.
- */
+#include <signal.h>
+#include <sys/socket.h>
 
+#include <iostream>
 
-#include <socket++/sockinet.h>
+class sstream
+  : public std::iostream
+{
+  class sockstreambuf
+    : public std::streambuf
+  {
+    static sig_atomic_t *_alarm_indicator;
 
-/**
- * \class sstream
- * \author Herbert Straub
- * \date 2002
- * Change the original hierachy [(C) Thomas Gschwind] 
- * from fstream -> sstream to iosockinet -> sstream
- * This is for g++ >= 3.0 necessary.
- *
- * \bug Documentation is missing.
- */
-class sstream:public iosockinet {
-	char _name[256];
-	char _service[256];
-	int connected;
-      public:
-	 sstream():iosockinet(sockbuf::sock_stream) {
-		_name[0] = '\0';
-		_service[0] = '\0';
-		connected = 0;
-		setstate(std::ios::badbit);
-		rdbuf()->setname ("upstream server socket");
-	} sstream(char *name,
-		  char *service):iosockinet(sockbuf::sock_stream) {
-		rdbuf()->setname ("upstream server socket");
-		connectTo(name, service);
-	}
-	sstream(char *name, char *service,
-		char *from):iosockinet(sockbuf::sock_stream) {
-		rdbuf()->setname ("upstream server socket");
-		connectTo(name, service, from);
-	}
-	~sstream() {
-		disconnect();
-	}
+    int _fd;
+    char _gbuf[4096];
+    char _pbuf[4096];
 
-	const char *hostname() {
-		return _name;
-	}
-	const char *servicename() {
-		return _service;
-	}
-	int is_connected();
-	void connectTo(char *name, char *service);
-	void connectTo(char *name, char *service, char *from);
-	void disconnect();
+   public:
+    static inline void alarm_indicator(sig_atomic_t &var)
+    {
+      _alarm_indicator = &var;
+    }
+
+    sockstreambuf()
+      : _fd(-1)
+    {
+      setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
+      setp(_pbuf, _pbuf + sizeof(_gbuf));
+    }
+
+    ~sockstreambuf()
+    { disconnect(); }
+
+    inline bool connected() const
+    { return _fd >= 0; }
+
+    void connect(const char *name, const char *service,
+		 const struct sockaddr *from, socklen_t fromlen,
+		 unsigned int timeout = 0);
+
+    void attach(int fd);
+
+    void disconnect();
+
+    void setkeepalive(bool fl = true);
+    void setnodelay(bool fl = true);
+
+    virtual int overflow(int c = traits_type::eof());
+    virtual int sync();
+
+    virtual int underflow();
+  } _buf;
+
+ public:
+  static inline void alarm_indicator(sig_atomic_t &var)
+  {
+    sockstreambuf::alarm_indicator(var);
+  }
+
+  inline sstream()
+    : std::iostream(&_buf)
+  {
+    setstate(std::ios::badbit);
+  }
+
+  inline sstream(const char *name, const char *service,
+		 const struct sockaddr *from = NULL, socklen_t fromlen = 0)
+  {
+    _buf.connect(name, service, from, fromlen);
+  }
+
+  inline ~sstream()
+  { }
+
+  inline bool connected() const
+  { return _buf.connected(); }
+
+  inline void connect(const char *name, const char *service,
+		      const struct sockaddr *from = NULL,
+		      socklen_t fromlen = 0, unsigned int timeout = 0)
+  {
+    _buf.connect(name, service, from, fromlen, timeout);
+    clear(_buf.connected() ? std::ios::goodbit : std::ios::badbit);
+  }
+
+  inline void connect(const char *name, const char *service,
+		      unsigned int timeout = 0)
+  {
+    _buf.connect(name, service, NULL, 0, timeout);
+    clear(_buf.connected() ? std::ios::goodbit : std::ios::badbit);
+  }
+
+  inline void attach(int fd)
+  {
+    _buf.attach(fd);
+    clear();
+  }
+
+  inline void disconnect()
+  {
+    _buf.disconnect();
+    clear(std::ios::badbit);
+  }
+
+  inline void setkeepalive(bool fl = true)
+  { _buf.setkeepalive(fl); }
+
+  inline void setnodelay(bool fl = true)
+  { _buf.setnodelay(fl); }
 };
 
 #endif

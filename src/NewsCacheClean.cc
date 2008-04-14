@@ -274,7 +274,7 @@ void clean(const char *cpath)
 		} else {
 			ng = NULL;
 		}
-	} catch (NoSuchGroupError e) {
+	} catch (const NoSuchGroupError &e) {
 		ng = NULL;
 	}
 	// FIXME: what we are doing with bad database files?
@@ -421,11 +421,11 @@ int main(int argc, char **argv)
 		Cfg.read(conffile);
 //    strcpy(nntp_hostname,Cfg.Hostname);
 	}
-	catch(IOError & io) {
+	catch(const IOError & io) {
 		cerr << "unexpected EOF in " << conffile << "\n";
 		exit(2);
 	}
-	catch(SyntaxError & se) {
+	catch(const SyntaxError & se) {
 		cerr << se._errtext << "\n";
 		exit(2);
 	}
