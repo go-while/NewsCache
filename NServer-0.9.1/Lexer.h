@@ -125,7 +125,8 @@ class SyntaxError:public Error {
 		 _errtext += txt;
 		 VERB(slog.p(Logger::Error);
 		      SyntaxError::print());
-	} virtual void print() {
+	}
+	virtual void print() const {
 		slog << "Exception!\n"
 		    << "  Type: Syntax\n"
 		    << "  Desc: " << _errtext << "\n";

@@ -68,6 +68,7 @@ class sstream
 
   inline sstream(const char *name, const char *service,
 		 const struct sockaddr *from = NULL, socklen_t fromlen = 0)
+    : std::iostream(&_buf)
   {
     _buf.connect(name, service, from, fromlen);
   }
