@@ -12,7 +12,7 @@
 
 #include "config.h"
 #include "Debug.h"
-#include "sstream.h"
+#include "sockstream.h"
 
 
 sig_atomic_t *sstream::sockstreambuf::_alarm_indicator = NULL;

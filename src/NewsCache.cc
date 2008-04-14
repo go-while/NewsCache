@@ -117,7 +117,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include "setugid.h"
 #include "Config.h"
 #include "Logger.h"
-#include "sstream.h"
+#include "sockstream.h"
 
 using std::cin;
 using std::cout;

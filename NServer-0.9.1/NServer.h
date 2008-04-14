@@ -39,7 +39,7 @@ class CServer;
 #include "config.h"
 #include "Debug.h"
 
-#include "sstream.h"
+#include "sockstream.h"
 #include "util.h"
 
 #include "OverviewFmt.h"
