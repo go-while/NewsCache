@@ -299,23 +299,6 @@ void RServer::connect()
 			throw ResponseError(c, e, grt);
 		}
 
-		if (_CurrentServer->user[0]) {
-			sprintf(buf, "authinfo user %s\r\n",
-				_CurrentServer->user);
-			resp = issue(buf, NULL);
-			if (resp[0] == '3') {
-				sprintf(buf, "authinfo pass %s\r\n",
-					_CurrentServer->passwd);
-				resp = issue(buf, NULL);
-			}
-			if (resp[0] != '2') {
-				string c("_authenticate_"), e("[23]..");
-				delete _pServerStream;
-				_pServerStream = NULL;
-				throw ResponseError(c, e, resp);
-			}
-		}
-
 		if (_CurrentServer->nntpflags & MPListEntry::F_MODE_READER) {
 			// mode reader
 			resp = issue("mode reader\r\n", NULL);
@@ -334,6 +317,23 @@ void RServer::connect()
 		}
 		if (grt[2] == '1') {
 			_CurrentServer->nntpflags &= ~MPListEntry::F_POST;
+		}
+
+		if (_CurrentServer->user[0]) {
+			sprintf(buf, "authinfo user %s\r\n",
+				_CurrentServer->user);
+			resp = issue(buf, NULL);
+			if (resp[0] == '3') {
+				sprintf(buf, "authinfo pass %s\r\n",
+					_CurrentServer->passwd);
+				resp = issue(buf, NULL);
+			}
+			if (resp[0] != '2') {
+				string c("_authenticate_"), e("[23]..");
+				delete _pServerStream;
+				_pServerStream = NULL;
+				throw ResponseError(c, e, resp);
+			}
 		}
 
 		if (_CurrentServer->
@@ -551,6 +551,14 @@ void RServer::selectgroup(const char *name, int force)
 		_ActiveDB->get(name, &_CurrentGroup);
 		// If the above call fails, _ActiveDB will be updated with a
 		// probably inconsistent posting flag ('y')
+
+		if (mpe->limitgroupsize) {
+			if (lst - fst + 1 > mpe->limitgroupsize) {
+				fst = lst - mpe->limitgroupsize + 1;
+				nbr = mpe->limitgroupsize;
+			}
+		}
+
 		_CurrentGroup.set(name, fst, lst, nbr);
 		_ActiveDB->set(_CurrentGroup);
 	}
@@ -726,24 +734,31 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 	string resp, line;
 
 	selectgroup(gname);
-	resp = issue("listgroup\r\n", NULL);
-	p = resp.c_str();
-	if (!NNTP_ISCODE(p, "211")) {
-		string c("listgroup\r\n"), e("211");
-		throw ResponseError(c, e, resp);
-	}
+	if (_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP) {
+		resp = issue("listgroup\r\n", NULL);
+		p = resp.c_str();
+		if (!NNTP_ISCODE(p, "211")) {
+			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
+			string c("listgroup\r\n"), e("211");
+			throw ResponseError(c, e, resp);
+		}
 
-	for (;;) {
-		nlreadline(*_pServerStream, line);
-		if (line == ".\r\n")
-			break;
-		if (!_pServerStream->good())
-			throw
-			    SystemError("error while reading from server",
-					errno, ERROR_LOCATION);
-		i = atoi(line.data());
-		if (f <= i && i <= l)
+		for (;;) {
+			nlreadline(*_pServerStream, line);
+			if (line == ".\r\n")
+				break;
+			if (!_pServerStream->good())
+				throw
+					SystemError("error while reading from server",
+						    errno, ERROR_LOCATION);
+			i = atoi(line.data());
+			if (f <= i && i <= l)
+				lstgrp[i - f] = 1;
+		}
+	} else {
+		for (i = f; i <= l; i++) {
 			lstgrp[i - f] = 1;
+		}
 	}
 }
 
@@ -1010,7 +1025,8 @@ int RServer::post(Article * article)
 		article->setfield("X-NNTP-Posting-Host:", buf);
 	}
 
-	if (!article->has_field("message-id:")) {
+	if (!(_CurrentServer->flags & MPListEntry::F_DONTGENMSGID) &&
+	    !article->has_field("message-id:")) {
 		struct timeval tv;
 		int j;
 		char mid[768];
@@ -1069,7 +1085,7 @@ int RServer::post(Article * article)
 
 	if (!sc) {
 		slog.p(Logger::Info) << "no news server configured for "
-		    << msgid << "\n";
+		    << newsgroups << "\n";
 		free(mpe);
 		throw InvalidArticleError("no valid newsgroup",
 					  ERROR_LOCATION);

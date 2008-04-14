@@ -20,7 +20,8 @@ struct MPListEntry {
 		F_SETPOSTFLAG = 0x01,
 		F_CACHED = 0x02,
 		F_OFFLINE = 0x04,
-		F_SEMIOFFLINE = 0x08
+		F_SEMIOFFLINE = 0x08,
+		F_DONTGENMSGID = 0x10
 	};
 	// nntp commands supported by the server
 	enum {
@@ -47,6 +48,7 @@ struct MPListEntry {
 
 	unsigned int flags;	// configuration flags
 	unsigned int nntpflags;	// supported NNTP-Commands
+	unsigned int limitgroupsize; // limit the size of a group
 	int retries;
 
 	MPListEntry();
@@ -93,6 +95,7 @@ inline void MPListEntry::init(void)
 
 	read[0] = postTo[0] = bindFrom[0] = '\0';
 	groupTimeout = 600;	// 10m
+	limitgroupsize = 0;
 	retries = 3;
 
 	flags = F_SETPOSTFLAG | F_CACHED;

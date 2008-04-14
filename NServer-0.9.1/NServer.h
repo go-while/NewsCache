@@ -478,6 +478,14 @@ class RServer:virtual public NServer {
 	* \todo Synchronize Description and Code (Parameters).
 	*/
 	virtual void article(const char *id, Article * art);
+
+	inline unsigned int getserverflags() {
+		return _CurrentServer->flags;
+	}
+
+	inline unsigned int getnntpflags() {
+		return _CurrentServer->nntpflags;
+	}
 };
 
 /**

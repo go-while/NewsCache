@@ -105,6 +105,7 @@ void MPListEntry::printParameters (ostream *pOut)
 		}
 		*pOut << endl;
 	}
+	*pOut << "\t\tLimitGroupSize " << limitgroupsize << endl;
 	*pOut << "\t\tRetries " << retries << endl;
 	*pOut << "\t}" << endl;
 }
@@ -181,6 +182,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 		} else if (tok == "GroupTimeout") {
 			a1 = lex.getToken();
 			cur.groupTimeout = atoi(a1.c_str());
+		} else if (tok == "LimitGroupSize") {
+			a1 = lex.getToken();
+			cur.limitgroupsize = atoi(a1.c_str());
 		} else if (tok == "Retries") {
 			a1 = lex.getToken();
 			cur.retries = atoi(a1.c_str());
@@ -227,6 +231,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 				} else if (a1 == "semioffline") {
 					cur.flags |=
 					    MPListEntry::F_SEMIOFFLINE;
+				} else if(a1=="dontgenmsgid") {
+					cur.flags |=
+					    MPListEntry::F_DONTGENMSGID;
 				} else {
 					break;
 				}
