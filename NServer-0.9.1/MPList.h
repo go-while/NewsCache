@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <netdb.h>
 #include <sys/param.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 
 #include <iostream>

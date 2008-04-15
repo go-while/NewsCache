@@ -31,7 +31,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#ifdef HAVE_GETOPT_H
 #include <getopt.h>
+#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -1999,7 +2001,7 @@ void nnrpd(int fd)
 			slog.p(Logger::Notice) << clt.client_logname << " ClientTimeout reached\n";
 			goto client_exit;
 		}
-		if (Xsignal >= 0) {
+		if (Xsignal != -1) {
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
@@ -2260,7 +2262,7 @@ void nntpd()
 
 			errno = 0;
 			clt_fd = accept(sock, NULL, NULL);
-			if (Xsignal >= 0) {
+			if (Xsignal != -1) {
 				close(sock);
 				exit(0);
 			}
@@ -2487,6 +2489,7 @@ int main(int argc, char **argv)
 
 	cmnd = argv[0];
 	while (1) {
+#ifdef HAVE_GETOPT_H
 		int option_index = 0;
 		static struct option long_options[] = {
 			{"version", 0, 0, 'v'},
@@ -2502,6 +2505,9 @@ int main(int argc, char **argv)
 
 		c = getopt_long (argc, argv, "vfhc:idpo", long_options,
 				&option_index);
+#else
+		c = getopt (argc, argv, "vfhc:idpo");
+#endif
 		if (c == -1) 
 			break;
 

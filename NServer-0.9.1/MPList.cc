@@ -1,6 +1,8 @@
 #include "util.h"
 #include "MPList.h"
 
+#include <netinet/in.h>
+
 #include <algorithm>
 #include <iostream>
 #include <vector>
