@@ -6,7 +6,7 @@
 
 #include <iostream>
 
-class sstream
+class sockstream
   : public std::iostream
 {
   class sockstreambuf
@@ -60,20 +60,20 @@ class sstream
     sockstreambuf::alarm_indicator(var);
   }
 
-  inline sstream()
+  inline sockstream()
     : std::iostream(&_buf)
   {
     setstate(std::ios::badbit);
   }
 
-  inline sstream(const char *name, const char *service,
-		 const struct sockaddr *from = NULL, socklen_t fromlen = 0)
+  inline sockstream(const char *name, const char *service,
+                    const struct sockaddr *from = NULL, socklen_t fromlen = 0)
     : std::iostream(&_buf)
   {
     _buf.connect(name, service, from, fromlen);
   }
 
-  inline ~sstream()
+  inline ~sockstream()
   { }
 
   inline bool connected() const

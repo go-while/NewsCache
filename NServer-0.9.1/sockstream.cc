@@ -15,12 +15,13 @@
 #include "sockstream.h"
 
 
-sig_atomic_t *sstream::sockstreambuf::_alarm_indicator = NULL;
+sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
 
 
-void sstream::sockstreambuf::connect(const char *name, const char *service,
-				     const struct sockaddr *from,
-				     socklen_t fromlen, unsigned int timeout)
+void sockstream::sockstreambuf::connect(const char *name, const char *service,
+					const struct sockaddr *from,
+					socklen_t fromlen,
+					unsigned int timeout)
 {
   disconnect();
 
@@ -96,13 +97,13 @@ void sstream::sockstreambuf::connect(const char *name, const char *service,
   }
 }
 
-void sstream::sockstreambuf::attach(int fd)
+void sockstream::sockstreambuf::attach(int fd)
 {
   disconnect();
   _fd = fd;
 }
 
-void sstream::sockstreambuf::disconnect()
+void sockstream::sockstreambuf::disconnect()
 {
   if (connected())
   {
@@ -117,7 +118,7 @@ void sstream::sockstreambuf::disconnect()
   }
 }
 
-void sstream::sockstreambuf::setkeepalive(bool fl)
+void sockstream::sockstreambuf::setkeepalive(bool fl)
 {
   const int value = fl;
 
@@ -128,7 +129,7 @@ void sstream::sockstreambuf::setkeepalive(bool fl)
   }
 }
 
-void sstream::sockstreambuf::setnodelay(bool fl)
+void sockstream::sockstreambuf::setnodelay(bool fl)
 {
   const int value = fl;
   if (setsockopt(_fd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) < 0)
@@ -139,16 +140,24 @@ void sstream::sockstreambuf::setnodelay(bool fl)
 }
 
 
-int sstream::sockstreambuf::overflow(int c)
+int sockstream::sockstreambuf::overflow(int c)
 {
+  if (_fd < 0)
+  {
+    return traits_type::eof();
+  }
+
   if (c == traits_type::eof())
   {
-    return sync();
+    return sync() ? traits_type::eof() : 0;
   }
 
   if (pptr() == epptr())
   {
-    sync();
+    if (sync())
+    {
+      return traits_type::eof();
+    }
   }
 
   *pptr() = char(c);
@@ -157,7 +166,7 @@ int sstream::sockstreambuf::overflow(int c)
   return c;
 }
 
-int sstream::sockstreambuf::sync()
+int sockstream::sockstreambuf::sync()
 {
   size_t off = 0;
 
@@ -167,11 +176,12 @@ int sstream::sockstreambuf::sync()
     do
     {
       rc_send = ::send(_fd, pbase() + off, pptr() - pbase() - off, 0);
-    } while ((rc_send < 0) && (errno == EINTR));
+    } while ((rc_send < 0) && (errno == EINTR) &&
+	     (!_alarm_indicator || !*_alarm_indicator));
 
     if (rc_send < 0)
     {
-      return traits_type::eof();
+      return -1;
     }
 
     off += rc_send;
@@ -182,7 +192,7 @@ int sstream::sockstreambuf::sync()
   return 0;
 }
 
-int sstream::sockstreambuf::underflow()
+int sockstream::sockstreambuf::underflow()
 {
   if (gptr() < egptr())
   {
@@ -193,7 +203,8 @@ int sstream::sockstreambuf::underflow()
   do
   {
     rc_recv = ::recv(_fd, _gbuf, sizeof(_gbuf), 0);
-  } while ((rc_recv < 0) && (errno == EINTR));
+  } while ((rc_recv < 0) && (errno == EINTR) &&
+	   (!_alarm_indicator || !*_alarm_indicator));
 
   if (rc_recv > 0)
   {

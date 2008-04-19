@@ -1820,7 +1820,7 @@ void nnrpd(int fd)
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
 	int errc = 0;
-	sstream sock_stream;
+	sockstream sock_stream;
 	int nice;
 
 	/* set nice value for master server */
@@ -1993,10 +1993,12 @@ void nnrpd(int fd)
 	do {
 		flush(*clt.co);
 
+		alarmed = 0;
 		alarm (Cfg.ClientTimeout);
 		clt.ci->getline(req, sizeof(req), '\n');
 		alarm (0);
 		if (alarmed) {
+			alarmed = 0;
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service timed out!\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " ClientTimeout reached\n";
 			goto client_exit;
@@ -2592,7 +2594,7 @@ int main(int argc, char **argv)
 #endif
 
 	// signal handling
-	sstream::alarm_indicator(alarmed);
+	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
 	reReadConfig = false;
 

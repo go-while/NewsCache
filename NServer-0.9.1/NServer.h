@@ -238,7 +238,7 @@ class RServer:virtual public NServer {
 	MPListEntry *_CurrentServer;
 	GroupInfo _CurrentGroup;
 
-	sstream *_pServerStream;
+	sockstream *_pServerStream;
 
 	 RServer():NServer() {
 		_ServerList = NULL;
