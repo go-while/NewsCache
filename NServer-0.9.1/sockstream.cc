@@ -37,13 +37,13 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
   if (getaddrinfo(name, (service[0] == '#') ? service + 1 : service,
 		  &hints, &res))
   {
-    slog.p(Logger::Debug) << "Can't resolve " << name << "\n";
+    slog.p(Logger::Error) << "Can't resolve " << name << ' ' << service
+			  << "\n";
     return;
   }
 
   struct addrinfo *addr = res;
-  bool success = false;
-  while (!success && (addr != NULL))
+  while ((_fd < 0) && (addr != NULL))
   {
     _fd = ::socket(addr->ai_addr->sa_family, SOCK_STREAM, IPPROTO_TCP);
     if (_fd >= 0)
@@ -52,11 +52,12 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
       {
 	if (::bind(_fd, from, fromlen) < 0)
 	{
-	  slog.p(Logger::Debug) << "Unable to bind to outgoing address"
+	  slog.p(Logger::Error) << "Unable to bind to outgoing address"
 				<< "\n";
 
 	  while (::close(_fd) && (errno == EINTR))
 	  { }
+	  _fd = -1;
 	  freeaddrinfo(res);
 
 	  return;
@@ -78,18 +79,23 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 
       if (timeout && _alarm_indicator)
       {
-	if (*_alarm_indicator)
-	{
-	  slog.p(Logger::Debug) << "Connect timeout" << "\n";
-	}
-
-	*_alarm_indicator = 0;
 	alarm(0);
       }
 
-      success = (rc_connect == 0);
-      if (!success)
+      if (rc_connect)
       {
+	if (timeout && _alarm_indicator && *_alarm_indicator)
+	{
+	  *_alarm_indicator = 0;
+	  slog.p(Logger::Notice) << "Connection attempt to " << name
+				 << " timed out\n";
+	}
+	else
+	{
+	  slog.p(Logger::Notice) << "Connection attempt to " << name
+				 << " failed: " << strerror(errno) << "\n";
+	}
+      
 	while (::close(_fd) && (errno == EINTR))
 	{ }
 	_fd = -1;
@@ -97,6 +103,12 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
     }
 
     addr = addr->ai_next;
+  }
+
+  if (_fd < 0)
+  {
+    slog.p(Logger::Warning) << "Unable to connect to " << name << ' '
+			    << service << "\n";
   }
 
   freeaddrinfo(res);
