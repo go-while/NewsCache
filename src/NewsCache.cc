@@ -1868,13 +1868,57 @@ void nnrpd(int fd)
 				    clt.socklen,
 				    clt.client_name, sizeof(clt.client_name),
 				    NULL, 0, 0);
-			strcpy(nntp_posting_host, clt.client_name);
+
+			struct addrinfo hints;
+			memset(&hints, 0, sizeof(hints));
+			hints.ai_flags =
+			  (clt.sock.ss_family == AF_INET6) ? AI_V4MAPPED : 0;
+			hints.ai_family = clt.sock.ss_family;
+			hints.ai_socktype = SOCK_STREAM;
+			hints.ai_protocol = IPPROTO_TCP;
+
+			struct addrinfo *res = NULL;
+			getaddrinfo(clt.client_name, NULL, &hints, &res);
+
+			// have to verify the address we got from getnameinfo
+			bool found_addr = false;
+			struct addrinfo *addr = res;
+			while (addr != NULL) {
+				if (addr->ai_addr->sa_family == clt.sock.ss_family) {
+					if (addr->ai_addr->sa_family == AF_INET) {
+						if (((const struct sockaddr_in *) addr->ai_addr)->sin_addr.s_addr ==
+						    ((const struct sockaddr_in *) &clt.sock)->sin_addr.s_addr) {
+							found_addr = true;
+							break;
+						}
+					} else if (addr->ai_addr->sa_family == AF_INET6) {
+						if (!memcmp(((const struct sockaddr_in6 *) addr->ai_addr)->sin6_addr.s6_addr,
+							    ((const struct sockaddr_in6 *) &clt.sock)->sin6_addr.s6_addr,
+							    16)) {
+							found_addr = true;
+							break;
+						}
+					}
+				}
+
+				addr = addr->ai_next;
+			}
+			freeaddrinfo(res);
+
+			if (!found_addr) {
+				clt.client_name[0] = '\0';
+			}
 
 			clt.client_addr[0] = '\0';
 			getnameinfo((const struct sockaddr *) &clt.sock,
 				    clt.socklen,
 				    clt.client_addr, sizeof(clt.client_addr),
 				    NULL, 0, NI_NUMERICHOST);
+
+			if (clt.client_name[0] == '\0') {
+				strcpy(clt.client_name, clt.client_addr);
+			}
+			strcpy(nntp_posting_host, clt.client_name);
 
 			// add the client's name to its logging name (clt.client_logname),
 			// if names should be logged
@@ -2238,6 +2282,7 @@ void nntpd()
 
 		addr = addr->ai_next;
 	}			/* end create socket and set some socket options */
+	freeaddrinfo(res);
 
 	{			/* store pid in Cfg.PidFile */
 		ofstream pid(Cfg.PidFile);

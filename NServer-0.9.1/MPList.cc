@@ -174,6 +174,7 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 			}
 
 			memcpy(&cur.bindFrom, res->ai_addr, res->ai_addrlen);
+			freeaddrinfo(res);
 		} else if (tok == "PostTo") {
 			a1 = lex.getToken();
 			cur.postTo = a1;

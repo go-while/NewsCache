@@ -28,13 +28,14 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
   struct addrinfo hints;
 
   memset(&hints, 0, sizeof(hints));
-  hints.ai_flags = AI_ADDRCONFIG;
+  hints.ai_flags = AI_ADDRCONFIG | ((service[0] == '#') ? AI_NUMERICSERV : 0);
   hints.ai_family = (from != NULL) ? from->sa_family : AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_protocol = IPPROTO_TCP;
 
   struct addrinfo *res;
-  if (getaddrinfo(name, service, &hints, &res))
+  if (getaddrinfo(name, (service[0] == '#') ? service + 1 : service,
+		  &hints, &res))
   {
     slog.p(Logger::Debug) << "Can't resolve " << name << "\n";
     return;
@@ -56,6 +57,8 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 
 	  while (::close(_fd) && (errno == EINTR))
 	  { }
+	  freeaddrinfo(res);
+
 	  return;
 	}
       }
@@ -95,6 +98,8 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 
     addr = addr->ai_next;
   }
+
+  freeaddrinfo(res);
 }
 
 void sockstream::sockstreambuf::attach(int fd)
