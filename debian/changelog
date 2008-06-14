@@ -1,3 +1,10 @@
+newscache (1.2rc6-1cmeerw.3) unstable; urgency=low
+
+  * IPv6 support
+  * new ConnectTimeout, ConnectBackoff and LimitGroupSize options
+
+ -- Christof Meerwald <cmeerw@web.de>  Sat, 14 Jun 2008 21:33:39 +0100
+
 newscache (1.2rc6-1cmeerw.2) unstable; urgency=low
 
   * Issue "mode reader" command before authentication
