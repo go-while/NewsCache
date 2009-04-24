@@ -28,7 +28,7 @@ class sockstream
       : _fd(-1)
     {
       setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
-      setp(_pbuf, _pbuf + sizeof(_gbuf));
+      setp(_pbuf, _pbuf + sizeof(_pbuf));
     }
 
     ~sockstreambuf()
