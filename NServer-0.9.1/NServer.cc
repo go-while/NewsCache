@@ -246,7 +246,7 @@ void RServer::connect()
 	string grt, resp;
 	char buf[1024];
 	unsigned int i = _CurrentServer->retries;
-	_pServerStream = new sockstream;
+	_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
 
 	for (;;) {
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
