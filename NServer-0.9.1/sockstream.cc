@@ -16,6 +16,7 @@
 
 
 namespace {
+#if defined(HAVE_GNUTLS)
 struct Gnutls_Initer
 {
   Gnutls_Initer()
@@ -28,6 +29,7 @@ struct Gnutls_Initer
     gnutls_global_deinit();
   }
 } gnutls_initer;
+#endif
 }
 
 
@@ -251,6 +253,7 @@ int sockstream::sockstreambuf::underflow()
 }
 
 
+#if defined(HAVE_GNUTLS)
 sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf)
   : _buf(buf), _connected(false)
 {
@@ -417,3 +420,4 @@ int sockstream::sslstreambuf::underflow()
     return traits_type::eof();
   }
 }
+#endif

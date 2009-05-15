@@ -4,7 +4,9 @@
 #include <signal.h>
 #include <sys/socket.h>
 
+#if defined(HAVE_GNUTLS)
 #include <gnutls/gnutls.h>
+#endif
 
 #include <iostream>
 
@@ -17,6 +19,7 @@ class sockstream
   class sslstreambuf
     : public std::streambuf
   {
+#if defined(HAVE_GNUTLS)
     sockstreambuf &_buf;
     bool _connected;
 
@@ -29,16 +32,26 @@ class sockstream
 
     ~sslstreambuf();
 
+    virtual int overflow(int c = traits_type::eof());
+    virtual int sync();
+
+    virtual int underflow();
+
     inline bool connected() const
     { return _connected; }
 
     void connect();
     void disconnect();
+#else
+   public:
+    inline bool connected() const
+    { return false; }
 
-    virtual int overflow(int c = traits_type::eof());
-    virtual int sync();
-
-    virtual int underflow();
+    inline void connect()
+    { }
+    inline void disconnect()
+    { }
+#endif
   };
 
   sslstreambuf * const _ssl;
@@ -100,17 +113,22 @@ class sockstream
   }
 
   inline explicit sockstream(const bool ssl = false)
+#if defined(HAVE_GNUTLS)
     : std::iostream(ssl ?
 		    static_cast<std::streambuf *>(new sslstreambuf(_buf)) :
 		    static_cast<std::streambuf *>(&_buf)),
       _ssl(ssl ? static_cast<sslstreambuf *>(rdbuf()) : NULL)
+#else
+    : std::iostream(static_cast<std::streambuf *>(&_buf)),
+      _ssl(NULL)
+#endif
   {
     setstate(std::ios::badbit);
   }
 
   inline sockstream(const char *name, const char *service,
                     const struct sockaddr *from = NULL, socklen_t fromlen = 0)
-    : _ssl(NULL), std::iostream(&_buf)
+    : std::iostream(&_buf), _ssl(NULL)
   {
     _buf.connect(name, service, from, fromlen);
   }
