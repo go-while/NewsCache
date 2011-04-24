@@ -54,7 +54,7 @@ clean:
 
 	rm -fR autom4te.cache
 	rm -f config.guess config.log config.status config.sub \
-		etc/NewsCache.init etc/newscache.init
+		etc/NewsCache.init etc/newscache.init stamp-h1
 
 	find . -name "Makefile" -print0 | \
 		xargs -0 --no-run-if-empty rm -f
