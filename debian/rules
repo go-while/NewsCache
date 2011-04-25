@@ -24,7 +24,7 @@ configure: configure-stamp
 configure-stamp:
 	dh_testdir
 
-	chmod a+X configure depcomp install-sh missing
+	chmod a+rx configure depcomp install-sh missing
 	./configure --prefix=/usr --infodir=/usr/share/info \
 		--mandir=/user/share/man --sysconfdir=/etc --with-pam \
 		--with-gnutls
