@@ -23,9 +23,8 @@ class sockstream
     sockstreambuf &_buf;
     bool _connected;
 
-    gnutls_session _session;
-    gnutls_anon_client_credentials _anon_cred;
-    gnutls_certificate_credentials _cert_cred;
+    gnutls_session_t _session;
+    gnutls_certificate_credentials_t _cert_cred;
 
    public:
     explicit sslstreambuf(sockstreambuf &buf);

@@ -263,61 +263,19 @@ sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf)
 
   gnutls_init(&_session, GNUTLS_CLIENT);
 
-  if (gnutls_anon_allocate_client_credentials(&_anon_cred) < 0)
-  {
-    gnutls_deinit(_session);
-  }
+  gnutls_set_default_priority(_session);
 
   if (gnutls_certificate_allocate_credentials(&_cert_cred) < 0)
   {
-    gnutls_anon_free_client_credentials(_anon_cred);
     gnutls_deinit(_session);
   }
-
-  // set up SSL/TLS parameters
-  static const int cipher_priority[] = {
-    GNUTLS_CIPHER_AES_128_CBC,
-    GNUTLS_CIPHER_AES_256_CBC,
-    GNUTLS_CIPHER_ARCFOUR_128,
-    GNUTLS_CIPHER_3DES_CBC,
-    0 
-  };
-  gnutls_cipher_set_priority(_session, cipher_priority);
-
-  static const int compression_priority[] = {
-    GNUTLS_COMP_ZLIB,
-    GNUTLS_COMP_NULL,
-    0
-  };
-  gnutls_compression_set_priority(_session, compression_priority);
-
-  static const int kx_priority[] = {
-    GNUTLS_KX_RSA, GNUTLS_KX_DHE_DSS,
-    GNUTLS_KX_DHE_RSA, GNUTLS_KX_SRP,
-    GNUTLS_KX_ANON_DH, GNUTLS_KX_RSA_EXPORT,
-    0
-  };
-  gnutls_kx_set_priority(_session, kx_priority);
-
-  static const int protocol_priority[] = {
-    GNUTLS_TLS1, GNUTLS_SSL3, 0
-  };
-  gnutls_protocol_set_priority(_session, protocol_priority);
-
-
-  static const int mac_priority[] = {
-    GNUTLS_MAC_MD5, GNUTLS_MAC_SHA, 0
-  };
-  gnutls_mac_set_priority(_session, mac_priority);
-
-  static const int cert_type_priority[] = {
-    GNUTLS_CRT_X509,
-    GNUTLS_CRT_OPENPGP, 0
-  };
-  gnutls_certificate_type_set_priority(_session, cert_type_priority);
-
-  gnutls_credentials_set(_session, GNUTLS_CRD_ANON, _anon_cred);
-  gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE, _cert_cred);
+  else
+  {
+    gnutls_certificate_set_x509_trust_file(_cert_cred,
+					   "/etc/ssl/certs/ca-certificates.crt",
+					   GNUTLS_X509_FMT_PEM);
+    gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE, _cert_cred);
+  }
 }
 
 sockstream::sslstreambuf::~sslstreambuf()
@@ -325,8 +283,6 @@ sockstream::sslstreambuf::~sslstreambuf()
   disconnect();
 
   gnutls_deinit(_session);
-
-  gnutls_anon_free_client_credentials(_anon_cred);
   gnutls_certificate_free_credentials(_cert_cred);
 }
 
@@ -334,7 +290,7 @@ sockstream::sslstreambuf::~sslstreambuf()
 void sockstream::sslstreambuf::connect()
 {
   gnutls_transport_set_ptr(_session,
-			   reinterpret_cast<gnutls_transport_ptr>(_buf.fd()));
+			   reinterpret_cast<gnutls_transport_ptr_t>(_buf.fd()));
 
   int rc_connect = GNUTLS_E_AGAIN;
   while (rc_connect == GNUTLS_E_AGAIN)
