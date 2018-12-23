@@ -19,7 +19,7 @@ int nlreadline(std::istream & is, std::string & strg, int keepnl = 1);
  * \param eot EndOfText Marker. (Default=".\\r\\n").
  */
 int readtext(std::istream & is, std::string & strg, int keepnl = 1,
-		char *eot = ".\r\n"
+		const char *eot = ".\r\n"
     );
 
 #endif

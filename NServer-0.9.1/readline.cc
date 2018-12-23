@@ -40,7 +40,7 @@ int nlreadline(istream & is,	// Input-Stream
 int readtext(istream & is,	// Input-Stream
 	     string & strg,	// String to store line
 	     int keepnl,	// Keep newlines in text
-	     char *eot		// EndOfText Marker
+	     const char *eot // EndOfText Marker
     )
 {
 	int lines = 0;
