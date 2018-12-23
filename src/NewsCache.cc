@@ -61,7 +61,7 @@ const char * const ConfigurationOptions[] = {
 	"--with-shadow",
 #endif
 #ifdef PAM_AUTH
-	"--with-pam="PAM_DEFAULT_SERVICENAME,
+	"--with-pam=" PAM_DEFAULT_SERVICENAME,
 #endif
 #ifdef WITH_SYSLOG
 	"--with-syslog",
