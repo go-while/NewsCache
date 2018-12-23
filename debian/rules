@@ -70,10 +70,10 @@ install: build
 	dh_installdirs
 
 	# Add here commands to install the package into debian/newscache.
-	$(MAKE) prefix="$(CURDIR)/debian/tmp/usr" \
-		infodir="$(CURDIR)/debian/tmp/usr/share/info" \
-		mandir="$(CURDIR)/debian/tmp/usr/share/man" \
-		sysconfdir="$(CURDIR)/debian/tmp/etc" \
+	$(MAKE) prefix="$(CURDIR)/debian/newscache/usr" \
+		infodir="$(CURDIR)/debian/newscache/usr/share/info" \
+		mandir="$(CURDIR)/debian/newscache/usr/share/man" \
+		sysconfdir="$(CURDIR)/debian/newscache/etc" \
 		install
 
 	# Now correcting Names
@@ -100,9 +100,9 @@ binary-arch: build install
 #	dh_installpam
 #	dh_installmime
 	dh_installinit
-	dh_installcron
-	dh_installinfo
-	dh_installman
+#	dh_installcron
+#	dh_installinfo
+#	dh_installman
 	dh_link
 	dh_strip
 	dh_compress
