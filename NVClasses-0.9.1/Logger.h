@@ -82,10 +82,10 @@ class Logger {
 
 #ifdef WITH_SYSLOG
 	Logger();
-	void open(char *ident, int option, int facility);
+	void open(const char *ident, int option, int facility);
 #else
-	Logger(char *fn = NULL, int option = 0);
-	void open(char *fn);
+	Logger(const char *fn = NULL, int option = 0);
+	void open(const char *fn);
 #endif
 	~Logger();
 

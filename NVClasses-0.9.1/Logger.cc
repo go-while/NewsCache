@@ -84,7 +84,7 @@ Logger::Logger()
 	_priority = Debug;
 }
 
-void Logger::open(char *ident, int option, int facility)
+void Logger::open(const char *ident, int option, int facility)
 {
 	openlog(ident, option, facility);
 }
@@ -101,7 +101,7 @@ void Logger::close()
 }
 
 #else
-Logger::Logger(char *fn, int option)
+Logger::Logger(const char *fn, int option)
 {
 	buf = NULL;
 	bufsz = 0;
@@ -120,7 +120,7 @@ Logger::~Logger()
 	free(buf);
 }
 
-void Logger::open(char *fn)
+void Logger::open(const char *fn)
 {
 	if (fn) {
 		log.open(fn, ios::app);

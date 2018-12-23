@@ -142,7 +142,7 @@ public:
   ~Exc() {}
 };
 void t() { throw Exc(); }
-main() {
+int main() {
   try {
     t();
   }
