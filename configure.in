@@ -288,10 +288,10 @@ then
     AC_CHECK_LIB(gnutls, gnutls_global_init, [
 		AC_CHECK_HEADERS(gnutls/gnutls.h, [
 			AC_DEFINE(HAVE_GNUTLS,, Build with GNUTLS support)
-			LIBS="$LIBS -lgnutls -lgcrypt"
+			LIBS="$LIBS -lgnutls"
 			have_gnutls=yes
 		])
-	],, -lgcrypt)
+	],,)
 fi
 
 dnl ****************************************************************

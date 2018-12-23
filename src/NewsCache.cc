@@ -2539,7 +2539,7 @@ void catchsignal(int num)
 "       -p --print-parameter\n"\
 "              Print current parameter settings.\n"\
 "\n"\
-"       -o --configurtion-options\n"\
+"       -o --configuration-options\n"\
 "              Print all options specified in the configure phase.\n"
 
 int main(int argc, char **argv)
