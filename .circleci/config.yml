@@ -1,0 +1,41 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/buildpack-deps:16.04
+
+    working_directory: ~/newscache
+
+    steps:
+      - checkout
+
+      - run:
+          name: install packages
+          working_directory: ~
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y apt-build build-essential debhelper dpkg-dev fakeroot
+            sudo apt-get install -y libgnutls-dev libpam0g-dev texinfo
+
+      - run:
+          name: build
+          command: |
+            cd ~/newscache
+            rm -rf ~/newscache/.git
+            VERSION=`dpkg-parsechangelog | grep '^Version: ' | cut -d" " -f2`
+            VERSION=${VERSION%%-*}
+            mv ~/newscache ~/newscache-$VERSION
+            ln -sf newscache-$VERSION ~/newscache
+            cd ~/newscache-$VERSION
+            dpkg-buildpackage -rfakeroot -us -uc
+
+      - run:
+          name: prepare artifacts
+          command: |
+            mkdir -p ~/artifacts
+            find ~ -maxdepth 1 -type f -name "newscache*" -print0 | xargs -0 mv -t ~/artifacts
+            ls -lF ~/artifacts/
+
+      - store_artifacts:
+          path: ~/artifacts
+          destination: newscache
