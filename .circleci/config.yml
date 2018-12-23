@@ -15,7 +15,7 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y apt-build build-essential debhelper dpkg-dev fakeroot
-            sudo apt-get install -y libgnutls-dev libpam0g-dev texinfo
+            sudo apt-get install -y automake autoconf libgnutls-dev libpam0g-dev texinfo
 
       - run:
           name: build
@@ -27,6 +27,7 @@ jobs:
             mv ~/newscache ~/newscache-$VERSION
             ln -sf newscache-$VERSION ~/newscache
             cd ~/newscache-$VERSION
+            ./autogen
             dpkg-buildpackage -rfakeroot -us -uc
 
       - run:
