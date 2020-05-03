@@ -17,7 +17,7 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y apt-build build-essential debhelper dpkg-dev fakeroot
-            sudo apt-get install -y automake autoconf libgnutls-dev libpam0g-dev texinfo
+            sudo apt-get install -y automake autoconf libgnutls28-dev libpam0g-dev texinfo
 
       - run:
           name: build
