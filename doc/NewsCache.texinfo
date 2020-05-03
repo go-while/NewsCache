@@ -650,7 +650,7 @@ NewsServerList @{
 @end example
 
 The first Server definition indicates your primary news server. The news
-server at Technische Universit‰t Wien. The GroupTimeout directive is
+server at Technische Universit√§t Wien. The GroupTimeout directive is
 ignored in offline and semioffline mode.
 
 The secondary news server is @code{news.wu-wien.ac.at}. However, from
