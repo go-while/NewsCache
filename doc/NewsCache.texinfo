@@ -154,7 +154,7 @@ The following news readers have been reported to work in combination
 with NewsCache: gnus, knews, MS Internet Mail and News, MS Outlook
 Express, netscape, pine, slrn, tin, xrn.
 
-MS Internet Explorer für Windows 3.1, Version 3.01.2723 should work
+MS Internet Explorer for Windows 3.1, Version 3.01.2723 should work
 starting from NewsCache Version 0.99.12. However, this version of
 Internet Explorer retrieves articles by their article id and this
 version of NewsCache does not cache articles retrieved by their article
