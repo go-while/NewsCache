@@ -252,6 +252,7 @@ void RServer::connect()
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
+		_CurrentServer->connectFailed = time(NULL);
 
 		const struct sockaddr *bindFrom =
 		  (_CurrentServer->bindFrom.ss_family == AF_UNSPEC) ?
@@ -265,7 +266,6 @@ void RServer::connect()
 		if (!_pServerStream->good()) {
 			delete _pServerStream;
 			_pServerStream = NULL;
-			_CurrentServer->connectFailed = time(NULL);
 			throw
 			    SystemError
 			    ("RServer::connect: cannot connect to news server",
@@ -291,7 +291,6 @@ void RServer::connect()
 			string c("_connect_"), e("20[01]");
 			delete _pServerStream;
 			_pServerStream = NULL;
-			_CurrentServer->connectFailed = time(NULL);
 			throw ResponseError(c, e, grt);
 		}
 
@@ -347,7 +346,6 @@ void RServer::connect()
 				string c("_authenticate_"), e("[23]..");
 				delete _pServerStream;
 				_pServerStream = NULL;
-				_CurrentServer->connectFailed = time(NULL);
 				throw ResponseError(c, e, resp);
 			}
 		}
