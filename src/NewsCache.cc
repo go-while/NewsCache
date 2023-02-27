@@ -216,7 +216,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	,
 	{"quit", "", ns_quit}
 	,
-	{"xdebug", "xdebug help", ns_xdebug}
+	{"xdebug", "help", ns_xdebug}
 	,
 	{"xhdr", "header [range]", ns_xover}
 	,
