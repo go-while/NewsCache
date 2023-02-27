@@ -24,7 +24,6 @@ class sockstream
     bool _connected;
 
     gnutls_session_t _session;
-    gnutls_certificate_credentials_t _cert_cred;
 
    public:
     explicit sslstreambuf(sockstreambuf &buf);
@@ -156,8 +155,7 @@ class sockstream
   {
     _buf.connect(name, service, from, fromlen, timeout);
     if (_ssl && _buf.connected()) _ssl->connect();
-    clear((_ssl ? _ssl->connected() : _buf.connected()) ?
-	  std::ios::goodbit : std::ios::badbit);
+    clear(connected() ? std::ios::goodbit : std::ios::badbit);
   }
 
   inline void connect(const char *name, const char *service,
@@ -165,8 +163,7 @@ class sockstream
   {
     _buf.connect(name, service, NULL, 0, timeout);
     if (_ssl && _buf.connected()) _ssl->connect();
-    clear((_ssl ? _ssl->connected() : _buf.connected()) ?
-	  std::ios::goodbit : std::ios::badbit);
+    clear(connected() ? std::ios::goodbit : std::ios::badbit);
   }
 
   inline void attach(int fd)

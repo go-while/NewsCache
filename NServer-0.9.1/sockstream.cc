@@ -17,18 +17,33 @@
 
 namespace {
 #if defined(HAVE_GNUTLS)
-struct Gnutls_Initer
-{
-  Gnutls_Initer()
+  struct Gnutls_Initer
   {
-    gnutls_global_init();
-  }
+    Gnutls_Initer()
+    {
+      gnutls_global_init();
+    }
 
-  ~Gnutls_Initer()
+    ~Gnutls_Initer()
+    {
+      gnutls_global_deinit();
+    }
+  } gnutls_initer;
+
+  gnutls_certificate_credentials_t &get_x509_client_cred()
   {
-    gnutls_global_deinit();
+    static gnutls_certificate_credentials_t x509_cred;
+    static bool initialized = [] () {
+      gnutls_certificate_allocate_credentials(&x509_cred);
+
+      gnutls_certificate_set_x509_trust_file(x509_cred,
+	  "/etc/ssl/certs/ca-certificates.crt",
+	  GNUTLS_X509_FMT_PEM);
+      return true;
+    } ();
+
+    return x509_cred;
   }
-} gnutls_initer;
 #endif
 }
 
@@ -113,7 +128,7 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 	  slog.p(Logger::Notice) << "Connection attempt to " << name
 				 << " failed: " << strerror(errno) << "\n";
 	}
-      
+
 	while (::close(_fd) && (errno == EINTR))
 	{ }
 	_fd = -1;
@@ -264,18 +279,8 @@ sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf)
   gnutls_init(&_session, GNUTLS_CLIENT);
 
   gnutls_set_default_priority(_session);
-
-  if (gnutls_certificate_allocate_credentials(&_cert_cred) < 0)
-  {
-    gnutls_deinit(_session);
-  }
-  else
-  {
-    gnutls_certificate_set_x509_trust_file(_cert_cred,
-					   "/etc/ssl/certs/ca-certificates.crt",
-					   GNUTLS_X509_FMT_PEM);
-    gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE, _cert_cred);
-  }
+  gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE,
+			 get_x509_client_cred());
 }
 
 sockstream::sslstreambuf::~sslstreambuf()
@@ -283,7 +288,6 @@ sockstream::sslstreambuf::~sslstreambuf()
   disconnect();
 
   gnutls_deinit(_session);
-  gnutls_certificate_free_credentials(_cert_cred);
 }
 
 
@@ -343,8 +347,11 @@ int sockstream::sslstreambuf::sync()
 
   while ((pbase() + off) != pptr())
   {
-    const int rc_write =
-      gnutls_write(_session, pbase() + off, pptr() - pbase() - off);
+    int rc_write;
+    do
+    {
+      rc_write = gnutls_write(_session, pbase() + off, pptr() - pbase() - off);
+    } while (rc_write == GNUTLS_E_AGAIN);
     if (rc_write < 0)
     {
       return -1;
@@ -365,7 +372,11 @@ int sockstream::sslstreambuf::underflow()
     return *gptr();
   }
 
-  const int rc_read = gnutls_read(_session, _buf._gbuf, sizeof(_buf._gbuf));
+  int rc_read;
+  do
+  {
+    rc_read = gnutls_read(_session, _buf._gbuf, sizeof(_buf._gbuf));
+  } while (rc_read == GNUTLS_E_AGAIN);
   if (rc_read > 0)
   {
     setg(_buf._gbuf, _buf._gbuf, _buf._gbuf + rc_read);
