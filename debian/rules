@@ -34,7 +34,7 @@ configure-stamp:
 
 build: build-stamp
 
-build-stamp: configure-stamp 
+build-stamp: configure-stamp
 	dh_testdir
 
 	$(MAKE)
@@ -53,20 +53,20 @@ clean:
 	fi
 
 	rm -fR autom4te.cache
-	rm -f config.guess config.log config.status config.sub \
-		etc/NewsCache.init etc/newscache.init stamp-h1
+	rm -f config.log config.sub etc/NewsCache.init etc/newscache.init \
+		stamp-h1
 
 	find . -name "Makefile" -print0 | \
 		xargs -0 --no-run-if-empty rm -f
 	find . -name ".deps" -print0 | \
 		xargs -0 --no-run-if-empty rm -rf
 
-	dh_clean 
+	dh_clean
 
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k 
+	dh_clean -k
 	dh_installdirs
 
 	# Add here commands to install the package into debian/newscache.
@@ -94,7 +94,7 @@ binary-arch: build install
 		"$(CURDIR)/etc/newscache.init"
 #	dh_install
 #	dh_installmenu
-#	dh_installdebconf	
+#	dh_installdebconf
 #	dh_installlogrotate
 #	dh_installemacsen
 #	dh_installpam
