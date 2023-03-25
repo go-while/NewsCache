@@ -53,7 +53,7 @@ clean:
 	fi
 
 	rm -fR autom4te.cache
-	rm -f config.log config.sub etc/NewsCache.init etc/newscache.init \
+	rm -f config.log config.status etc/NewsCache.init etc/newscache.init \
 		stamp-h1
 
 	find . -name "Makefile" -print0 | \
