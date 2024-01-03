@@ -5,8 +5,6 @@ After=remote-fs.target network.target
 [Service]
 EnvironmentFile=-/etc/default/newscache
 StateDirectory=newscache
-User=newscache
-Group=newscache
 ExecStart=/usr/sbin/newscache -n
 IgnoreSIGPIPE=false
 KillMode=process

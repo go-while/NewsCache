@@ -2539,6 +2539,9 @@ void catchsignal(int num)
 "       -p --print-parameter\n"\
 "              Print current parameter settings.\n"\
 "\n"\
+"       -n --no-fork\n"\
+"              Do not fork.\n"\
+"\n"\
 "       -o --configuration-options\n"\
 "              Print all options specified in the configure phase.\n"
 
