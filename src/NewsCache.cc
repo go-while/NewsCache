@@ -1,4 +1,4 @@
-/* NewsCache.cc 
+/* NewsCache.cc
  * -- (c) 1996-1998 by Thomas GSCHWIND <tom@infosys.tuwien.ac.at>
  * -- implements the cache server in combination with the NServer library
  *
@@ -241,7 +241,7 @@ class NNRPCommandMap:public map < string, nnrp_command_t * > {
 	  */
 	 NNRPCommandMap();
 
-	 /* 
+	 /*
 	  * Enable all commands.
 	  */
 	 void enableAll (void);
@@ -258,7 +258,7 @@ class NNRPCommandMap:public map < string, nnrp_command_t * > {
 	  */
 	 void disablePost (void);
 
-	 /* 
+	 /*
 	  * Disable Debug command.
 	  * \author Herbert Straub
 	  */
@@ -361,7 +361,7 @@ class ClientData {
 	int stat_groups;
 	int stat_artingrp;
 	int stat_articles;
-	
+
 	NNRPCommandMap client_command_map;
 
 	ClientData()
@@ -384,9 +384,9 @@ int pam_conv_func(int num_msg, const struct pam_message **msg, struct pam_respon
   int i;
   struct pam_response *resp_array = (struct pam_response*) calloc(num_msg, sizeof(struct pam_response));
   class ClientData *clnt = (ClientData *) appdata_ptr;
-  
+
   slog.p(Logger::Debug) << "in pam_conf_func\n";
-  if(resp_array == NULL) { 
+  if(resp_array == NULL) {
     return PAM_CONV_ERR; /* Out of memory */
   }
   for(i=0; i<num_msg; i++) {
@@ -554,7 +554,7 @@ int check_auth_file (ClientData *clt)
 	if (passf)
 		return -1;
 
-	// Now we build a authentication string like the 
+	// Now we build a authentication string like the
 	// unix:::: authentication string and set authentication
 	// Herbert Straub
 	access_entry->authentication.set (type+authfile);
@@ -576,7 +576,7 @@ int check_auth_file (ClientData *clt)
 		<< access_entry->list.getRulelist() << ":"
 		<< access_entry->read.getRulelist() << ":"
 		<< access_entry->postTo.getRulelist() << "\n";
-	
+
 	return 0;
 }
 
@@ -591,16 +591,16 @@ int check_pam_user_pass (ClientData *clt)
 	retval =
 	    pam_start(clt->access_entry->PAMServicename.c_str(), clt->auth_user,
 		      &(clt->conv), &(clt->pamh));
-	slog.p(Logger::Debug) << "check_pam_user_pass: pam_start returns " 
+	slog.p(Logger::Debug) << "check_pam_user_pass: pam_start returns "
 		<< retval << "\n";
 	if (retval == PAM_SUCCESS) {
 		retval = pam_authenticate(clt->pamh, 0);	/* is user really user? */
-		slog.p(Logger::Debug) << "check_pam_user_pass: pam_authenticate returns " 
+		slog.p(Logger::Debug) << "check_pam_user_pass: pam_authenticate returns "
 			<< retval << "\n";
 	}
 	if (retval == PAM_SUCCESS) {
 		retval = pam_acct_mgmt(clt->pamh, 0);	/* permitted access? */
-		slog.p(Logger::Debug) << "check_pam_user_pass: pam_acct_mgmt returns " 
+		slog.p(Logger::Debug) << "check_pam_user_pass: pam_acct_mgmt returns "
 			<< retval << "\n";
 	}
 	if (retval != PAM_SUCCESS) {
@@ -643,7 +643,7 @@ int check_auth_pam_file (ClientData *clt)
 	for (authc=1; authv[authc]; authc++) {
 		userAuth.appendField (authv[authc]);
 	}
-	
+
 	/* apply rights of user '*' to everyone :) */
 	authv = seekfile(authfile.c_str(), "*");
 	if (authv != NULL) {
@@ -700,7 +700,7 @@ int check_auth_pam_file (ClientData *clt)
 		<< access_entry->list.getRulelist() << ":"
 		<< access_entry->read.getRulelist() << ":"
 		<< access_entry->postTo.getRulelist() << "\n";
-	
+
 	return 0;
 }
 
@@ -944,7 +944,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 
 		ASSERT2(clt->grp->testdb());
 		Article *a;
-		
+
 		if ((a = clt->grp->getarticle(nbr)) == NULL) {
 			(*clt->
 			 co) <<
@@ -1470,7 +1470,7 @@ int ns_mode(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
-/* 
+/*
  * NEWGROUPS date time [GMT|UTC] [<distributions>]
  */
 #define DD2INT(x) ((x)[0]-'0')*10+((x)[1]-'0')
@@ -2143,9 +2143,9 @@ void nnrpd(int fd)
 			if (errc < 0) {
 				if (strncasecmp(oreq, "authinfo", 8))
 					slog.p(Logger::Notice) << clt.
-				    		client_logname << " failed " << oreq <<
-				    		"\n";
-				else 
+							client_logname << " failed " << oreq <<
+							"\n";
+				else
 					slog.p(Logger::Notice) << clt.
 						client_logname << " failed authinfo for user  " <<
 						clt.auth_user << "\n";
@@ -2550,7 +2550,7 @@ int main(int argc, char **argv)
 	pid_t p;
 #endif
 	int opt_config = 0, opt_inetd = 0, opt_debug = 0, opt_print_para = 0;
-	int opt_config_options = 0;
+	int opt_nofork = 0, opt_config_options = 0;
 	int aerr = 0, c;
 
 	sprintf(config_file, "%s/newscache.conf", SYSCONFDIR);
@@ -2566,17 +2566,18 @@ int main(int argc, char **argv)
 			{"configuration", 1, 0, 'c'},
 			{"inetd", 0, 0, 'i'},
 			{"debug", 0, 0, 'd'},
+			{"no-fork", 0, 0, 'n'},
 			{"print-parameter", 0, 0, 'p'},
 			{"configuration-options", 0, 0, 'o'},
 			{0, 0, 0, 0}
 		};
 
-		c = getopt_long (argc, argv, "vfhc:idpo", long_options,
+		c = getopt_long (argc, argv, "vfhc:idnpo", long_options,
 				&option_index);
 #else
-		c = getopt (argc, argv, "vfhc:idpo");
+		c = getopt (argc, argv, "vfhc:idnpo");
 #endif
-		if (c == -1) 
+		if (c == -1)
 			break;
 
 		switch (c) {
@@ -2584,18 +2585,18 @@ int main(int argc, char **argv)
 				cout << PACKAGE << " " VERSION << endl;
 				exit (0);
 				break;
-			
+
 			case 'f':
 				cout << getfqdn () << endl;
 				exit (0);
 				break;
-			
+
 			case 'h':
 				cout << "Usage: " << cmnd << " [options]\n"
 					<< USAGE;
 				exit (0);
 				break;
-			
+
 			case 'c':
 				strcpy (config_file, optarg);
 				++opt_config;
@@ -2608,12 +2609,19 @@ int main(int argc, char **argv)
 			case 'd':
 				++opt_debug;
 				break;
+
 			case 'p':
 				++opt_print_para;
 				break;
+
 			case 'o':
 				++opt_config_options;
 				break;
+
+			case 'n':
+				++opt_nofork;
+				break;
+
 			default:
 				aerr = 1;
 				break;
@@ -2714,7 +2722,7 @@ int main(int argc, char **argv)
 			setugid(Cfg.Username, Cfg.Groupname);
 		nnrpd(-1);
 	} else {
-		if (opt_debug == 0) {
+		if (opt_debug == 0 && opt_nofork == 0) {
 			switch (fork()) {
 			case -1:
 				cerr << "cannot fork\n";

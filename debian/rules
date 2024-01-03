@@ -99,7 +99,9 @@ binary-arch: build install
 #	dh_installemacsen
 #	dh_installpam
 #	dh_installmime
+	dh_systemd_enable
 	dh_installinit
+	dh_systemd_start
 #	dh_installcron
 #	dh_installinfo
 #	dh_installman
