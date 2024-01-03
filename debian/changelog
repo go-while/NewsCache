@@ -1,4 +1,4 @@
-newscache (1.3.ipv6-1~cmeerw.16) unstable; urgency=medium
+newscache (1.3.16-1) unstable; urgency=medium
 
   * Added no-fork mode
   * Added systemd service file
