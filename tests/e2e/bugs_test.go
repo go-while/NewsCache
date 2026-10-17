@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,33 +26,59 @@ func TestDenyReplyCRLF(t *testing.T) {
 	}
 }
 
-// NC-3: an access entry for exactly one host (/32 or 255.255.255.255) never
-// matches, because matchaddress returns false after comparing all bytes.
+// NC-3 (fixed): an access entry for exactly one host (/32 or
+// 255.255.255.255) never matched, because matchaddress returned false after
+// comparing all bytes. A plain address now means exactly that host too.
 func TestAccessExactHost(t *testing.T) {
-	knownBug(t, "NC-3", "Client a.b.c.d/32 never matches that host")
-	for _, pattern := range []string{"127.0.0.1/32", "127.0.0.1/255.255.255.255"} {
-		t.Run(pattern, func(t *testing.T) {
+	cases := []struct {
+		pattern string
+		allow   bool
+	}{
+		{"127.0.0.1/32", true},
+		{"127.0.0.1/255.255.255.255", true},
+		{"127.0.0.1", true},
+		{"127.0.0.2/32", false},
+		{"127.0.0.2", false},
+		{"127.0.0.0/31", true},
+		{"127.0.0.2/31", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
 			e := newEnv(t)
-			e.AccessList = accessEntry(pattern)
+			e.AccessList = accessEntry(tc.pattern)
 			e.standalone()
 			c := e.dialLenient()
-			if !strings.HasPrefix(c.Greeting, "200 ") && !strings.HasPrefix(c.Greeting, "201 ") {
-				t.Fatalf("client 127.0.0.1 with entry %s: greeting %q, want 200", pattern, c.Greeting)
+			allowed := strings.HasPrefix(c.Greeting, "200 ") || strings.HasPrefix(c.Greeting, "201 ")
+			if allowed != tc.allow {
+				t.Fatalf("client 127.0.0.1, entry %s: greeting %q, want allowed=%v", tc.pattern, c.Greeting, tc.allow)
 			}
 		})
 	}
 }
 
-// NC-4: an access entry with an address and no mask matches every client of
-// that address family, because prefixlen stays 0.
+// NC-4 (fixed): an access entry with an address and no mask matched every
+// client of that address family, because prefixlen stayed 0.
 func TestAccessAddressWithoutMask(t *testing.T) {
-	knownBug(t, "NC-4", "Client 10.1.2.3 (no mask) grants access to every IPv4 client")
 	e := newEnv(t)
 	e.AccessList = accessEntry("10.1.2.3")
 	e.standalone()
 	c := e.dialLenient()
 	if !strings.HasPrefix(c.Greeting, "502 ") {
 		t.Fatalf("client 127.0.0.1 with entry 10.1.2.3: greeting %q, want 502 (denied)", c.Greeting)
+	}
+}
+
+// A prefix longer than the address is a config error.
+func TestAccessPrefixTooLong(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = accessEntry("127.0.0.1/33")
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err == nil {
+		t.Fatalf("newscache accepted Client 127.0.0.1/33:\n%s", out)
+	}
+	if !strings.Contains(string(out), "prefix length too long") {
+		t.Errorf("error output %q, want \"prefix length too long\"", out)
 	}
 }
 
