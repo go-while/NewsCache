@@ -109,6 +109,9 @@ bool matchaddress(const struct sockaddr *pattern_addr,
 			pattern_bytes++;
 			host_bytes++;
 		}
+
+		// all bytes covered by the prefix are equal
+		return true;
 	}
 
 	return false;
@@ -291,10 +294,20 @@ void AccessList::readClient(Lexer & lex, const char *address)
 
 	struct addrinfo *res;
 	if (!getaddrinfo(cur.hostname.c_str(), NULL, &hints, &res)) {
-		memcpy(&cur.addr, res->ai_addr, res->ai_addrlen);
+		const unsigned short maxlen =
+			(res->ai_family == AF_INET6) ? 128 : 32;
 
-		cur.hostname.erase();
+		memcpy(&cur.addr, res->ai_addr, res->ai_addrlen);
 		freeaddrinfo(res);
+		cur.hostname.erase();
+
+		if (slash == NULL) {
+			// a plain address means exactly this host
+			cur.prefixlen = maxlen;
+		} else if (cur.prefixlen > maxlen) {
+			throw SyntaxError(lex, "prefix length too long",
+					  ERROR_LOCATION);
+		}
 	}
 
 	tok = lex.getToken();
