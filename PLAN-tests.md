@@ -121,7 +121,8 @@ The generic parts live in the shared module
 
 **Known bugs are skipped by default:** `knownBug(t, "NC-n", ...)`. With
 `NEWSCACHE_KNOWN_BUGS=fail` they run and fail, which is what you want while
-fixing one.
+fixing one. The fix commit removes the `knownBug` line. None is open right
+now.
 
 **Running:**
 - `make check` runs `tests/e2e/run.sh`. It runs `go test` when Go is in `PATH`
@@ -143,6 +144,9 @@ fixing one.
 - Later, the feature tests from `PLAN-new-features.md`.
 
 ### Bugs found by the tests
+
+All seven are fixed on branch `fix-known-bugs`, one commit each (NC-3 and NC-4
+together). Each test now runs by default.
 
 | ID | Bug | Where | Test |
 |---|---|---|---|
@@ -183,8 +187,7 @@ tests that need internal classes.
 1. Phase 0a: `make check` passes. Done.
 2. Phase 0c: harness and the first tests. Done. Go is installed on the build
    host in `~newscache/sdk/go`.
-3. Fix NC-1 to NC-7, one commit each. Remove the `knownBug` line in the same
-   commit. NC-4 first (security), then NC-3, which is the same function.
+3. Fix NC-1 to NC-7, one commit each. Done on `fix-known-bugs`.
 4. Phase 0b: NV databases and storage (needed for `InlineArticleSize`).
 5. The rest of phase 0c, and a CI workflow (GitHub Actions: Ubuntu, with and
    without GnuTLS, with and without syslog).
