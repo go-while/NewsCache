@@ -20,9 +20,8 @@ func TestStandaloneSession(t *testing.T) {
 }
 
 // TestMaxConnections: one client over the limit gets exactly
-// "400 too many users\r\n" and nothing else.
+// "400 too many users\r\n" and nothing else (NC-2: a NUL byte followed).
 func TestMaxConnections(t *testing.T) {
-	knownBug(t, "NC-2", `the "400 too many users" reply is followed by a NUL byte (write length 21 for a 20-byte string)`)
 	e := newEnv(t)
 	e.MaxConnections = 2
 	e.standalone()

@@ -2354,7 +2354,8 @@ void nntpd()
 				      Error) << "fork failed: " <<
 				    strerror(errno) << "\n";
 			}
-			write(clt_fd, "400 too many users\r\n", 21);
+			static const char too_many[] = "400 too many users\r\n";
+			write(clt_fd, too_many, sizeof(too_many) - 1);
 			close(clt_fd);
 		} else {
 			// success
