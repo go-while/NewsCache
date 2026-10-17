@@ -265,8 +265,8 @@ void clean(const char *cpath)
 	}
 	NVNewsgroup *ng;
 	OverviewFmt *fmt = new OverviewFmt ();
-	int firstnr;
-	int lastnr;
+	int firstnr = 0;
+	int lastnr = 0;
 	try {
 		string dbname = cpath;
 		dbname += "/.db";
@@ -304,7 +304,7 @@ void clean(const char *cpath)
 				if (sscanf (art.c_str(), "%d", &nr) != 1) {
 					slog.p(Logger::Error) << "error "
 						<< "parsing " << f->d_name;
-				} else if ( ng == NULL | nr < firstnr || nr > lastnr) {
+				} else if (ng == NULL || nr < firstnr || nr > lastnr) {
 					at = 0;
 				}
 				pvector.push_back (new Entry(buf, at, 
