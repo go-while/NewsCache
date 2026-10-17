@@ -6,6 +6,7 @@ package e2e
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -149,11 +150,12 @@ func firstLines(s string, n int) string {
 	return strings.Join(l, "\n")
 }
 
-// NC-7: on SIGHUP the daemon re-reads its config without catching parse
-// errors, so a broken config file kills the running daemon.
+// NC-7 (fixed): on SIGHUP the daemon re-read its config without catching
+// parse errors, so a broken config file killed the running daemon. Now it
+// keeps the old configuration.
 func TestSIGHUPBadConfig(t *testing.T) {
-	knownBug(t, "NC-7", "SIGHUP with a broken config file kills the daemon")
 	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
 	p := e.standalone()
 	if err := os.WriteFile(e.Conf, []byte("ConfigVersion 5\nNoSuchKeyword 1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -166,5 +168,15 @@ func TestSIGHUPBadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("daemon gone after SIGHUP with a broken config: %v", err)
 	}
-	c.Close()
+	c = c.WithTB(t)
+	defer c.Close()
+	// the old configuration (access list, upstream) still works
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after a failed reload: %q", line)
+	}
+	// builds without syslog also log why
+	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(b), "keeping the old configuration") {
+		t.Errorf("log does not report the failed reload:\n%s", b)
+	}
 }

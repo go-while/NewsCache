@@ -2326,9 +2326,22 @@ void nntpd()
 		/* Accept connection */
 		do {
 			if (reReadConfig) {
-				Cfg.init();
-				Cfg.read(config_file);
 				reReadConfig = false;
+				// parse into a copy, so a broken file keeps
+				// the running configuration
+				try {
+					Config newCfg;
+					newCfg.read(config_file);
+					Cfg = newCfg;
+					slog.p(Logger::Notice)
+					    << "reread " << config_file << "\n";
+				}
+				catch(const Error & e) {
+					slog.p(Logger::Error)
+					    << "cannot reread " << config_file
+					    << ", keeping the old configuration: "
+					    << e._errtext << "\n";
+				}
 			}
 
 			errno = 0;
