@@ -7,7 +7,7 @@ him on 2026-10-17.
 | Patch | Change |
 |---|---|
 | 0001 | Fix the existing `make check` tests; the sample config's `BindFrom` uses an address (numeric only since r5); man page entry for `BindFrom` |
-| 0002 | **Security:** access-list address matching. An entry without a mask matched every client; `/32`, `/255.255.255.255` and `/128` entries never matched |
+| 0002 | Access-list address matching: an entry with a plain IP address and no mask matched every client (1.3.ipv6 to 1.3.16); `/32`, `/255.255.255.255` and `/128` entries never matched |
 | 0003 | End the access-denied reply with CRLF |
 | 0004 | No NUL byte after `400 too many users` |
 | 0005 | Correct month in log file timestamps (builds without syslog) |
