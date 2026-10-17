@@ -14,9 +14,8 @@ import (
 	"github.com/go-while/nntp-testkit/client"
 )
 
-// NC-1: replies written with "\n" instead of "\r\n".
+// NC-1 (fixed): the access-denied reply ended in a bare LF.
 func TestDenyReplyCRLF(t *testing.T) {
-	knownBug(t, "NC-1", `"502 You have no permission to talk" ends in a bare LF`)
 	e := newEnv(t)
 	e.AccessList = accessEntry("10.0.0.0/8") // 127.0.0.1 falls to Default: deny
 	e.standalone()
