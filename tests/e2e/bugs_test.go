@@ -1,0 +1,204 @@
+package e2e
+
+// Tests for bugs found while writing the suite. Each is marked with knownBug
+// and skipped by default; see PLAN-tests.md for the list.
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/go-while/nntp-testkit/client"
+)
+
+// NC-1 (fixed): the access-denied reply ended in a bare LF.
+func TestDenyReplyCRLF(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = accessEntry("10.0.0.0/8") // 127.0.0.1 falls to Default: deny
+	e.standalone()
+	c := e.dialRaw()
+	if !strings.HasPrefix(c.Greeting, "502 ") {
+		t.Fatalf("greeting %q, want 502", c.Greeting)
+	}
+}
+
+// NC-3 (fixed): an access entry for exactly one host (/32 or
+// 255.255.255.255) never matched, because matchaddress returned false after
+// comparing all bytes. A plain address now means exactly that host too.
+func TestAccessExactHost(t *testing.T) {
+	cases := []struct {
+		pattern string
+		allow   bool
+	}{
+		{"127.0.0.1/32", true},
+		{"127.0.0.1/255.255.255.255", true},
+		{"127.0.0.1", true},
+		{"127.0.0.2/32", false},
+		{"127.0.0.2", false},
+		{"127.0.0.0/31", true},
+		{"127.0.0.2/31", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			e := newEnv(t)
+			e.AccessList = accessEntry(tc.pattern)
+			e.standalone()
+			c := e.dialLenient()
+			allowed := strings.HasPrefix(c.Greeting, "200 ") || strings.HasPrefix(c.Greeting, "201 ")
+			if allowed != tc.allow {
+				t.Fatalf("client 127.0.0.1, entry %s: greeting %q, want allowed=%v", tc.pattern, c.Greeting, tc.allow)
+			}
+		})
+	}
+}
+
+// NC-4 (fixed): an access entry with an address and no mask matched every
+// client of that address family, because prefixlen stayed 0.
+func TestAccessAddressWithoutMask(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = accessEntry("10.1.2.3")
+	e.standalone()
+	c := e.dialLenient()
+	if !strings.HasPrefix(c.Greeting, "502 ") {
+		t.Fatalf("client 127.0.0.1 with entry 10.1.2.3: greeting %q, want 502 (denied)", c.Greeting)
+	}
+}
+
+// A prefix longer than the address is a config error.
+func TestAccessPrefixTooLong(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = accessEntry("127.0.0.1/33")
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err == nil {
+		t.Fatalf("newscache accepted Client 127.0.0.1/33:\n%s", out)
+	}
+	if !strings.Contains(string(out), "prefix length too long") {
+		t.Errorf("error output %q, want \"prefix length too long\"", out)
+	}
+}
+
+// Control for NC-3/NC-4: a /8 entry matches.
+func TestAccessPrefix(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = accessEntry("127.0.0.0/8")
+	e.standalone()
+	c := e.dialRaw()
+	if !strings.HasPrefix(c.Greeting, "200 ") {
+		t.Fatalf("greeting %q, want 200", c.Greeting)
+	}
+
+	e2 := newEnv(t)
+	e2.AccessList = accessEntry("10.0.0.0/8")
+	e2.standalone()
+	c2 := e2.dialLenient()
+	if !strings.HasPrefix(c2.Greeting, "502 ") {
+		t.Fatalf("greeting %q, want 502", c2.Greeting)
+	}
+}
+
+// NC-5 (fixed): an upstream article without an Xref header made ARTICLE fail
+// with 423 (CServer::filter_xref threw NoSuchFieldError).
+func TestArticleWithoutXref(t *testing.T) {
+	e := newEnv(t)
+	ids := e.addArticlesXref("test.noxref", 2, false)
+	c := e.session()
+	c.Cmd("GROUP test.noxref")
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("ARTICLE %s", ids[1]); code != 220 {
+		t.Fatalf("ARTICLE <id>: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("XOVER 1-2"); code != 224 {
+		t.Fatalf("XOVER: %q, want 224", line)
+	}
+	if ov := c.ReadDotLines(); len(ov) != 2 {
+		t.Fatalf("XOVER: %d lines, want 2: %q", len(ov), ov)
+	}
+	c.Cmd("QUIT")
+
+	// served from the spool by a new process
+	before := e.Upstream.Count("ARTICLE")
+	c2 := e.session()
+	c2.Cmd("GROUP test.noxref")
+	if code, line := c2.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1 from cache: %q, want 220", line)
+	}
+	c2.ReadDotLines()
+	if n := e.Upstream.Count("ARTICLE"); n != before {
+		t.Errorf("upstream ARTICLE count %d -> %d, want served from cache", before, n)
+	}
+}
+
+// NC-6 (fixed): the log file timestamp had the month off by one (tm_mon is
+// 0-based).
+func TestLogTimestampMonth(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	want := time.Now().Format("2006/01/")
+	if !strings.Contains(log, want) {
+		t.Fatalf("log has no timestamp with %q:\n%s", want, firstLines(log, 5))
+	}
+}
+
+// Regression: the accept loop resets errno before accept(), so a SIGCHLD from
+// an exiting child does not drop the next connection.
+func TestAcceptAfterChildExit(t *testing.T) {
+	e := newEnv(t)
+	e.standalone()
+	for i := 0; i < 5; i++ {
+		c := e.dial()
+		c.Cmd("QUIT")
+		c.Close()
+		time.Sleep(50 * time.Millisecond) // the child exits, SIGCHLD reaches the parent
+	}
+}
+
+func firstLines(s string, n int) string {
+	l := strings.SplitN(s, "\n", n+1)
+	if len(l) > n {
+		l = l[:n]
+	}
+	return strings.Join(l, "\n")
+}
+
+// NC-7 (fixed): on SIGHUP the daemon re-read its config without catching
+// parse errors, so a broken config file killed the running daemon. Now it
+// keeps the old configuration.
+func TestSIGHUPBadConfig(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	p := e.standalone()
+	if err := os.WriteFile(e.Conf, []byte("ConfigVersion 5\nNoSuchKeyword 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	c, err := client.TryDial(e.Listen, 2*time.Second)
+	if err != nil {
+		t.Fatalf("daemon gone after SIGHUP with a broken config: %v", err)
+	}
+	c = c.WithTB(t)
+	defer c.Close()
+	// the old configuration (access list, upstream) still works
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after a failed reload: %q", line)
+	}
+	// builds without syslog also log why
+	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(b), "keeping the old configuration") {
+		t.Errorf("log does not report the failed reload:\n%s", b)
+	}
+}
