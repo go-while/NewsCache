@@ -1969,7 +1969,7 @@ void nnrpd(int fd)
 				    client_logname << " denied - hosts.allow\n";
 				(*clt.
 				 co) <<
-			       "502 You have no permission to talk.  Goodbye.\n";
+			       "502 You have no permission to talk.  Goodbye.\r\n";
 				clt.co->flush ();
 				return;
 			}
@@ -2006,7 +2006,7 @@ void nnrpd(int fd)
 		slog.p(Logger::Notice) << clt.
 		    client_logname << " denied\n";
 		(*clt.
-		 co) << "502 You have no permission to talk.  Goodbye.\n";
+		 co) << "502 You have no permission to talk.  Goodbye.\r\n";
 		clt.co->flush();
 		return;
 	} else {
