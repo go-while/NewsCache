@@ -1249,6 +1249,10 @@ void CServer::filter_xref(Article *art, MPListEntry *server, const char *gname)
 {
 	static const char delim[] = " \t\r\n";
 
+	// Xref is optional (RFC 3977/5536); nothing to filter without it
+	if (!art->has_field("xref:"))
+		return;
+
 	bool xref_changed = false;
 	std::string xref = art->getfield("xref:", 1);
 

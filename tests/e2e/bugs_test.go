@@ -101,18 +101,40 @@ func TestAccessPrefix(t *testing.T) {
 	}
 }
 
-// NC-5: an upstream article without an Xref header makes ARTICLE fail with
-// 423 (CServer::filter_xref throws NoSuchFieldError).
+// NC-5 (fixed): an upstream article without an Xref header made ARTICLE fail
+// with 423 (CServer::filter_xref threw NoSuchFieldError).
 func TestArticleWithoutXref(t *testing.T) {
-	knownBug(t, "NC-5", "upstream articles without Xref give 423")
 	e := newEnv(t)
-	e.addArticlesXref("test.noxref", 2, false)
+	ids := e.addArticlesXref("test.noxref", 2, false)
 	c := e.session()
 	c.Cmd("GROUP test.noxref")
 	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
 		t.Fatalf("ARTICLE 1: %q, want 220", line)
 	}
 	c.ReadDotLines()
+	if code, line := c.Cmd("ARTICLE %s", ids[1]); code != 220 {
+		t.Fatalf("ARTICLE <id>: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("XOVER 1-2"); code != 224 {
+		t.Fatalf("XOVER: %q, want 224", line)
+	}
+	if ov := c.ReadDotLines(); len(ov) != 2 {
+		t.Fatalf("XOVER: %d lines, want 2: %q", len(ov), ov)
+	}
+	c.Cmd("QUIT")
+
+	// served from the spool by a new process
+	before := e.Upstream.Count("ARTICLE")
+	c2 := e.session()
+	c2.Cmd("GROUP test.noxref")
+	if code, line := c2.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1 from cache: %q, want 220", line)
+	}
+	c2.ReadDotLines()
+	if n := e.Upstream.Count("ARTICLE"); n != before {
+		t.Errorf("upstream ARTICLE count %d -> %d, want served from cache", before, n)
+	}
 }
 
 // NC-6 (fixed): the log file timestamp had the month off by one (tm_mon is
