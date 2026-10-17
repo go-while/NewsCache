@@ -14,9 +14,9 @@ programs run by automake's `make check` (exit code 0 means pass).
 |---|---|---|
 | `NServer-0.9.1/checks/cNSError` | error classes | pass |
 | `NServer-0.9.1/checks/cOverviewFmt` | overview format conversion | pass |
-| `NServer-0.9.1/checks/cArticle` | reading/writing articles | **does not compile**: calls `Article::gettext()`, which is not in any version in this repo (already gone in 1.2rc6) |
+| `NServer-0.9.1/checks/cArticle` | reading/writing articles | **does not compile**: calls `Article::gettext()`; the method is `GetText()` |
 | `NServer-0.9.1/checks/cNewsgroupFilter` | newsgroup pattern matching | **does not compile**: uses `cout`/`endl` without `std::` or `using namespace std;` |
-| `src/cConfig` | parsing `etc/newscache.conf-dist` | **fails** (abort, uncaught `SyntaxError`): line 236, `BindFrom somehost.tuwien.ac.at`, no longer resolves. The parser resolves `BindFrom` at read time, so the test depends on DNS |
+| `src/cConfig` | parsing `etc/newscache.conf-dist` | **fails** (abort, uncaught `SyntaxError`): line 236, `BindFrom somehost.tuwien.ac.at`. Since the IPv6 rewrite (`38a1c99`, 2008-04-14) `BindFrom` is parsed with `AI_NUMERICHOST` and only accepts numeric addresses, so the sample config has not loaded since 2008 |
 
 Not part of `make check`:
 - `test/tlock`, `test/tartspool`: manual programs (`#TESTS=tlock` is commented
@@ -43,18 +43,20 @@ other tests only run with `make -k check`.
 
 ## 2. Plan
 
-### Phase 0a: fix the existing tests
+### Phase 0a: fix the existing tests (done)
 
-- `cArticle`: replace `gettext()` with the current accessor (or `c_str()` and
-  `length()`), and check the test still compares what it meant to compare.
+- `cArticle`: `gettext()` → `GetText()`.
 - `cNewsgroupFilter`: add `using namespace std;`.
-- `cConfig`: give it its own config in `src/checks/`, with numeric `BindFrom`
-  addresses, so it needs no DNS. Change the sample config's
-  `BindFrom somehost.tuwien.ac.at` to an address, because a sample config that
-  fails to load is a bug of its own. Catch `SyntaxError` and print its text, so
-  a failure says which line broke.
-- Make `make check` run all directories (`make -k check` in CI) and report all
-  failures.
+- `etc/newscache.conf-dist`: `BindFrom 192.168.100.2` instead of a host name,
+  and a note that `BindFrom` takes numeric addresses only. The man page entry
+  (`address (FIXME)`) now says the same.
+- `cConfig`: catches `SyntaxError`/`IOError` and prints the message with the
+  line number, works without `srcdir`, and takes an optional config file
+  argument.
+- Result: `make check` passes all 5 tests on Ubuntu 24.04 (g++ 13.3, GnuTLS).
+- Note for test environments: `BindFrom` and the access list also use
+  `AI_ADDRCONFIG`, so an IPv4 `BindFrom` fails on a host without a
+  non-loopback IPv4 address (some containers).
 
 ### Phase 0b: C++ unit tests for the internals
 
@@ -77,6 +79,13 @@ These need the internal classes, so they stay in C++ and use the same
 
 Black-box tests that run the real `newscache` binary, in `tests/e2e/` with its
 own `go.mod`, so the C++ build doesn't depend on Go.
+
+The generic parts (fake upstream, strict client, process runner) live in the
+shared module [`github.com/go-while/nntp-testkit`](https://github.com/go-while/nntp-testkit)
+(packages `fakeserver`, `client`, `proc`, later `conformance`), extracted from
+go-pugleaf's test helpers. `tests/e2e/` only holds the NewsCache config
+generator and the NewsCache-specific tests. The list below describes what the
+kit provides.
 
 **Pieces:**
 - **Fake upstream server** (`tests/e2e/fakenntp`): listens on `127.0.0.1:0`,

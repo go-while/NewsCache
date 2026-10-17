@@ -1,5 +1,8 @@
 #include <iostream>
 
+#include <stdlib.h>
+#include <unistd.h>
+
 #include "Logger.h"
 #include "Config.h"
 
@@ -10,10 +13,26 @@ Config cfg;
 
 int main(int argc, char *argv[])
 {
-	chdir(getenv("srcdir"));
-	cfg.read("../etc/newscache.conf-dist");
+	const char *srcdir = getenv("srcdir");
+	const char *fn = argc > 1 ? argv[1] : "../etc/newscache.conf-dist";
 
-	cout << "cConfig: newscache.conf-dist ok\n";
+	if (srcdir && chdir(srcdir) != 0) {
+		cerr << "cConfig: cannot chdir to " << srcdir << "\n";
+		exit(1);
+	}
+	try {
+		cfg.read(fn);
+	}
+	catch(const SyntaxError & se) {
+		cerr << "cConfig: " << se._errtext << "\n";
+		exit(1);
+	}
+	catch(const IOError & io) {
+		cerr << "cConfig: unexpected EOF in " << fn << "\n";
+		exit(1);
+	}
+
+	cout << "cConfig: " << fn << " ok\n";
 	exit(0);
 }
 

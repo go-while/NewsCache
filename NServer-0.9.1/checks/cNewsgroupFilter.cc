@@ -2,6 +2,8 @@
 
 #include "NewsgroupFilter.h"
 
+using namespace std;
+
 #define V(x) if(verbose) { x; }
 
 NewsgroupFilter filters[] = {

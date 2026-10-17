@@ -217,7 +217,7 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIRead\fR GroupSpec
 	\fIPostTo\fR GroupSpec
 	\fIGroupTimeout\fR seconds
-	\fIBindFrom\fR address (FIXME)
+	\fIBindFrom\fR address
 	\fIRetris\fR nr-of-retries
 	\fIUser\fR username
 	\fIPassword\fR password
@@ -249,6 +249,8 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
 The default value is 600 seconds.
+.IP "BindFrom \fIaddress\fR"
+Local address used for connections to this upstream server. It must be a numeric IPv4 or IPv6 address; host names are not resolved. No default value.
 .IP "Options \fIflags\fR"
 Specifies a list of options that should be turned on or off. The default flags are: cached setpostflag. Valid flags are:
 .nf

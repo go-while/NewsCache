@@ -190,6 +190,7 @@ AccessList {
 # updatenews. The default value is 600 seconds.
 # BindFrom:
 #   Interface for outgoing connections (for multihomed hosts)
+#   Numeric IPv4 or IPv6 address only; host names are not resolved.
 #   (Code by Vladislav Bogdanov, slava@nsys.by)
 # LimitGroupSize:
 #   Limit the group size to the specified number of messages - this is
@@ -233,7 +234,7 @@ NewsServerList {
     Read at.wu-wien.*
     PostTo .none.
     GroupTimeout 300
-    BindFrom somehost.tuwien.ac.at
+    BindFrom 192.168.100.2
     Options offline not-setpostflag
   }
   NoServer {
