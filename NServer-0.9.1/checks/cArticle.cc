@@ -36,7 +36,7 @@ int checkArticle(const char *artfn)
 	if (la1 != art1.length() || la1 != art2->length())
 		return -12;
 
-	art1.settext(art2->gettext());
+	art1.settext(art2->GetText());
 	if (strcmp(art1.c_str(), art2->c_str()))
 		return -21;
 	if (la1 != art1.length() || la1 != art2->length())
