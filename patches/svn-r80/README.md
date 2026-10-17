@@ -14,8 +14,9 @@ him on 2026-10-17.
 | 0006 | Keep the running config when a SIGHUP reload fails |
 | 0007 | Accept upstream articles without an `Xref:` header |
 | 0008 | Optional: the Go end-to-end tests (`tests/e2e`) |
+| 0009 | `newscacheclean`: `\|\|` instead of `\|` in the article range check (read an uninitialized variable; same pattern as hstraub/NewsCache#1). Added after the mail of 2026-10-17 |
 
-0001 to 0007 don't depend on 0008. The repo-only files (`.claude/`,
+0001 to 0007 and 0009 don't depend on 0008. The repo-only files (`.claude/`,
 `README.md`, `NEWS`, `PLAN-tests.md`) are not included.
 
 Apply to a git checkout of `trunk`:

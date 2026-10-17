@@ -1,0 +1,46 @@
+From 1cdf6b219a98a10178f77c2851924789e2c443ae Mon Sep 17 00:00:00 2001
+From: go-while <go-while@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 22:49:42 +0000
+Subject: [PATCH] newscacheclean: use || instead of | in the article range
+ check
+
+"ng == NULL | nr < firstnr || nr > lastnr" evaluated nr < firstnr even
+when ng was NULL, reading the uninitialized firstnr (g++ -Wall:
+-Wparentheses, -Wmaybe-uninitialized). The result was the same, so
+behaviour doesn't change. Also initialize firstnr and lastnr.
+
+Same pattern as hstraub/NewsCache#1, whose NewsCache.cc line was
+already removed in r5.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/NewsCacheClean.cc | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/NewsCacheClean.cc b/src/NewsCacheClean.cc
+index ae55779..19a7a81 100644
+--- a/src/NewsCacheClean.cc
++++ b/src/NewsCacheClean.cc
+@@ -265,8 +265,8 @@ void clean(const char *cpath)
+ 	}
+ 	NVNewsgroup *ng;
+ 	OverviewFmt *fmt = new OverviewFmt ();
+-	int firstnr;
+-	int lastnr;
++	int firstnr = 0;
++	int lastnr = 0;
+ 	try {
+ 		string dbname = cpath;
+ 		dbname += "/.db";
+@@ -304,7 +304,7 @@ void clean(const char *cpath)
+ 				if (sscanf (art.c_str(), "%d", &nr) != 1) {
+ 					slog.p(Logger::Error) << "error "
+ 						<< "parsing " << f->d_name;
+-				} else if ( ng == NULL | nr < firstnr || nr > lastnr) {
++				} else if (ng == NULL || nr < firstnr || nr > lastnr) {
+ 					at = 0;
+ 				}
+ 				pvector.push_back (new Entry(buf, at, 
+-- 
+2.47.3
+

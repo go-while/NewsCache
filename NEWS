@@ -17,6 +17,8 @@ Bug fixes:
 * "400 too many users" is no longer followed by a NUL byte.
 * "502 You have no permission to talk" ends with CRLF instead of a bare LF.
 * Log file timestamps (builds without syslog) showed the previous month.
+* newscacheclean: "ng == NULL | nr < firstnr" read an uninitialized variable
+  (| instead of ||); the result was the same.
 * The sample newscache.conf-dist loads again: BindFrom only takes numeric
   addresses since the IPv6 support, and the sample used a host name.
 
