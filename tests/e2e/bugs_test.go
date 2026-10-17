@@ -114,9 +114,9 @@ func TestArticleWithoutXref(t *testing.T) {
 	c.ReadDotLines()
 }
 
-// NC-6: the log file timestamp has the month off by one (tm_mon is 0-based).
+// NC-6 (fixed): the log file timestamp had the month off by one (tm_mon is
+// 0-based).
 func TestLogTimestampMonth(t *testing.T) {
-	knownBug(t, "NC-6", "log timestamps show last month")
 	e := newEnv(t)
 	c := e.session()
 	c.Cmd("QUIT")

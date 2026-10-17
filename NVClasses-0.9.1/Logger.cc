@@ -57,8 +57,8 @@ void Logger::print()
 		char tbuf[32];
 		time(&ts);
 		t = localtime(&ts);
-		sprintf(tbuf, "%d %04d/%02d/%02d %02d:%02d:%02d ",
-			_priority, 1900 + t->tm_year, t->tm_mon,
+		snprintf(tbuf, sizeof(tbuf), "%d %04d/%02d/%02d %02d:%02d:%02d ",
+			_priority, 1900 + t->tm_year, t->tm_mon + 1,
 			t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 		log << tbuf << buf << endl;
 #endif
