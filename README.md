@@ -1,0 +1,250 @@
+# NewsCache
+
+NewsCache is a free caching server for USENET news, licensed under the GNU GPL
+(version 2 or later). To newsreaders it looks like an ordinary NNTP news server.
+To the upstream news server it looks like a newsreader. It stores only the
+articles that at least one client has asked for.
+
+When a client requests an article, NewsCache checks its cache first. If the
+article is there, it is sent straight away. If not, NewsCache fetches it from the
+upstream server, stores it and then sends it to the client.
+
+This repository holds the complete history: Thomas Gschwind's original work,
+Herbert Straub's 1.x releases, and Christof Meerwald's IPv6/TLS branch
+(`1.3.ipv6`, maintained in Subversion until 2024). See [History](#history).
+
+> Most of the text below comes from the project's two original websites, which
+> are now offline:
+>
+> - Thomas Gschwind, TU Wien (1997 to 2000):
+>   <https://web.archive.org/web/20060201234800/http://www.infosys.tuwien.ac.at/NewsCache/>
+> - Herbert Straub, linuxhacker.at (2002 to 2008):
+>   <https://web.archive.org/web/20140626020920/http://www.linuxhacker.at/NewsCache>
+>
+> Each claim was checked against the current code on 2026-10-17. Anything that
+> is no longer true is marked, and the full list is in
+> [Validity of the old documentation](#validity-of-the-old-documentation).
+
+## Why a cache for news?
+
+Usenet distributes every article to every server that carries its newsgroups.
+Around 2000 the full feed was about 15 GB per day and doubled every 18 months, so
+many organisations could no longer afford a full news server. NewsCache's idea is
+to separate *access* (serving readers) from *distribution* (exchanging the feed
+between servers). Readers talk to a cache, and only articles someone actually
+reads are fetched.
+
+## Ways to use it
+
+- **Cache in front of a news server.** Clients connect to NewsCache instead of
+  the news server, which reduces the load on it. A small test at TU Wien saw a hit
+  rate above 30%, even though the users' interests were spread widely.
+- **Replace a leaf-node news server.** Only the groups and articles people read
+  are stored, while clients still see a virtual full feed. This saves bandwidth,
+  disk and CPU, because there is no local article numbering and the database is
+  smaller.
+- **Combine several news servers.** You can choose per newsgroup which upstream
+  server it is read from and which one handles posting. Clients see one merged
+  feed and configure a single server.
+- **Split one spool across servers.** Several smaller news servers each carry
+  part of the groups, and NewsCache presents them as one.
+- **Serve local newsgroups.** Run a small server with only the local groups and
+  let NewsCache combine it with the upstream server.
+- **Offline reading.** Server options `offline` and `semioffline`, plus
+  `updatenews` to prefetch.
+
+## Features
+
+From the original design:
+
+- Small articles are stored inside the newsgroup database, which saves inodes.
+  Larger ones are stored as separate files.
+- Overview data for cached articles is generated on the fly.
+- The newsgroup database is an array, so articles can be accessed directly.
+- Per-newsgroup choice of upstream server, for reading and posting.
+
+Added by Herbert Straub (1.1 to 1.2rc6, 2002 to 2004):
+
+- Access control per client network (`AccessList`), with authentication by
+  `unix` passwords, a password file, or PAM (one PAM service name per network
+  is possible). Authenticated users can get extra rights.
+- `newscacheclean`, a purge tool with an improved strategy. Corrupt database
+  files are detected and renamed.
+
+Added by Christof Meerwald (1.3.ipv6, 2008 to 2024):
+
+- IPv6 for both clients and upstream servers (`ListenTo [addr]:port`).
+- TLS to upstream servers, either implicit (`Options ssl`) or `starttls`,
+  through GnuTLS.
+- Server options `ConnectTimeout`, `ConnectBackoff`, `LimitGroupSize` and
+  `dontgenmsgid`.
+- A no-fork mode (`newscache -n`) and a systemd unit
+  ([`debian/newscache.service`](debian/newscache.service)).
+
+## Building
+
+NewsCache uses GNU autoconf/automake.
+
+```sh
+sudo apt install build-essential autoconf automake texinfo \
+                 libgnutls28-dev libpam0g-dev      # GnuTLS and PAM are optional
+./autogen
+./configure          # ./configure --help lists all options
+make
+sudo make install
+```
+
+Tested on 2026-10-17:
+
+| System | Compiler | Result |
+|---|---|---|
+| Ubuntu 24.04 | g++ 13.3 | builds, with GnuTLS |
+| Debian 13 | g++ 14.2 | builds with `--without-gnutls` |
+
+Both builds produce compiler warnings, but no errors.
+
+- `texinfo` is required. Without `makeinfo`, `make` stops at the manual
+  (`doc/NewsCache.texinfo`), even though the programs themselves have already
+  been built.
+- Socket++ is **no longer** required. NewsCache now ships its own socket
+  stream (`NServer-0.9.1/sockstream.*`).
+- Always pass `--prefix` (or `--sysconfdir`) to `configure`. Otherwise the
+  built-in configuration path can end up as the literal `NONE/etc/newscache.conf`.
+
+Useful `configure` options:
+
+| Option | Meaning |
+|---|---|
+| `--with-gnutls` | TLS to upstream servers (default: yes, if found) |
+| `--with-pam[=service]` | PAM authentication (default: no; service name `newscache`) |
+| `--with-md5`, `--with-md5auto` | MD5 password hashes for `authinfo` (default: yes) |
+| `--with-shadow` | shadow passwords (default: auto) |
+| `--with-syslog` | log to syslog (default: auto) |
+| `--enable-plainpass` | plain-text passwords in the password file |
+| `--enable-headerlog` | log the headers of posted articles |
+| `--enable-debug` | verbose debug logging |
+
+## Programs
+
+| Program | Purpose |
+|---|---|
+| `newscache` (sbin) | The NNTP server. Runs standalone, from inetd (`-i`), or in the foreground (`-n` no fork, `-d` don't detach). `-p` prints the active configuration, `-o` the compile-time options. |
+| `updatenews` (bin) | Prefetches data from the upstream servers: active list (`-a`), overviews (`-o`), articles (`-g`), driven by the prefetch file. Run it from cron. |
+| `newscacheclean` (sbin) | Purges the spool down to `SpoolSize`. `-s` prints statistics. |
+
+Each has a manual page in [`man/`](man/). The configuration file is described in
+`newscache.conf(5)`.
+
+## Configuration
+
+The configuration file is `${sysconfdir}/newscache.conf`. An annotated sample is
+installed as `newscache.conf-dist` (source:
+[`etc/newscache.conf-dist`](etc/newscache.conf-dist)). Its main parts are:
+
+- **Global settings:** `ListenTo` (address and port, IPv6 as `[addr]:port`),
+  `CachePort`, `Username`/`Groupname`, `SpoolDirectory`, `SpoolSize`,
+  `MaxConnections`, `ClientTimeout`, `PrefetchFile`, logging.
+- **`AccessList`:** one `Client` entry per network or host name, plus a
+  `Default` entry. Each sets `allow`, `List`/`Read`/`PostTo` patterns and
+  `Authentication`.
+- **`NewsServerList`:** one `Server host port { … }` entry per upstream server,
+  with `Read`, `PostTo`, `GroupTimeout`, `User`/`Password`, `BindFrom`,
+  `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `Options` (`offline`,
+  `semioffline`, `setpostflag`, `ssl`, `starttls`, `dontgenmsgid`) and
+  `Commands` (for example `not-over`).
+  - `dontgenmsgid` is accepted by the parser, but neither the sample file nor
+    the manual page documents it.
+- **`Timeouts`:** how long the active and newsgroups lists stay valid.
+
+## Running
+
+- **systemd:** [`debian/newscache.service`](debian/newscache.service) runs
+  `newscache -n`.
+- **SysV init:** an init script is generated as `etc/NewsCache.init`.
+- **inetd:** use `newscache -i`.
+- **cron:** run `updatenews` and `newscacheclean` regularly, as in
+  [`debian/newscache.cron.daily`](debian/newscache.cron.daily).
+
+More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
+clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
+database files. The user manual is `doc/NewsCache.texinfo`.
+
+## Known restrictions
+
+- **No UTF-8 in wildmat patterns.** Newsgroup patterns are matched byte by
+  byte. This is still true: `wildmat.c` has changed once since 1.2rc6.
+- **Newsreaders that mark deleted articles as read.** Some readers do this,
+  which is not what the NNTP spec intends. It only matters when NewsCache runs
+  in offline mode.
+- **Upstream servers must provide an overview database** (`OVER`/`XOVER`).
+
+## History
+
+| Years | Who | What |
+|---|---|---|
+| 1995 to 1997 | Thomas Gschwind, TU Wien (advisor: Manfred Hauswirth) | Idea and prototype as a master's thesis. In 1995 the TU Wien news server could no longer keep up with its feed. |
+| 1997 to 2001 | Thomas Gschwind | NewsCache 0.99.x (last version on his site: 0.99.19, made with Herbert Straub). USENIX grant for database improvements. |
+| 2000 to 2008 | Herbert Straub | Collected patches from 2000 and took over maintenance. Releases 0.99.22 and 1.1.x, then **1.2rc6** (2004-10-01). New authentication model with PAM, `newscacheclean`, packages for Debian, RPM and FreeBSD. In 2004-01 Thomas Gschwind handed the project over officially. |
+| 2008 to 2024 | Christof Meerwald | Started from the 1.2rc6 package (`1.2rc6-1cmeerw.2`) and developed `1.3.ipv6` in Subversion (<https://svn.cmeerw.net/newscache>), tags `1.3.ipv6` to `1.3.ipv6-11` (2011). Trunk continued until 2024 (GnuTLS fixes, systemd). |
+| 2013 | Herbert Straub | Imported 1.2rc6 to GitHub (<https://github.com/hstraub/NewsCache>). |
+| 2026 | this repo | Christof Meerwald's full SVN history placed on top of Herbert Straub's GitHub import. See [`.claude/CLAUDE.md`](.claude/CLAUDE.md). |
+
+Tag `1.2rc6` in this repository is byte-identical to the original release tarball
+`NewsCache-1.2rc6.tar.gz` (MD5 `a7b33314cd7701564b4947ab8615dcc2`, SHA1
+`25eca1643dda1436800e98de053aff11e6c05bca`, as published on linuxhacker.at and
+checked against a copy from the Wayback Machine).
+
+### Publications
+
+1. Thomas Gschwind. *A Cache Server for Usenet News.* Master's thesis, Technische
+   Universität Wien, May 1997.
+2. Thomas Gschwind and Manfred Hauswirth. *A Cache Architecture for Modernizing
+   the Usenet Infrastructure.* Proceedings of the 32nd Hawaii International
+   Conference on System Sciences (HICSS-32), January 1999.
+3. Thomas Gschwind and Manfred Hauswirth. *NewsCache — A High Performance Cache
+   Implementation for Usenet News.* Proceedings of the 1999 USENIX Annual
+   Technical Conference, June 1999.
+   <https://www.usenix.org/legacy/event/usenix99/full_papers/gschwind/gschwind.pdf>
+
+### Standards
+
+The repository ships RFC 977, RFC 1036, RFC 2980 and two NNTP drafts in
+[`doc/`](doc/). All of them have since been replaced:
+
+| Shipped in `doc/` | Replaced by |
+|---|---|
+| RFC 977 (NNTP) and the `draft-ietf-nntpext-base` drafts | [RFC 3977](https://www.rfc-editor.org/rfc/rfc3977) |
+| RFC 1036 (article format) | [RFC 5536](https://www.rfc-editor.org/rfc/rfc5536) and RFC 5537 |
+| RFC 2980 (extensions) | mostly folded into RFC 3977 |
+| `draft-ietf-nntpext-tls-nntp` | [RFC 4642](https://www.rfc-editor.org/rfc/rfc4642), updated by [RFC 8143](https://www.rfc-editor.org/rfc/rfc8143) |
+
+## Validity of the old documentation
+
+Checked on 2026-10-17 against `trunk` (SVN r80):
+
+| Old claim | Source | Status today |
+|---|---|---|
+| Socket++ 1.2 is required | README, linuxhacker.at | **Outdated.** Replaced by the bundled `sockstream` in 2008. |
+| "No stable version with g++ ≥ 3.0", "0.99 needs g++ < 3.0", "use gcc 2.95" | linuxhacker.at, TU Wien | **Outdated.** Builds with g++ 13 and 14. |
+| `./configure; make; make install` | TU Wien | **Valid.** Run `./autogen` first and install `texinfo`. |
+| Latest release 1.2rc6, next stable 1.2 | linuxhacker.at | **Historical.** 1.2 final was never released. Development continued as `1.3.ipv6` (versions `1.3.16` in Debian packaging). |
+| IPv6 support patch by Christof Meerwald | linuxhacker.at News, Feature Requests | **Included.** It's the basis of this code. |
+| Limit the number of headers fetched per group (feature request) | linuxhacker.at | **Implemented** as `LimitGroupSize`. |
+| Christof Meerwald's package adds `lowbandwidth` and `dontgenmsgid` | linuxhacker.at Links | **Partly.** `dontgenmsgid` exists. `lowbandwidth` is not in the code (it was never in SVN). |
+| LDAP authentication patch (Arnold Schiller), regex patch (Konstantin Nikonenko) | linuxhacker.at Feature Requests | **Not included.** |
+| No UTF-8 in wildmat | linuxhacker.at Bugs | **Still true.** |
+| May hang when the server's close packet is lost; needs read timeouts | TU Wien Status | **Mitigated.** Connects time out (`ConnectTimeout`, `ConnectBackoff`). A stuck upstream read is only interrupted when the client's `ClientTimeout` alarm fires; there is no separate server read timeout. |
+| Small articles are stored in the database, overview generated on the fly | TU Wien | **Valid** for this code. |
+| Mailing lists `newscache@infosys.tuwien.ac.at` and `newscache@linuxhacker.org` | both | **Dead.** |
+| CVS access | linuxhacker.at | **Obsolete.** History is in this git repo and in SVN. |
+| Home pages `members.aon.at/hstraub`, `infosys.tuwien.ac.at/NewsCache`, `linuxhacker.at` | README, both | **Dead** (a redirect, a 404 and no DNS). Use the archive.org links above. |
+| Packages in Fedora | linuxhacker.at News | **Still present:** 1.2rc6 (`newscache-1.2-0.55.rc6`, Fedora rawhide/fc45). Its source URL points at the dead site. |
+| FreeBSD port `news/newscache` | linuxhacker.at News | **Removed** from the ports tree. |
+| Debian packages | linuxhacker.at | No official package. Build one from [`debian/`](debian/). |
+| Tested readers: gnus, knews, Outlook Express, Netscape, slrn, tin, xrn; servers: INN, ANU NEWS, MS, Netscape Collabra | TU Wien | **Historical**, not re-tested. |
+
+## License
+
+GNU General Public License, version 2 or later. See [`COPYING`](COPYING).
+Copyright © 1996 to 1998 Thomas Gschwind, © 2001 to 2004 Herbert Straub,
+© 2008 to 2024 Christof Meerwald.
