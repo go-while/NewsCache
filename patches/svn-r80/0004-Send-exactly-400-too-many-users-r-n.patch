@@ -1,0 +1,30 @@
+From dfa27f832e5455bdd380f4e3faef7796281fa6ce Mon Sep 17 00:00:00 2001
+From: go-while <go-while@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 22:40:01 +0000
+Subject: [PATCH 4/8] Send exactly "400 too many users\r\n"
+
+write() was given length 21 for the 20-byte reply, so a NUL byte
+followed it. Use sizeof() of the string.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/NewsCache.cc | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/NewsCache.cc b/src/NewsCache.cc
+index 17d427d..f22dfb5 100644
+--- a/src/NewsCache.cc
++++ b/src/NewsCache.cc
+@@ -2354,7 +2354,8 @@ void nntpd()
+ 				      Error) << "fork failed: " <<
+ 				    strerror(errno) << "\n";
+ 			}
+-			write(clt_fd, "400 too many users\r\n", 21);
++			static const char too_many[] = "400 too many users\r\n";
++			write(clt_fd, too_many, sizeof(too_many) - 1);
+ 			close(clt_fd);
+ 		} else {
+ 			// success
+-- 
+2.47.3
+

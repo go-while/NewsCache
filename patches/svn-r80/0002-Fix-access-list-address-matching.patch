@@ -1,0 +1,58 @@
+From 554fc229c06fc3b932f5872f52f477d54b481ab7 Mon Sep 17 00:00:00 2001
+From: go-while <go-while@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 22:40:01 +0000
+Subject: [PATCH 2/8] Fix access-list address matching
+
+- A Client entry with an address and no mask had prefix length 0 and
+  matched every client of that address family. It now means exactly
+  that host (/32 or /128).
+- matchaddress() returned false when all bytes of a full-length prefix
+  were equal, so /32, /255.255.255.255 and /128 entries never matched,
+  including the man page's own example.
+- A prefix longer than the address is now a syntax error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/AccessList.cc | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/AccessList.cc b/src/AccessList.cc
+index d53a678..8c3a468 100644
+--- a/src/AccessList.cc
++++ b/src/AccessList.cc
+@@ -109,6 +109,9 @@ bool matchaddress(const struct sockaddr *pattern_addr,
+ 			pattern_bytes++;
+ 			host_bytes++;
+ 		}
++
++		// all bytes covered by the prefix are equal
++		return true;
+ 	}
+ 
+ 	return false;
+@@ -291,10 +294,20 @@ void AccessList::readClient(Lexer & lex, const char *address)
+ 
+ 	struct addrinfo *res;
+ 	if (!getaddrinfo(cur.hostname.c_str(), NULL, &hints, &res)) {
+-		memcpy(&cur.addr, res->ai_addr, res->ai_addrlen);
++		const unsigned short maxlen =
++			(res->ai_family == AF_INET6) ? 128 : 32;
+ 
+-		cur.hostname.erase();
++		memcpy(&cur.addr, res->ai_addr, res->ai_addrlen);
+ 		freeaddrinfo(res);
++		cur.hostname.erase();
++
++		if (slash == NULL) {
++			// a plain address means exactly this host
++			cur.prefixlen = maxlen;
++		} else if (cur.prefixlen > maxlen) {
++			throw SyntaxError(lex, "prefix length too long",
++					  ERROR_LOCATION);
++		}
+ 	}
+ 
+ 	tok = lex.getToken();
+-- 
+2.47.3
+
