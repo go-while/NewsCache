@@ -75,55 +75,93 @@ These need the internal classes, so they stay in C++ and use the same
   fields, empty fields. Covers the planned `getField` bounds check.
 - **Access lists**: hostname and address patterns, `Read`/`PostTo`.
 
-### Phase 0c: end-to-end tests in Go
+### Phase 0c: end-to-end tests in Go (first set done)
 
 Black-box tests that run the real `newscache` binary, in `tests/e2e/` with its
 own `go.mod`, so the C++ build doesn't depend on Go.
 
-The generic parts (fake upstream, strict client, process runner) live in the
-shared module [`github.com/go-while/nntp-testkit`](https://github.com/go-while/nntp-testkit)
-(packages `fakeserver`, `client`, `proc`, later `conformance`), extracted from
-go-pugleaf's test helpers. `tests/e2e/` only holds the NewsCache config
-generator and the NewsCache-specific tests. The list below describes what the
-kit provides.
+The generic parts live in the shared module
+[`github.com/go-while/nntp-testkit`](https://github.com/go-while/nntp-testkit)
+(v0.1.0), extracted from go-pugleaf's test helpers:
+- `fakeserver`: the fake upstream, in Store mode. It serves groups and articles
+  set up by the test and counts every command it gets.
+- `client`: the strict client. It reports bare LF, bad dot-stuffing, a missing
+  terminator, and stray bytes after a reply.
+- `proc`: runs `newscache`, in inetd mode or on a TCP port.
 
-**Pieces:**
-- **Fake upstream server** (`tests/e2e/fakenntp`): listens on `127.0.0.1:0`,
-  serves groups and articles defined by the test, and records every command it
-  receives. Tests can then check caching ("the second `ARTICLE` did not reach
-  upstream"), and inject failures: slow replies, dropped connections, error
-  codes.
-- **Harness**: for each test, a `t.TempDir()` with spool, log and pid paths, a
-  generated `newscache.conf` pointing at the fake upstream, and `Username` /
-  `Groupname` set to the current user, so no root is needed. The binary comes
-  from `NEWSCACHE_BIN` (default `../../src/newscache`).
-- **Two ways to start the server:**
-  - inetd mode (`newscache -i -c <conf>`): stdin/stdout are the client
-    connection, one process per session, no ports. The client then shows up as
-    `fd#0`, so the access list needs a `*` entry.
-  - standalone mode (`newscache -n -c <conf>`, `ListenTo 127.0.0.1:<port>`):
-    needed for several clients at once, `MaxConnections`, killing a child, and
-    `SIGHUP` config reloads.
-- **Client**: `net/textproto` (`Cmd`, `ReadCodeLine`, `ReadDotLines`).
+**Harness** (`tests/e2e/harness_test.go`):
+- **Per test:** a `t.TempDir()` holds the spool, log, pid file and a generated
+  `newscache.conf`.
+  - The config points at the fake upstream.
+  - `Username`/`Groupname` are the current user, so no root is needed.
+  - The access list allows `stdin` and `127.0.0.0/8`.
+- **The binary:** `$NEWSCACHE_BIN`, default `../../src/newscache`. Tests skip
+  when it is missing.
+- **Two modes:**
+  - `session()` runs `newscache -i` (client name `stdin`), one process per
+    session.
+  - `standalone()` runs `newscache -n` on `127.0.0.1:<free port>`.
+- **On failure:** the test output shows the upstream's received lines and
+  `newscache.log`.
+- **Logging:** the log file only exists with a `--without-syslog` build. The
+  default build logs to syslog, and log tests skip there.
 
-**First tests:**
-- Greeting, `MODE READER`, `QUIT`.
-- `LIST`, `GROUP`, `ARTICLE`/`HEAD`/`BODY`/`STAT` by number and message-ID,
-  `XOVER`, `NEXT`/`LAST`; replies compared with what the fake upstream holds.
-- Caching: a second fetch is served from the spool. A restart keeps the spool.
-- Offline mode: with the upstream stopped, cached articles are still served.
-- `AUTHINFO USER/PASS` with `file` auth, and `Read`/`PostTo` limits.
-- `POST` is forwarded to the right upstream.
-- `MaxConnections`: one client too many gets `400`, with exactly
-  `400 too many users\r\n` and no extra bytes (catches the `write()` length bug).
-- `newscacheclean` on a filled spool.
-- Byte-exact checks: CRLF line endings, dot-stuffing, the terminating `.`.
-- Later, the feature tests from `PLAN-new-features.md` (quota, per-user
-  connection limit, `kill -9` cleanup, DB unreachable) use the same harness.
+**Tests so far:**
+- `reader_test.go`:
+  - greeting and `QUIT`, `MODE READER`, `LIST`;
+  - `GROUP`/`ARTICLE`/`HEAD`/`BODY`, with dot-stuffing;
+  - `XOVER`;
+  - 423/430/411 replies, unknown command;
+  - caching by number across processes;
+  - upstream down, served from the spool;
+  - `POST` forwarded upstream, dot-stuffing removed.
+- `daemon_test.go`: TCP session, `MaxConnections`, `SIGHUP` reload of the
+  access list.
+- `bugs_test.go`: one test per bug below, plus controls and regressions.
 
-**Running:** `make check` calls `tests/e2e/run.sh`, which runs `go test ./...`
-when Go is installed and returns 77 (automake's "skipped") when it isn't. CI
-runs it with `-race` on the Go side and `-count=1`.
+**Known bugs are skipped by default:** `knownBug(t, "NC-n", ...)`. With
+`NEWSCACHE_KNOWN_BUGS=fail` they run and fail, which is what you want while
+fixing one.
+
+**Running:**
+- `make check` runs `tests/e2e/run.sh`. It runs `go test` when Go is in `PATH`
+  and returns 77 ("skipped") otherwise.
+- By hand:
+  `cd tests/e2e && NEWSCACHE_BIN=../../src/newscache go test -race -count=1 ./...`
+- Status: green on the build host, Ubuntu 24.04, g++ 13.3, Go 1.27.2 in
+  `~/sdk/go`, both with the default build and with
+  `--without-syslog --enable-debug`.
+
+**Still to write:**
+- `AUTHINFO` with `file` auth, and `Read`/`PostTo` limits.
+- `NEXT`/`LAST`, `NEWGROUPS`, `LISTGROUP`.
+- Offline and semioffline options.
+- Several upstreams.
+- `newscacheclean` and `updatenews`.
+- Faults: slow upstream, connection dropped in the middle of an article.
+- `kill -9` of a child.
+- Later, the feature tests from `PLAN-new-features.md`.
+
+### Bugs found by the tests
+
+| ID | Bug | Where | Test |
+|---|---|---|---|
+| NC-1 | The access-denied reply ends in a bare LF, not CRLF: `502 You have no permission to talk.  Goodbye.\n` (both places, access list and libwrap) | `src/NewsCache.cc:1972`, `:2009` | `TestDenyReplyCRLF` |
+| NC-2 | `write(clt_fd, "400 too many users\r\n", 21)` sends 21 bytes from a 20-byte string, so a NUL byte reaches the client | `src/NewsCache.cc:2357` | `TestMaxConnections` |
+| NC-3 | An access entry for one exact host (`a.b.c.d/32`, `/255.255.255.255`, `/128`) never matches: `matchaddress()` returns `false` after all bytes compared equal. The man page's own example `Client 127.0.0.1/255.255.255.255` does not work | `src/AccessList.cc:69` | `TestAccessExactHost` |
+| NC-4 | **Security:** an access entry with an address and no mask (`Client 10.1.2.3`) matches *every* client of that address family, because `prefixlen` stays 0. A rule meant for one host opens the server to everyone | `src/AccessList.cc`, `readClient()` / `matchaddress()` | `TestAccessAddressWithoutMask` |
+| NC-5 | An upstream article without an `Xref:` header gives `423` to the client: `CServer::filter_xref` calls `getfield("xref:")`, which throws. RFC 3977 doesn't require Xref. Since `3081c4b` (2009) | `NServer-0.9.1/NServer.cc:1253` | `TestArticleWithoutXref` |
+| NC-6 | Log file timestamps show the previous month (`tm_mon` without `+ 1`) | `NVClasses-0.9.1/Logger.cc:61` | `TestLogTimestampMonth` (needs a `--without-syslog` build) |
+| NC-7 | `SIGHUP` with a broken config file kills the daemon: the reload in the accept loop doesn't catch `SyntaxError` | `src/NewsCache.cc`, `nntpd()` accept loop | `TestSIGHUPBadConfig` |
+
+Not bugs, but recorded in tests:
+- **The accept loop is fine.** It resets `errno` before `accept()`, so a
+  `SIGCHLD` doesn't drop the next connection (`TestAcceptAfterChildExit`).
+- **`ARTICLE <message-id>` is always forwarded upstream.** There is no
+  message-ID index for the spool, so only fetches by number are served from the
+  cache (`TestArticleByMessageIDGoesUpstream`).
+- **`BindFrom` and access-list addresses use `AI_ADDRCONFIG`.** They fail on a
+  host without a non-loopback address of that family.
 
 ### Why Go for the end-to-end tests
 
@@ -142,11 +180,14 @@ tests that need internal classes.
 
 ## 3. Order
 
-1. Phase 0a, one commit: `make check` passes.
-2. Phase 0b, NV databases and storage first (needed for `InlineArticleSize`).
-3. Phase 0c, harness and fake upstream, then the first tests.
-4. Install Go on the build host and add a CI workflow (GitHub Actions:
-   Ubuntu, with and without GnuTLS).
+1. Phase 0a: `make check` passes. Done.
+2. Phase 0c: harness and the first tests. Done. Go is installed on the build
+   host in `~newscache/sdk/go`.
+3. Fix NC-1 to NC-7, one commit each. Remove the `knownBug` line in the same
+   commit. NC-4 first (security), then NC-3, which is the same function.
+4. Phase 0b: NV databases and storage (needed for `InlineArticleSize`).
+5. The rest of phase 0c, and a CI workflow (GitHub Actions: Ubuntu, with and
+   without GnuTLS, with and without syslog).
 
 ## 4. Open questions
 
