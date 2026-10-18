@@ -1,8 +1,8 @@
 # Building NewsCache on Fedora
 
-Tested on Fedora 44 (x86_64, GCC 16.2, Go 1.26) on 2026-10-18, with the code
-from branch `fix-known-bugs` (version 1.3.16). The build uses the same compiler
-flags and `configure` options as Fedora's own package.
+Tested on Fedora 44 (x86_64, GCC 16.2, Go 1.26) on 2026-10-18 with release
+1.3.17, both from git and from the release tarball. The build uses the same
+compiler flags and `configure` options as Fedora's own package.
 
 Fedora's `newscache` package is still 1.2rc6 from 2004 (Herbert Straub's
 tarball plus the socket++ library). This tree is the later 1.3 line: IPv6,
@@ -24,6 +24,9 @@ sudo dnf install gcc-c++ make autoconf automake libtool \
   skips them.
 
 ## Build
+
+From a git checkout, run `./autogen` first. A release tarball
+(`NewsCache-1.3.17.tar.gz`) already has `configure`, so skip that step.
 
 ```sh
 ./autogen

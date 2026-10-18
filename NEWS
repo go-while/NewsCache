@@ -25,6 +25,9 @@ Bug fixes:
   (| instead of ||); the result was the same.
 * The sample newscache.conf-dist loads again: BindFrom only takes numeric
   addresses since the IPv6 support, and the sample used a host name.
+* make dist works again (a misspelled header name in NServer-0.9.1, there
+  since 1.2rc6), and make distcheck passes: the test programs are now
+  check_PROGRAMS, so make clean removes them.
 * configure.in carries the release version again; it still said 1.3.ipv6,
   so 1.3.16 greeted clients with "NewsCache 1.3.ipv6".
 

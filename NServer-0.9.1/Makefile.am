@@ -12,7 +12,7 @@ libnserver_a_SOURCES =		ActiveDB.cc\
 	Article.cc\
 	Article.h\
 	ArtSpooler.cc\
-	ArtSpoller.h\
+	ArtSpooler.h\
 	CNewsgroup.cc\
 	CNewsgroup.h\
 	GroupInfo.cc\
