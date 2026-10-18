@@ -54,7 +54,8 @@ class Authentication {
 	const std::string& getType (void);
 
 	/*
-	 * Returns the value of field with the number nr.
+	 * Returns the value of field with the number nr, or an empty
+	 * string if there is no such field.
 	 */
 	const std::string& getField(int nr);
 
@@ -205,8 +206,12 @@ inline const std::string& Authentication::getType (void)
 	}
 }
 
-inline const std::string& Authentication::getField(int nr) 
+inline const std::string& Authentication::getField(int nr)
 {
+	// Missing fields are empty, as in "unix" without ":list:read:...".
+	static const std::string empty;
+	if (nr < 0 || static_cast<std::size_t>(nr) >= fields.size())
+		return empty;
 	return fields[nr];
 }
 inline int Authentication::getNrOfFields (void)
