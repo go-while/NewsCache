@@ -13,6 +13,10 @@ This repository holds the complete history: Thomas Gschwind's original work,
 Herbert Straub's 1.x releases, and Christof Meerwald's IPv6/TLS branch
 (`1.3.ipv6`, maintained in Subversion until 2024). See [History](#history).
 
+Since 2026-10-18, NewsCache continues here, with Christof Meerwald's agreement.
+Releases start at 1.3.17 (see [`NEWS`](NEWS)). Report bugs at
+<https://github.com/go-while/NewsCache/issues>.
+
 > Most of the text below comes from the project's two original websites, which
 > are now offline:
 >
@@ -100,8 +104,12 @@ Tested on 2026-10-17:
 |---|---|---|
 | Ubuntu 24.04 | g++ 13.3 | builds, with GnuTLS |
 | Debian 13 | g++ 14.2 | builds with `--without-gnutls` |
+| Fedora 44 | g++ 16.2 | builds with GnuTLS, PAM and Fedora's hardened flags (2026-10-18); see [`FEDORA.md`](FEDORA.md) |
 
-Both builds produce compiler warnings, but no errors.
+All builds produce compiler warnings, but no errors.
+
+`make check` runs the unit tests and the end-to-end tests in
+[`tests/e2e`](tests/e2e) (Go, skipped when Go is not installed).
 
 - `texinfo` is required. Without `makeinfo`, `make` stops at the manual
   (`doc/NewsCache.texinfo`), even though the programs themselves have already
@@ -187,7 +195,7 @@ database files. The user manual is `doc/NewsCache.texinfo`.
 | 2000 to 2008 | Herbert Straub | Collected patches from 2000 and took over maintenance. Releases 0.99.22 and 1.1.x, then **1.2rc6** (2004-10-01). New authentication model with PAM, `newscacheclean`, packages for Debian, RPM and FreeBSD. In 2004-01 Thomas Gschwind handed the project over officially. |
 | 2008 to 2024 | Christof Meerwald | Started from the 1.2rc6 package (`1.2rc6-1cmeerw.2`) and developed `1.3.ipv6` in Subversion (<https://svn.cmeerw.net/newscache>), tags `1.3.ipv6` to `1.3.ipv6-11` (2011). Trunk continued until 2024 (GnuTLS fixes, systemd). |
 | 2013 | Herbert Straub | Imported 1.2rc6 to GitHub (<https://github.com/hstraub/NewsCache>). |
-| 2026 | this repo | Christof Meerwald's full SVN history placed on top of Herbert Straub's GitHub import. See [`.claude/CLAUDE.md`](.claude/CLAUDE.md). |
+| 2026 | this repo | Christof Meerwald's full SVN history placed on top of Herbert Straub's GitHub import. See [`.claude/CLAUDE.md`](.claude/CLAUDE.md). Tests and bug fixes; with Christof Meerwald's agreement, maintained here from release 1.3.17 on (Billy G.). |
 
 Tag `1.2rc6` in this repository is byte-identical to the original release tarball
 `NewsCache-1.2rc6.tar.gz` (MD5 `a7b33314cd7701564b4947ab8615dcc2`, SHA1

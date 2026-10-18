@@ -2,7 +2,8 @@
 
 These patches carry the fixes from this branch over to Christof Meerwald's
 Subversion trunk (https://svn.cmeerw.net/newscache, r80). They were sent to
-him on 2026-10-17.
+him on 2026-10-17. On 2026-10-18 he agreed that NewsCache continues in this
+repository, so they're kept for reference. They are all included in 1.3.17.
 
 | Patch | Change |
 |---|---|

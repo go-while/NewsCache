@@ -1,9 +1,10 @@
 Source: newscache
 Section: unknown
 Priority: optional
-Maintainer: Herbert Straub <herbert@linuxhacker.at>
+Maintainer: Billy G. <root@pugleaf.net>
 Build-Depends: debhelper (>= 9), libgnutls28-dev, libpam0g-dev, texinfo
 Standards-Version: 3.6.0
+Homepage: https://github.com/go-while/NewsCache
 
 Package: newscache
 Architecture: any

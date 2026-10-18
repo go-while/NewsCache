@@ -5,6 +5,6 @@ SUBDIRS = md5lib NVClasses-0.9.1 NServer-0.9.1 src man doc etc test
 ## Go end-to-end tests (tests/e2e); skipped when Go is not installed
 TESTS = tests/e2e/run.sh
 
-EXTRA_DIST = COPYRIGHT tests/e2e/run.sh tests/e2e/go.mod tests/e2e/go.sum \
+EXTRA_DIST = COPYRIGHT README.md FEDORA.md tests/e2e/run.sh tests/e2e/go.mod tests/e2e/go.sum \
 	tests/e2e/harness_test.go tests/e2e/reader_test.go \
 	tests/e2e/daemon_test.go tests/e2e/bugs_test.go

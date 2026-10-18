@@ -1,4 +1,9 @@
-Unreleased (go-while/NewsCache, branch fix-known-bugs):
+Release 1.3.17:
+Billy G. - 2026-10-18
+
+First release from https://github.com/go-while/NewsCache, which continues
+NewsCache with Christof Meerwald's agreement. It is SVN trunk r80 (1.3.16)
+plus the fixes and tests below.
 
 Bug fixes:
 * Access list: a Client entry with a plain IP address and no mask (for
@@ -20,8 +25,8 @@ Bug fixes:
   (| instead of ||); the result was the same.
 * The sample newscache.conf-dist loads again: BindFrom only takes numeric
   addresses since the IPv6 support, and the sample used a host name.
-* The version is 1.3.16, as in debian/changelog; configure.in still said
-  1.3.ipv6, so the server greeted clients with "NewsCache 1.3.ipv6".
+* configure.in carries the release version again; it still said 1.3.ipv6,
+  so 1.3.16 greeted clients with "NewsCache 1.3.ipv6".
 
 Tests:
 * make check passes again (cArticle, cNewsgroupFilter and cConfig were broken).
@@ -29,6 +34,11 @@ Tests:
   github.com/go-while/nntp-testkit) run the real newscache binary against a
   fake upstream server. make check runs them when Go is installed and skips
   them otherwise.
+
+Documentation:
+* README.md: project history, building, and a check of the old documentation.
+* FEDORA.md: building, testing and installing on Fedora, with a systemd unit
+  and a cleanup timer.
 
 Release 1.3.ipv6:
 Christof Meerwald

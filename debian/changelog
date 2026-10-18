@@ -1,3 +1,18 @@
+newscache (1.3.17-1) unstable; urgency=medium
+
+  * New maintainer; development continues at
+    https://github.com/go-while/NewsCache
+  * Access list: a Client entry with a plain address and no mask matched
+    every client; exact-host entries (/32, /128) never matched
+  * Keep the running config when a SIGHUP reload fails
+  * Accept upstream articles without an Xref header
+  * Fix the month in log file timestamps
+  * Protocol fixes: CRLF after the access-denied reply, no NUL byte after
+    "400 too many users"
+  * Fix make check and add end-to-end tests
+
+ -- Billy G. <root@pugleaf.net>  Sun, 18 Oct 2026 23:15:26 +0000
+
 newscache (1.3.16-1) unstable; urgency=medium
 
   * Added no-fork mode
