@@ -15,8 +15,9 @@ him on 2026-10-17.
 | 0007 | Accept upstream articles without an `Xref:` header |
 | 0008 | Optional: the Go end-to-end tests (`tests/e2e`) |
 | 0009 | `newscacheclean`: `\|\|` instead of `\|` in the article range check (read an uninitialized variable; same pattern as hstraub/NewsCache#1). Added after the mail of 2026-10-17 |
+| 0010 | Package version `1.3.16` in `configure.in`, as in `debian/changelog` (the greeting and `make dist` still said `1.3.ipv6`). Added after the mail of 2026-10-17 |
 
-0001 to 0007 and 0009 don't depend on 0008. The repo-only files (`.claude/`,
+0001 to 0007, 0009 and 0010 don't depend on 0008. The repo-only files (`.claude/`,
 `README.md`, `NEWS`, `PLAN-tests.md`) are not included.
 
 Apply to a git checkout of `trunk`:

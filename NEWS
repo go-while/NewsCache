@@ -20,6 +20,8 @@ Bug fixes:
   (| instead of ||); the result was the same.
 * The sample newscache.conf-dist loads again: BindFrom only takes numeric
   addresses since the IPv6 support, and the sample used a host name.
+* The version is 1.3.16, as in debian/changelog; configure.in still said
+  1.3.ipv6, so the server greeted clients with "NewsCache 1.3.ipv6".
 
 Tests:
 * make check passes again (cArticle, cNewsgroupFilter and cConfig were broken).

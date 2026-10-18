@@ -1,0 +1,31 @@
+From fe4e99defca96ebf535b6aafd6620e98cef6b9e8 Mon Sep 17 00:00:00 2001
+From: go-while <go-while@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:09:39 +0000
+Subject: [PATCH] Set the package version to 1.3.16, as in debian/changelog
+
+r80 renamed the Debian version from 1.3.ipv6-1~cmeerw.16 to 1.3.16-1,
+but configure.in still says 1.3.ipv6, which goes into VERSION. So the
+1.3.16 package greets clients with "200 NewsCache 1.3.ipv6, accepting
+NNRP commands", and "make dist" builds NewsCache-1.3.ipv6.tar.gz.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ configure.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/configure.in b/configure.in
+index bcf4dc1..5277b1b 100644
+--- a/configure.in
++++ b/configure.in
+@@ -5,7 +5,7 @@ dnl Specify a header configuration file
+ AM_CONFIG_HEADER(config.h)
+ 
+ dnl Initialize automake stuff
+-AM_INIT_AUTOMAKE(NewsCache, 1.3.ipv6)
++AM_INIT_AUTOMAKE(NewsCache, 1.3.16)
+ 
+ AC_DEFUN([AC_PROG_CXX_EXCEPTIONS],[])
+ 
+-- 
+2.47.3
+
