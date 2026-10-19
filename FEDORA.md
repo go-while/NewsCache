@@ -1,8 +1,9 @@
 # Building NewsCache on Fedora
 
-Tested on Fedora 44 (x86_64, GCC 16.2, Go 1.26) on 2026-10-18 with release
-1.3.17, both from git and from the release tarball. The build uses the same
-compiler flags and `configure` options as Fedora's own package.
+Tested on Fedora 43 (GCC 15.3, Go 1.26), 44 (GCC 16.2, Go 1.26) and 45
+(GCC 16.2, Go 1.27), all x86_64, on 2026-10-19, from git and from the release
+tarball. The build uses the same compiler flags and `configure` options as
+Fedora's own package. CI builds and tests on all three on every pull request.
 
 Fedora's `newscache` package is still 1.2rc6 from 2004 (Herbert Straub's
 tarball plus the socket++ library). This tree is the later 1.3 line: IPv6,
