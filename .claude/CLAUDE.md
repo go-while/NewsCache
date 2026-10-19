@@ -9,12 +9,12 @@ GnuTLS support and kept maintaining it in Subversion.
 - Upstream on GitHub: https://github.com/hstraub/NewsCache (Herbert Straub).
   This repo is a fork of it.
 - Christof Meerwald's Subversion repo: https://svn.cmeerw.net/newscache
-  (trunk/tags layout, single author `cmeerw`, r1 to r80, 2008 to 2024).
+  (trunk/tags layout, single author `cmeerw`, r1 to r81, 2008 to 2026).
 
 The `trunk` branch is built like this:
 
 1. Herbert Straub's commit `0b3c863` ("First commit of Version 1.2rc6") is the root.
-2. SVN r4 to r80 of cmeerw's trunk sit on top of it, imported with `git svn`.
+2. SVN r4 to r81 of cmeerw's trunk sit on top of it, imported with `git svn`.
    Each commit keeps its exact tree, author, dates and message, including the
    `git-svn-id:` trailer.
 3. SVN r1 (empty "created directory structure") and r2 ("importing 1.2rc6") were
@@ -27,7 +27,10 @@ the original tagger and date. Their trees are identical to the SVN tags.
 ## Maintenance since 2026
 
 On 2026-10-18 Christof Meerwald agreed that NewsCache continues in this
-repository. SVN is frozen at r80 (2024-01-03). This repo is now the upstream.
+repository. This repo is now the upstream. SVN's last code change is r80
+(2024-01-03); r81 (2026-10-19) only adds an "Archived" note to `README`
+pointing here, and his project page https://dev.cmeerw.org/Projects/newscache
+says the same.
 
 - Releases are tagged on `main` with plain version numbers, starting with
   `1.3.17` (annotated tag, no `v` prefix). The maintainer is
