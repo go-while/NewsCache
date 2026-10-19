@@ -24,7 +24,7 @@ int checkArticle(const char *artfn)
 	ofstream os;
 	Article *art2;
 
-	sprintf(buf, "%s.in", artfn);
+	snprintf(buf, sizeof(buf), "%s.in", artfn);
 	is.open(buf);
 	art1.read(is);
 	is.close();
@@ -42,13 +42,12 @@ int checkArticle(const char *artfn)
 	if (la1 != art1.length() || la1 != art2->length())
 		return -22;
 
-	strcpy(buf, artfn);
-	strcat(buf, ".out");
+	snprintf(buf, sizeof(buf), "%s.out", artfn);
 	os.open(buf);
 	art2->write(os);
 	os.close();
 
-	sprintf(buf, "%s.in", artfn);
+	snprintf(buf, sizeof(buf), "%s.in", artfn);
 	is.open(buf);
 	art1.read(is);
 	is.close();

@@ -69,12 +69,12 @@ int checkConvertArtOver(const char *artfn)
 	OverviewFmt o;
 	string orec1, orec2;
 
-	sprintf(buf, "%s.in", artfn);
+	snprintf(buf, sizeof(buf), "%s.in", artfn);
 	is.open(buf);
 	art.read(is);
 	is.close();
 
-	sprintf(buf, "%s.over.in", artfn);
+	snprintf(buf, sizeof(buf), "%s.over.in", artfn);
 	is.open(buf);
 	nlreadline(is, orec2, 0);
 	is.close();
