@@ -40,6 +40,13 @@ says the same.
 - 1.3.16 exists only as a `debian/changelog` entry in r80. SVN never tagged it,
   so there is no tag for it here either. Tags `1.3.ipv6-*` stop at 2011, but the
   changelog went on to `1.3.ipv6-1~cmeerw.15` (2022) and `1.3.16-1` (2024).
+- GitHub rulesets (2026-10-19): only repository admins can push to `trunk`
+  (for the SVN sync). Force pushes and deletion are blocked on `main` and
+  `trunk` for everyone, and tags matching `1.*` can't be moved or deleted.
+  Release immutability is on, so a published release's files are final:
+  build and check the tarball before publishing.
+- Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
+  `main` or pull requests, not `trunk`.
 - `patches/svn-r80/` holds the fixes as patches against r80, as sent to
   Christof Meerwald on 2026-10-17. They're kept for reference.
 
