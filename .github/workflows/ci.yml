@@ -1,0 +1,136 @@
+# Build and test: make check (C++ unit tests and the Go end-to-end tests in
+# tests/e2e) on Ubuntu in three configurations, and on Fedora with Fedora's
+# packaging flags. The default Ubuntu job also runs make distcheck.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ubuntu:
+    name: Ubuntu (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            configure: --with-pam
+            distcheck: true
+          - name: file log, debug
+            configure: --without-syslog --enable-debug
+          - name: AddressSanitizer
+            configure: --with-pam
+            cxxflags: -g -O1 -fsanitize=address -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS
+            ldflags: -fsanitize=address
+    env:
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache-dependency-path: tests/e2e/go.sum
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev
+
+      - name: Configure
+        env:
+          CXXFLAGS: ${{ matrix.cxxflags || '-g -O2' }}
+          LDFLAGS: ${{ matrix.ldflags }}
+          CONFIGURE_FLAGS: ${{ matrix.configure }}
+        run: |
+          ./autogen
+          # Word splitting of the flags is intended.
+          # shellcheck disable=SC2086
+          ./configure $CONFIGURE_FLAGS
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: make check
+        run: make check
+
+      - name: Check that the e2e tests ran
+        # run.sh exits 77 (skipped) without Go; in CI that must fail.
+        run: |
+          grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
+
+      - name: e2e tests with the race detector
+        if: matrix.name == 'default'
+        working-directory: tests/e2e
+        run: NEWSCACHE_BIN="$GITHUB_WORKSPACE/src/newscache" go test -race -count=1 ./...
+
+      - name: make distcheck
+        if: matrix.distcheck
+        # No TeX on the runner: skip the DVI manual.
+        run: make distcheck TEXI2DVI=true
+
+      - name: Show test logs
+        if: failure()
+        run: |
+          find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
+            while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
+
+  fedora:
+    name: Fedora 44 (rpm flags)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: fedora:44
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y -q install gcc-c++ make autoconf automake libtool \
+            gnutls-devel pam-devel libxcrypt-devel texinfo \
+            redhat-rpm-config golang
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: |
+          CFLAGS="$(rpm --eval %optflags)"
+          CXXFLAGS="$CFLAGS"
+          LDFLAGS="$(rpm --eval %build_ldflags)"
+          export CFLAGS CXXFLAGS LDFLAGS
+          ./autogen
+          ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --with-pam
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: make check
+        run: make check
+
+      - name: Check that the e2e tests ran
+        run: |
+          grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
+
+      - name: Show test logs
+        if: failure()
+        run: |
+          find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
+            while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
