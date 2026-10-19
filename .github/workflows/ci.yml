@@ -1,6 +1,7 @@
 # Build and test: make check (C++ unit tests and the Go end-to-end tests in
-# tests/e2e) on Ubuntu in three configurations, and on Fedora with Fedora's
-# packaging flags. The default Ubuntu job also runs make distcheck.
+# tests/e2e) on Ubuntu in three configurations, and on Fedora 43, 44 and 45
+# with Fedora's packaging flags. The default Ubuntu job also runs make
+# distcheck.
 
 name: CI
 
@@ -94,10 +95,14 @@ jobs:
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
 
   fedora:
-    name: Fedora 44 (rpm flags)
+    name: Fedora ${{ matrix.release }} (rpm flags)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['43', '44', '45']
+    container: fedora:${{ matrix.release }}
     steps:
       - name: Install build dependencies
         run: |
