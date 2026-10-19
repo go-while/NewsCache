@@ -13,10 +13,13 @@ Bug fixes:
   stack buffer (and gave a wrong hash). It now uses uint32_t. Affects every
   release since at least 1.2rc6 on 64-bit systems; crypt() hashes such as
   $6$ were not affected. Found by CodeQL.
+* DATE and NEWGROUPS use gmtime_r/localtime_r, and NEWGROUPS checks their
+  result instead of dereferencing a NULL pointer on failure.
 
 Tests:
 * End-to-end tests for file authentication: a short auth-file line, an MD5
   hash, and a wrong password.
+* End-to-end tests for DATE and NEWGROUPS.
 
 Release 1.3.17:
 Billy G. - 2026-10-18

@@ -258,3 +258,42 @@ func containsLine(lines []string, want string) bool {
 	}
 	return false
 }
+
+// TestDate: DATE answers 111 with the current UTC time as yyyymmddhhmmss.
+func TestDate(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+	code, line := c.Cmd("DATE")
+	if code != 111 {
+		t.Fatalf("DATE: %q, want 111", line)
+	}
+	f := strings.Fields(line)
+	if len(f) != 2 {
+		t.Fatalf("DATE: %q, want 111 yyyymmddhhmmss", line)
+	}
+	got, err := time.Parse("20060102150405", f[1])
+	if err != nil {
+		t.Fatalf("DATE: %q: %v", line, err)
+	}
+	if d := time.Since(got); d < -time.Minute || d > time.Minute {
+		t.Errorf("DATE: %q is %v away from now", line, d)
+	}
+}
+
+// TestNewgroups: NEWGROUPS with a two-digit year (local time and GMT) and a
+// four-digit year answers 231 and a list.
+func TestNewgroups(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	for _, args := range []string{"260101 000000", "260101 000000 GMT", "20260101 000000 GMT"} {
+		code, line := c.Cmd("NEWGROUPS %s", args)
+		if code != 231 {
+			t.Fatalf("NEWGROUPS %s: %q, want 231", args, line)
+		}
+		c.ReadDotLines()
+	}
+	if code, line := c.Cmd("NEWGROUPS 2601 000000"); code != 501 {
+		t.Errorf("NEWGROUPS with a bad date: %q, want 501", line)
+	}
+}

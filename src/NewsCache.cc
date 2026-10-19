@@ -1100,7 +1100,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
  */
 int ns_date(ClientData * clt, int argc, char *argv[])
 {
-	struct tm *ltm;
+	struct tm *ltm, tmbuf;
 	time_t conv;
 	char buf[256];
 
@@ -1109,7 +1109,7 @@ int ns_date(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	time(&conv);
-	if ((ltm = gmtime(&conv)) == NULL) {
+	if ((ltm = gmtime_r(&conv, &tmbuf)) == NULL) {
 		(*clt->co) << "500 gmtime failed\r\n";
 		slog.p(Logger::Error) << "ns_date() gmtime failed\n";
 		return -1;
@@ -1514,7 +1514,7 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 		ltm.tm_year = i * 100 + DD2INT(p) - 1900;
 		p += 2;
 	} else {
-		struct tm *now;
+		struct tm *now, nowbuf;
 		int yr;
 
 		// draft-ietf-nntpext-base-04.txt:
@@ -1523,7 +1523,9 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 		// is smaller than or equal to the current year,
 		// otherwise the year is from the previous century.
 		time(&lt);
-		now = is_gmt ? gmtime(&lt) : localtime(&lt);
+		now = is_gmt ? gmtime_r(&lt, &nowbuf) : localtime_r(&lt, &nowbuf);
+		if (now == NULL)
+			goto ns_newgroups_error;
 		yr = now->tm_year % 100;
 
 		ltm.tm_year = DD2INT(p);
@@ -1556,10 +1558,12 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 		lt -= timezone;
 	}
 #else
-	struct tm *plt;
+	struct tm *plt, pltbuf;
 
 	time(&lt);
-	plt = localtime(&lt);
+	plt = localtime_r(&lt, &pltbuf);
+	if (plt == NULL)
+		goto ns_newgroups_error;
 
 	ltm.tm_isdst = plt->tm_isdst;
 	ltm.tm_gmtoff = plt->tm_gmtoff;
