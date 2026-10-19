@@ -45,6 +45,12 @@ says the same.
   `trunk` for everyone, and tags matching `1.*` can't be moved or deleted.
   Release immutability is on, so a published release's files are final:
   build and check the tarball before publishing.
+- Merging into `main` requires the CI checks (Ubuntu default, file log,
+  AddressSanitizer; Fedora 43/44/45) and CodeQL (`Analyze (c-cpp)`,
+  `Analyze (actions)`) to pass. Repository admins are exempt, so release
+  commits and `trunk` merges can still be pushed directly. If a job is
+  renamed in a workflow, update the ruleset too, or PRs wait for a check
+  that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
   `main` or pull requests, not `trunk`.
 - `patches/svn-r80/` holds the fixes as patches against r80, as sent to
