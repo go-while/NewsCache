@@ -2656,7 +2656,7 @@ int main(int argc, char **argv)
 
 	try {
 		Cfg.read(config_file);
-		strcpy(nntp_hostname, Cfg.Hostname);
+		snprintf(nntp_hostname, sizeof(nntp_hostname), "%s", Cfg.Hostname);
 	}
 	catch(const IOError & io) {
 		cerr << "unexpected EOF in " << config_file << "\n";

@@ -37,6 +37,13 @@ extern int matchgroup(const char *pattern, const char *group);
  *
  * \return The FQDN
  */
+/* Room for a fully qualified domain name, which DNS allows up to 253
+ * characters long. MAXHOSTNAMELEN (64) is only the limit for the kernel
+ * host name, not for the name the resolver returns. */
+#define FQDN_BUFSIZE 256
+
+/* The host's fully qualified domain name, truncated to FQDN_BUFSIZE - 1
+ * characters, or NULL if uname() fails. */
 extern const char *getfqdn(void);
 
 #endif

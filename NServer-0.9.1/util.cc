@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <string.h>
@@ -119,7 +120,7 @@ int matchgroup(const char *pattern, const char *group)
 
 const char *getfqdn(void)
 {
-	static char primary_hostname[MAXHOSTNAMELEN];
+	static char primary_hostname[FQDN_BUFSIZE];
 	struct utsname uts;
 	struct hostent *host;
 
@@ -127,9 +128,11 @@ const char *getfqdn(void)
 		return NULL;	// failed
 	if (strchr(uts.nodename, '.') == NULL &&
 	    (host = gethostbyname(uts.nodename)) != NULL) {
-		strcpy(primary_hostname, (char *) host->h_name);
+		snprintf(primary_hostname, sizeof(primary_hostname), "%s",
+			 host->h_name);
 	} else {
-		strcpy(primary_hostname, uts.nodename);
+		snprintf(primary_hostname, sizeof(primary_hostname), "%s",
+			 uts.nodename);
 	}
 
 	return primary_hostname;

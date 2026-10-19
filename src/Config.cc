@@ -52,7 +52,8 @@ void Config::init(void)
 	strcpy(Admin, "notset");
 
 	ServerType = standalone;
-	strcpy(Hostname, getfqdn());
+	const char *fqdn = getfqdn();
+	snprintf(Hostname, sizeof(Hostname), "%s", fqdn ? fqdn : "localhost");
 	CachePort[0] = '\0';
 	strcpy (ListenTo, "DEFAULT");
 

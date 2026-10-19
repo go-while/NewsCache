@@ -1,3 +1,19 @@
+Unreleased:
+
+Bug fixes:
+* NewsCache crashed at startup ("buffer overflow detected" with
+  _FORTIFY_SOURCE, memory corruption without) on hosts whose fully
+  qualified domain name is 64 characters or longer, as on cloud VMs such
+  as GitHub's runners. The host name buffers were MAXHOSTNAMELEN (64)
+  bytes, which is the kernel host name limit, not the DNS limit; they are
+  now 256 bytes and the copies are bounded. Found by the new CI.
+
+Other changes:
+* CI (.github/workflows/ci.yml): make check on Ubuntu (default with the
+  race detector and make distcheck, file logging with debug, and
+  AddressSanitizer) and on Fedora 43, 44 and 45 with Fedora's packaging
+  flags.
+
 Release 1.3.18:
 Billy G. - 2026-10-19
 

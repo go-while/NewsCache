@@ -54,7 +54,7 @@ class CServer;
 
 /* NServer parent-class, RServer and LServer child-classes.
  */
-extern char nntp_hostname[MAXHOSTNAMELEN];
+extern char nntp_hostname[FQDN_BUFSIZE];
 extern char nntp_posting_host[MAXHOSTNAMELEN];
 
 #ifdef EXP
