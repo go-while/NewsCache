@@ -36,7 +36,9 @@ says the same.
   `1.3.17` (annotated tag, no `v` prefix). The maintainer is
   Billy G. <root@pugleaf.net>.
 - For a release, set the version in `configure.in` (`AM_INIT_AUTOMAKE`), add a
-  `debian/changelog` entry and a NEWS section.
+  `debian/changelog` entry and a NEWS section, on a branch with a pull request.
+  After it is merged, tag the merge commit on `main` (tags aren't blocked by
+  the pull-request rule) and push the tag.
 - 1.3.16 exists only as a `debian/changelog` entry in r80. SVN never tagged it,
   so there is no tag for it here either. Tags `1.3.ipv6-*` stop at 2011, but the
   changelog went on to `1.3.ipv6-1~cmeerw.15` (2022) and `1.3.16-1` (2024).
@@ -45,12 +47,12 @@ says the same.
   `trunk` for everyone, and tags matching `1.*` can't be moved or deleted.
   Release immutability is on, so a published release's files are final:
   build and check the tarball before publishing.
-- Merging into `main` requires the CI checks (Ubuntu default, file log,
-  AddressSanitizer; Fedora 43/44/45) and CodeQL (`Analyze (c-cpp)`,
-  `Analyze (actions)`) to pass. Repository admins are exempt, so release
-  commits and `trunk` merges can still be pushed directly. If a job is
-  renamed in a workflow, update the ruleset too, or PRs wait for a check
-  that never reports.
+- Every change to `main` goes through a pull request, for everyone, with no
+  exemption. The CI checks (Ubuntu default, file log, AddressSanitizer;
+  Fedora 43/44/45) and CodeQL (`Analyze (c-cpp)`, `Analyze (actions)`) must
+  pass; no approving review is needed. A direct `git push` to `main` is
+  rejected. If a job is renamed in a workflow, update the ruleset too, or PRs
+  wait for a check that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
   `main` or pull requests, not `trunk`.
 - `patches/svn-r80/` holds the fixes as patches against r80, as sent to
@@ -64,7 +66,8 @@ and is not part of `trunk`.
 - `trunk`: a pure mirror of cmeerw's SVN trunk. Never commit to it by hand;
   only `git svn` writes to it. If you add commits there, every sync rewrites them.
 - `main` (default): the maintained line, `trunk` plus fixes, tests and docs.
-  Work happens here. Merge `trunk` in if SVN ever gets new commits.
+  Changes arrive by pull request from work branches. If SVN ever gets new
+  commits, `trunk` is merged in by pull request too.
 - `master`, `V1.2rc6`: hstraub's original branches, kept for reference.
 
 ## Syncing new SVN commits
@@ -83,7 +86,10 @@ Then, for each sync:
 
 ```sh
 git switch trunk && git svn rebase && git push origin trunk
-git switch main  && git merge trunk && git push origin main
 ```
+
+Then open a pull request from `trunk` into `main` and merge it with a merge
+commit once the checks pass. Don't rebase or squash it: `trunk`'s commits must
+stay unchanged in `main`'s history.
 
 Run `git svn rebase` only on `trunk`. On `main` it would rewrite main's own commits.
