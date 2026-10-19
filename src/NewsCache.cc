@@ -117,7 +117,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 
 #include "util.h"
 #include "setugid.h"
-#include "Config.h"
+#include "NewsCacheConfig.h"
 #include "Logger.h"
 #include "sockstream.h"
 

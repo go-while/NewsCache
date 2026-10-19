@@ -4,6 +4,14 @@ Other changes:
 * NVClasses: NVlist.{h,cc} is now NVListBase.{h,cc} (class NVListBase).
   NVlist.h and NVList.h clashed on case-insensitive file systems, so
   checkouts on Windows and macOS were broken. The spool format is unchanged.
+* src/Config.{h,cc} is now src/NewsCacheConfig.{h,cc} (the class is still
+  Config). On case-insensitive file systems, #include "config.h" in src/
+  found src/Config.h instead of the header that configure generates.
+* NewsCache builds on macOS: configure checks for crypt.h (macOS and the
+  BSDs declare crypt() in unistd.h), and wildmat.c no longer uses a K&R
+  function definition, which C23 compilers such as Xcode's clang reject.
+* CI: build and make check on macOS, and a check on Windows and macOS that
+  the tree checks out cleanly on a case-insensitive file system.
 
 Release 1.3.19:
 Billy G. - 2026-10-19

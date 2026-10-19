@@ -1,5 +1,5 @@
-#ifndef __Config_h__
-#define __Config_h__
+#ifndef __NewsCacheConfig_h__
+#define __NewsCacheConfig_h__
 
 /* Copyright Th Gschwind 1996, 1997 */
 #include <sys/param.h>
