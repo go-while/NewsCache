@@ -1,14 +1,14 @@
 #ifndef MD5_H
 #define MD5_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-#ifdef __alpha
-	typedef unsigned int uint32;
-#else
-	typedef unsigned long uint32;
-#endif
+	/* Exactly 32 bits. This was unsigned long, which is 64 bits on
+	 * 64-bit systems and broke the MD5 code there. */
+	typedef uint32_t uint32;
 
 	struct MD5Context {
 		uint32 buf[4];
