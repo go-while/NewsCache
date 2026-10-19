@@ -17,8 +17,8 @@ libnvcontainer_a_SOURCES =	Error.h\
 	NVList.h\
 	NVcontainer.cc\
 	NVcontainer.h\
-	NVlist.cc\
-	NVlist.h\
+	NVListBase.cc\
+	NVListBase.h\
 	Debug.h
 
 #EXTRA_DIST = checks
@@ -27,7 +27,7 @@ libnvcontainer_a_SOURCES =	Error.h\
 #
 #SRC=*.cc
 #
-#OBJS=Logger.o NVcontainer.o NVlist.o NVList.o NVHash.o NVArray.o
+#OBJS=Logger.o NVcontainer.o NVListBase.o NVList.o NVHash.o NVArray.o
 #
 #all: nvcontainer.a
 #

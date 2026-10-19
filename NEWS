@@ -1,3 +1,10 @@
+Unreleased:
+
+Other changes:
+* NVClasses: NVlist.{h,cc} is now NVListBase.{h,cc} (class NVListBase).
+  NVlist.h and NVList.h clashed on case-insensitive file systems, so
+  checkouts on Windows and macOS were broken. The spool format is unchanged.
+
 Release 1.3.19:
 Billy G. - 2026-10-19
 

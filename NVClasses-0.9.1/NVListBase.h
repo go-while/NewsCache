@@ -1,22 +1,25 @@
-#ifndef _NVlist_h_
-#define _NVlist_h_
+#ifndef _NVListBase_h_
+#define _NVListBase_h_
 
 #include"NVcontainer.h"
 
 #include<iostream>
 
 /**
- * \class NVlist
+ * \class NVListBase
  * \author Thomas Gschwind
  *
- * \bug Documentation is missing.
+ * Base class of NVList and NVHash: singly linked lists of records in an
+ * NVcontainer, addressed by their offset (root pointer at proot).
+ * Called NVlist up to 1.3.19; renamed because NVlist.h and NVList.h
+ * clash on case-insensitive file systems.
  */
-class NVlist:public NVcontainer {
+class NVListBase:public NVcontainer {
   protected:
-	NVlist(void):NVcontainer()
+	NVListBase(void):NVcontainer()
 	{ }
 
-	NVlist(const char *dbname, int flags = 0)
+	NVListBase(const char *dbname, int flags = 0)
 		: NVcontainer(dbname, flags)
 	{ }
 

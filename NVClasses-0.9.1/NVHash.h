@@ -1,7 +1,7 @@
 #ifndef _NVHash_h_
 #define _NVHash_h_
 
-#include"NVlist.h"
+#include"NVListBase.h"
 
 /* NVContainer Class Library */
 class NVHash;
@@ -12,7 +12,7 @@ class NVHashIter;
  * \author Thomas Gschwind
  * \bug Documentation is missing.
  */
-class NVHash:public NVlist {
+class NVHash:public NVListBase {
 	friend class NVHashIter;
 
   protected:
@@ -26,7 +26,7 @@ class NVHash:public NVlist {
 	void sprint(std::ostream & os);
 
   public:
-	NVHash():NVlist()
+	NVHash():NVListBase()
 	{ }
 
 	NVHash(const char *dbname, unsigned long hashsz = 97, int flags = 0);
