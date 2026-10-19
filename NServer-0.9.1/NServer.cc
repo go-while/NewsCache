@@ -53,7 +53,7 @@ using namespace std;
                                  (reply)[1]==(code)[1] && \
                                  (reply)[2]==(code)[2])
 
-char nntp_hostname[MAXHOSTNAMELEN];
+char nntp_hostname[FQDN_BUFSIZE];
 char nntp_posting_host[MAXHOSTNAMELEN];
 
 //********************
@@ -63,7 +63,9 @@ NServer::NServer()
 {
 	VERB(slog.p(Logger::Debug) << "NServer::NServer()\n");
 	if (nntp_hostname[0] == '\0') {
-		strcpy(nntp_hostname, getfqdn());
+		const char *fqdn = getfqdn();
+		snprintf(nntp_hostname, sizeof(nntp_hostname), "%s",
+			 fqdn ? fqdn : "localhost");
 	}
 	slog.p(Logger::Debug) << "NServer::NServer() hostname set to: "
 	    << nntp_hostname << "\n";

@@ -27,7 +27,7 @@ class Config {
 
 	enum { inetd, standalone };
 	int ServerType;
-	char Hostname[MAXHOSTNAMELEN];
+	char Hostname[FQDN_BUFSIZE];
 	char CachePort[256];
 	char ListenTo[MAXHOSTNAMELEN];
 
