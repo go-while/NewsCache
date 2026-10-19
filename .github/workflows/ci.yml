@@ -172,6 +172,15 @@ jobs:
             echo "$clashes"
             exit 1
           fi
+          # Headers are found through -I paths across directories, so their
+          # names (and configure's config.h) must differ in more than case.
+          headers=$({ git ls-files '*.h' | xargs -n1 basename; echo config.h; } |
+            sort -u | awk '{ l = tolower($0); if (l in s) print s[l] " and " $0; s[l] = $0 }')
+          if [ -n "$headers" ]; then
+            echo "::error::Header names that differ only in case:"
+            echo "$headers"
+            exit 1
+          fi
 
       - name: Working tree matches the commit
         # A clash shows up here as a modified file after the checkout.
