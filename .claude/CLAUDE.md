@@ -55,8 +55,11 @@ says the same.
   wait for a check that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
   `main` or pull requests, not `trunk`.
-- `patches/svn-r80/` holds the fixes as patches against r80, as sent to
-  Christof Meerwald on 2026-10-17. They're kept for reference.
+- Branch `patches-r80` holds the fixes sent to Christof Meerwald as patches
+  against SVN r80: 10 commits on top of `trunk` at r80 (`f72f616`); 0001-0008
+  went out on 2026-10-17, 0009 and 0010 were added later. All are in 1.3.17.
+  It is kept for reference; `git format-patch f72f616..patches-r80` recreates
+  the patch files. Don't rebase it.
 
 hstraub's later "Update URL's" commit (`10096ff`, README only) is on `master`
 and is not part of `trunk`.
