@@ -3,12 +3,14 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 // secretHash is crypt("secret") with SHA-512 ($6$), which glibc and libxcrypt
-// both support.
+// support. macOS's crypt() only does DES, so tests that need the system
+// crypt() skip there; the others use md5Hash, which NewsCache checks itself.
 const secretHash = "$6$e2esalt$14AiApLt4fjJwCUoL7cnR2lk2Ud56tWQGtode.8FL5VjLppQrOdD3JEfiWos6RfNwB/lVvP23URi3Hjp4dxnx0"
 
 // authFileEnv returns an env whose inetd client must log in against an auth
@@ -43,7 +45,7 @@ func authFileEnv(t *testing.T, lines ...string) *env {
 // List field is valid. The Read, PostTo and flags fields are missing, and
 // reading them must not run past the end of the field list.
 func TestAuthFileShortLine(t *testing.T) {
-	e := authFileEnv(t, "tester:"+secretHash+":*")
+	e := authFileEnv(t, "tester:"+md5Hash+":*")
 	c := e.session()
 	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
@@ -82,6 +84,22 @@ func TestAuthFileMD5Hash(t *testing.T) {
 	}
 }
 
+// TestAuthFileCryptHash: a login against a crypt() hash from the system's
+// crypt library.
+func TestAuthFileCryptHash(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS crypt() has no SHA-512 ($6$)")
+	}
+	e := authFileEnv(t, "tester:"+secretHash+":*:*:*:")
+	c := e.session()
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+}
+
 // TestAuthFileWrongPassword: a wrong password is refused. NewsCache waits
 // 15 s per failed attempt before it answers, so this test is slow.
 func TestAuthFileWrongPassword(t *testing.T) {
@@ -89,7 +107,7 @@ func TestAuthFileWrongPassword(t *testing.T) {
 		t.Skip("waits 15 s for the auth failure delay")
 	}
 	t.Parallel()
-	e := authFileEnv(t, "tester:"+secretHash+":*:*:*:")
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	c := e.session()
 	c.Deadline = 30 * time.Second
 	c.Cmd("AUTHINFO USER tester")
