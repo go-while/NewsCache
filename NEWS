@@ -1,4 +1,5 @@
-Unreleased:
+Release 1.3.19:
+Billy G. - 2026-10-19
 
 Bug fixes:
 * NewsCache crashed at startup ("buffer overflow detected" with
@@ -13,6 +14,8 @@ Other changes:
   race detector and make distcheck, file logging with debug, and
   AddressSanitizer) and on Fedora 43, 44 and 45 with Fedora's packaging
   flags.
+* README: says that NewsCache is developed on GitHub and that the
+  Subversion repository is archived (SVN r81 added a note there).
 
 Release 1.3.18:
 Billy G. - 2026-10-19
