@@ -175,7 +175,7 @@ dnl ****************************************************************
 
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS(fcntl.h limits.h shadow.h sys/file.h syslog.h unistd.h tcpd.h sstream getopt.h)
+AC_CHECK_HEADERS(crypt.h fcntl.h limits.h shadow.h sys/file.h syslog.h unistd.h tcpd.h sstream getopt.h)
 if eval "test x${with_pam+set} = xset"; then
 	 AC_CHECK_HEADERS(security/pam_appl.h)
 	 if test $ac_cv_header_security_pam_appl_h = no; then

@@ -24,8 +24,8 @@
  */
 #include "config.h"
 
-#if !(defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__bsdi__))
-#include <crypt.h>
+#ifdef HAVE_CRYPT_H
+#include <crypt.h>	/* elsewhere (BSD, macOS) crypt() is in unistd.h */
 #endif
 #include <ctype.h>
 #include <unistd.h>
