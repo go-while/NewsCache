@@ -145,17 +145,19 @@ AccessList {
   }
 }
 NewsServerList {
-  Server news.example.org nntp {
+  Server news.blueworldhosting.com 563 {
     Read *
     PostTo *
     GroupTimeout 300
+    Options ssl
   }
 }
 ```
 
-Replace `news.example.org` with your upstream server, and see
-`newscache.conf(5)` for authentication (`User`, `Password`) and TLS. Check the
-file with:
+news.blueworldhosting.com is a free server that needs no account. For plain
+NNTP, use port `nntp` (119) and leave out `Options ssl`. README.md lists other
+public servers; see `newscache.conf(5)` for authentication (`User`,
+`Password`). Check the file with:
 
 ```sh
 newscache -c /etc/newscache.conf -p

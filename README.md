@@ -164,6 +164,23 @@ installed as `newscache.conf-dist` (source:
     the manual page documents it.
 - **`Timeouts`:** how long the active and newsgroups lists stay valid.
 
+### Public news servers
+
+These servers need no payment. All answer on port 119 (NNTP) and 563 (NNTP
+over TLS, `Options ssl`); checked on 2026-10-20.
+
+| Server | Reading | Posting |
+|---|---|---|
+| `news.blueworldhosting.com` | open | yes |
+| `archive.usenet.blueworldhosting.com` | open, old articles | no |
+| `news.eternal-september.org` | free account (`User`/`Password`) | yes |
+| `news-{ams,can,fra,lax,lon,sfo,sin,tyo,wdc}.pugleaf.net`, see <https://pugleaf.net/> | open, text only | no |
+
+The sample configuration uses `news.blueworldhosting.com` on port 563.
+NewsCache doesn't verify the server's TLS certificate yet (see
+[`REVIEW.md`](REVIEW.md)), so TLS protects against eavesdropping but not
+against a man-in-the-middle.
+
 ## Running
 
 - **systemd:** [`debian/newscache.service`](debian/newscache.service) runs
