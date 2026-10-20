@@ -1,3 +1,12 @@
+Unreleased:
+
+Other changes:
+* Dockerfile for Docker and Podman (also Docker Desktop and Podman Desktop on
+  Windows): builds on Ubuntu 24.04, runs as user news in the foreground,
+  logs to the container output, and has a default config that reads from
+  news.blueworldhosting.com over TLS. CI builds the image and connects to it.
+* README.md: how to run NewsCache in a container and on Windows (WSL 2).
+
 Release 1.3.20:
 Billy G. - 2026-10-20
 

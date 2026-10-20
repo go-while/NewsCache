@@ -1,0 +1,14 @@
+.git
+.github
+**/*.o
+**/*.a
+**/.deps
+Makefile
+config.h
+config.log
+config.status
+stamp-h1
+src/newscache
+src/newscacheclean
+src/updatenews
+tests/e2e/*.test

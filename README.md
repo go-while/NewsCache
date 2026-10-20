@@ -201,6 +201,41 @@ More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
 database files. The user manual is `doc/NewsCache.texinfo`.
 
+### In a container (Docker or Podman)
+
+The [`Dockerfile`](Dockerfile) builds NewsCache on Ubuntu 24.04 and runs it in
+the foreground as user `news`, with the log on the container's output:
+
+```sh
+docker build -t newscache .
+docker run -d --name newscache -p 119:119 \
+    -v newscache-spool:/var/cache/newscache newscache
+docker logs -f newscache
+```
+
+With Podman, use `podman` instead of `docker`. The built-in config
+([`docker/newscache.conf`](docker/newscache.conf)) reads from
+`news.blueworldhosting.com` over TLS and lets clients from loopback and
+private networks read and post. Mount your own config with
+`-v /path/to/newscache.conf:/etc/newscache.conf:ro`. A container has no cron,
+so purge the spool now and then with `docker exec newscache newscacheclean`,
+for example from the host's cron.
+
+### On Windows
+
+NewsCache needs a Unix system (it uses `fork`, Unix signals and user
+switching), so it doesn't build natively on Windows. Two ways to run it there:
+
+- **WSL 2:** install Ubuntu (or Fedora) in WSL and build it as described in
+  [Building](#building). To run it as a service, enable systemd in WSL
+  (`[boot]` `systemd=true` in `/etc/wsl.conf`) and use the unit from
+  [`FEDORA.md`](FEDORA.md). WSL 2 forwards `localhost`, so Windows news
+  readers can use `localhost:119`.
+- **Docker Desktop or Podman Desktop:** the container image above.
+
+The container image is built and tested in CI; the WSL steps have not been
+tested on Windows yet.
+
 ## Known restrictions
 
 - **No UTF-8 in wildmat patterns.** Newsgroup patterns are matched byte by
