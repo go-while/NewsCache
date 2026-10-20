@@ -7,7 +7,7 @@ is.
 
 ## How it works
 
-- Pick an area from the table below and set its status to "in progress".
+- Start with area 0, then pick an area from the table below and set its status to "in progress".
 - Each finding gets its own branch from `main`, named `fix/<topic>`, and one
   pull request with a test where possible. Don't collect unrelated fixes on
   one branch.
@@ -22,6 +22,7 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 
 | # | Area | Files | Lines | What to look at | Status |
 |---|---|---|---|---|---|
+| 0 | Top-level files and docs | `TODO`, `README`, `INSTALL`, `stamp-h.in`, `man/`, `doc/` (incl. `NewsCache.texinfo`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | `TODO` is from 2013 and mixes done, obsolete and still open items; sort it. Dead links and addresses (see open points). `stamp-h.in` is an old automake leftover; check whether it can go | not started |
 | 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | not started |
 | 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | not started |
 | 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | not started |
@@ -67,6 +68,25 @@ CI, not yet by the systematic review.
 
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
+
+- **`TODO` is from 2013** (area 0). It lists goals for 1.0, 1.2 and 1.5:
+  some done (NEWGROUPS, `kill -1` reload, maximum connections), some obsolete
+  (socket++ build steps), some possibly still open ("username restricted to 8
+  chars?!?", 423 instead of 430 for expired articles, negative caching, a
+  message-ID database, servers without an overview database). Each item
+  should end up done, dropped, or moved here or to `PLAN-new-features.md`.
+- **Dead links and addresses** (area 0). `members.aon.at`, `linuxhacker.at`
+  and the TU Wien NewsCache pages are gone, and so are the mailing lists. They
+  are still the place to go in `README`, `INSTALL` (socket++ download), the
+  man pages, the texinfo manual (40 places), `doc/*.txt`,
+  `debian/README.Debian` (an apt repository) and `debian/copyright`. Six error
+  messages in `CNewsgroup.cc` and `NServer.cc` say "PLEASE REPORT TO
+  h.straub@aon.at". These should point to this repository and its issues.
+  Historical records stay as they are: `ChangeLog`, old `debian/changelog`
+  entries, copyright lines, and the test articles in `NServer-0.9.1/checks/`.
+- **`stamp-h.in`** (area 0) holds only the word "timestamp". Old automake
+  versions used it for `config.h.in`; current ones create `stamp-h1`, and
+  nothing refers to `stamp-h.in` any more.
 
 - **TLS to upstream servers doesn't check the server certificate** (area 7).
   `sockstream.cc` loads a trust file and runs `gnutls_handshake()`, but never
