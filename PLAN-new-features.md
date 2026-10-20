@@ -237,3 +237,23 @@ Each phase is a separate commit (or series), buildable on its own.
   article commands be refused?
 - When the DB is unavailable, should logins be refused (fail closed) or allowed
   (fail open)?
+
+## 7. Ideas that may never happen
+
+### Building on Windows (Cygwin or native)
+
+Today NewsCache runs on Windows only in WSL 2 or in a container (see
+README.md, "On Windows"). A Windows build would need:
+
+- **Cygwin:** probably the smaller step. Cygwin emulates `fork`, `mmap`,
+  Unix signals and syslog, so the code might build with a few `#ifdef`s. To
+  find out, a CI job on the Windows runner could install Cygwin and run
+  `./autogen && ./configure && make`. Limits: `fork` is slow under Cygwin
+  (one per client connection), there is no PAM, and user switching
+  (`Username`/`Groupname`) works differently.
+- **Native (MSVC or MinGW):** a port. Processes per client (`fork`), signal
+  handling (`SIGHUP`, `SIGCHLD`, `alarm`), user switching, `mmap` and file
+  locks in `NVClasses` would all need Windows code. Not worth it as long as
+  WSL 2 and containers work.
+
+Only worth looking at if someone actually needs it.
