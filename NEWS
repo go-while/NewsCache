@@ -1,10 +1,28 @@
 Unreleased:
 
 Bug fixes:
+* TLS to upstream servers (Options ssl and starttls) now verifies the
+  server's certificate: it must chain to a trusted CA, be valid and match the
+  host name in the Server line. Before, any certificate was accepted, so
+  anyone in the middle could impersonate the server.
+* STARTTLS no longer falls back to plain text. If the server refused
+  STARTTLS, NewsCache continued without TLS and sent User/Password in plain
+  text, which anyone in the middle could force; now the connection is
+  dropped. A failed TLS handshake after STARTTLS also ends the connection.
+* A NewsCache built without GnuTLS ignored Options ssl and starttls and
+  talked to such a server in plain text, login included. It now refuses to
+  connect to it and logs why.
+* TLS uses the system's trust store (it was a fixed Debian path, missing on
+  Fedora and macOS), sends the host name as SNI, has a handshake timeout and
+  logs why a handshake or verification failed.
 * newscache -p left the server options ssl, starttls and dontgenmsgid out of
   its output, although they were parsed and used.
 
 Other changes:
+* New server settings: TLSCAFile (CA certificates for servers with a
+  private CA) and Options noverify (accept any certificate, logged as a
+  warning). The man page now documents ssl and starttls, and the sample
+  config no longer lists not-ssl and not-starttls, which never existed.
 * Bug reports and the home page point to
   https://github.com/go-while/NewsCache instead of the dead members.aon.at,
   linuxhacker.at and TU Wien sites and mailing lists: in the error messages

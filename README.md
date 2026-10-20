@@ -79,7 +79,9 @@ Added by Christof Meerwald (1.3.ipv6, 2008 to 2024):
 
 - IPv6 for both clients and upstream servers (`ListenTo [addr]:port`).
 - TLS to upstream servers, either implicit (`Options ssl`) or `starttls`,
-  through GnuTLS.
+  through GnuTLS. The server certificate is verified against the system trust
+  store or a `TLSCAFile`, and a refused STARTTLS ends the connection instead
+  of falling back to plain text.
 - Server options `ConnectTimeout`, `ConnectBackoff`, `LimitGroupSize` and
   `dontgenmsgid`.
 - A no-fork mode (`newscache -n`) and a systemd unit
@@ -157,8 +159,9 @@ installed as `newscache.conf-dist` (source:
   `Authentication`.
 - **`NewsServerList`:** one `Server host port { … }` entry per upstream server,
   with `Read`, `PostTo`, `GroupTimeout`, `User`/`Password`, `BindFrom`,
-  `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `Options` (`offline`,
-  `semioffline`, `setpostflag`, `ssl`, `starttls`, `dontgenmsgid`) and
+  `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `TLSCAFile`, `Options`
+  (`offline`, `semioffline`, `setpostflag`, `ssl`, `starttls`, `noverify`,
+  `dontgenmsgid`) and
   `Commands` (for example `not-over`).
   - `dontgenmsgid` is accepted by the parser, but neither the sample file nor
     the manual page documents it.
@@ -177,9 +180,12 @@ over TLS, `Options ssl`); checked on 2026-10-20.
 | `news-{ams,can,fra,lax,lon,sfo,sin,tyo,wdc}.pugleaf.net`, see <https://pugleaf.net/> | open, text only | no |
 
 The sample configuration uses `news.blueworldhosting.com` on port 563.
-NewsCache doesn't verify the server's TLS certificate yet (see
-[`REVIEW.md`](REVIEW.md)), so TLS protects against eavesdropping but not
-against a man-in-the-middle.
+NewsCache verifies each server's TLS certificate. On 2026-10-20 the
+certificates of the blueworldhosting and eternal-september servers and of
+`news-sfo.pugleaf.net` were valid; the other pugleaf.net servers had expired
+certificates, so NewsCache refuses them on port 563 until they are renewed
+(`Options noverify` would accept them, but without protection against a
+man-in-the-middle). The pugleaf.net servers don't offer STARTTLS on 119.
 
 ## Running
 
