@@ -22,7 +22,7 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 
 | # | Area | Files | Lines | What to look at | Status |
 |---|---|---|---|---|---|
-| 0 | Top-level files and docs | `TODO`, `README`, `INSTALL`, `stamp-h.in`, `man/`, `doc/` (incl. `NewsCache.texinfo`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | `TODO` is from 2013 and mixes done, obsolete and still open items; sort it. Dead links and addresses (see open points). `stamp-h.in` is an old automake leftover; check whether it can go | not started |
+| 0 | Top-level files and docs | `TODO`, `README`, `INSTALL`, `man/`, `doc/` (incl. `NewsCache.texinfo`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | `TODO` is from 2013 and mixes done, obsolete and still open items; sort it. Dead links and addresses (see open points) | in progress |
 | 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | not started |
 | 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | not started |
 | 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | not started |
@@ -63,6 +63,7 @@ CI, not yet by the systematic review.
 | FQDN of 64+ characters overflowed 64-byte host name buffers, crash at startup | 5, 7 | CI | 1.3.19 |
 | `NVlist.h`/`NVList.h` and `Config.h`/`config.h` clashed on case-insensitive file systems | 9, 14 | review, CI | #6 |
 | macOS build: `crypt.h`, K&R definition in `wildmat.c` | 10, 14 | CI | #6 |
+| `stamp-h.in`, an automake leftover nothing used | 0 | review | #11 |
 
 ## Open points
 
@@ -84,9 +85,6 @@ that it stays as it is.
   h.straub@aon.at". These should point to this repository and its issues.
   Historical records stay as they are: `ChangeLog`, old `debian/changelog`
   entries, copyright lines, and the test articles in `NServer-0.9.1/checks/`.
-- **`stamp-h.in`** (area 0) holds only the word "timestamp". Old automake
-  versions used it for `config.h.in`; current ones create `stamp-h1`, and
-  nothing refers to `stamp-h.in` any more.
 
 - **TLS to upstream servers doesn't check the server certificate** (area 7).
   `sockstream.cc` loads a trust file and runs `gnutls_handshake()`, but never
