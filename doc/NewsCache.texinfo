@@ -165,7 +165,7 @@ identifier.
 Some news readers mark deleted articles as read. However, if the article
 is reinstated on the news server, the article is still marked as read
 and the user will never see this article as unread.  According to
-@uref{http://info.internet.isi.edu/in-notes/rfc/files/rfc977.txt,
+@uref{https://www.rfc-editor.org/rfc/rfc977,
 RFC977, (Network News Transfer Protocol)} it is allowed that deleted
 articles are reinstated. This is also documented in the new NNTP-draft
 which should be published as RFC within the next months.
@@ -824,11 +824,11 @@ comp.os.linux.m68k  Linux operating system on 680x0 Amiga, Atari, VME.
 @table @r 
 @item Where can I get NewsCache?
 You can can get NewsCache from its
-@uref{http://www.infosys.tuwien.ac.at/NewsCache/, homepage}. 
+@uref{https://github.com/go-while/NewsCache, homepage}. 
 @item What is the latest version of NewsCache?
 As of this writing the latest version is @value{version}. The latest
 version of NewsCache can always be found at its
-@uref{http://www.infosys.tuwien.ac.at/NewsCache/, homepage}. 
+@uref{https://github.com/go-while/NewsCache, homepage}. 
 @item How does this compare to NNTPCACHE?
 NNTPCACHE is a cache server similar to NewsCache. Features of NewsCache
 are offline news reading and a cleanly designed class hierarchy, which
@@ -836,9 +836,8 @@ is easily extendible. It provides classes for accessing news from a news
 server and base classes for implementing a news server tailored to user
 needs.
 @item How can I contribute to the development of NewsCache?
-Volunteers are always welcome! Simply send an email to
-tom@@infosys.tuwien.ac.at. I am sure that we will find something
-interesting for you.
+Volunteers are always welcome! Open an issue or a pull request at
+@uref{https://github.com/go-while/NewsCache}.
 @item Does it have any concept of expiry of articles?
 At the moment, NewsCache expires articles on a per newsgroup basis.
 This degrades the hit rate of NewsCache only slightly as long as the

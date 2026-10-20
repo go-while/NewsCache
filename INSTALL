@@ -181,17 +181,14 @@ operates.
 
 `configure' also accepts some other, not widely useful, options.
 
-Build NewsCache 1.1.*
-=====================
+Build NewsCache
+===============
 
-o) Get socket++ Version 1.12.* from http://members.aon.at/hstraub/linux/socket++/
+NewsCache no longer needs socket++. See README.md (section "Building") and,
+on Fedora, FEDORA.md. In short:
 
-o) Build socket++ and install (see INSTALL)
-
-o) Build NewsCache (this example ist valid for Debian Systems):
-
-$./autogen
-$./configure --prefix=/usr --sysconfdir=/etc
-$make
-$su
-$make install
+$ ./autogen          # only in a git checkout, not in a release tarball
+$ ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var
+$ make
+$ make check
+$ sudo make install

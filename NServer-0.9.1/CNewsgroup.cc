@@ -17,7 +17,7 @@ void CNewsgroup::listgroup(char *lstgrp, unsigned int f, unsigned int l)
 	} catch(...) {
 		slog.p(Logger::Error)
 		    << "UNEXPECTED EXCEPTION WHILE ISSUEING LISTGROUP\n"
-		    << "PLEASE REPORT TO h.straub@aon.at\n";
+		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		memset(lstgrp, 1, l - f + 1);
 	}
 }
@@ -138,7 +138,7 @@ void CNewsgroup::sUpdateOverview(void)
 		slog.p(Logger::Error)
 		    <<
 		    "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
-		    << "PLEASE REPORT TO h.straub@aon.at\n";
+		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 	}
 	free(lstgrp);
 }
@@ -257,7 +257,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 		slog.p(Logger::Error)
 		    <<
 		    "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
-		    << "PLEASE REPORT TO h.straub@aon.at\n";
+		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 	}
 	free(lstgrp);
 	NVArray::lock(NVcontainer::UnLock);

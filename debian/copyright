@@ -1,7 +1,9 @@
 This package was debianized by Herbert Straub <h.straub@aon.at> on
 Thu, 10 Apr 2003 15:53:41 +0200.
 
-It was downloaded from http://members.aon.at/hstraub/linux/newscache/
+It is developed at https://github.com/go-while/NewsCache.
+(It was first downloaded from http://members.aon.at/hstraub/linux/newscache/,
+which no longer exists.)
 
 Upstream Author(s):
 	

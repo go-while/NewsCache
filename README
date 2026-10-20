@@ -94,15 +94,14 @@ Documentation for the NewsCache and updatenews commands can be found
 in the doc directory.  Manual pages can be found below man. They
 will also be installed in the location specified to configure. 
 
-There will be also a tutorial available from the NewsCache
-homepage, which is available at 
-http://www.infosys.tuwien.ac.at/NewsCache/.
+The NewsCache home page is https://github.com/go-while/NewsCache.
+README.md there has an overview, build instructions and the project history.
 
 Bugs
 
-If you encounter a bug in NewsCache, please send a bug report to
-newscache@linuxhacker.org. Especially in the case, when a news reader does not
-cooperate with NewsCache.  Comments and patches are also accepted. ;)
+If you encounter a bug in NewsCache, please report it at
+https://github.com/go-while/NewsCache/issues, especially when a news reader does
+not cooperate with NewsCache. Comments and pull requests are welcome too.
 
 Other Useful Comments
 
@@ -112,5 +111,5 @@ internet connectivity.
 
 Latest Release
 
-The latest release is always available from 
-http://members.aon.at/hstraub/linux/newscache/
+The latest release is always available from
+https://github.com/go-while/NewsCache/releases

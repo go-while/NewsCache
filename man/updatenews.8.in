@@ -57,7 +57,7 @@ Use # workers for prefetching. Each worker is assigned its own newsgroup to pref
 2001-2004 Herbert Straub <h.straub@aon.at>
 
 .SH REPORTING BUGS
-Report bugs to <newscache@linuxhacker.org>.
+Report bugs at <https://github.com/go-while/NewsCache/issues>.
 
 .SH COPYRIGHT
 .B NewsCache

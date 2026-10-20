@@ -1,6 +1,11 @@
 Unreleased:
 
 Other changes:
+* Bug reports and the home page point to
+  https://github.com/go-while/NewsCache instead of the dead members.aon.at,
+  linuxhacker.at and TU Wien sites and mailing lists: in the error messages
+  that ask for a report, the man pages, README, INSTALL (whose socket++
+  instructions were obsolete), the texinfo manual, doc/ and debian/.
 * NVClasses: NVlist.{h,cc} is now NVListBase.{h,cc} (class NVListBase).
   NVlist.h and NVList.h clashed on case-insensitive file systems, so
   checkouts on Windows and macOS were broken. The spool format is unchanged.
