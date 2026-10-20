@@ -157,22 +157,33 @@ jobs:
       - name: Build
         run: docker build -t newscache .
 
-      - name: Run and connect
+      - name: Nobody is allowed by default
         run: |
           docker run -d --name newscache -p 1119:119 newscache
-          for i in $(seq 1 30); do
-            greeting=$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/1119; head -1 <&3; printf "QUIT\r\n" >&3' 2>/dev/null | tr -d '\r') || true
-            case "$greeting" in "200 NewsCache "*) break ;; esac
-            sleep 1
-          done
+          greeting=$(./.github/nntp-greeting.sh 127.0.0.1 1119)
           echo "greeting: $greeting"
-          case "$greeting" in "200 NewsCache "*) ;; *) exit 1 ;; esac
+          case "$greeting" in "502 "*) ;; *) exit 1 ;; esac
           test "$(docker exec newscache stat -c %U /proc/1)" = news
           docker exec newscache newscacheclean
 
-      - name: Show container log
+      - name: A mounted config lets the container network in
+        run: |
+          # Connections forwarded with -p come from the Docker network.
+          awk '/^  Default \{$/ && !done { print "  Client 172.16.0.0/12 {\n    allow read post\n    List *\n    Read *\n    PostTo *\n    Authentication none\n  }"; done=1 } { print }' \
+            docker/newscache.conf > allow.conf
+          grep -n 'Client 172.16.0.0/12' allow.conf
+          docker run -d --name newscache-allowed -p 1120:119 \
+            -v "$PWD/allow.conf:/etc/newscache.conf:ro" newscache
+          greeting=$(./.github/nntp-greeting.sh 127.0.0.1 1120)
+          echo "greeting: $greeting"
+          case "$greeting" in "200 NewsCache "*) ;; *) exit 1 ;; esac
+
+      - name: Show container logs
         if: always()
-        run: docker logs newscache 2>&1 | tail -n 50 || true
+        run: |
+          for c in newscache newscache-allowed; do
+            echo "===== $c"; docker logs "$c" 2>&1 | tail -n 30 || true
+          done
 
   checkout:
     # Windows and macOS file systems are case-insensitive: two tracked files

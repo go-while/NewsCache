@@ -112,7 +112,8 @@ If a `news` user already exists, for example from an earlier install,
 
 `/etc/newscache.conf-dist` documents every option, but it uses example
 servers, host names and paths, so it doesn't run as it is. A minimal
-`/etc/newscache.conf` that serves localhost from one upstream server:
+`/etc/newscache.conf` with one upstream server. It lets nobody read or post
+yet; see "Letting clients in" below:
 
 ```
 ConfigVersion 5
@@ -126,20 +127,7 @@ SpoolDirectory /var/cache/newscache
 SpoolSize 1000000
 LogDirectory /var/log/newscache
 AccessList {
-  Client 127.0.0.0/8 {
-    allow read post
-    List *
-    Read *
-    PostTo *
-    Authentication none
-  }
-  Client ::1 {
-    allow read post
-    List *
-    Read *
-    PostTo *
-    Authentication none
-  }
+  # Clients are added here, before Default; see "Letting clients in".
   Default {
     allow none
   }
@@ -166,10 +154,32 @@ newscache -c /etc/newscache.conf -p
 `-p` prints the parsed configuration, or an error such as
 `/etc/newscache.conf:10: unknown keyword`.
 
+### Letting clients in
+
+Nothing is allowed by default, not even localhost. Add a `Client` entry
+before `Default` for each address or network (CIDR) that may read and post:
+
+```
+  Client 192.0.2.0/24 {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+```
+
+Or require a login: change `Default` to `allow read post` with
+`Authentication file:/etc/newscache.users` (lines `user:password`, see
+`newscache.conf(5)`), or `Authentication pam` with `--with-pam`. Every
+command except `AUTHINFO`, `HELP` and `QUIT` then answers `480` until the
+client has logged in.
+
 Access-list notes:
 
 - `Client 10.1.2.3` with no mask means exactly that host. Before 1.3.17,
   such an entry matched every client.
+- The first matching entry is used, so put `Default` last.
 - `BindFrom` takes only numeric addresses.
 
 ### systemd
@@ -200,6 +210,14 @@ running client sessions finish when the service stops.
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now newscache
+printf 'QUIT\r\n' | nc localhost 119   # 502 You have no permission to talk.  Goodbye.
+```
+
+The `502` is right: no client is allowed yet. To test from the server itself,
+add a `Client 127.0.0.1/32` entry like the one above, then:
+
+```sh
+sudo systemctl reload newscache
 printf 'QUIT\r\n' | nc localhost 119   # 200 NewsCache <version>, accepting NNRP commands
 ```
 

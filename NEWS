@@ -1,5 +1,18 @@
 Unreleased:
 
+Upgrading: the shipped configs no longer let anyone in. If you copy
+newscache.conf-dist or use the container image, add a Client entry for your
+clients' addresses or networks, or an entry with Authentication (login),
+before Default.
+
+Bug fixes:
+* The sample newscache.conf-dist allowed inetd clients (Client stdin, with
+  debug) and clients from localhost, and the container config allowed
+  loopback and all private networks. Both now only contain
+  Default { allow none }, with the old entries as commented examples, so
+  nobody may read or post until a Client entry (address or CIDR) or a login
+  allows it. FEDORA.md does the same and shows how to allow clients.
+
 Other changes:
 * Dockerfile for Docker and Podman (also Docker Desktop and Podman Desktop on
   Windows): builds on Ubuntu 24.04, runs as user news in the foreground,

@@ -71,6 +71,7 @@ CI, not yet by the systematic review.
 | A refused STARTTLS fell back to plain text, login included (downgrade) | 7 | review | #16 |
 | Fixed Debian CA path (missing on Fedora, macOS), no SNI, no handshake timeout | 7 | review | #16 |
 | Builds without GnuTLS ignored `ssl`/`starttls` and connected in plain text | 7 | review | #16 |
+| Shipped configs allowed clients by default (inetd with debug, localhost, private networks in the container) | 4, 14 | review | #20 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
 
 ## Open points
@@ -90,6 +91,10 @@ that it stays as it is.
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
   OverviewFmt.h" (area 8).
+- **`newscache -p` prints address entries as `Default`** (area 4). An
+  AccessList entry like `Client 192.168.0.0/255.255.0.0` shows up as
+  `Default {` without its address, because `AccessEntry::printParameters`
+  treats every entry without a host name as the default.
 - **`newscache -p` prints upstream passwords** (area 6) in plain text
   (`Password secret`). Only the admin can run it, but its output is often
   pasted into bug reports.
