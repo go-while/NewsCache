@@ -225,6 +225,28 @@ their network to the `AccessList`. Mount your own config with
 so purge the spool now and then with `docker exec newscache newscacheclean`,
 for example from the host's cron.
 
+Where the data lives: files written inside a container are lost when the
+container is removed. `-v newscache-spool:/var/cache/newscache` keeps the
+spool in a *named volume* instead, which Docker or Podman store on the host
+(`docker volume inspect newscache-spool` shows the directory, usually under
+`/var/lib/docker/volumes/` or `/var/lib/containers/storage/volumes/`). It
+survives removing and recreating the container, for example for an upgrade.
+With `-v /srv/newscache:/var/cache/newscache` the spool goes to that host
+directory instead (it must be writable by uid 9, the image's `news` user).
+The same `-v host-path:container-path` form mounts single files, like the
+config above (`:ro` makes it read-only inside the container).
+
+If the build fails with "Temporary failure resolving" or the log says
+"Can't resolve" the news server, the container has no working DNS. This
+happens when the host uses a local resolver (`nameserver 127.0.0.1` in
+`/etc/resolv.conf`): build with `docker build --network host`, and run with
+`--dns <resolver address>`. If DNS works but the container still can't reach
+the news server, a host firewall may block forwarded traffic (for example
+arno-iptables-firewall with its default `FORWARD` policy `DROP`): allow
+forwarding for the container network, or run with `--network host` and a
+config whose `ListenTo` doesn't collide with a news server already on the
+host (for example `ListenTo 127.0.0.1:11119`).
+
 ### On Windows
 
 NewsCache needs a Unix system (it uses `fork`, Unix signals and user
