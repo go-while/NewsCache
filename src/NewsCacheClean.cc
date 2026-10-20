@@ -53,7 +53,7 @@
 
 #include "Debug.h"
 #include "setugid.h"
-#include "Config.h"
+#include "NewsCacheConfig.h"
 #include "Logger.h"
 #include "NServer.h"
 

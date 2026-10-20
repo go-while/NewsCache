@@ -1,4 +1,4 @@
-#include"NVlist.h"
+#include"NVListBase.h"
 #include"Error.h"
 
 #include<fcntl.h>
@@ -8,7 +8,7 @@
 
 using namespace std;
 
-void NVlist::sprepend(nvoff_t proot, const char *data, size_t szdata)
+void NVListBase::sprepend(nvoff_t proot, const char *data, size_t szdata)
 {
 	Record *tail;
 	Record *nr;
@@ -25,7 +25,7 @@ void NVlist::sprepend(nvoff_t proot, const char *data, size_t szdata)
 	}
 }
 
-void NVlist::sappend(nvoff_t proot, const char *data, size_t szdata)
+void NVListBase::sappend(nvoff_t proot, const char *data, size_t szdata)
 {
 	Record *tail;
 	Record *nr;
@@ -42,7 +42,7 @@ void NVlist::sappend(nvoff_t proot, const char *data, size_t szdata)
 	}
 }
 
-void NVlist::sremove(nvoff_t proot)
+void NVListBase::sremove(nvoff_t proot)
 {
 	Record *tail = o2r(*(nvoff_t *) (mem_p + proot));
 	Record *nr = o2r(tail->next);
@@ -55,13 +55,13 @@ void NVlist::sremove(nvoff_t proot)
 	nvfree(r2o(nr));
 }
 
-void NVlist::sclear(nvoff_t proot)
+void NVListBase::sclear(nvoff_t proot)
 {
 	while (*(nvoff_t *) (mem_p + proot))
 		sremove(proot);
 }
 
-void NVlist::sprint(nvoff_t proot, ostream & os)
+void NVListBase::sprint(nvoff_t proot, ostream & os)
 {
 	int i = 0;
 	Record *head = o2r(*(nvoff_t *) (mem_p + proot));

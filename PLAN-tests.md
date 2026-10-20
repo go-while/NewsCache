@@ -33,7 +33,7 @@ other tests only run with `make -k check`.
   `XOVER`/`OVER`, `LIST`, `NEWGROUPS`, `POST`, `AUTHINFO`, ...).
 - Talking to upstream servers: caching, offline mode, retries, `GroupTimeout`,
   several upstreams.
-- The NV databases (`NVArray`, `NVHash`, `NVlist`): growth, remap, reopen.
+- The NV databases (`NVArray`, `NVHash`, `NVListBase`): growth, remap, reopen.
 - Spool storage: `article`, `bigarticle` and `overview` records, `.art<N>` files.
 - Authentication and access lists (`unix`, `file`, `pam`, `pam+file`;
   `Read`/`PostTo` patterns).

@@ -18,30 +18,30 @@ crypt_SOURCES = crypt.cc
 cConfig_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	cConfig.cc\
-	Config.cc\
-	Config.h
+	NewsCacheConfig.cc\
+	NewsCacheConfig.h
 
 newscache_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	NewsCache.cc\
-	Config.cc\
-	Config.h\
+	NewsCacheConfig.cc\
+	NewsCacheConfig.h\
 	setugid.cc\
 	setugid.h
 
 newscacheclean_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	NewsCacheClean.cc\
-	Config.cc\
-	Config.h\
+	NewsCacheConfig.cc\
+	NewsCacheConfig.h\
 	setugid.cc\
 	setugid.h
 
 updatenews_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	updatenews.cc\
-	Config.cc\
-	Config.h\
+	NewsCacheConfig.cc\
+	NewsCacheConfig.h\
 	setugid.cc\
 	setugid.h
 

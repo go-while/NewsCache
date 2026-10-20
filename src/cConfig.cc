@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include "Logger.h"
-#include "Config.h"
+#include "NewsCacheConfig.h"
 
 using namespace std;
 

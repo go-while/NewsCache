@@ -14,7 +14,7 @@ void NVHash::make_current()
 	if (mem_p && is_current())
 		return;
 
-	NVlist::make_current();
+	NVListBase::make_current();
 	if ((hdata = getdata()) == 0) {
 		hashtab = NULL;
 		hashsz = 0;
@@ -29,7 +29,7 @@ void NVHash::sclear(void)
 {
 	unsigned long i;
 	for (i = 0; i < hashsz; i++)
-		NVlist::sclear((char *) &(hashtab[i]) - mem_p);
+		NVListBase::sclear((char *) &(hashtab[i]) - mem_p);
 }
 
 int NVHash::sis_empty(void)
@@ -43,25 +43,25 @@ int NVHash::sis_empty(void)
 
 void NVHash::sadd(unsigned long h, const char *data, size_t szdata)
 {
-	NVlist::sprepend((char *) &(hashtab[h]) - mem_p, data, szdata);
+	NVListBase::sprepend((char *) &(hashtab[h]) - mem_p, data, szdata);
 }
 
 void NVHash::sprint(ostream & os)
 {
 	unsigned long i;
 	for (i = 0; i < hashsz; i++)
-		NVlist::sprint((char *) &(hashtab[i]) - mem_p, os);
+		NVListBase::sprint((char *) &(hashtab[i]) - mem_p, os);
 }
 
 NVHash::NVHash(const char *dbname, unsigned long hashsz, int flags)
-	: NVlist()
+	: NVListBase()
 {
 	open(dbname, hashsz, flags);
 }
 
 void NVHash::open(const char *dbname, unsigned long nhashsz, int flags)
 {
-	NVlist::open(dbname, flags);
+	NVListBase::open(dbname, flags);
 	if (!hashtab) {
 		lock(ExclLock);
 		if (!hashtab) {

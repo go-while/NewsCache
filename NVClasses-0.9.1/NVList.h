@@ -1,7 +1,7 @@
 #ifndef _NVList_h_
 #define _NVList_h_
 
-#include"NVlist.h"
+#include"NVListBase.h"
 
 /* NVContainer Class Library */
 class NVList;
@@ -12,12 +12,12 @@ class NVListIter;
  * \author Thomas Gschwind
  * \bug Documentation missing
  */
-class NVList:public NVlist {
+class NVList:public NVListBase {
 	friend class NVListIter;
 
       public:
-	 NVList():NVlist() {
-	} NVList(const char *dbname, int flags = 0):NVlist(dbname, flags) {
+	 NVList():NVListBase() {
+	} NVList(const char *dbname, int flags = 0):NVListBase(dbname, flags) {
 	}
 
 	int is_empty(void);

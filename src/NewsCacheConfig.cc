@@ -8,7 +8,7 @@
 #include "config.h"
 #include "Debug.h"
 #include "Lexer.h"
-#include "Config.h"
+#include "NewsCacheConfig.h"
 #include "NServer.h"
 
 using namespace std;

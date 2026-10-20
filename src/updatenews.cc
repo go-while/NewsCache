@@ -35,7 +35,7 @@
 #include <vector>
 
 #include "Debug.h"
-#include "Config.h"
+#include "NewsCacheConfig.h"
 #include "NServer.h"
 #include "Logger.h"
 #include "setugid.h"

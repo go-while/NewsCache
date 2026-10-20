@@ -58,9 +58,7 @@
 /*
 **  Match text and p, return TRUE, FALSE, or ABORT.
 */
-static int DoMatch(text, p)
-register char *text;
-register char *p;
+static int DoMatch(const char *text, const char *p)
 {
 	register int last;
 	register int matched;
