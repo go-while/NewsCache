@@ -48,9 +48,10 @@ says the same.
   Release immutability is on, so a published release's files are final:
   build and check the tarball before publishing.
 - Every change to `main` goes through a pull request, for everyone, with no
-  exemption. The CI checks (Ubuntu default, file log, AddressSanitizer;
-  Fedora 43/44/45) and CodeQL (`Analyze (c-cpp)`, `Analyze (actions)`) must
-  pass; no approving review is needed. A direct `git push` to `main` is
+  exemption. 11 checks must pass; no approving review is needed:
+  - CI: Ubuntu (default, file log, AddressSanitizer), Fedora 43/44/45,
+    Checkout (Windows), Checkout (macOS), macOS (build and test);
+  - CodeQL: `Analyze (c-cpp)`, `Analyze (actions)`. A direct `git push` to `main` is
   rejected. If a job is renamed in a workflow, update the ruleset too, or PRs
   wait for a check that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
@@ -71,7 +72,24 @@ and is not part of `trunk`.
 - `main` (default): the maintained line, `trunk` plus fixes, tests and docs.
   Changes arrive by pull request from work branches. If SVN ever gets new
   commits, `trunk` is merged in by pull request too.
+- `features`: feature work, planned in `PLAN-new-features.md`. Created
+  2026-10-20 from `main`; it replaced `new-features-test`.
+- `patches-r80`: the fixes as sent to Christof Meerwald against SVN r80, kept
+  for reference (protected against force pushes and deletion).
 - `master`, `V1.2rc6`: hstraub's original branches, kept for reference.
+
+Changes flow in one direction: a fix starts on a branch from `main`, reaches
+`main` by pull request, and gets into `features` (or any other long-lived
+branch) by merging `main` in. Don't cherry-pick from a feature branch to
+`main`; the same change twice under different commits conflicts on later
+merges. Edit NEWS only in the pull request that brings a change to `main`,
+because every release rewrites the top of NEWS.
+
+Code review findings get one short branch each, from `main`, named
+`fix/<topic>` (for example `fix/hostname-buffer`), with one pull request per
+finding. GitHub deletes the branch when the pull request is merged. Don't
+collect several unrelated fixes on one branch; each one should be reviewable,
+testable and revertable on its own.
 
 ## Syncing new SVN commits
 
