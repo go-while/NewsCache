@@ -1,9 +1,18 @@
 # Building NewsCache on Fedora
 
-Tested on Fedora 43 (GCC 15.3, Go 1.26), 44 (GCC 16.2, Go 1.26) and 45
-(GCC 16.2, Go 1.27), all x86_64, on 2026-10-19, from git and from the release
-tarball. The build uses the same compiler flags and `configure` options as
-Fedora's own package. CI builds and tests on all three on every pull request.
+Tested on three Fedora releases, all x86_64:
+
+| Fedora | GCC | Go |
+|---|---|---|
+| 43 | 15.3 | 1.26 |
+| 44 | 16.2 | 1.26 |
+| 45 | 16.2 | 1.27 |
+
+On all three, everything in this file was run on 2026-10-20 with release
+1.3.19: the build from git and from the release tarball, the tests, and the
+install steps (user, config, systemd unit with reload, cleanup timer). The
+build uses the same compiler flags and `configure` options as Fedora's own
+package. CI builds and tests on all three on every pull request.
 
 Fedora's `newscache` package is still 1.2rc6 from 2004 (Herbert Straub's
 tarball plus the socket++ library). This tree is the later 1.3 line: IPv6,
@@ -27,7 +36,7 @@ sudo dnf install gcc-c++ make autoconf automake libtool \
 ## Build
 
 From a git checkout, run `./autogen` first. A release tarball
-(`NewsCache-1.3.17.tar.gz`) already has `configure`, so skip that step.
+(`NewsCache-<version>.tar.gz`) already has `configure`, so skip that step.
 
 ```sh
 ./autogen
@@ -39,8 +48,8 @@ make -j"$(nproc)"
 
 The flags are Fedora's hardened defaults (`-O2 -flto=auto -D_FORTIFY_SOURCE=3
 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong ...`). Leave out the two
-`export` lines for a plain build. The build gives about 75 compiler warnings
-and no errors.
+`export` lines for a plain build. The build gives about 95 compiler warnings
+(93 with GCC 15) and no errors.
 
 Useful `configure` options:
 
@@ -92,6 +101,9 @@ echo 'u news - "News user" /var/cache/newscache -' |
 sudo systemd-sysusers
 sudo install -d -o news -g news -m 755 /var/cache/newscache /var/log/newscache
 ```
+
+If a `news` user already exists (some images have one), `systemd-sysusers`
+keeps it.
 
 `newscache` starts as root, binds the port and then switches to `Username` and
 `Groupname` from the config.
@@ -154,8 +166,8 @@ newscache -c /etc/newscache.conf -p
 
 Access-list notes:
 
-- `Client 10.1.2.3` with no mask means exactly that host. In 1.3.ipv6 to
-  1.3.16 without this repo's fixes, such an entry matched every client.
+- `Client 10.1.2.3` with no mask means exactly that host. Before 1.3.17,
+  such an entry matched every client.
 - `BindFrom` takes only numeric addresses.
 
 ### systemd
@@ -186,13 +198,17 @@ running client sessions finish when the service stops.
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now newscache
-printf 'QUIT\r\n' | nc localhost 119   # 200 NewsCache 1.3.16, accepting NNRP commands
+printf 'QUIT\r\n' | nc localhost 119   # 200 NewsCache <version>, accepting NNRP commands
 ```
 
 `nc` comes from the `nmap-ncat` package.
 
 `systemctl reload newscache` re-reads the config (SIGHUP). If the new file has
 an error, the daemon logs it and keeps running with the old config.
+
+After installing a new version, run `systemctl restart newscache`. `make
+install` replaces the program file, but a running daemon keeps using the old
+one, and `reload` and `enable --now` don't change that.
 
 Logs go to syslog, so read them with `journalctl -u newscache`.
 
@@ -248,11 +264,12 @@ sudo firewall-cmd --permanent --add-service=nntp
 sudo firewall-cmd --reload
 ```
 
-The test system had no SELinux enforcement, so SELinux was not tested.
+The test systems had no SELinux enforcement, so SELinux was not tested.
 
 ## Known issues
 
-- `ListenTo DEFAULT` listened on IPv4 only (`0.0.0.0:119`) in the test.
+- `ListenTo DEFAULT` listens on IPv4 only (`0.0.0.0:119`), on all three
+  releases.
 - `/run/newscache.pid` is not removed when the daemon stops.
 - The compiler warnings include `-Wformat-overflow` (15),
   `-Wstringop-overread` (9) and `-Wexceptions` (1). They haven't been checked
