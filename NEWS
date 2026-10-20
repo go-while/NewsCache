@@ -1,5 +1,28 @@
 Unreleased:
 
+Upgrading: the shipped configs no longer let anyone in. If you copy
+newscache.conf-dist or use the container image, add a Client entry for your
+clients' addresses or networks, or an entry with Authentication (login),
+before Default.
+
+Bug fixes:
+* The sample newscache.conf-dist allowed inetd clients (Client stdin, with
+  debug) and clients from localhost, and the container config allowed
+  loopback and all private networks. Both now only contain
+  Default { allow none }, with the old entries as commented examples, so
+  nobody may read or post until a Client entry (address or CIDR) or a login
+  allows it. FEDORA.md does the same and shows how to allow clients.
+* newscache -p and the xdebug command printed AccessList entries for an
+  address or network (e.g. Client 192.168.0.0/255.255.0.0) as "Default",
+  without the address; read back as a config, such an entry would have let
+  every client in. They now print as Client 192.168.0.0/16.
+* On hosts where getaddrinfo considers IPv6 unavailable (seen in Docker
+  containers), an IPv6 Client entry such as 2001:db8::/32 was not parsed as
+  an address and silently became a host name that never matched. Addresses
+  are now parsed without AI_ADDRCONFIG. A /prefix after something that
+  isn't an IP address (e.g. 300.1.1.1/8) is now a config error instead of
+  an entry that silently never matches.
+
 Other changes:
 * Dockerfile for Docker and Podman (also Docker Desktop and Podman Desktop on
   Windows): builds on Ubuntu 24.04, runs as user news in the foreground,

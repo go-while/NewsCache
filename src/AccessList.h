@@ -149,6 +149,14 @@ class AccessEntry {
 									 const AccessEntry & ae);
 
 	/*
+	 * The pattern this entry matches, as it can be written after
+	 * "Client": the host or domain name, or the address with its
+	 * prefix length (e.g. 192.168.0.0/16, 2001:db8::/32). Empty for
+	 * the Default entry.
+	 */
+	std::string pattern() const;
+
+	/*
 	 * print the actual setting to std:ostream
 	 * \author Herbert Straub
 	 * \date 2003

@@ -71,6 +71,9 @@ CI, not yet by the systematic review.
 | A refused STARTTLS fell back to plain text, login included (downgrade) | 7 | review | #16 |
 | Fixed Debian CA path (missing on Fedora, macOS), no SNI, no handshake timeout | 7 | review | #16 |
 | Builds without GnuTLS ignored `ssl`/`starttls` and connected in plain text | 7 | review | #16 |
+| Shipped configs allowed clients by default (inetd with debug, localhost, private networks in the container) | 4, 14 | review | #20 |
+| `newscache -p` and `xdebug` printed address entries as `Default`, without the address | 4 | testing #20 | #20 |
+| IPv6 Client entries silently became host names where getaddrinfo saw no IPv6 (`AI_ADDRCONFIG`); `name/prefix` silently never matched | 4 | CI #20 | #20 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
 
 ## Open points

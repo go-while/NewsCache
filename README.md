@@ -156,7 +156,10 @@ installed as `newscache.conf-dist` (source:
   `MaxConnections`, `ClientTimeout`, `PrefetchFile`, logging.
 - **`AccessList`:** one `Client` entry per network or host name, plus a
   `Default` entry. Each sets `allow`, `List`/`Read`/`PostTo` patterns and
-  `Authentication`.
+  `Authentication`. Nothing is allowed by default, not even localhost: the
+  sample config and the container config only have `Default { allow none }`,
+  so a client may only connect once a `Client` entry for its address or
+  network (CIDR) or an entry with a login allows it.
 - **`NewsServerList`:** one `Server host port { … }` entry per upstream server,
   with `Read`, `PostTo`, `GroupTimeout`, `User`/`Password`, `BindFrom`,
   `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `TLSCAFile`, `Options`
@@ -215,13 +218,13 @@ docker logs -f newscache
 
 With Podman, use `podman` instead of `docker`. The built-in config
 ([`docker/newscache.conf`](docker/newscache.conf)) reads from
-`news.blueworldhosting.com` over TLS and lets clients from loopback and
-private networks read and post. Connections forwarded with `-p` from the
-host itself arrive from the container network (for example `172.17.0.1`) and
-are allowed. Docker and Podman pass on the address of clients on other
-machines, so those get `502 You have no permission to talk` until you add
-their network to the `AccessList`. Mount your own config with
-`-v /path/to/newscache.conf:/etc/newscache.conf:ro`. A container has no cron,
+`news.blueworldhosting.com` over TLS, but lets nobody read or post: every
+client gets `502 You have no permission to talk` until you allow it. Copy the
+file, enable a `Client` entry for your network (CIDR) or a login, and mount it
+with `-v /path/to/newscache.conf:/etc/newscache.conf:ro`. Connections
+forwarded with `-p` from the host itself arrive from the container network
+(for example `172.17.0.1` with Docker, `10.88.0.1` with Podman); Docker and
+Podman pass on the address of clients on other machines. A container has no cron,
 so purge the spool now and then with `docker exec newscache newscacheclean`,
 for example from the host's cron.
 

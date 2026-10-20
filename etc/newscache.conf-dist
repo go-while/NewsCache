@@ -105,69 +105,81 @@ Admin tom@infosys.tuwien.ac.at
 #	PostTo and authenticated clients uses the arguments and modify 
 #	the original parameters.
 #
-# NOTE: Order of entries is important, so put defaults last
-#       If no 'Default' entry found, default policy will be DENY.  
+# NOTE: The first matching entry is used, so put Default last. Without a
+#       Default entry the file does not load. Nothing is allowed by default:
+#       a client may only read or post if a Client entry for its address or
+#       network (CIDR), or an entry with Authentication (login), allows it.
+#       Inetd mode (newscache -i) needs an entry for the client "stdin".
+#       Login example: anyone may connect, but must log in first:
+#         Default {
+#           allow read post
+#           List *
+#           Read *
+#           PostTo *
+#           Authentication file:/etc/newscache.users
+#         }
 #
 AccessList {
-  Client stdin {
-    allow read post debug
-    # list all newsgroups, allow users to read *, and to post to * 
-    List *
-    Read *
-    PostTo *
-    # no further authentication necessary/possible
-    Authentication none
-  }
-  Client localhost {
-    allow read post
-    # list all newsgroups, allow users to read *, and to post to *
-    # No xdebug command for unauthenticated clients.
-    List *
-    Read *
-    PostTo *
-    Authentication unix::::debug
-    # all authenticated clients are able to use the xdebug command
-  }
-  Client .tuwien.ac.at {
-    allow read post
-    # list all, except for alt.* newsgroups, allow users to 
-    # read at.* and to post to at.*
-    List *,!alt.*
-    Read at.*
-    PostTo at.*
-    # allow users to gain additional privileges by
-    # authenticating based on a password file
-    # the format of the file is username:password:read:postto
-    Authentication file:/usr/local/etc/tuwien.pass
-  }
-  Client 192.168.0.0/255.255.0.0 {
-    allow read post
-    # deny access to all newsgroups
-    List !*
-    Read !*
-    PostTo !*
-    # allow users to gain additional privileges by
-    # authenticating using standard passwd semantics
-    # allow to read * and to post to at.* after successful
-    # authentication
-    Authentication unix:*:at.*
-  }
-  Client 192.169.0.0/255.255.0.0 {
-    allow read
-    # deny access to all newsgroups
-    List at.*
-    Read at.*
-    PostTo !*
-    Authentication unix:*:*:*:debug,post
-    # allow users to gain additional privileges by
-    # authenticating using standard passwd semantics
-    # allow to read * and to post to * and can use the xdebug 
-    # command after successful authentication. 
-    # Unauthenticated clients can only read from at.* groups.
-  }
-  Client .aol.com {
-    allow none
-  }
+  # Examples; nothing is allowed until you enable or add an entry.
+#  Client stdin {
+#    allow read post debug
+#    # list all newsgroups, allow users to read *, and to post to * 
+#    List *
+#    Read *
+#    PostTo *
+#    # no further authentication necessary/possible
+#    Authentication none
+#  }
+#  Client localhost {
+#    allow read post
+#    # list all newsgroups, allow users to read *, and to post to *
+#    # No xdebug command for unauthenticated clients.
+#    List *
+#    Read *
+#    PostTo *
+#    Authentication unix::::debug
+#    # all authenticated clients are able to use the xdebug command
+#  }
+#  Client .tuwien.ac.at {
+#    allow read post
+#    # list all, except for alt.* newsgroups, allow users to 
+#    # read at.* and to post to at.*
+#    List *,!alt.*
+#    Read at.*
+#    PostTo at.*
+#    # allow users to gain additional privileges by
+#    # authenticating based on a password file
+#    # the format of the file is username:password:read:postto
+#    Authentication file:/usr/local/etc/tuwien.pass
+#  }
+#  Client 192.168.0.0/255.255.0.0 {
+#    allow read post
+#    # deny access to all newsgroups
+#    List !*
+#    Read !*
+#    PostTo !*
+#    # allow users to gain additional privileges by
+#    # authenticating using standard passwd semantics
+#    # allow to read * and to post to at.* after successful
+#    # authentication
+#    Authentication unix:*:at.*
+#  }
+#  Client 192.169.0.0/255.255.0.0 {
+#    allow read
+#    # deny access to all newsgroups
+#    List at.*
+#    Read at.*
+#    PostTo !*
+#    Authentication unix:*:*:*:debug,post
+#    # allow users to gain additional privileges by
+#    # authenticating using standard passwd semantics
+#    # allow to read * and to post to * and can use the xdebug 
+#    # command after successful authentication. 
+#    # Unauthenticated clients can only read from at.* groups.
+#  }
+#  Client .aol.com {
+#    allow none
+#  }
   Default {
     allow none
   }
