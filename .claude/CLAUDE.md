@@ -85,6 +85,12 @@ branch) by merging `main` in. Don't cherry-pick from a feature branch to
 merges. Edit NEWS only in the pull request that brings a change to `main`,
 because every release rewrites the top of NEWS.
 
+Code review findings get one short branch each, from `main`, named
+`fix/<topic>` (for example `fix/hostname-buffer`), with one pull request per
+finding. GitHub deletes the branch when the pull request is merged. Don't
+collect several unrelated fixes on one branch; each one should be reviewable,
+testable and revertable on its own.
+
 ## Syncing new SVN commits
 
 One-time setup in a fresh clone:
