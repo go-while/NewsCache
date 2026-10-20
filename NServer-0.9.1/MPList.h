@@ -25,7 +25,8 @@ struct MPListEntry {
 		F_SEMIOFFLINE = 0x08,
 		F_DONTGENMSGID = 0x10,
 		F_SSL = 0x20,
-		F_STARTTLS = 0x40
+		F_STARTTLS = 0x40,
+		F_TLS_NOVERIFY = 0x80	// don't verify the TLS certificate
 	};
 	// nntp commands supported by the server
 	enum {
@@ -42,6 +43,8 @@ struct MPListEntry {
 	std::string servicename;
 	std::string user;
 	std::string passwd;
+	std::string tlsCAFile;	// CA certificates (PEM) to verify TLS
+				// against; empty = the system trust store
 
 	OverviewFmt overview;
 

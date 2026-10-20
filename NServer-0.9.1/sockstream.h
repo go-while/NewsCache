@@ -9,6 +9,7 @@
 #endif
 
 #include <iostream>
+#include <string>
 
 
 class sockstream
@@ -38,14 +39,18 @@ class sockstream
     inline bool connected() const
     { return _connected; }
 
-    void connect();
+    // TLS handshake on the connected socket. hostname is sent as SNI
+    // (unless it is an IP address) and, with verify, the server's
+    // certificate must chain to cafile (or the system trust store if
+    // cafile is empty) and match hostname.
+    void connect(const char *hostname, bool verify, const std::string &cafile);
     void disconnect();
 #else
    public:
     inline bool connected() const
     { return false; }
 
-    inline void connect()
+    inline void connect(const char *, bool, const std::string &)
     { }
     inline void disconnect()
     { }
@@ -53,6 +58,8 @@ class sockstream
   };
 
   sslstreambuf *_ssl;
+  bool _tls_verify;
+  std::string _tls_cafile;
 
   class sockstreambuf
     : public std::streambuf
@@ -120,10 +127,11 @@ class sockstream
     : std::iostream(ssl ?
 		    static_cast<std::streambuf *>(new sslstreambuf(_buf)) :
 		    static_cast<std::streambuf *>(&_buf)),
-      _ssl(ssl ? static_cast<sslstreambuf *>(rdbuf()) : NULL)
+      _ssl(ssl ? static_cast<sslstreambuf *>(rdbuf()) : NULL),
+      _tls_verify(true)
 #else
     : std::iostream(static_cast<std::streambuf *>(&_buf)),
-      _ssl(NULL)
+      _ssl(NULL), _tls_verify(true)
 #endif
   {
     setstate(std::ios::badbit);
@@ -131,7 +139,7 @@ class sockstream
 
   inline sockstream(const char *name, const char *service,
                     const struct sockaddr *from = NULL, socklen_t fromlen = 0)
-    : std::iostream(&_buf), _ssl(NULL)
+    : std::iostream(&_buf), _ssl(NULL), _tls_verify(true)
   {
     _buf.connect(name, service, from, fromlen);
   }
@@ -154,7 +162,7 @@ class sockstream
 		      socklen_t fromlen = 0, unsigned int timeout = 0)
   {
     _buf.connect(name, service, from, fromlen, timeout);
-    if (_ssl && _buf.connected()) _ssl->connect();
+    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile);
     clear(connected() ? std::ios::goodbit : std::ios::badbit);
   }
 
@@ -162,8 +170,15 @@ class sockstream
 		      unsigned int timeout = 0)
   {
     _buf.connect(name, service, NULL, 0, timeout);
-    if (_ssl && _buf.connected()) _ssl->connect();
+    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile);
     clear(connected() ? std::ios::goodbit : std::ios::badbit);
+  }
+
+  // TLS settings for connect() and starttls(); see sslstreambuf::connect.
+  inline void set_tls(bool verify, const std::string &cafile)
+  {
+    _tls_verify = verify;
+    _tls_cafile = cafile;
   }
 
   inline void attach(int fd)
@@ -190,7 +205,10 @@ class sockstream
   { _buf.setnodelay(fl); }
 
 #if defined(HAVE_GNUTLS)
-  sockstream *starttls();
+  // Hands the socket to a new TLS stream and runs the handshake. Returns
+  // NULL if there is nothing to upgrade; otherwise check connected() on
+  // the result, which is false if the handshake or verification failed.
+  sockstream *starttls(const char *hostname);
 #endif
 };
 

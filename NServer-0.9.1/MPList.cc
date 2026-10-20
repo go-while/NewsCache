@@ -57,6 +57,9 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	if (passwd[0] != '\0') {
 		*pOut << "\t\tPassword " << passwd << std::endl;
 	}
+	if (!tlsCAFile.empty()) {
+		*pOut << "\t\tTLSCAFile " << tlsCAFile << std::endl;
+	}
 	if (read[0] != '\0') {
 		*pOut << "\t\tRead "<< read << std::endl;
 	}
@@ -85,6 +88,9 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	}
 	if (flags & F_STARTTLS) {
 		*pOut << " starttls";
+	}
+	if (flags & F_TLS_NOVERIFY) {
+		*pOut << " noverify";
 	}
 	*pOut << std::endl;
 	if (~nntpflags) {
@@ -208,6 +214,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 		} else if (tok == "Password") {
 			a1 = lex.getToken();
 			cur.passwd = a1;
+		} else if (tok == "TLSCAFile") {
+			a1 = lex.getToken();
+			cur.tlsCAFile = a1;
 		} else if (tok == "Options") {
 			int flag;
 			for (;;) {
@@ -254,6 +263,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 				} else if(a1=="starttls") {
 					cur.flags |=
 					    MPListEntry::F_STARTTLS;
+				} else if(a1=="noverify") {
+					cur.flags |=
+					    MPListEntry::F_TLS_NOVERIFY;
 				} else {
 					break;
 				}

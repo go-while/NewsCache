@@ -248,7 +248,22 @@ void RServer::connect()
 	string grt, resp;
 	char buf[1024];
 	unsigned int i = _CurrentServer->retries;
+#if !defined(HAVE_GNUTLS)
+	// Without GnuTLS, ssl and starttls can't be honoured; connecting in
+	// plain text instead would send the login unencrypted.
+	if (_CurrentServer->flags &
+	    (MPListEntry::F_SSL | MPListEntry::F_STARTTLS)) {
+		slog.p(Logger::Error) << _CurrentServer->hostname << ":"
+			<< _CurrentServer->servicename
+			<< " needs TLS (Options ssl or starttls), but NewsCache was "
+			   "built without GnuTLS\n";
+		throw SystemError("RServer::connect: TLS not available", -1,
+				  ERROR_LOCATION);
+	}
+#endif
 	_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
+	_pServerStream->set_tls(!(_CurrentServer->flags & MPListEntry::F_TLS_NOVERIFY),
+				_CurrentServer->tlsCAFile);
 
 	for (;;) {
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
@@ -318,20 +333,35 @@ void RServer::connect()
 
 #if defined(HAVE_GNUTLS)
 		if (_CurrentServer->flags & MPListEntry::F_STARTTLS) {
-			// starttls
+			// STARTTLS is required: if it is refused or the TLS
+			// handshake fails, give up instead of continuing (and
+			// sending User/Password) in plain text, which anyone
+			// in the middle could force by rejecting STARTTLS.
 			resp = issue("starttls\r\n", NULL);
 			RSERVER_CONNECT_CHECK_CONNECTION
 			    ("Cannot read data from %s:%s");
 			if (resp[0] != '3' || resp[1] != '8' || resp[2] != '2') {
-				slog.p(Logger::Warning) << "starttls failed, ignored\n";
-				_CurrentServer->flags &= ~MPListEntry::F_STARTTLS;
-			} else {
-				if (sockstream *sslStream = _pServerStream->starttls())
-				{
-					delete _pServerStream;
-					_pServerStream = sslStream;
-				}
+				slog.p(Logger::Error) << "STARTTLS refused by "
+					<< _CurrentServer->hostname << ":"
+					<< _CurrentServer->servicename << ": " << resp
+					<< "; not continuing without TLS\n";
+				string c("_starttls_"), e("382");
+				delete _pServerStream;
+				_pServerStream = NULL;
+				throw ResponseError(c, e, resp);
 			}
+			sockstream *sslStream = _pServerStream->starttls(
+				_CurrentServer->hostname.c_str());
+			if (!sslStream || !sslStream->connected()) {
+				delete sslStream;
+				delete _pServerStream;
+				_pServerStream = NULL;
+				throw SystemError("RServer::connect: STARTTLS handshake failed",
+						  -1, ERROR_LOCATION);
+			}
+			delete _pServerStream;
+			_pServerStream = sslStream;
+			_pServerStream->unsetf(ios::skipws);
 		}
 #endif
 
