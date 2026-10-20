@@ -56,6 +56,9 @@ type env struct {
 	MaxConnections int
 	ClientTimeout  int
 	ServerOptions  string // Options line of the upstream server, "" = default
+	ServerHost     string // upstream host for NewsCache, "" = the fake upstream
+	ServerPort     string // upstream port, "" = the fake upstream's
+	ServerLines    string // extra lines in the upstream's Server block
 	GroupTimeout   int
 	Extra          string // extra lines at the end of the config
 	AccessList     string // the whole AccessList block
@@ -169,6 +172,9 @@ NewsServerList {
 {{- if .ServerOptions}}
     Options {{.ServerOptions}}
 {{- end}}
+{{- if .ServerLines}}
+{{.ServerLines}}
+{{- end}}
   }
 }
 {{.Extra}}
@@ -194,8 +200,9 @@ func (e *env) writeConf() {
 		"LogDir":         e.LogDir,
 		"ClientTimeout":  e.ClientTimeout,
 		"MaxConnections": e.MaxConnections,
-		"UpHost":         e.Upstream.Host(),
-		"UpPort":         e.Upstream.Port(),
+		"UpHost":         firstNonEmpty(e.ServerHost, e.Upstream.Host()),
+		"UpPort":         firstNonEmpty(e.ServerPort, fmt.Sprint(e.Upstream.Port())),
+		"ServerLines":    e.ServerLines,
 		"GroupTimeout":   e.GroupTimeout,
 		"ServerOptions":  e.ServerOptions,
 		"Extra":          e.Extra,
@@ -321,4 +328,11 @@ func (e *env) dialLenient() *client.Conn {
 		e.t.Fatalf("greeting: %v", err)
 	}
 	return c
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

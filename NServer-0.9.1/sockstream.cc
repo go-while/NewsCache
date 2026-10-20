@@ -10,6 +10,9 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <map>
+#include <string>
+
 #include "config.h"
 #include "Debug.h"
 #include "sockstream.h"
@@ -30,19 +33,56 @@ namespace {
     }
   } gnutls_initer;
 
-  gnutls_certificate_credentials_t &get_x509_client_cred()
+  // Client credentials with the trusted CA certificates: the system trust
+  // store, or the PEM file cafile. One set per file, kept for the life of
+  // the process.
+  gnutls_certificate_credentials_t get_x509_client_cred(const std::string &cafile)
   {
-    static gnutls_certificate_credentials_t x509_cred;
-    static bool initialized = [] () {
-      gnutls_certificate_allocate_credentials(&x509_cred);
+    static std::map<std::string, gnutls_certificate_credentials_t> creds;
 
-      gnutls_certificate_set_x509_trust_file(x509_cred,
-	  "/etc/ssl/certs/ca-certificates.crt",
-	  GNUTLS_X509_FMT_PEM);
-      return true;
-    } ();
+    std::map<std::string, gnutls_certificate_credentials_t>::iterator it =
+      creds.find(cafile);
+    if (it != creds.end())
+    {
+      return it->second;
+    }
 
-    return x509_cred;
+    gnutls_certificate_credentials_t cred;
+    gnutls_certificate_allocate_credentials(&cred);
+
+    int n;
+    if (cafile.empty())
+    {
+      n = gnutls_certificate_set_x509_system_trust(cred);
+      if (n <= 0)
+      {
+	slog.p(Logger::Error)
+	  << "TLS: no CA certificates in the system trust store ("
+	  << (n < 0 ? gnutls_strerror(n) : "none found")
+	  << "); certificates can't be verified, set TLSCAFile\n";
+      }
+    }
+    else
+    {
+      n = gnutls_certificate_set_x509_trust_file(cred, cafile.c_str(),
+						  GNUTLS_X509_FMT_PEM);
+      if (n <= 0)
+      {
+	slog.p(Logger::Error)
+	  << "TLS: no CA certificates loaded from " << cafile << " ("
+	  << (n < 0 ? gnutls_strerror(n) : "none found") << ")\n";
+      }
+    }
+
+    creds[cafile] = cred;
+    return cred;
+  }
+
+  bool is_ip_address(const char *name)
+  {
+    unsigned char addr[sizeof(struct in6_addr)];
+    return (inet_pton(AF_INET, name, addr) == 1) ||
+      (inet_pton(AF_INET6, name, addr) == 1);
   }
 #endif
 }
@@ -278,9 +318,9 @@ sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf)
 
   gnutls_init(&_session, GNUTLS_CLIENT);
 
+  // The default priorities follow the system's crypto policy (on Fedora
+  // update-crypto-policies), so no protocol or cipher list is set here.
   gnutls_set_default_priority(_session);
-  gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE,
-			 get_x509_client_cred());
 }
 
 sockstream::sslstreambuf::~sslstreambuf()
@@ -291,22 +331,80 @@ sockstream::sslstreambuf::~sslstreambuf()
 }
 
 
-void sockstream::sslstreambuf::connect()
+void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
+				       const std::string &cafile)
 {
-  gnutls_transport_set_ptr(_session,
-			   reinterpret_cast<gnutls_transport_ptr_t>(_buf.fd()));
+  _connected = false;
+  const char *name = (hostname && *hostname) ? hostname : NULL;
 
-  int rc_connect = GNUTLS_E_AGAIN;
-  while (rc_connect == GNUTLS_E_AGAIN)
+  gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE,
+			 get_x509_client_cred(cafile));
+
+  // SNI: some servers host several names and need it to send the right
+  // certificate. It must be a DNS name, never an IP address.
+  if (name && !is_ip_address(name))
   {
-    rc_connect = gnutls_handshake(_session);
+    gnutls_server_name_set(_session, GNUTLS_NAME_DNS, name, strlen(name));
   }
 
-  _connected = !rc_connect;
+  if (verify)
+  {
+    // The handshake fails unless the certificate chains to a trusted CA,
+    // is valid now and matches name (DNS name or IP address).
+    gnutls_session_set_verify_cert(_session, name, 0);
+  }
+  else
+  {
+    slog.p(Logger::Warning)
+      << "TLS: not verifying the certificate of " << (name ? name : "?")
+      << " (Options noverify)\n";
+  }
+
+  gnutls_handshake_set_timeout(_session, GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
+  gnutls_transport_set_int(_session, _buf.fd());
+
+  int rc;
+  do
+  {
+    rc = gnutls_handshake(_session);
+  } while ((rc < 0) && !gnutls_error_is_fatal(rc));
+
+  if (rc < 0)
+  {
+    slog.p(Logger::Error) << "TLS handshake with " << (name ? name : "?")
+			  << " failed: " << gnutls_strerror(rc) << "\n";
+    if (rc == GNUTLS_E_CERTIFICATE_VERIFICATION_ERROR)
+    {
+      gnutls_datum_t out;
+      if (gnutls_certificate_verification_status_print(
+	    gnutls_session_get_verify_cert_status(_session),
+	    gnutls_certificate_type_get(_session), &out, 0) == 0)
+      {
+	slog.p(Logger::Error) << "TLS: " << (const char *) out.data << "\n";
+	gnutls_free(out.data);
+      }
+    }
+    return;
+  }
+
+  char *desc = gnutls_session_get_desc(_session);
+  slog.p(Logger::Info) << "TLS connection to " << (name ? name : "?") << ": "
+		       << (desc ? desc : "") << (verify ? ", certificate verified"
+						 : ", certificate NOT verified")
+		       << "\n";
+  gnutls_free(desc);
+
+  _connected = true;
 }
 
 void sockstream::sslstreambuf::disconnect()
 {
+  if (!_connected)
+  {
+    return;
+  }
+  _connected = false;
+
   int rc_shutdown = GNUTLS_E_AGAIN;
   while (rc_shutdown == GNUTLS_E_AGAIN)
   {
@@ -388,14 +486,17 @@ int sockstream::sslstreambuf::underflow()
   }
 }
 
-sockstream *sockstream::starttls()
+sockstream *sockstream::starttls(const char *hostname)
 {
   if (!_ssl && _buf.connected())
   {
     sockstream * const ssl_stream = new sockstream(true);
+    ssl_stream->set_tls(_tls_verify, _tls_cafile);
     ssl_stream->attach(_buf.fd());
     _buf.dispose();
-    ssl_stream->_ssl->connect();
+    ssl_stream->_ssl->connect(hostname, _tls_verify, _tls_cafile);
+    ssl_stream->clear(ssl_stream->connected() ? std::ios::goodbit
+		      : std::ios::badbit);
     return ssl_stream;
   }
   else

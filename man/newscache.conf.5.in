@@ -221,6 +221,7 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIRetris\fR nr-of-retries
 	\fIUser\fR username
 	\fIPassword\fR password
+	\fITLSCAFile\fR file
 	\fIOptions\fR flags
 	\fICommands\fR commands
 }
@@ -249,6 +250,8 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
 The default value is 600 seconds.
+.IP "TLSCAFile \fIfile\fR"
+A PEM file with the CA certificates to verify this server's TLS certificate against, for servers with a private CA. Without it, NewsCache uses the system's trust store.
 .IP "BindFrom \fIaddress\fR"
 Local address used for connections to this upstream server. It must be a numeric IPv4 or IPv6 address; host names are not resolved. No default value.
 .IP "Options \fIflags\fR"
@@ -258,6 +261,9 @@ Specifies a list of options that should be turned on or off. The default flags a
 	\fI[not-]cached\fR
 	\fI[not-]offline\fR
 	\fIsemioffline\fR
+	\fIssl\fR
+	\fIstarttls\fR
+	\fInoverify\fR
 .fi
 .RS
 .TP
@@ -274,7 +280,15 @@ and stored in the cache. This is usefull in dialup configurations. The news read
 The overview informations are loaded with
 .BR updatenews(8)
 and the articles retrieved by NewsCache, if a news reader client request it. The article is stored in the internal cache.
+.IP "ssl"
+Use TLS from the start of the connection, usually on port 563 (nntps).
+.IP "starttls"
+Connect in plain text and switch to TLS with the STARTTLS command, usually on port 119. If the server refuses STARTTLS or the TLS handshake fails, NewsCache gives up the connection; it never continues in plain text.
+.IP "noverify"
+With ssl or starttls: don't verify the server's certificate. The connection is encrypted, but anyone in the middle can impersonate the server. NewsCache logs a warning for every such connection. Only for servers with a self-signed certificate; prefer TLSCAFile.
 .RE
+.IP
+With ssl or starttls, NewsCache verifies the server's certificate during the TLS handshake: it must chain to a trusted CA, be valid now and match the host name (or IP address) in the Server line, which is also sent as SNI. Otherwise the connection fails and the error is logged.
 .IP "Commands \fIcommands\fR"
 All commands are switched on by default and NewsCache tries itself to find out which of the commands are supported. In some situations it might be necessary to deactivate a command manually (eg. it is not implemented correctly by your news server). To switch off, prepend the command with not-support commands: listgroup, over
 .SH EXAMPLES

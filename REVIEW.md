@@ -67,24 +67,22 @@ CI, not yet by the systematic review.
 | Dead links and addresses (members.aon.at, linuxhacker.at, TU Wien) in docs, man pages and 8 error messages | 0 | review | #12 |
 | `TODO` from 2013: mostly done or obsolete; open items moved below | 0 | review | #13 |
 | `newscache -p` left `ssl`, `starttls` and `dontgenmsgid` out of a server's options | 6 | testing #14 | #15 |
+| TLS didn't verify the server certificate (chain, name, validity) | 7 | review | #16 |
+| A refused STARTTLS fell back to plain text, login included (downgrade) | 7 | review | #16 |
+| Fixed Debian CA path (missing on Fedora, macOS), no SNI, no handshake timeout | 7 | review | #16 |
+| Builds without GnuTLS ignored `ssl`/`starttls` and connected in plain text | 7 | review | #16 |
+| Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
 
 ## Open points
 
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **TLS to upstream servers doesn't check the server certificate** (area 7).
-  `sockstream.cc` loads a trust file and runs `gnutls_handshake()`, but never
-  verifies the peer certificate or sends the server name (SNI). A
-  man-in-the-middle can impersonate the upstream server.
 - **Compiler warnings** (area 13 and others): about 95 with GCC 16, including
   15 `-Wformat-overflow`, 9 `-Wstringop-overread` and 1 `-Wexceptions`, which
   may point at real buffer or exception bugs.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
-- **`not-ssl` and `not-starttls` aren't parsed** (area 6). The sample config
-  documents `(not-)ssl` and `(not-)starttls`, but the parser only accepts
-  `ssl` and `starttls`.
 - **No wildcards in the prefetch file** (area 12). `updatenews` reads group
   names literally; the old `TODO` asked for wildcards.
 - **No full PAT/XPAT** (area 2). Only `XHDR` exists; the old `TODO` asked for
@@ -92,6 +90,9 @@ that it stays as it is.
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
   OverviewFmt.h" (area 8).
+- **`newscache -p` prints upstream passwords** (area 6) in plain text
+  (`Password secret`). Only the admin can run it, but its output is often
+  pasted into bug reports.
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see

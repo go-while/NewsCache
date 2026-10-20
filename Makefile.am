@@ -7,4 +7,4 @@ TESTS = tests/e2e/run.sh
 
 EXTRA_DIST = COPYRIGHT README.md FEDORA.md tests/e2e/run.sh tests/e2e/go.mod tests/e2e/go.sum \
 	tests/e2e/harness_test.go tests/e2e/reader_test.go \
-	tests/e2e/daemon_test.go tests/e2e/bugs_test.go tests/e2e/auth_test.go tests/e2e/config_test.go
+	tests/e2e/daemon_test.go tests/e2e/bugs_test.go tests/e2e/auth_test.go tests/e2e/config_test.go tests/e2e/tls_test.go
