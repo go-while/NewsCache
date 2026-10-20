@@ -77,6 +77,15 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	if (flags & F_SEMIOFFLINE) {
 		*pOut << " semioffline";
 	}
+	if (flags & F_DONTGENMSGID) {
+		*pOut << " dontgenmsgid";
+	}
+	if (flags & F_SSL) {
+		*pOut << " ssl";
+	}
+	if (flags & F_STARTTLS) {
+		*pOut << " starttls";
+	}
 	*pOut << std::endl;
 	if (~nntpflags) {
 		*pOut << "\t\tCommands";

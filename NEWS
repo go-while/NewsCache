@@ -1,5 +1,9 @@
 Unreleased:
 
+Bug fixes:
+* newscache -p left the server options ssl, starttls and dontgenmsgid out of
+  its output, although they were parsed and used.
+
 Other changes:
 * Bug reports and the home page point to
   https://github.com/go-while/NewsCache instead of the dead members.aon.at,
