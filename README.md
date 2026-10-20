@@ -201,6 +201,67 @@ More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
 database files. The user manual is `doc/NewsCache.texinfo`.
 
+### In a container (Docker or Podman)
+
+The [`Dockerfile`](Dockerfile) builds NewsCache on Ubuntu 24.04 and runs it in
+the foreground as user `news`, with the log on the container's output:
+
+```sh
+docker build -t newscache .
+docker run -d --name newscache -p 119:119 \
+    -v newscache-spool:/var/cache/newscache newscache
+docker logs -f newscache
+```
+
+With Podman, use `podman` instead of `docker`. The built-in config
+([`docker/newscache.conf`](docker/newscache.conf)) reads from
+`news.blueworldhosting.com` over TLS and lets clients from loopback and
+private networks read and post. Connections forwarded with `-p` from the
+host itself arrive from the container network (for example `172.17.0.1`) and
+are allowed. Docker and Podman pass on the address of clients on other
+machines, so those get `502 You have no permission to talk` until you add
+their network to the `AccessList`. Mount your own config with
+`-v /path/to/newscache.conf:/etc/newscache.conf:ro`. A container has no cron,
+so purge the spool now and then with `docker exec newscache newscacheclean`,
+for example from the host's cron.
+
+Where the data lives: files written inside a container are lost when the
+container is removed. `-v newscache-spool:/var/cache/newscache` keeps the
+spool in a *named volume* instead, which Docker or Podman store on the host
+(`docker volume inspect newscache-spool` shows the directory, usually under
+`/var/lib/docker/volumes/` or `/var/lib/containers/storage/volumes/`). It
+survives removing and recreating the container, for example for an upgrade.
+With `-v /srv/newscache:/var/cache/newscache` the spool goes to that host
+directory instead (it must be writable by uid 9, the image's `news` user).
+The same `-v host-path:container-path` form mounts single files, like the
+config above (`:ro` makes it read-only inside the container).
+
+If the build fails with "Temporary failure resolving" or the log says
+"Can't resolve" the news server, the container has no working DNS. This
+happens when the host uses a local resolver (`nameserver 127.0.0.1` in
+`/etc/resolv.conf`): build with `docker build --network host`, and run with
+`--dns <resolver address>`. If DNS works but the container still can't reach
+the news server, a host firewall may block forwarded traffic (for example
+arno-iptables-firewall with its default `FORWARD` policy `DROP`): allow
+forwarding for the container network, or run with `--network host` and a
+config whose `ListenTo` doesn't collide with a news server already on the
+host (for example `ListenTo 127.0.0.1:11119`).
+
+### On Windows
+
+NewsCache needs a Unix system (it uses `fork`, Unix signals and user
+switching), so it doesn't build natively on Windows. Two ways to run it there:
+
+- **WSL 2:** install Ubuntu (or Fedora) in WSL and build it as described in
+  [Building](#building). To run it as a service, enable systemd in WSL
+  (`[boot]` `systemd=true` in `/etc/wsl.conf`) and use the unit from
+  [`FEDORA.md`](FEDORA.md). WSL 2 forwards `localhost`, so Windows news
+  readers can use `localhost:119`.
+- **Docker Desktop or Podman Desktop:** the container image above.
+
+The container image is built and tested in CI; the WSL steps have not been
+tested on Windows yet.
+
 ## Known restrictions
 
 - **No UTF-8 in wildmat patterns.** Newsgroup patterns are matched byte by

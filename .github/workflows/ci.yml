@@ -141,6 +141,39 @@ jobs:
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
 
+  container:
+    # Builds the Dockerfile and checks that the daemon answers through a
+    # forwarded port. Doesn't fetch from the upstream server, so a problem
+    # there can't fail the job.
+    name: Container image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: docker build -t newscache .
+
+      - name: Run and connect
+        run: |
+          docker run -d --name newscache -p 1119:119 newscache
+          for i in $(seq 1 30); do
+            greeting=$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/1119; head -1 <&3; printf "QUIT\r\n" >&3' 2>/dev/null | tr -d '\r') || true
+            case "$greeting" in "200 NewsCache "*) break ;; esac
+            sleep 1
+          done
+          echo "greeting: $greeting"
+          case "$greeting" in "200 NewsCache "*) ;; *) exit 1 ;; esac
+          test "$(docker exec newscache stat -c %U /proc/1)" = news
+          docker exec newscache newscacheclean
+
+      - name: Show container log
+        if: always()
+        run: docker logs newscache 2>&1 | tail -n 50 || true
+
   checkout:
     # Windows and macOS file systems are case-insensitive: two tracked files
     # whose names differ only in case can't both be checked out there.
