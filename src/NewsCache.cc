@@ -980,7 +980,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 			slog.
 			    p(Logger::
 			      Error) <<
-			    "Internal Error? Please report to h.straub@aon.at\r\n";
+			    "Internal Error? Please report this at https://github.com/go-while/NewsCache/issues\n";
 			e.print();
 			return -1;
 		}
@@ -1079,7 +1079,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			slog.
 			    p(Logger::
 			      Error) <<
-			    "Internal Error? Please report to h.straub@aon.at\r\n";
+			    "Internal Error? Please report this at https://github.com/go-while/NewsCache/issues\n";
 			e.print();
 			return -1;
 		}

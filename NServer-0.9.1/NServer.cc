@@ -702,7 +702,7 @@ ActiveDB *RServer::active()
 			    << _ServerList->entries[i].
 			    hostname << ":" << _ServerList->entries[i].
 			    servicename <<
-			    "\nPLEASE REPORT TO h.straub@aon.at\n";
+			    "\nPLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 			e.print();
 		}
 	}
@@ -1328,7 +1328,7 @@ ActiveDB *CServer::active()
 			    <<
 			    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
 			    <<
-			    "CServer::active: PLEASE REPORT TO h.straub@aon.at\n";
+			    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 			e.print();
 		}
 		catch(...) {
@@ -1336,7 +1336,7 @@ ActiveDB *CServer::active()
 			    <<
 			    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
 			    <<
-			    "CServer::active: PLEASE REPORT TO h.straub@aon.at\n";
+			    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		}
 		_NVActiveDB->lock(NVcontainer::UnLock);
 	}

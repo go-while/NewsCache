@@ -47,4 +47,5 @@ gdb /usr/sbin/newscache
 (gdb) core /var/cache/newscache/coredump
 (gdb) bt
 
-Then you should see the stacktrace. Send this to newscache@linuxhacker.org.
+Then you should see the stacktrace. Report it at
+https://github.com/go-while/NewsCache/issues.
