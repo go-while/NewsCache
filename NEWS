@@ -1,4 +1,11 @@
-Unreleased:
+Release 1.3.20:
+Billy G. - 2026-10-20
+
+Upgrading: with Options ssl or starttls, NewsCache now verifies the server's
+TLS certificate and drops the connection if it is invalid, expired or for
+another name, or if STARTTLS is refused. Check the log after upgrading. For a
+server with a private CA set TLSCAFile; Options noverify accepts any
+certificate, without protection against a man-in-the-middle.
 
 Bug fixes:
 * TLS to upstream servers (Options ssl and starttls) now verifies the
@@ -39,6 +46,12 @@ Other changes:
   function definition, which C23 compilers such as Xcode's clang reject.
 * CI: build and make check on macOS, and a check on Windows and macOS that
   the tree checks out cleanly on a case-insensitive file system.
+* The sample newscache.conf-dist and FEDORA.md use news.blueworldhosting.com
+  (port 563, TLS) instead of the long-gone TU Wien servers, and README.md
+  lists public news servers.
+* FEDORA.md: all steps tested on Fedora 43, 44 and 45.
+* Removed stamp-h.in (an automake leftover) and the TODO file from 2013;
+  its still-open items are in REVIEW.md.
 
 Release 1.3.19:
 Billy G. - 2026-10-19
