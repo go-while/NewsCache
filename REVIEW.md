@@ -22,7 +22,7 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 
 | # | Area | Files | Lines | What to look at | Status |
 |---|---|---|---|---|---|
-| 0 | Top-level files and docs | `TODO`, `README`, `INSTALL`, `man/`, `doc/` (incl. `NewsCache.texinfo`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | `TODO` is from 2013 and mixes done, obsolete and still open items; sort it. Dead links done (#12), `stamp-h.in` removed (#11) | in progress |
+| 0 | Top-level files and docs | `README`, `INSTALL`, `man/`, `doc/` (incl. `NewsCache.texinfo`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | Old `TODO` sorted and removed (#13), dead links (#12), `stamp-h.in` (#11) | reviewed (2026-10-20) |
 | 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | not started |
 | 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | not started |
 | 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | not started |
@@ -65,18 +65,13 @@ CI, not yet by the systematic review.
 | macOS build: `crypt.h`, K&R definition in `wildmat.c` | 10, 14 | CI | #6 |
 | `stamp-h.in`, an automake leftover nothing used | 0 | review | #11 |
 | Dead links and addresses (members.aon.at, linuxhacker.at, TU Wien) in docs, man pages and 8 error messages | 0 | review | #12 |
+| `TODO` from 2013: mostly done or obsolete; open items moved below | 0 | review | #13 |
 
 ## Open points
 
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **`TODO` is from 2013** (area 0). It lists goals for 1.0, 1.2 and 1.5:
-  some done (NEWGROUPS, `kill -1` reload, maximum connections), some obsolete
-  (socket++ build steps), some possibly still open ("username restricted to 8
-  chars?!?", 423 instead of 430 for expired articles, negative caching, a
-  message-ID database, servers without an overview database). Each item
-  should end up done, dropped, or moved here or to `PLAN-new-features.md`.
 - **TLS to upstream servers doesn't check the server certificate** (area 7).
   `sockstream.cc` loads a trust file and runs `gnutls_handshake()`, but never
   verifies the peer certificate or sends the server name (SNI). A
@@ -86,9 +81,46 @@ that it stays as it is.
   may point at real buffer or exception bugs.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
+- **No wildcards in the prefetch file** (area 12). `updatenews` reads group
+  names literally; the old `TODO` asked for wildcards.
+- **No full PAT/XPAT** (area 2). Only `XHDR` exists; the old `TODO` asked for
+  a full implementation for all headers.
+- **Two unclear notes from the old `TODO`**, to check while reviewing:
+  "Groups without reading permission" (area 4) and "ListIter in
+  OverviewFmt.h" (area 8).
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see
   `TestArticleByMessageIDGoesUpstream`.
 - **CodeQL**: 12 alerts were dismissed as false positives or test code on
   2026-10-19. Recheck them when their code is reviewed.
+
+## Feature ideas from the old TODO
+
+Not bugs; candidates for `PLAN-new-features.md` on the `features` branch once
+the review is done.
+
+- Per-server active timeouts instead of the global `Timeouts`, and dropping
+  the `semioffline` option.
+- Statistics collected by the daemon (LIST ACTIVE, HEAD/BODY/ARTICLE,
+  NEWGROUPS, OVER).
+- Negative caching (remember articles the upstream doesn't have), and
+  caching of headers.
+- A message-ID database, so crossposted articles are fetched once and
+  `ARTICLE <message-id>` can be served from the spool.
+- Support for upstream servers without an overview database
+  (`OVER`/`XOVER`), a known restriction in README.md.
+
+Dropped from the old `TODO` as done or obsolete: the socket++ and PAM build
+notes for 1.2; the 8-character user name limit (user names and passwords now
+take up to 511 characters); libwrap detection; `kill -1` reloading the
+config; posting, maximum connections, NEWGROUPS, `--version`, the standalone
+crash and the host name (all marked done; posting and NEWGROUPS have e2e
+tests now); fetching an article by message-ID from other servers;
+`LIST newsgroups`; statistics tools (`newscacheclean -s`); XMOTD; the
+authentication model (unix, file, pam, pam+file); a small test suite with a
+fake news server (`tests/e2e`); not reconnecting to an unreachable server
+all the time (`ConnectTimeout`, `ConnectBackoff`). Also dropped: replying
+430 instead of 423 when an article number is gone upstream, as a workaround
+for one news reader; RFC 3977 says 423 is right for an article number, and
+430 is for a message-ID.
