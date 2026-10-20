@@ -304,9 +304,13 @@ void AccessList::readClient(Lexer & lex, const char *address)
 		cur.hostname = address;
 	}
 
+	// Only parse a numeric address here. No AI_ADDRCONFIG: whether the
+	// host has IPv6 must not decide whether an IPv6 entry is an address
+	// (without IPv6, getaddrinfo refused it and the entry silently became
+	// a host name that never matches).
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICHOST;
+	hints.ai_flags = AI_NUMERICHOST;
 	hints.ai_family = family;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
@@ -327,6 +331,11 @@ void AccessList::readClient(Lexer & lex, const char *address)
 			throw SyntaxError(lex, "prefix length too long",
 					  ERROR_LOCATION);
 		}
+	} else if (slash != NULL) {
+		// "name/prefix" would silently become a host name that never
+		// matches; a /prefix only makes sense after an IP address.
+		throw SyntaxError(lex, "a /prefix needs an IP address",
+				  ERROR_LOCATION);
 	}
 
 	tok = lex.getToken();

@@ -153,3 +153,23 @@ func TestPrintAccessEntries(t *testing.T) {
 		t.Errorf("-p output read back differs:\n%s\n--- vs ---\n%s", list, list2)
 	}
 }
+
+// TestAccessPrefixNeedsAddress: a /prefix after something that isn't an IP
+// address is a config error. It used to become a host name that never
+// matches, silently.
+func TestAccessPrefixNeedsAddress(t *testing.T) {
+	for _, p := range []string{"300.1.1.1/8", "news.example.org/24", "2001:db8::zz/32"} {
+		t.Run(p, func(t *testing.T) {
+			e := newEnv(t)
+			e.AccessList = accessEntry(p)
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err == nil {
+				t.Fatalf("newscache accepted Client %s:\n%s", p, accessListOf(t, string(out)))
+			}
+			if !strings.Contains(string(out), "needs an IP address") {
+				t.Errorf("Client %s: error %q, want \"a /prefix needs an IP address\"", p, strings.TrimSpace(string(out)))
+			}
+		})
+	}
+}
