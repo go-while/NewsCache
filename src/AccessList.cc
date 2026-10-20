@@ -15,6 +15,23 @@
 
 using namespace std;
 
+std::string AccessEntry::pattern() const
+{
+	if (addr.ss_family == AF_UNSPEC) {
+		return hostname;
+	}
+	char host[NI_MAXHOST];
+	socklen_t len = (addr.ss_family == AF_INET6) ?
+	    sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+	if (getnameinfo((const struct sockaddr *) &addr, len, host,
+			sizeof(host), NULL, 0, NI_NUMERICHOST) != 0) {
+		return "?";
+	}
+	char buf[NI_MAXHOST + 8];
+	snprintf(buf, sizeof(buf), "%s/%u", host, (unsigned) prefixlen);
+	return buf;
+}
+
 std::ostream & operator<<(std::ostream & os, const AccessEntry & ae)
 {
 #ifdef HAVE_SSTREAM
@@ -23,7 +40,8 @@ std::ostream & operator<<(std::ostream & os, const AccessEntry & ae)
 	strstream sb;
 #endif
 
-	os << ae.hostname << '{' << endl;
+	const std::string p = ae.pattern();
+	os << (p.empty() ? std::string("Default") : p) << '{' << endl;
 	os << "  access_flags=" << ae.access_flags << " (";
 	ae.printAccessFlags(&os);
 	os << ")"<< endl;
@@ -178,8 +196,9 @@ void AccessList::read(Lexer & lex)
 
 void AccessEntry::printParameters (std::ostream *pOut)
 {
-	if (hostname[0] != '\0') {
-		*pOut << "\tClient " << hostname << " {" << endl;
+	const std::string p = pattern();
+	if (!p.empty()) {
+		*pOut << "\tClient " << p << " {" << endl;
 	} else {
 		*pOut << "\tDefault {" << endl;
 	}

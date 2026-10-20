@@ -12,6 +12,10 @@ Bug fixes:
   Default { allow none }, with the old entries as commented examples, so
   nobody may read or post until a Client entry (address or CIDR) or a login
   allows it. FEDORA.md does the same and shows how to allow clients.
+* newscache -p and the xdebug command printed AccessList entries for an
+  address or network (e.g. Client 192.168.0.0/255.255.0.0) as "Default",
+  without the address; read back as a config, such an entry would have let
+  every client in. They now print as Client 192.168.0.0/16.
 
 Other changes:
 * Dockerfile for Docker and Podman (also Docker Desktop and Podman Desktop on

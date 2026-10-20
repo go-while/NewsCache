@@ -96,3 +96,60 @@ func TestShippedConfigsDenyEveryone(t *testing.T) {
 		})
 	}
 }
+
+// accessListOf returns the AccessList block of newscache -p output.
+func accessListOf(t *testing.T, out string) string {
+	t.Helper()
+	i := strings.Index(out, "AccessList {")
+	if i < 0 {
+		t.Fatalf("no AccessList in the -p output:\n%s", out)
+	}
+	s := out[i:]
+	if j := strings.Index(s, "\n}"); j >= 0 {
+		s = s[:j+2]
+	}
+	return s
+}
+
+// TestPrintAccessEntries: newscache -p prints every access entry with what
+// it matches. Address entries used to print as "Default {" without their
+// address, and reading that output back made them match every client.
+func TestPrintAccessEntries(t *testing.T) {
+	e := newEnv(t)
+	entry := func(p string) string {
+		return "  Client " + p + " {\n    allow read\n    List *\n    Read *\n    PostTo *\n    Authentication none\n  }\n"
+	}
+	e.AccessList = "AccessList {\n" +
+		entry("10.0.0.0/8") + entry("192.168.0.0/255.255.0.0") + entry("2001:db8::/32") +
+		entry("10.1.2.3") + entry("localhost") + entry(".example.org") +
+		"  Default {\n    allow none\n  }\n}"
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	list := accessListOf(t, string(out))
+	var got []string
+	for _, l := range strings.Split(list, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "Client ") || l == "Default {" {
+			got = append(got, strings.TrimSuffix(l, " {"))
+		}
+	}
+	want := []string{"Client 10.0.0.0/8", "Client 192.168.0.0/16", "Client 2001:db8::/32",
+		"Client 10.1.2.3/32", "Client localhost", "Client .example.org", "Default"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("access entries in -p output:\n  got  %q\n  want %q", got, want)
+	}
+
+	// The printed list, read back as a config, prints the same again.
+	e.AccessList = list
+	e.writeConf()
+	out2, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p on its own output: %v\n%s", err, out2)
+	}
+	if list2 := accessListOf(t, string(out2)); list2 != list {
+		t.Errorf("-p output read back differs:\n%s\n--- vs ---\n%s", list, list2)
+	}
+}
