@@ -102,8 +102,8 @@ sudo systemd-sysusers
 sudo install -d -o news -g news -m 755 /var/cache/newscache /var/log/newscache
 ```
 
-If a `news` user already exists (some images have one), `systemd-sysusers`
-keeps it.
+If a `news` user already exists, for example from an earlier install,
+`systemd-sysusers` keeps it.
 
 `newscache` starts as root, binds the port and then switches to `Username` and
 `Groupname` from the config.
