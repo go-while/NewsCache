@@ -48,10 +48,12 @@ says the same.
   Release immutability is on, so a published release's files are final:
   build and check the tarball before publishing.
 - Every change to `main` goes through a pull request, for everyone, with no
-  exemption. 11 checks must pass; no approving review is needed:
-  - CI: Ubuntu (default, file log, AddressSanitizer), Fedora 43/44/45,
-    Checkout (Windows), Checkout (macOS), macOS (build and test);
-  - CodeQL: `Analyze (c-cpp)`, `Analyze (actions)`. A direct `git push` to `main` is
+  exemption. 15 checks must pass; no approving review is needed:
+  - CI: Ubuntu (default, file log, AddressSanitizer, ARM64), Fedora
+    43/44/45, Alpine 3.24 (musl), Debian 13, Checkout (Windows), Checkout
+    (macOS), macOS (build and test), Container image;
+  - CodeQL: `Analyze (c-cpp)`, `Analyze (actions)`.
+  FreeBSD runs on every PR too but is not required yet. A direct `git push` to `main` is
   rejected. If a job is renamed in a workflow, update the ruleset too, or PRs
   wait for a check that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to

@@ -1,9 +1,15 @@
-Unreleased:
+Release 1.3.21:
+Billy G. - 2026-10-20
 
-Upgrading: the shipped configs no longer let anyone in. If you copy
-newscache.conf-dist or use the container image, add a Client entry for your
-clients' addresses or networks, or an entry with Authentication (login),
-before Default.
+Upgrading:
+* The shipped configs no longer let anyone in. If you copy
+  newscache.conf-dist or use the container image, add a Client entry for
+  your clients' addresses or networks, or an entry with Authentication
+  (login), before Default.
+* A Client entry with a /prefix after something that isn't an IP address
+  (e.g. a host name like news.example.org/24) is now a config error, so
+  such a config no longer loads. Before, the entry silently never matched.
+  Check with newscache -p before restarting.
 
 Bug fixes:
 * The sample newscache.conf-dist allowed inetd clients (Client stdin, with
@@ -25,9 +31,12 @@ Bug fixes:
 
 Other changes:
 * Dockerfile for Docker and Podman (also Docker Desktop and Podman Desktop on
-  Windows): builds on Ubuntu 24.04, runs as user news in the foreground,
-  logs to the container output, and has a default config that reads from
-  news.blueworldhosting.com over TLS. CI builds the image and connects to it.
+  Windows): builds on Ubuntu 24.04, runs as user news in the foreground and
+  logs to the container output. Its config reads from
+  news.blueworldhosting.com over TLS and lets nobody in until you mount a
+  config with a Client entry or a login. CI builds the image and checks both.
+* CI also builds and runs make check on Linux ARM64, Alpine 3.24 (musl),
+  Debian 13 and FreeBSD.
 * README.md: how to run NewsCache in a container and on Windows (WSL 2).
 
 Release 1.3.20:
