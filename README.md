@@ -216,7 +216,11 @@ docker logs -f newscache
 With Podman, use `podman` instead of `docker`. The built-in config
 ([`docker/newscache.conf`](docker/newscache.conf)) reads from
 `news.blueworldhosting.com` over TLS and lets clients from loopback and
-private networks read and post. Mount your own config with
+private networks read and post. Connections forwarded with `-p` from the
+host itself arrive from the container network (for example `172.17.0.1`) and
+are allowed. Docker and Podman pass on the address of clients on other
+machines, so those get `502 You have no permission to talk` until you add
+their network to the `AccessList`. Mount your own config with
 `-v /path/to/newscache.conf:/etc/newscache.conf:ro`. A container has no cron,
 so purge the spool now and then with `docker exec newscache newscacheclean`,
 for example from the host's cron.
