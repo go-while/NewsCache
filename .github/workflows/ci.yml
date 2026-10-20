@@ -1,6 +1,7 @@
 # Build and test: make check (C++ unit tests and the Go end-to-end tests in
-# tests/e2e) on Ubuntu in three configurations, on Fedora 43, 44 and 45 with
-# Fedora's packaging flags, and on macOS. The default Ubuntu job also runs
+# tests/e2e) on Ubuntu in three configurations and on ARM64, on Fedora 43, 44
+# and 45 with Fedora's packaging flags, on Alpine (musl) and Debian 13 in a
+# container, in a FreeBSD VM, and on macOS. The default Ubuntu job also runs
 # make distcheck. Windows and macOS also check that the tree checks out
 # cleanly on a case-insensitive file system.
 
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   ubuntu:
     name: Ubuntu (${{ matrix.name }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -37,6 +38,9 @@ jobs:
             configure: --with-pam
             cxxflags: -g -O1 -fsanitize=address -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS
             ldflags: -fsanitize=address
+          - name: ARM64
+            configure: --with-pam
+            runner: ubuntu-24.04-arm
     env:
       ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
     steps:
@@ -140,6 +144,77 @@ jobs:
         run: |
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
+
+  linux:
+    # Other Linux distributions, built and tested in a container with
+    # docker run (the actions themselves can't run inside an Alpine/musl
+    # container).
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Alpine 3.24 (musl)
+            image: docker.io/library/alpine:3.24
+            setup: apk add -q build-base autoconf automake texinfo gnutls-dev linux-pam-dev go bash
+            configure: --with-pam
+          - name: Debian 13
+            image: docker.io/library/debian:13
+            setup: >-
+              apt-get update -qq &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends
+              build-essential autoconf automake texinfo libgnutls28-dev libpam0g-dev
+              golang-go ca-certificates
+            configure: --with-pam
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and make check
+        env:
+          IMAGE: ${{ matrix.image }}
+          SETUP: ${{ matrix.setup }}
+          CONFIGURE_FLAGS: ${{ matrix.configure }}
+        run: |
+          # The tree is mounted read-only and copied, so the build doesn't
+          # leave root-owned files in the workspace.
+          docker run --rm -v "$PWD:/src:ro" -e CONFIGURE_FLAGS "$IMAGE" sh -c "
+            set -e
+            $SETUP
+            cp -r /src /build && cd /build
+            ./autogen
+            ./configure \$CONFIGURE_FLAGS
+            make -j\$(nproc)
+            make check || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
+          "
+
+  freebsd:
+    name: FreeBSD
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and make check in a FreeBSD VM
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          usesh: true
+          prepare: pkg install -y autoconf automake gmake texinfo gnutls go
+          run: |
+            set -e
+            ./autogen
+            ./configure CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib
+            gmake -j"$(sysctl -n hw.ncpu)"
+            gmake check || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
 
   container:
     # Builds the Dockerfile and checks that the daemon answers through a
