@@ -180,12 +180,13 @@ over TLS, `Options ssl`); checked on 2026-10-20.
 | `news-{ams,can,fra,lax,lon,sfo,sin,tyo,wdc}.pugleaf.net`, see <https://pugleaf.net/> | open, text only | no |
 
 The sample configuration uses `news.blueworldhosting.com` on port 563.
-NewsCache verifies each server's TLS certificate. On 2026-10-20 the
-certificates of the blueworldhosting and eternal-september servers and of
-`news-sfo.pugleaf.net` were valid; the other pugleaf.net servers had expired
-certificates, so NewsCache refuses them on port 563 until they are renewed
-(`Options noverify` would accept them, but without protection against a
-man-in-the-middle). The pugleaf.net servers don't offer STARTTLS on 119.
+NewsCache verifies each server's TLS certificate and refuses a server whose
+certificate has expired until it is renewed; the log says why. On 2026-10-20
+the blueworldhosting and eternal-september certificates were valid, and some
+pugleaf.net servers had expired ones (`openssl s_client -connect
+host:563 -servername host` shows the dates). `Options noverify` accepts such a
+server, but without protection against a man-in-the-middle. The pugleaf.net
+servers don't offer STARTTLS on 119.
 
 ## Running
 
