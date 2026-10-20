@@ -217,26 +217,40 @@ AccessList {
 #   correctly :(
 #   To switch off, prepend the command with not-
 #   Support commands: listgroup, over
+#
+# Public servers that need no payment (all on port 119, and on port 563 with
+# TLS; use "Options ssl" for 563). NewsCache does not verify the server's
+# TLS certificate yet, so TLS protects against eavesdropping but not against
+# a man-in-the-middle.
+#   news.blueworldhosting.com            reading and posting, no account
+#   archive.usenet.blueworldhosting.com  old articles, read only
+#   news.eternal-september.org           needs a free account (User/Password)
+#   news-ams.pugleaf.net and the others listed at https://pugleaf.net/
+#                                        text-only, read only
 NewsServerList {
-  Server news.tuwien.ac.at nntp {
+  Server news.blueworldhosting.com 563 {
     Retries 3
     Read *
     PostTo *
     GroupTimeout 150
-    User joe
-    Password secret
-    BindFrom 192.168.100.1
-    Options cached 
-    Commands not-over
+    Options ssl
+    # Examples of more options:
+    # BindFrom 192.168.100.1
+    # Options ssl offline not-setpostflag
+    # Commands not-over
   }
-  Server news.wu-wien.ac.at nntp {
-    Retries 1
-    Read at.wu-wien.*
-    PostTo .none.
-    GroupTimeout 300
-    BindFrom 192.168.100.2
-    Options offline not-setpostflag
-  }
+  # The groups eternal-september.* come from eternal-september.org, which
+  # needs a (free) account. For each group NewsCache uses the server whose
+  # Read pattern matches it most specifically, so eternal-september.* wins
+  # over * whatever the order of the entries.
+  #Server news.eternal-september.org 563 {
+  #  Read eternal-september.*
+  #  PostTo eternal-september.*
+  #  GroupTimeout 300
+  #  User joe
+  #  Password secret
+  #  Options ssl
+  #}
   NoServer {
     Read au.*,z-netz.*,maus.*,fido*
     PostTo au.*
