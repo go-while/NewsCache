@@ -66,6 +66,7 @@ CI, not yet by the systematic review.
 | `stamp-h.in`, an automake leftover nothing used | 0 | review | #11 |
 | Dead links and addresses (members.aon.at, linuxhacker.at, TU Wien) in docs, man pages and 8 error messages | 0 | review | #12 |
 | `TODO` from 2013: mostly done or obsolete; open items moved below | 0 | review | #13 |
+| `newscache -p` left `ssl`, `starttls` and `dontgenmsgid` out of a server's options | 6 | testing #14 | #15 |
 
 ## Open points
 
@@ -81,6 +82,9 @@ that it stays as it is.
   may point at real buffer or exception bugs.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
+- **`not-ssl` and `not-starttls` aren't parsed** (area 6). The sample config
+  documents `(not-)ssl` and `(not-)starttls`, but the parser only accepts
+  `ssl` and `starttls`.
 - **No wildcards in the prefetch file** (area 12). `updatenews` reads group
   names literally; the old `TODO` asked for wildcards.
 - **No full PAT/XPAT** (area 2). Only `XHDR` exists; the old `TODO` asked for
