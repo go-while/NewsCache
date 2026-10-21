@@ -2142,6 +2142,16 @@ void nnrpd(int fd)
 		}
 
 		cmdp = clt.client_command_map.find(argv[0]);
+		if (cmdp == clt.client_command_map.end() &&
+		    clt.auth_state != AUTH_OK &&
+		    nnrp_commands.find(argv[0]) != end) {
+			// A known command this client may not use yet, but a
+			// login could allow it (RFC 4643: 480, so that
+			// newsreaders offer a login).
+			(*clt.co) << "480 Authentication required (" << cmd <<
+			    ")\r\n";
+			continue;
+		}
 		if (cmdp == clt.client_command_map.end() || !cmdp->second->func) {
 			slog.p(Logger::Notice) << clt.client_logname
 			    << " unrecognized " << oreq << "\n";

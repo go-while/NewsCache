@@ -135,14 +135,18 @@ func TestAuthFileWrongPassword(t *testing.T) {
 // TestLoginOnlyEntry: an entry with "allow authentication" and nothing
 // listed, as in FEDORA.md and the container config, lets a client that
 // hasn't logged in neither list nor read; after the login it gets the rights
-// from the auth file.
+// from the auth file. Before the login, known commands get 480, so that
+// newsreaders offer a login (RFC 4643); they used to get "500 What?".
 func TestLoginOnlyEntry(t *testing.T) {
 	e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,post")
 	c := e.session()
-	for _, cmd := range []string{"LIST", "GROUP test.alpha", "ARTICLE 1"} {
-		if code, line := c.Cmd(cmd); code < 400 {
-			t.Fatalf("%s before login: %q, want an error", cmd, line)
+	for _, cmd := range []string{"MODE READER", "LIST", "GROUP test.alpha", "ARTICLE 1", "POST"} {
+		if code, line := c.Cmd(cmd); code != 480 {
+			t.Fatalf("%s before login: %q, want 480", cmd, line)
 		}
+	}
+	if code, line := c.Cmd("FOOBAR"); code != 500 {
+		t.Fatalf("unknown command before login: %q, want 500", line)
 	}
 	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
@@ -167,5 +171,43 @@ func TestAuthFileLoginOptional(t *testing.T) {
 	c := e.session()
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP without login: %q, want 211", line)
+	}
+}
+
+// TestAuthFileLoginOptionalPost: with "allow read" and an auth file, POST
+// before the login gets 480, since a login can add the post right.
+func TestAuthFileLoginOptionalPost(t *testing.T) {
+	e := authEnv(t, `allow read
+    List *
+    Read *
+    PostTo *`, "tester:"+md5Hash+":*:*:*:post")
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 480 {
+		t.Fatalf("POST before login: %q, want 480", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP without login: %q, want 211", line)
+	}
+}
+
+// TestNoLoginNo480: without an Authentication entry no login can help, so a
+// command the entry doesn't allow still gets 500, not 480.
+func TestNoLoginNo480(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 500 {
+		t.Fatalf("POST: %q, want 500", line)
 	}
 }
