@@ -80,6 +80,14 @@ paths:
   `linuxhacker-2002-2008/` are the site-wide Plone/Drupal files the pages use
   (`portal_css/Plone Default/` is stored as `portal_css/Plone_Default/`).
 
+Folder index pages: the archive is also served as a website, so every folder
+without a captured `index.html` has one that was added for the archive (13
+pages, written on 2026-10-21). `index.html` in this folder is the landing
+page; the others list the folder's files and point to its start page, if it
+has one. They are not captures: each starts with the comment
+`<!-- folder index added for the archive, not a captured page -->` and isn't
+in the list of captures below.
+
 ## How it was made
 
 1. The Wayback Machine's CDX API listed every capture under each site's
