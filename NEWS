@@ -13,8 +13,9 @@ Other changes:
   of sprintf, group2dir() checks the group name's length, and a group whose
   spool path wouldn't leave room for its article files is refused. These
   overflows needed an extremely long SpoolDirectory or LogDirectory, so
-  they were not reachable from outside; this removes 14 -Wformat-overflow
-  warnings.
+  they were not reachable from outside. The buffers for generated
+  Message-IDs are sized from the host name limit. Together this removes
+  the -Wformat-overflow and -Wformat-truncation warnings.
 
 Release 1.3.21:
 Billy G. - 2026-10-20

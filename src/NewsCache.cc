@@ -1382,8 +1382,9 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			} else if (strcasecmp(argv[1], "newsgroups") == 0) {
 				char buf[MAXPATHLEN];
 				string strg;
-				snprintf(buf, sizeof(buf), "%s/.newsgroups",
-					 Cfg.SpoolDirectory);
+				if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
+					     Cfg.SpoolDirectory) >= (int) sizeof(buf))
+					buf[0] = '\0';	// can't happen: see LServer::init
 				ifstream ifs(buf);
 				(*clt->
 				 co) << "215 Description follows\r\n";

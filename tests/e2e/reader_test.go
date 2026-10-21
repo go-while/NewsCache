@@ -297,3 +297,42 @@ func TestNewgroups(t *testing.T) {
 		t.Errorf("NEWGROUPS with a bad date: %q, want 501", line)
 	}
 }
+
+// TestPostMessageIDLongHostname: for a post without a Message-ID, NewsCache
+// generates one from its host name. With a long Hostname (255 characters
+// are allowed) the whole header must still come through, including its
+// closing ">". (The buffers are now sized from the host name limit.)
+func TestPostMessageIDLongHostname(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	host := strings.Repeat("h", 60) + "." + strings.Repeat("o", 60) + "." +
+		strings.Repeat("s", 60) + "." + strings.Repeat("t", 60) + ".test"
+	e.Extra = "Hostname " + host
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+		"Subject: no message-id\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("POST result: %q %v", line, err)
+	}
+	posted := e.Store.Posted()
+	if len(posted) != 1 {
+		t.Fatalf("upstream got %d posted articles, want 1", len(posted))
+	}
+	var mid string
+	for _, h := range posted[0].Headers {
+		if strings.HasPrefix(strings.ToLower(h), "message-id:") {
+			mid = strings.TrimSpace(h[len("message-id:"):])
+		}
+	}
+	if mid == "" {
+		mid = posted[0].MessageID
+	}
+	if !strings.HasPrefix(mid, "<") || !strings.HasSuffix(mid, "@"+host+">") {
+		t.Errorf("generated Message-ID %q (%d characters), want <...@%s>", mid, len(mid), host[:20]+"...")
+	}
+}

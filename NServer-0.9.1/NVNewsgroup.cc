@@ -112,9 +112,7 @@ void NVNewsgroup::setsize(unsigned int f, unsigned int l)
 					    (mem_p + arrtab[i] +
 					     sizeof(long)) == bigarticle) {
 						// Remove article from disk
-						snprintf(fn, sizeof(fn), "%s/.art%lu",
-							_SpoolDirectory,
-							arrfst + i);
+						artfile(fn, sizeof(fn), arrfst + i);
 						unlink(fn);
 					}
 					nvfree(arrtab[i]);
@@ -133,9 +131,7 @@ void NVNewsgroup::setsize(unsigned int f, unsigned int l)
 					    (mem_p + arrtab[i] +
 					     sizeof(long)) == bigarticle) {
 						// Remove article from disk
-						snprintf(fn, sizeof(fn), "%s/.art%lu",
-							_SpoolDirectory,
-							arrfst + i);
+						artfile(fn, sizeof(fn), arrfst + i);
 						unlink(fn);
 					}
 					nvfree(arrtab[i]);
@@ -173,8 +169,7 @@ Article *NVNewsgroup::getarticle(unsigned int nbr)
 			} else if (*data == bigarticle) {
 				char fn[MAXPATHLEN];
 				ifstream fs;
-				snprintf(fn, sizeof(fn), "%s/.art%u", _SpoolDirectory,
-					nbr);
+				artfile(fn, sizeof(fn), nbr);
 				fs.open(fn);
 				if (!fs.good() && errno == ENOENT) {
 					if ((art =
@@ -262,7 +257,7 @@ void NVNewsgroup::setarticle(Article * art)
 			*data = bigarticle;
 			char fn[MAXPATHLEN];
 			ofstream fs;
-			snprintf(fn, sizeof(fn), "%s/.art%u", _SpoolDirectory, nbr);
+			artfile(fn, sizeof(fn), nbr);
 			fs.open(fn);
 			fs << *art;
 			fs.close();
@@ -295,8 +290,7 @@ void NVNewsgroup::printarticle(ostream & os, unsigned int nbr)
 				Article art(nbr);
 				char fn[MAXPATHLEN];
 				ifstream fs;
-				snprintf(fn, sizeof(fn), "%s/.art%u", _SpoolDirectory,
-					nbr);
+				artfile(fn, sizeof(fn), nbr);
 				fs.open(fn);
 				art.read(fs);
 				fs.close();

@@ -40,6 +40,15 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	};
 
 	char _SpoolDirectory[MAXPATHLEN];
+
+	// fn = <group's spool directory>/.art<nbr>. The constructor leaves
+	// room for it, so the exception can't happen in practice.
+	void artfile(char *fn, size_t size, unsigned long nbr) const {
+		if (snprintf(fn, size, "%s/.art%lu", _SpoolDirectory, nbr) >=
+		    (int) size)
+			throw NSError("article file name too long",
+				      ERROR_LOCATION);
+	}
   public:
 	NVNewsgroup(OverviewFmt * fmt, const char *spooldir,
 				const char *name)
@@ -58,7 +67,10 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 					       ERROR_LOCATION);
 		}
 		mkpdir(_SpoolDirectory, 0755);
-		snprintf(fn, sizeof(fn), "%s/.db", _SpoolDirectory);
+		if (snprintf(fn, sizeof(fn), "%s/.db", _SpoolDirectory) >=
+		    (int) sizeof(fn))
+			throw NoSuchGroupError("spool path too long",
+					       ERROR_LOCATION);
 		NVArray::open(fn);
 	}
 
