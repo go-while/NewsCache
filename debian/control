@@ -1,7 +1,7 @@
 Source: newscache
 Section: news
 Priority: optional
-Maintainer: Billy G. <root@pugleaf.net>
+Maintainer: Billy G. <newscache-maintainer@pugleaf.net>
 Build-Depends: autoconf,
                automake,
                debhelper-compat (= 13),

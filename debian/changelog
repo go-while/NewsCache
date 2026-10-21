@@ -10,7 +10,7 @@ newscache (1.3.21-2) unstable; urgency=medium
   * Spool /var/cache/newscache owned by news, removed on purge
   * Machine-readable debian/copyright
 
- -- Billy G. <root@pugleaf.net>  Wed, 21 Oct 2026 12:00:00 +0000
+ -- Billy G. <newscache-maintainer@pugleaf.net>  Wed, 21 Oct 2026 12:00:00 +0000
 
 newscache (1.3.21-1) unstable; urgency=medium
 
