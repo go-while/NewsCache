@@ -1,0 +1,369 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>The Usenet News System</TITLE>
+<META NAME="description" CONTENT="The Usenet News System">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node8.html">
+<LINK REL="up" HREF="node6.html">
+<LINK REL="next" HREF="node10.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html321"
+ HREF="node10.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html318"
+ HREF="node6.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html314"
+ HREF="https://web.archive.org/web/20080907085136/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node8.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html320"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html322"
+ HREF="node10.html">Problem Domain</A>
+<B> Up:</B> <A NAME="tex2html319"
+ HREF="node6.html">Terminology and Basic Technologies</A>
+<B> Previous:</B> <A NAME="tex2html315"
+ HREF="https://web.archive.org/web/20080907085136/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node8.html">Caching</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html323"
+ HREF="node9.html#SECTION00631000000000000000">
+How Newsgroups and Articles are Related</A>
+<LI><A NAME="tex2html324"
+ HREF="node9.html#SECTION00632000000000000000">
+Articles</A>
+<LI><A NAME="tex2html325"
+ HREF="node9.html#SECTION00633000000000000000">
+News Servers</A>
+<LI><A NAME="tex2html326"
+ HREF="node9.html#SECTION00634000000000000000">
+Distribution Strategy for Articles and Newsgroups</A>
+<LI><A NAME="tex2html327"
+ HREF="node9.html#SECTION00635000000000000000">
+News Readers</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00630000000000000000">
+The Usenet News System</A>
+</H1>
+<A NAME="sec:news">&#160;</A>
+The ``Network News Protocol'' (NNTP) has been standardized in RFC&nbsp;977
+[<A
+ HREF="node68.html#rfc977">KL86</A>]. Extensions made to this protocol are explained in
+&nbsp;[<A
+ HREF="node68.html#NNTPe">Bar97</A>]. A short overview of NNTP (and NNRP, an extension for
+news readers) will be given in appendix&nbsp;<A HREF="node52.html#app:nntp">B</A>. The format of
+news messages has been specified in&nbsp;[<A
+ HREF="node68.html#rfc1036">HA87</A>].
+<P>
+The Usenet News System currently consists of over
+30000&nbsp;<EM>newsgroups</EM>  organized in a hierarchy, which is represented
+by a dot notation.  For example, newsgroups starting with
+<TT>news.</TT> deal with the News System itself and newsgroups
+starting with <TT>comp.lang.</TT> deal with computer languages.
+Table&nbsp;<A HREF="node9.html#tab:newsgroups">2.1</A> shows a small part of this hierarchy.
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="133">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table 2.1:</STRONG>
+Newsgroups and their hierarchy</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">Name</TD>
+<TD ALIGN="LEFT">Purpose</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>alt.</TT></TD>
+<TD ALIGN="LEFT">The alternative hierarchy. Everybody is allowed
+to create a newsgroup within this hierarchy.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>biz.</TT></TD>
+<TD ALIGN="LEFT">Covers business related stuff.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>comp.</TT></TD>
+<TD ALIGN="LEFT">This hierarchy deals with all aspects of 
+computers.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>news.</TT></TD>
+<TD ALIGN="LEFT">This hierarchy deals with the news system.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>rec.</TT></TD>
+<TD ALIGN="LEFT">Recreational hierarchy.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>sci.</TT></TD>
+<TD ALIGN="LEFT">Hierarchy for scientific newsgroups itself.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>soc.</TT></TD>
+<TD ALIGN="LEFT">Deals with society in general.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>soc.culture.</TT></TD>
+<TD ALIGN="LEFT">Deals with the society's culture.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>soc.culture.austrian</TT></TD>
+<TD ALIGN="LEFT">This newsgroup deals with the
+Austrian society's culture.</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>talk.</TT></TD>
+<TD ALIGN="LEFT">General talk.</TD>
+</TR>
+</TABLE></DIV>
+<BR>
+<P>
+This arrangement allows to quickly identify and subscribe to the
+newsgroups one is interested in.
+<P><H2><A NAME="SECTION00631000000000000000">
+How Newsgroups and Articles are Related</A>
+</H2>
+<P>
+Each newsgroup holds <EM>news articles</EM> . A news article may be
+stored in one or more newsgroups.  Figure&nbsp;<A HREF="node9.html#fig:news_art_sample">2.1(a)</A>
+shows an example for the relationship between newsgroups and articles,
+while figure&nbsp;<A HREF="node9.html#fig:news_art_eer">2.1(b)</A> gives the according general
+<EM>entity entity relationship</EM>  (EER) diagram [<A
+ HREF="node68.html#EER">EN94</A>].
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:news_art_sample">&#160;</A><A NAME="fig:news_art_eer">&#160;</A><A NAME="fig:news_art">&#160;</A><A NAME="147">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 2.1:</STRONG>
+Relationship between newsgroups and articles</CAPTION>
+<TR><TD>SORRY-ERROR</TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The following types of newsgroups exist.
+<P><DL>
+<DT><STRONG>Reading and Posting allowed</STRONG>
+<DD>Everybody is allowed to read
+articles from or post articles to these newsgroups.
+<DT><STRONG>Moderated</STRONG>
+<DD>These groups can be read by everybody. However,
+  articles being posted to this group are sent to the group's
+  moderator, who decides whether the article's contents suits the
+  newsgroup's topic and should be posted.
+<DT><STRONG>Read-Only</STRONG>
+<DD>These groups can only be read by ordinary users.
+  Posting articles to these groups requires some kind of
+  authorization.
+</DL><H2><A NAME="SECTION00632000000000000000">
+Articles</A>
+</H2> 
+<A NAME="sec:news_article">&#160;</A>
+An article is a piece of information submitted by a user to one or
+more newsgroups (articles submitted to several newsgroups are called
+crosspostings).  Articles are also called postings and the
+submission of an article frequently is called to ``post an article''.
+Each article carries several identifiers:
+<P><UL>
+<LI> An identifier globally unique within the News system (in the
+  form <EM>server-id@server</EM> ).
+<LI> An article number being unique within the article's newsgroup.
+  This identifier depends on the arrival order of the articles and is
+  different for the same article on different news servers. If the
+  article has been posted to several newsgroups (crossposted), the
+  article has several article numbers.
+</UL>
+<P>
+Articles start with header lines, followed by a blank line and by the
+message body.  Each header line consists of a keyword, a colon, a
+blank, and some additional information.  The exact description of the
+format of an article can be found in RFC&nbsp;1036 [<A
+ HREF="node68.html#rfc1036">HA87</A>].  The
+header contains at least the following header lines.
+<P><DL>
+<DT><STRONG>From</STRONG>
+<DD>The ``From'' line contains the electronic mail address
+of the person who sent the article.
+<DT><STRONG>Date</STRONG>
+<DD>The ``Date'' line is the date and time when the article
+  was originally posted to the network.
+<DT><STRONG>Newsgroups</STRONG>
+<DD>The ``Newsgroups'' line specifies the newsgroup or
+  newsgroups to which the article belongs.
+<DT><STRONG>Subject</STRONG>
+<DD>The ``Subject'' line gives a short summary of the
+  contents of the article to enable a reader to make a decision
+  based on the subject whether to read the article.
+<DT><STRONG>Message-ID</STRONG>
+<DD>The ``Message-ID'' line gives the article's unique
+  identifier.  To ensure the uniqueness of the Message-ID it may not
+  be reused during the lifetime of the article.
+<DT><STRONG>Path</STRONG>
+<DD>This line shows the network path the article took to reach
+  the current system.  When a system forwards the article, it should
+  add its own name to the list of systems in the ``Path'' line.
+</DL>
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:article">&#160;</A><A NAME="166">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 2.2:</STRONG>
+An example news article (header and body)</CAPTION>
+<TR><TD><HR NOSHADE SIZE=1><PRE>
+Path: snoopy.tom.priv.at!snoopy.tom.priv.at!tom
+From: gschwind@infosys.tuwien.ac.at (Thomas Gschwind)
+Newsgroups: comp.os.linux.announce
+Subject: News Cache released
+Date: 31 Dec 1996 11:33:58 GMT
+Organization: Technische Universitaet Wien
+Lines: 7
+Message-ID: <55a2r6$581@news.tuwien.ac.at>
+NNTP-Posting-Host: w5.infosys.tuwien.ac.at
+
+Hello!
+
+The News Cache is a fully featured server for caching of
+news articles and groups. Get it from
+http://www.infosys.tuwien.ac.at/~gschwind/newscache/
+
+Thomas
+</PRE><HR NOSHADE SIZE=1></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The sample article shown in Figure&nbsp;<A HREF="node9.html#fig:article">2.2</A> has the subject
+<EM>News Cache Released</EM>  and has been posted by the user
+<EM>gschwind</EM>  from host <EM>w5.infosys.tuwien.ac.at</EM> .
+<P><H2><A NAME="SECTION00633000000000000000">
+News Servers</A>
+</H2>
+<P>
+Only newsgroups and articles stored on the news server can be
+retrieved by a client.  This implies that each news server has to
+maintain a database storing its available newsgroups and articles.
+News servers are responsible to index and expire their articles. The
+quality of this service depends on the news server's software and its
+configuration.
+<P>
+Newsgroups may be available on one or more news servers. If newsgroups
+shall be available on other news servers too, the newsgroups and their
+articles must be propagated to those news servers. On the Internet
+those newsgroups and articles are generally distributed using the
+``Network News Transport Protocol'' (NNTP).
+<P>
+The administrator of a news server decides which newsgroups can be
+retrieved by other news servers and which newsgroups will be requested
+from other news servers. Most newsgroups and articles are usually
+distributed globally by default.  Only newsgroups of questionable
+value or local interest are not distributed to all news servers.
+<P>
+Clients may read news either using NNTP or the ``Network News Reader
+Protocol'' (NNRP). The latter is selected using NNTP's <TT>mode
+  reader</TT> command. NNRP provides only those commands of NNTP being
+necessary for the retrieval and submission of news articles from the
+client's point of view. In addition it provides other commands to
+retrieve a summary or to filter specific information of the available
+articles. See appendix&nbsp;<A HREF="node52.html#app:nntp">B</A>, [<A
+ HREF="node68.html#rfc977">KL86</A>] and&nbsp;[<A
+ HREF="node68.html#NNTPe">Bar97</A>]
+for a detailed discussion.
+<P><H2><A NAME="SECTION00634000000000000000">
+Distribution Strategy for Articles and Newsgroups</A>
+</H2>
+<P>
+Figure&nbsp;<A HREF="node9.html#fig:nntp_network">2.3</A> shows a small sample news network and
+possible NNTP- and NNRP-connections.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:nntp_network">&#160;</A><A NAME="184">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 2.3:</STRONG>
+A sample News network</CAPTION>
+<TR><TD><IMG WIDTH="569" HEIGHT="310"
+ SRC="img3.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/nntp_network.eps}
+
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+If an article is posted to a news server the article has to be
+propagated to all other news servers that hold the according
+newsgroup.  Assume that an article is posted to News Server&nbsp;4
+by Client&nbsp;4.1 into a newsgroup stored on all news servers.
+<P>
+Initially the article arrives at News Server&nbsp;4, which propagates the
+article to the News Servers&nbsp;1 and&nbsp;2. Then News Server&nbsp;1 will propagate
+it to News Server&nbsp;3 and&nbsp;2. The propagation to News Server&nbsp;3 is
+successful. However News Server&nbsp;2 refuses to accept the article since
+it has already stored this article. News Server&nbsp;2 can identify this
+situation, because each article contains a globally unique identifier
+(as shown in section&nbsp;<A HREF="node9.html#sec:news_article">2.3.2</A>).
+<P>
+The creation of a newsgroup is done by sending a specially formatted
+article to a special newsgroup (this newsgroup is usually called
+control). Creation of newsgroups is distributed in exactly the same
+way as articles are being distributed.
+<P><H2><A NAME="SECTION00635000000000000000">
+News Readers</A>
+</H2>
+<P>
+To access articles stored on a news server the user needs a news
+reader program.  The news reader retrieves the articles from the news
+server using NNRP.  The news reader acts as frontend to the news
+server's database and stays connected to the same news server during
+the user's session.
+<P>
+The news reader is responsible for displaying a list of available
+newsgroups. Then the user can select the newsgroup he wants to read.
+When a newsgroup has been selected the news reader shows a list of
+available articles in the selected newsgroup. Now the user can select
+the articles he intends to read.
+<P>
+To recognize which articles have been read by the user most news
+readers need to connect to the same news server always.  This is
+necessary, because many news readers use information depending on the
+article's arrival order on the news server, which is different for
+different news servers.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html321"
+ HREF="node10.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html318"
+ HREF="node6.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html314"
+ HREF="https://web.archive.org/web/20080907085136/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node8.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html320"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html322"
+ HREF="node10.html">Problem Domain</A>
+<B> Up:</B> <A NAME="tex2html319"
+ HREF="node6.html">Terminology and Basic Technologies</A>
+<B> Previous:</B> <A NAME="tex2html315"
+ HREF="https://web.archive.org/web/20080907085136/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node8.html">Caching</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

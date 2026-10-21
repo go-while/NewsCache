@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML><HEAD>
+<META HTTP-EQUIV=Content-type CONTENT="text/html; charset=ISO-8859-1">
+<META NAME=Author CONTENT="Thomas Gschwind">
+<META NAME=Keywords CONTENT="NNTP NNRP high performance cache caching usenet news discussion forum">
+<META NAME=Description CONTENT="A cache server for Usenet News. Reduces the required network bandwidth for news distribution and the IO load of the upstream news server. Additionally, multiplexes between different news servers and allows offline news reading.">
+<TITLE>NewsCache</TITLE>
+</HEAD>
+<BODY>
+<h1 align="center">NewsCache</h1>
+<HR NOSHADE>
+
+<table cellspacing=0 cellpadding=4>
+<tr><td valign="top" bgcolor="#A0C0C0"><!-- Navigation -->
+<p><font color="#000000" size="+1">General</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="general.html#usenet">Usenet News</a><br>
+<img SRC="dot.gif"><a href="general.html#problems">Problems</a><br>
+<img SRC="dot.gif"><a href="general.html#newscache">NewsCache, A Solution</a><br>
+<img SRC="dot.gif"><a href="general.html#acknowledgements">Acknowledgements</a></font>
+<p><font color="#000000" size="+1">NewsCache</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="newscache.html#what">What is NewsCache?</a><br>
+<img SRC="dot.gif"><a href="newscache.html#functionality">Functionality</a><br>
+<img SRC="dot.gif"><a href="newscache.html#compatibility">Compatibility</a></font>
+<p><font color="#F02020" size="+1">Documentation</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="doc.html#installation">Installation</a><br>
+<img SRC="dot.gif"><a href="doc.html#usersmanual">User's Manual</a><br>
+<img SRC="dot.gif"><a href="doc.html#mailinglist">Mailing List</a><br>
+<img SRC="dot.gif"><a href="doc.html#publications">Publications</a></font>
+<p><font color="#000000" size="+1">PSTL</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="pstl.html#overview">Overview</a><br>
+<img SRC="dot.gif"><a href="pstl.html#documentation">Documentation</a><br>
+<img SRC="dot.gif"><a href="pstl.html#download">Download</a></font>
+<br>&nbsp;
+<br>&nbsp;
+<br>&nbsp;
+<p><font color="#000000" size="+1">For Students</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Praktika">Praktika!</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Dipl">Diplomarbeiten!</a></font>
+<p><font color="#000000" size="+1">Download</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#status">Status</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#download">Download</a></font><br></td>
+<td valign="top"><!-- Content -->
+
+<h2><a name="installation">Installation</a></h2>
+
+<p>NewsCache can be easily configured using GNU autoconf.  If you have
+never installed a software package that uses autoconf, please have a
+look at these installation instructions. 
+
+<p>For the impatient: Simply unpack the distribution and run
+<tt>./configure --help</tt> for a list of configuration options.  To
+configure, compile and install NewsCache, simply run <tt>./configure&nbsp;<i>configuration-options</i>; make; make&nbsp;install</tt>.
+
+<h2><a name="usersmanual">User's Manual</a></h2>
+
+<p>I have started writing a manual on NewsCache which can be found <A
+HREF="doc/manual/NewsCache_toc.html">here</A>. The most recent version
+of the manual can alwas be found in the NewsCache distribution as
+texinfo file.
+
+<h2><a name="mailinglist">Mailing List</a></h2>
+
+<P>A mailing list for NewsCache is available at
+newscache@infosys.tuwien.ac.at. To subscribe to the mailing list, send
+an email with with <TT>subscribe</TT> in the message body to
+newscache-request@infosys.tuwien.ac.at.  
+
+<h2><a name="publications">Publications</a></h2>
+
+<p><b>[1]</b> Thomas Gschwind. <A
+HREF="doc/msthesis/NewsCache.html">A Cache Server for Usenet
+News</a>. Master's thesis, Technische Universität Wien, May 1997. [<A
+HREF="https://web.archive.org/web/20080704172501/http://www.infosys.tuwien.ac.at/NewsCache/download/doc/msthesis.ps">.ps (1.3M)</A>, <A
+HREF="download/doc/msthesis.ps.gz">.ps.gz (241K)</A>]
+
+<blockquote>The Master's thesis explains the problems of Usenet News
+and presents caching as one solution to these problems and presents a
+prototype cache implementation for Usenet News.</blockquote>
+
+<p><b>[2]</b> Thomas Gschwind and Manfred Hauswirth. <A
+HREF="https://web.archive.org/web/20080704172501/http://www.infosys.tuwien.ac.at/NewsCache/doc/hicss32/">A Cache Architecture for Modernizing the Usenet
+Infrastructure</a>. In <em>Proceedings of the 32nd Annual Hawaii
+International Conference on System Sciences</em>, January 1999. [<A
+HREF="https://web.archive.org/web/20080704172501/http://www.infosys.tuwien.ac.at/NewsCache/download/doc/hicss32.ps">.ps (240k)</A>, <A
+HREF="https://web.archive.org/web/20080704172501/http://www.infosys.tuwien.ac.at/NewsCache/download/doc/hicss32.ps.gz">.ps.gz (50k)</A>]
+
+<blockquote>This article presents the problems of the current Usenet
+Infrastructure, presents, and evaluates different solution strategies.
+The article comes to the conclusion that the most promising solution
+is the use of cache servers at the access infrastructure and thus
+separating the distribution from the access
+infrastructure.</blockquote>
+
+<p><b>[3]</b> Thomas Gschwind and Manfred Hauswirth. <A
+HREF="doc/usenix99/index.html">NewsCache---A High Performance Cache
+Implementation for Usenet News</a>. In <em>Proceedings of the 1999
+USENIX Annual Technical Conference</em>, June 1999. [<A
+HREF="https://web.archive.org/web/20080704172501/http://www.infosys.tuwien.ac.at/NewsCache/download/doc/usenix99.ps">.ps (160k)</A>, <A
+HREF="download/doc/usenix99.ps.gz">.ps.gz (50k)</A>]
+
+<blockquote>This article presents the design and implementation of
+NewsCache and compares its news spool organization to the spool
+organizations of other news servers like NNTPCACHE or INN.  We compare
+different cache replacement strategies and give an evaluation of the
+benefits of caching Usenet News based on our experiments with
+NewsCache.
+</blockquote>
+
+<h2><a name="history">History</a></h2>
+
+<p>Some users have asked, how I came up with the idea of caching.  In
+spring 1995 the news server at Technische Universität Wien had severe
+problems to store arriving articles since the news server was no
+longer powerful enough to handle the incoming feed.  At that time
+questions came up, whether it is necessary that our university stores
+all of the newsgroup or to install our own news server.
+
+<p>Facing this situation, the solution was obvious for me (the news
+server of our university is only a leaf node news server).  Finally, I
+asked Manfred Hauswirth, whether he would be interested to supervise
+this topic as my masters thesis and..... (I assume you can figure out
+the remaining part by yourself ;) )
+
+<h2><a name="contact">Contact</a></h2>
+
+<p>In the case you have any questions, or you experience any problems
+installing or running NewsCache, please do not hesitate to contact <A
+HREF=mailto:tom@infosys.tuwien.ac.at>me</A>.  I will collect the
+questions I receive and will add them to the user's manual.
+
+
+</td></tr></table>
+
+<HR NOSHADE>
+<P ALIGN="right"><font size="-1">© 1997-2000
+<A HREF="http://www.infosys.tuwien.ac.at/Staff/tom/">Thomas Gschwind</A></P>
+</BODY></HTML>
+

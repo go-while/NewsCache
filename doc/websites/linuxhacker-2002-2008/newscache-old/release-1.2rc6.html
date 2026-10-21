@@ -1,0 +1,149 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<!-- offline copy: removed <base href="http://www.linuxhacker.at/" /> -->
+<style type="text/css" media="all">@import "misc/drupal.css";</style><link rel="icon" href="../themes/linuxhacker/images/icon.png" type="image/icon" /><title>NewsCache 1.2rc6 released - Linuxhacker</title>
+<style type="text/css">
+  @import "themes/linuxhacker/linuxhacker.css";
+</style>
+</head>
+<body >
+<table border="0" style="width: 100%" cellpadding="8" cellspacing="0">
+  <tr bgcolor=#ffffff>
+      <td align=center><a href=""><img src="../themes/linuxhacker/images/logo.png" style="border: 0px;" alt="" title="" /></a></td>
+      <td>&nbsp;</td>
+  </tr>
+  <tr>
+  </tr>
+</table>
+<table border="0" style="width: 100%" cellpadding="8" cellspacing="0">
+  <tr>
+    <td style="width: 200px; vertical-align: top;">
+<div class="block block-block" id="block-block-4">
+ <h2 class="title">OpenSource Projects</h2>
+ <div class="content"><p><a href="index.html">NewsCache</a><br />
+<a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/socketxx">Socket++</a><br />
+<a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/milter-greylist">Milter-Greylist</a><br />
+<a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/spamass-milter">Spamass-Milter</a><br />
+<a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/stellarium">Stellarium Package</a></p>
+</div>
+</div>
+<div class="block block-block" id="block-block-5">
+ <h2 class="title">HowTo&#039;s</h2>
+ <div class="content"><p><a href="http://src.linuxhacker.at/howtos/debian-root-raid1-boot-initrd/">Debian Boot Raid</a><br />
+<a href="http://src.linuxhacker.at/howtos/Libstdc++-porting-howto.html">Libstdc++ Porting</a></p>
+</div>
+</div>
+<div class="block block-block" id="block-block-6">
+ <h2 class="title">About</h2>
+ <div class="content"><a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/impressum">Impressum</a></div>
+</div>
+<div class="block block-search" id="block-search-0">
+ <h2 class="title">Search</h2>
+ <div class="content"><form action="search/" method="post">
+ <div class="search-form"><div class="form-item">
+ <div class="container-inline"><div class="form-item">
+ <input type="text" maxlength="255" class="form-text" name="edit[keys]" id="edit-keys" size="20" value="" />
+</div>
+<input type="submit" class="form-submit" name="op" value="Search"  />
+</div>
+</div>
+</div>
+</form>
+</div>
+</div>
+    </td>
+    <td style="vertical-align: top;">
+<div class="breadcrumb"><a href="">Home</a></div><h2>NewsCache 1.2rc6 released</h2>
+<!-- begin content -->
+<div class="node">
+ <div class="content">
+<h3>New Functions</h3>
+
+<ul>
+ <li>Can handle different PAM Servicenames per network, see man
+  newscache.conf setcion: AccessSpec Configuration Options -> PAMServicename</li>
+
+  <li>Only authenticated clients in a network (new option: authentication) -
+  see man newscache.conf section: AccessSpec Configuration Options</li>
+
+  <li>new newcache command option: -o --> print out the configurations options</li>
+
+  <li>new meaning of option: updatenews -a --> force the update of the ActiveDB</li>
+  <li><font color=red><u>Release Canditate 6:</u></font>
+  detecting corrupt database files and do 
+  rename of this defect file. In such cases NewsCache logs
+  this situation to news.err.
+  </li>
+  <li><font color=red><u>Release Canditate 6:</u></font>
+  newscacheclean can also handle corrupt database files. The first run renames
+  the bad file and (at the moment) abort further operations. The next run of
+  newscacheclean can do work without errors.
+  </font></li>
+
+</ul>
+
+<h3>New Documentation</h3>
+<ul>
+   <li>doc/newscache-coredump.txt
+  how i catch a coredump</li>
+
+   <li>doc/newscache-debugging:
+  how i debug a newscache session</li>
+
+   <li>doc/newscache-pam.txt
+  how i use the pam functionality</li>
+
+   <li>doc/newscache-stunnel-ssl.txt
+  nntps (SSL) with NewsCache and stunnel</li>
+   <li><font color="red"><u>Release Canditate 6:</u></font>doc/newscache-corrupt-db-files.txt
+  Curropt database files (recory)
+   </li>
+</ul>
+
+<h3>Manual Pages</h3>
+<ul>
+  <li>Completely reworked manual pages</li>
+  <li>all configuration dependig pathes are now configured by the configuration script.</li>
+</ul>
+
+<h3>Bugfixes</h3>
+<ul>
+  <li>Compiler Error with -O3 (see Changelog for details)</li>
+  <li>internal Command MAP handling</li>
+  <li>xdebug dump authorization doesn't display the correct access_flags</li>
+  <li>Fixing segfault - Don't read the newscache.conf in the right manner</li>
+</ul>
+
+<h3>Dependencies</h3>
+This version work proper with <a href="https://web.archive.org/web/20060925111508/http://www.linuxhacker.at/socketxx" target="_blank">Socket++</a> V1.12.12.
+
+<h3>Download</h3>
+See <a href="download.html">the NewsCache Download page</a>.  Binary Packages for Debian, SuSE and Fedora available.
+
+<h3>Report Problems</h3>
+You might find that something does not work as it should. Please report this situation via the mailing list (newscache at linuxhacker dot org).
+
+
+
+  
+
+ </div>
+ <div class="links">By herbert at 2004-10-01 20:48</div>
+</div>
+
+<!-- end content -->
+    </td>
+  </tr>
+</table><table border="0" style="width: 100%" cellpadding="8" cellspacing="0">
+  <tr>
+    <td colspan="2" style="text-align: center;"><div id="footer">Please send comments on these web pages to herbert at linuxhacker dot at.
+<br>
+Copyright (C) 2001-2006 Herbert Straub
+</div>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

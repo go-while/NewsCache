@@ -1,0 +1,335 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Performance Data</TITLE>
+<META NAME="description" CONTENT="Performance Data">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node40.html">
+<LINK REL="up" HREF="node38.html">
+<LINK REL="next" HREF="node42.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html722"
+ HREF="node42.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html719"
+ HREF="node38.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html715"
+ HREF="node40.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html721"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html723"
+ HREF="node42.html">Future Work</A>
+<B> Up:</B> <A NAME="tex2html720"
+ HREF="node38.html">Evaluation</A>
+<B> Previous:</B> <A NAME="tex2html716"
+ HREF="node40.html">Tested News Readers</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html724"
+ HREF="node41.html#SECTION001131000000000000000">
+Environment 1</A>
+<LI><A NAME="tex2html725"
+ HREF="node41.html#SECTION001132000000000000000">
+Environment 2</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001130000000000000000">
+Performance Data</A>
+</H1>
+<A NAME="sec:eval_perf">&#160;</A>
+The cache server has already been tested for two environments.  In
+both environments the news server has been news.tuwien.ac.at. This
+news server holds approximately 35000 newsgroups.
+<P><H2><A NAME="SECTION001131000000000000000">
+Environment 1</A>
+</H2>
+<P><DL>
+<DT><STRONG>News server</STRONG>
+<DD>news.tuwien.ac.at
+<DT><STRONG>Machine</STRONG>
+<DD>Cyrix 6x86 166+, 133MHz, 32MB memory (160MB virtual
+memory), 512KB second level cache, 10MBit network interface. The
+  machine has been running the News Cache software only.
+<DT><STRONG>Client</STRONG>
+<DD>DEC Alpha 21164, 366MHz, 1MB cache on the same local
+  network.
+</DL><H2><A NAME="SECTION001132000000000000000">
+Environment 2</A>
+</H2>
+<P><DL>
+<DT><STRONG>News server</STRONG>
+<DD>news.tuwien.ac.at
+<DT><STRONG>Machine</STRONG>
+<DD>Intel 486, 66MHz, 24MB of memory (48MB virtual memory),
+64KB second level cache. The machine is heavily loaded since it is
+  also running the squid WWW cache. Squid usually uses 20MB of memory
+  with 10MB usually being in core.
+<DT><STRONG>Client</STRONG>
+<DD>Sun on the same local network.
+</DL>
+<P>
+Table&nbsp;<A HREF="node41.html#tab:performance">7.2</A> shows the performance measurements of two
+tests. The first column indicates the test. The second and third
+columns show the times required to satisfy the request by the News
+Cache and the time needed to satisfy the request from the news server
+(<TT>news.tuwien.ac.at</TT>).
+<P>
+The cache column gives the values for a cache miss (marked by an
+``M'') and a cache hit (marked by an ``H'').  The rows marked with
+``<IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img14.gif"
+ ALT="$50\%$">M'' shows the values for the same request, where every other
+request is a cache miss. Some of the entries in the news server column
+have been omitted since a cache miss cannot occur for requests to the
+news server.
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1203">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table 7.2:</STRONG>
+Performance measurements</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">Test</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">2c|Cyrix</TD>
+<TD ALIGN="LEFT">2c|I486<A NAME="tex2html49"
+HREF="https://web.archive.org/web/20070811231209/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/footnode.html#fnm"><SUP></SUP></A></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">Cache</TD>
+<TD ALIGN="LEFT">Server</TD>
+<TD ALIGN="LEFT">Cache</TD>
+<TD ALIGN="LEFT">Server</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">Retrieving the active database</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">M</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">H</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">14s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">2s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">12s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">228s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">19s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">20s</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">Selecting a newsgroup and retrieving 500 articles</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">M</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img14.gif"
+ ALT="$50\%$">M</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">H</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">26s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">20s</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">14s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><code>-</code></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">10s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">52s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">44s</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">34s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><code>-</code></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">21s</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">Selection of 150 newsgroups and retrieving the overview database
+of each</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">M</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">H</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">32s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">10s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">24s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT">292s</DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">62s</TD>
+<TD ALIGN="LEFT">
+<DIV ALIGN="RIGHT"><code>-</code></DIV></TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT">38s</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+<TD ALIGN="LEFT">&nbsp;</TD>
+</TR>
+</TABLE>
+        <A NAME="tab:performance">&#160;</A>  </DIV>
+<BR>
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html722"
+ HREF="node42.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html719"
+ HREF="node38.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html715"
+ HREF="node40.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html721"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html723"
+ HREF="node42.html">Future Work</A>
+<B> Up:</B> <A NAME="tex2html720"
+ HREF="node38.html">Evaluation</A>
+<B> Previous:</B> <A NAME="tex2html716"
+ HREF="node40.html">Tested News Readers</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

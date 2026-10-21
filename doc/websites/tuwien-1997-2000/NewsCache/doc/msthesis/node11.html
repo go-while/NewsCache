@@ -1,0 +1,87 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Catching Up a Backlog</TITLE>
+<META NAME="description" CONTENT="Catching Up a Backlog">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node12.html">
+<LINK REL="previous" HREF="node10.html">
+<LINK REL="up" HREF="node10.html">
+<LINK REL="next" HREF="node12.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html352"
+ HREF="node12.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html349"
+ HREF="node10.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html343"
+ HREF="node10.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html351"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html353"
+ HREF="node12.html">Provision of Local Newsgroups</A>
+<B> Up:</B> <A NAME="tex2html350"
+ HREF="node10.html">Problem Domain</A>
+<B> Previous:</B> <A NAME="tex2html344"
+ HREF="node10.html">Problem Domain</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00710000000000000000">
+Catching Up a Backlog</A>
+</H1>
+<A NAME="sec:prob_catchup">&#160;</A>
+A backlog of the current newsfeed can occur if the news server has
+shut down (e.g. due to maintenance work) or lost the network
+connection for some time. This backlog is difficult to catch up during
+regular operation, because of the heavy I/O-load caused by the update
+process parallel to the news reading clients and the normal news
+operation.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:serversidecache">&#160;</A><A NAME="216">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 3.2:</STRONG>
+Configuration with a server side News Cache</CAPTION>
+<TR><TD><IMG WIDTH="326" HEIGHT="210"
+ SRC="img7.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/serversidecache.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The I/O-load on the news server can be reduced by reducing the number
+of accesses to the news database, which can be accomplished by the
+provision of a server side news cache. Clients will connect to the
+news cache instead of the news server as shown in
+Figure&nbsp;<A HREF="node11.html#fig:serversidecache">3.2</A>. The cache server can identify
+duplicate requests and issues these requests to the news server only
+once, thus reducing the number of requests made to the news server's
+news database.
+<P>
+<BR><HR>
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

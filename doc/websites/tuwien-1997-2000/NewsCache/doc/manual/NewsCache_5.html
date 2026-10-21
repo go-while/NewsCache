@@ -1,0 +1,67 @@
+<HTML>
+<HEAD>
+<!-- This HTML file has been created by texi2html 1.52
+     from NewsCache.texinfo on 22 June 1998 -->
+
+<TITLE>NewsCache - FAQ</TITLE>
+</HEAD>
+<BODY>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_4.html">previous</A>, <A HREF="NewsCache_6.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+<P><HR><P>
+
+
+<H1><A NAME="SEC10" HREF="NewsCache_toc.html#TOC10">Frequently Asked Questions</A></H1>
+
+<DL COMPACT>
+
+<DT>Where can I get NewsCache?
+<DD>
+You can can get NewsCache from its
+<A HREF="../../index.html">homepage</A>. 
+<DT>What is the latest version of NewsCache?
+<DD>
+As of this writing the latest version is 0.99.8. The latest
+version of NewsCache can always be found at its
+<A HREF="../../index.html">homepage</A>. 
+<DT>How does this compare to NNTPCACHE?
+<DD>
+NNTPCACHE is a cache server similar to NewsCache. Features of NewsCache
+are offline news reading and a cleanly designed class hierarchy, which
+is easily extendible. It provides classes for accessing news from a news
+server and base classes for implementing a news server tailored to user
+needs.
+<DT>How can I contribute to the development of NewsCache?
+<DD>
+Volunteers are always welcome! Simply send an email to
+tom@infosys.tuwien.ac.at. I am sure that we will find something
+interesting for you.
+<DT>Does it have any concept of expiry of articles?
+<DD>
+At the moment, NewsCache expires articles on a per newsgroup basis.
+This degrades the hit rate of NewsCache only slightly as long as the
+most frequently read newsgroups fit into the spool area. With the
+current implementation, expiry on a per article basis would be too
+inefficient, since this requires an index of all the articles.  An index
+with all the articles and thus article replacement on a per article
+basis should be finished around January.
+<DT>Which newsgroups are returned by the list commands?
+<DD>
+The list command will return those newsgroups from the news server(s)
+that match the newsgroup descriptions of the Server directives.
+<DT>Why does the list command return more than the configured newsgroups?
+<DD>
+Whenever you change the set of newsgroups to be retrieved from the news
+server(s), you should flush the active database. Simply type rm
+/path/to/news/spool/.active. This is not done automatically.
+<DT>I do not get any logging messages?
+<DD>
+NewsCache uses either syslog or log-files (depending on the compile time
+configuration). For syslog, you should include a line similar to:
+news.info /var/log/news/newslog For a detailed explanation, see man
+syslog.conf.
+</DL>
+
+<P><HR><P>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_4.html">previous</A>, <A HREF="NewsCache_6.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+</BODY>
+</HTML>

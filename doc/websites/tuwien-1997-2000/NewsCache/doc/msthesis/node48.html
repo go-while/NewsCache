@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Summary and Discussion</TITLE>
+<META NAME="description" CONTENT="Summary and Discussion">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node49.html">
+<LINK REL="previous" HREF="node46.html">
+<LINK REL="up" HREF="NewsCache.html">
+<LINK REL="next" HREF="node49.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html809"
+ HREF="node49.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html806"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html800"
+ HREF="https://web.archive.org/web/20070809120723/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node47.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html808"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html810"
+ HREF="node49.html">Notations</A>
+<B> Up:</B> <A NAME="tex2html807"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html801"
+ HREF="https://web.archive.org/web/20070809120723/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node47.html">Comparison</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION001400000000000000000">
+Summary and Discussion</A>
+</H1>
+<A NAME="cha:summary">&#160;</A>
+In this thesis we have presented the Usenet News system and problems
+associated with its steady growth. These problems have been analyzed
+carefully. We have presented different solution strategies to solve
+these problems.
+<P>
+We have analyzed the current situation carefully and have shown that
+the News Cache solution requires the least modifications to existing
+Usenet News system and provides solutions to most of the problems.
+Table&nbsp;<A HREF="node48.html#tab:summary_problems">10.1</A> shows the list of problems solved by
+the News Cache approach.
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1314">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table 10.1:</STRONG>
+Usenet News problems solved by the News Cache</CAPTION>
+<TR VALIGN="TOP"><TH ALIGN="LEFT"><UL>
+<LI> The News Cache reduces the required network bandwidth necessary
+for the provision of Usenet News.
+<LI> The News Cache reduces the load on news servers caused by news
+clients.
+<LI> The News Cache provides a simple solution for the provision of
+local newsgroups.
+<LI> The News Cache is flexible enough to provide a possibility to
+read news offline from the news server.
+</UL></TH>
+</TR>
+</TABLE>
+        <A NAME="tab:summary_problems">&#160;</A>  </DIV>
+<BR>
+<P>
+We analyzed the requirements of the News Cache and have taken special
+care that existing software will not break with the introduction of
+the News Cache.
+<P>
+We have designed a database to store the various parts of the news
+database (active, overview and article database). For optimal
+performance, we developed a new container class library that stores
+its data on the file system implicitly using memory mapped files.
+<P>
+We showed the implementation of the News Cache and the interaction of
+the News Cache's various parts and presented a <EM>News Server
+  Class</EM>  Library that allows the development of other programs that
+need to access a news database or need to provide access to it.
+<P>
+We compared the News Cache with another news cache that came out while
+this thesis was under work. At the point of this writing this is the
+only other existing news cache.
+<P>
+We presented an evaluation of our News Cache in
+section&nbsp;<A HREF="node39.html#sec:eval_access">7.1</A> and have shown that the News Cache
+reduces the load of the news server. Even with a moderate use of the
+News Cache it reduces the load of the news server by those clients
+accessing news through the News Cache by <IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img49.gif"
+ ALT="$30\%$">. With a wider use of
+the News Cache we expect better hit rates, because the number of users
+is usually higher than the number of read newsgroups. We expect that
+the News Cache can reduce the load caused to the news server by
+approximately <IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img46.gif"
+ ALT="$65\%$">.<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html809"
+ HREF="node49.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html806"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html800"
+ HREF="https://web.archive.org/web/20070809120723/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node47.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html808"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html810"
+ HREF="node49.html">Notations</A>
+<B> Up:</B> <A NAME="tex2html807"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html801"
+ HREF="https://web.archive.org/web/20070809120723/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node47.html">Comparison</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

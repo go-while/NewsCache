@@ -1,0 +1,210 @@
+<HTML>
+<HEAD>
+<!-- This HTML file has been created by texi2html 1.52
+     from NewsCache.texinfo on 22 June 1998 -->
+
+<TITLE>NewsCache - General Options</TITLE>
+</HEAD>
+<BODY>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_1.html">previous</A>, <A HREF="NewsCache_3.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+<P><HR><P>
+
+
+<H1><A NAME="SEC2" HREF="NewsCache_toc.html#TOC2">General Configuration Options</A></H1>
+
+<P>
+No matter which configuration you use, I recommend to set up a separate
+user for NewsCache, although I took care of security issues, when
+writing NewsCache. <STRONG>A service that needs not to run as
+priviledged user, should not run as priviledged user.</STRONG>
+
+</P>
+<P>
+<A NAME="IDX2"></A>
+First of all, you should specify, which configuration version, you are
+using. The current version is version 3. Thus, you should include the
+following line at the beginning of your <TT>`newscache.conf'</TT>-file:
+
+</P>
+
+<PRE>
+ConfigVersion 3
+</PRE>
+
+<P>
+<A NAME="IDX3"></A>
+<A NAME="IDX4"></A>
+NewsCache can be started either as <CODE>standalone</CODE> server or from
+<CODE>inetd</CODE>. Using a standalone server has the advantage that the
+configuration file will be read only at the first startup. However, you
+will have one more processe running all of the time (although sleeping).
+Usually, you start a service (NewsCache in this case) as standalone
+server, if it is accessed frequently.
+
+</P>
+<P>
+If you are running NewsCache as standalone server, you should also
+specify a pid file where NewsCache stores its pid.
+
+</P>
+
+<PRE>
+ServerType standalone
+PidFile /var/run/NewsCache.pid
+</PRE>
+
+<P>
+<A NAME="IDX5"></A>
+<A NAME="IDX6"></A>
+If you start NewsCache as standalone server with a port below 1024, you
+have to start NewsCache as root. However, NewsCache will switch the user
+and groupname as soon as it has bound to the socket. The Username and
+Groupname options specify the user and group to switch to.
+
+</P>
+
+<PRE>
+Username news
+Groupname news
+</PRE>
+
+<P>
+If you are starting NewsCache from inetd, you should set the username in
+inetd.conf and repeat it in <TT>`newscache.conf'</TT> as shown above.
+
+</P>
+<P>
+<A NAME="IDX7"></A>
+You also should set the email-address of the person responsible for this
+installation of NewsCache.
+
+</P>
+
+<PRE>
+Admin you@your.provider
+</PRE>
+
+<P>
+<A NAME="IDX8"></A>
+Timeouts for the retrieval of the active database and the description
+(<EM>In version 0.99.8, the retrieval of the newsgroup
+descriptions is not implemented</EM>) of the newsgroups are set with the
+<CODE>Timeouts</CODE> command (The values are given in seconds). The values
+indicate the time, when NewsCache reloads the active database or the
+description of the newsgroups. While the active database changes rather
+frequently, the description for newsgroups changes seldomly. I recommend
+to use a value around 5 minutes for the active database and a value
+around 1 day for the newsgroup descriptions.
+
+</P>
+<P>
+<A NAME="IDX9"></A>
+With <CODE>ClientTimeout</CODE> you can specify an inactivity timer. If the
+client does not send any commands for this time, the connection is
+closed by the server. A useful value is around 15 minutes. Values below
+3 minutes should not be used because they violate the NNTP
+specification. 
+
+</P>
+
+<PRE>
+Timeouts 300 86400
+ClientTimeout 900
+</PRE>
+
+<P>
+<A NAME="IDX10"></A>
+<A NAME="IDX11"></A>
+<A NAME="IDX12"></A>
+The directory for the spool area of NewsCache is set using the
+<CODE>SpoolDirectory</CODE> command.  The size in KiloBytes of the spool area
+can be set with with the <CODE>SpoolSize</CODE> directive.  Usually, the spool
+area should be big enough to store the most frequently used newsgroups.
+NewsCache itself does not perform article replacement.  This is done by
+the the <CODE>cacheclean</CODE> program which should be run every few hours by
+crond. <CODE>cacheclean</CODE> removes newsgroups until the used diskspace is
+below <CODE>SpoolSize</CODE>.
+
+</P>
+<P>
+<EM>Before starting NewsCache, check that this directory exists and
+that NewsCache has read and write permissions. Additionally, this
+directory must be on a local partition! NewsCache uses file locking and
+does not make use of lockd. Mounting this directory via NFS would
+decrease performance, so it does not make sense anyway.</EM>
+
+</P>
+
+<PRE>
+SpoolDirectory /lhome/newscache/NSpool
+SpoolSize 100000
+</PRE>
+
+<P>
+<A NAME="IDX13"></A>
+<A NAME="IDX14"></A>
+NewsCache supports two different log-facilities. a) it can log messages
+using syslogd (the default) and b) it can use its own log files. This
+has to be configured, when building NewsCache. If you prefer log files,
+use the <CODE>--without-syslog</CODE> when configuring NewsCache. For detailed
+build instructions see the INSTALL and README files.
+
+</P>
+<P>
+If you are using log files you have to set the log directory using the
+<CODE>LogDirectory</CODE> command. If you are using syslogd, this statement
+has no effect. <EM>Before starting NewsCache, check that this
+directory exists and that NewsCache has read and write permissions.</EM>
+
+</P>
+
+<PRE>
+LogDirectory /lhome/newscache/log
+</PRE>
+
+<P>
+<A NAME="IDX15"></A>
+NewsCache supports several log styles. A host accessing NewsCache can be
+logged with its IP-address (<CODE>ip-address</CODE>), its (<CODE>hostname</CODE>),
+or both. NewsCache uses the same log format as INN and some additional
+log entries. If you want to log only INN style log messages, add the
+<CODE>strict-inn</CODE> option. This will be only useful if you use some
+statistic tools for INN that get confused with those extra
+messages. <EM>In version 0.99.8 <CODE>strict-inn</CODE> is only
+supported on the LOG_NOTICE level.</EM>
+
+</P>
+
+<PRE>
+LogStyle ip-address strict-inn
+</PRE>
+
+<P>
+<A NAME="IDX16"></A>
+
+<PRE>
+CachePort #12000
+</PRE>
+
+<P>
+<A NAME="IDX17"></A>
+
+<PRE>
+Retries 3
+</PRE>
+
+<P>
+<A NAME="IDX18"></A>
+The file that lists all those newsgroups that have to be prefetched is
+set by the <CODE>PrefetchFile</CODE>-directive.
+
+</P>
+
+<PRE>
+PrefetchFile /lhome/newscache/etc/prefetch
+</PRE>
+
+<P><HR><P>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_1.html">previous</A>, <A HREF="NewsCache_3.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+</BODY>
+</HTML>

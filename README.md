@@ -18,12 +18,15 @@ Releases start at 1.3.17 (see [`NEWS`](NEWS)). Report bugs at
 <https://github.com/go-while/NewsCache/issues>.
 
 > Most of the text below comes from the project's two original websites, which
-> are now offline:
+> are now offline (the Wayback Machine's last good captures are the ones linked
+> below; after them the pages are 404):
 >
 > - Thomas Gschwind, TU Wien (1997 to 2000):
->   <https://web.archive.org/web/20060201234800/http://www.infosys.tuwien.ac.at/NewsCache/>
+>   <https://web.archive.org/web/20080916074415/http://www.infosys.tuwien.ac.at/NewsCache/>
 > - Herbert Straub, linuxhacker.at (2002 to 2008):
->   <https://web.archive.org/web/20140626020920/http://www.linuxhacker.at/NewsCache>
+>   <https://web.archive.org/web/20150907023521/http://www.linuxhacker.at/NewsCache/>
+>
+> A browsable offline copy of both is in [`doc/websites/`](doc/websites/).
 >
 > Each claim was checked against the current code on 2026-10-17. Anything that
 > is no longer true is marked, and the full list is in

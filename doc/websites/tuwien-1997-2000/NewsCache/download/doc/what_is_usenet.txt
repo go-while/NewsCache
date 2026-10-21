@@ -1,0 +1,407 @@
+Path: senator-bedfellow.mit.edu!bloom-beacon.mit.edu!cambridge1-snf1.gtei.net!cam-news-hub1.bbnplanet.com!news.gtei.net!news-xfer.newsread.com!netaxs.com!newsread.com!newshub.northeast.verio.net!news-peer.gip.net!news.gsl.net!gip.net!panix!news.gw.com!do-not-use-path-to-reply
+Date: Mon, 28 Jun 1999 08:00:25 GMT
+Supersedes: <FD7FKp.DI5@tac.nyc.ny.us>
+Expires: Wed, 28 Jul 1999 08:00:25 GMT
+Message-ID: <FE128p.Gz9@tac.nyc.ny.us>
+From: netannounce@deshaw.com (Mark Moraes)
+Subject: What is Usenet?
+Newsgroups: news.announce.newusers,news.admin.misc,news.answers
+Followup-To: news.newusers.questions
+Approved: netannounce@deshaw.com (Mark Moraes)
+Lines: 395
+Xref: senator-bedfellow.mit.edu news.announce.newusers:4172 news.admin.misc:69601 news.answers:161159
+
+Archive-name: usenet/what-is/part1
+Original-from: chip@tct.com (Chip Salzenberg)
+Comment: edited until 5/93 by spaf@cs.purdue.edu (Gene Spafford)
+Last-change: 16 Jan 1998 by netannounce@deshaw.com (Mark Moraes)
+Changes-posted-to: news.misc,news.admin.misc,news.answers
+
+AN APPROXIMATE DESCRIPTION
+--------------------------
+
+Usenet is a world-wide distributed discussion system.  It consists of a
+set of "newsgroups" with names that are classified hierarchically by
+subject.  "Articles" or "messages" are "posted" to these newsgroups by
+people on computers with the appropriate software -- these articles are
+then broadcast to other interconnected computer systems via a wide
+variety of networks.  Some newsgroups are "moderated"; in these
+newsgroups, the articles are first sent to a moderator for approval
+before appearing in the newsgroup.  Usenet is available on a wide variety
+of computer systems and networks, but the bulk of modern Usenet traffic
+is transported over either the Internet or UUCP.
+
+WHY IS USENET SO HARD TO DEFINE?
+--------------------------------
+
+The first thing to understand about Usenet is that it is widely
+misunderstood.  Every day on Usenet, the "blind men and the elephant"
+phenomenon is evident, in spades.  In my opinion, more flame wars
+arise because of a lack of understanding of the nature of Usenet than
+from any other source.  And consider that such flame wars arise, of
+necessity, among people who are on Usenet.  Imagine, then, how poorly
+understood Usenet must be by those outside!
+
+Any essay on the nature of Usenet cannot ignore the erroneous
+impressions held by many Usenet users.  Therefore, this article will
+treat falsehoods first.  Keep reading for truth.  (Beauty, alas, is
+outside the scope of this article.)
+
+WHAT USENET IS NOT
+------------------
+
+ 1. Usenet is not an organization.
+
+    No person or group has authority over Usenet as a whole.  No one
+    controls who gets a news feed, which articles are propagated
+    where, who can post articles, or anything else.  There is no
+    "Usenet Incorporated," nor is there a "Usenet User's Group."
+    You're on your own.
+
+    Granted, there are various activities organized by means of Usenet
+    newsgroups.  The newsgroup creation process is one such
+    activity.  But it would be a mistake to equate Usenet with the
+    organized activities it makes possible.  If they were to stop
+    tomorrow, Usenet would go on without them.
+
+ 2. Usenet is not a democracy.
+
+    Since there is no person or group in charge of Usenet as a whole
+    -- i.e. there is no Usenet "government" -- it follows that Usenet
+    cannot be a democracy, autocracy, or any other kind of "-acy."
+    (But see "The Camel's Nose?" below.)
+
+ 3. Usenet is not fair.
+
+    After all, who shall decide what's fair?  For that matter, if
+    someone is behaving unfairly, who's going to stop him?  Neither
+    you nor I, that's certain.
+
+ 4. Usenet is not a right.
+
+    Some people misunderstand their local right of "freedom of speech"
+    to mean that they have a legal right to use others' computers to
+    say what they wish in whatever way they wish, and the owners of
+    said computers have no right to stop them.
+
+    Those people are wrong.  Freedom of speech also means freedom not
+    to speak.  If I choose not to use my computer to aid your speech,
+    that is my right.  Freedom of the press belongs to those who own
+    one.
+
+ 5. Usenet is not a public utility.
+
+    Some Usenet sites are publicly funded or subsidized.  Most of
+    them, by plain count, are not.  There is no government monopoly
+    on Usenet, and little or no government control.
+
+ 6. Usenet is not an academic network.
+
+    It is no surprise that many Usenet sites are universities,
+    research labs or other academic institutions.  Usenet originated
+    with a link between two universities, and the exchange of ideas
+    and information is what such institutions are all about.  But the
+    passage of years has changed Usenet's character.  Today, by plain
+    count, most Usenet sites are commercial entities.
+
+ 7. Usenet is not an advertising medium.
+
+    Because of Usenet's roots in academia, and because Usenet depends
+    so heavily on cooperation (sometimes among competitors), custom
+    dictates that advertising be kept to a minimum.  It is tolerated
+    if it is infrequent, informative, and low-hype.
+
+    The "comp.newprod" newsgroup is NOT an exception to this rule:
+    product announcements are screened by a moderator in an attempt to
+    keep the hype-to-information ratio in check.
+
+    If you must engage in flackery for your company, use the "biz"
+    hierarchy, which is explicitly "advertising-allowed", and which
+    (like all of Usenet) is carried only by those sites that want it.
+
+ 8. Usenet is not the Internet.
+
+    The Internet is a wide-ranging network, parts of which are
+    subsidized by various governments.  It carries many kinds of
+    traffic, of which Usenet is only one.  And the Internet is only
+    one of the various networks carrying Usenet traffic.
+
+ 9. Usenet is not a UUCP network.
+
+    UUCP is a protocol (actually a "protocol suite," but that's a
+    technical quibble) for sending data over point-to-point
+    connections, typically using dialup modems.  Sites use UUCP to
+    carry many kinds of traffic, of which Usenet is only one.  And
+    UUCP is only one of the various transports carrying Usenet
+    traffic.
+
+10. Usenet is not a United States network.
+
+    It is true that Usenet originated in the United States, and the
+    fastest growth in Usenet sites has been there.  Nowadays, however,
+    Usenet extends worldwide.
+
+    The heaviest concentrations of Usenet sites outside the U.S. seem
+    to be in Canada, Europe, Australia and Japan.
+
+    Keep Usenet's worldwide nature in mind when you post articles.
+    Even those who can read your language may have a culture wildly
+    different from yours.  When your words are read, they might not
+    mean what you think they mean.
+
+11. Usenet is not a UNIX network.
+
+    Don't assume that everyone is using "rn" on a UNIX machine.  Among
+    the systems used to read and post to Usenet are Vaxen running VMS,
+    IBM mainframes, Amigas, Macintoshes and MS-DOS PCs.
+
+12. Usenet is not an ASCII network.
+
+    The A in ASCII stands for "American".  Sites in other countries
+    often use character sets better suited to their language(s) of
+    choice; such are typically, though not always, supersets of ASCII.
+    Even in the United States, ASCII is not universally used: IBM
+    mainframes use (shudder) EBCDIC.  Ignore non-ASCII sites if you
+    like, but they exist.
+
+13. Usenet is not software.
+
+    There are dozens of software packages used at various sites to
+    transport and read Usenet articles.  So no one program or package
+    can be called "the Usenet software."
+
+    Software designed to support Usenet traffic can be (and is) used
+    for other kinds of communication, usually without risk of mixing
+    the two.  Such private communication networks are typically kept
+    distinct from Usenet by the invention of newsgroup names different
+    from the universally-recognized ones.
+
+Well, enough negativity.
+
+WHAT USENET IS
+--------------
+
+Usenet is the set of people who exchange articles tagged with one or more
+universally-recognized labels, called "newsgroups" (or "groups" for short).
+There is often confusion about the precise set of newsgroups that constitute
+Usenet; one commonly accepted definition is that it consists of newsgroups
+listed in the periodic "List of Active Newsgroups" postings which appear
+regularly in news.lists.misc and other newsgroups.  A broader definition of
+Usenet would include the newsgroups listed in the article "Alternative
+Newsgroup Hierarchies" (frequently posted to news.lists.misc).  An even
+broader definition includes even newsgroups that are restricted to specific
+geographic regions or organizations.  Each Usenet site makes its own
+decisions about the set of groups available to its users; this set differs
+from site to site.
+
+(Note that the correct term is "newsgroups"; they are not called areas,
+bases, boards, bboards, conferences, round tables, SIGs, echoes, rooms or
+usergroups!  Nor, as noted above, are they part of the Internet, though
+they may reach your site over it.  Furthermore, the people who run the
+news systems are called news administrators, not sysops.  If you want to
+be understood, be accurate.)
+
+DIVERSITY
+---------
+
+If the above definition of Usenet sounds vague, that's because it is.
+
+It is almost impossible to generalize over all Usenet sites in any
+non-trivial way.  Usenet encompasses government agencies, large
+universities, high schools, businesses of all sizes, home computers of
+all descriptions, etc, etc.
+
+(In response to the above paragraphs, it has been written that there
+is nothing vague about a network that carries megabytes of traffic per
+day.  I agree.  But at the fringes of Usenet, traffic is not so heavy.
+In the shadowy world of news-mail gateways and mailing lists, the line
+between Usenet and not-Usenet becomes very hard to draw.)
+
+CONTROL
+-------
+Every administrator controls his own site.  No one has any real
+control over any site but his own.
+
+The administrator gets her power from the owner of the system she
+administers.  As long as her job performance pleases the owner, she
+can do whatever she pleases, up to and including cutting off Usenet
+entirely.  Them's the breaks.
+
+Sites are not entirely without influence on their neighbors, however.
+There is a vague notion of "upstream" and "downstream" related to the
+direction of high-volume news flow.  To the extent that "upstream"
+sites decide what traffic they will carry for their "downstream"
+neighbors, those "upstream" sites have some influence on their
+neighbors' participation in Usenet.  But such influence is usually
+easy to circumvent; and heavy-handed manipulation typically results in
+a backlash of resentment.
+
+PERIODIC POSTINGS
+-----------------
+
+To help hold Usenet together, various articles (including this one)
+are periodically posted in newsgroups in the "news" hierarchy.  These
+articles are provided as a public service by various volunteers.
+They are few but valuable.  Learn them well.
+
+Among the periodic postings are lists of active newsgroups, both "standard"
+(for lack of a better term) and "alternative."  These lists are maintained
+by David Lawrence and periodically posted to the news.lists.misc newsgroup.
+They reflect his personal view of Usenet, and as such are not "official" in
+any sense of the word.  However, if you're looking for a description of
+subjects discussed on Usenet, or if you're starting up a new Usenet site,
+David's lists are an eminently reasonable place to start.
+
+PROPAGATION
+-----------
+
+In the old days, when UUCP over long-distance dialup lines was the
+dominant means of article transmission, a few well-connected sites had
+real influence in determining which newsgroups would be carried where.
+Those sites called themselves "the backbone."
+
+But things have changed.  Nowadays, even the smallest Internet site
+has connectivity the likes of which the backbone admin of yesteryear
+could only dream.  In addition, in the U.S., the advent of cheaper
+long-distance calls and high-speed modems has made long-distance
+Usenet feeds thinkable for smaller companies.
+
+There is only one pre-eminent site for UUCP transport of Usenet in the
+U.S., namely UUNET.  But UUNET isn't a player in the propagation wars,
+because it never refuses any traffic.  UUNET charges by the minute,
+after all; and besides, to refuse based on content might jeopardize
+its legal status as an enhanced service provider.
+
+All of the above applies to the U.S.  In Europe, different cost
+structures favored the creation of strictly controlled hierarchical
+organizations with central registries.  This is all very unlike the
+traditional mode of U.S. sites (pick a name, get the software, get a
+feed, you're on).  Europe's "benign monopolies," long uncontested, now
+face competition from looser organizations patterned after the U.S.
+model.
+
+NEWSGROUP CREATION
+------------------
+
+The document that describes the current procedure for creating a new
+newsgroup is entitled "How To Create A New Newsgroup."  Its common
+name, however, is "the guidelines."
+
+If you follow the guidelines, it is probable that your group will be
+created and will be widely propagated.
+
+HOWEVER: Because of the nature of Usenet, there is no way for any user
+to enforce the results of a newsgroup vote (or any other decision, for
+that matter).  Therefore, for your new newsgroup to be propagated
+widely, you must not only follow the letter of the guidelines; you
+must also follow its spirit.  And you must not allow even a whiff of
+shady dealings or dirty tricks to mar the vote.  In other words, don't
+tick off system administrators; they will get their revenge.
+
+So, you may ask: How is a new user supposed to know anything about the
+"spirit" of the guidelines?  Obviously, he can't.  This fact leads
+inexorably to the following recommendation:
+
+ >> If you are a new user, don't try to create a new newsgroup. <<
+
+If you have a good newsgroup idea, then read the "news.groups"
+newsgroup for a while (six months, at least) to find out how things
+work.  If you're too impatient to wait six months, then you really
+need to learn; read "news.groups" for a year instead.  If you just
+can't wait, find a Usenet old hand to help you with the
+request for discussion.  (All votes are run by neutral third-party
+Usenet Volunteer Votetakers).
+
+Readers may think this advice unnecessarily strict.  Ignore it at your
+peril.  It is embarrassing to speak before learning.  It is foolish to
+jump into a society you don't understand with your mouth open.  And it
+is futile to try to force your will on people who can tune you out
+with the press of a key.
+
+THE CAMEL'S NOSE?
+-----------------
+
+As was observed above in "What Usenet Is Not," Usenet as a whole is
+not a democracy.  However, there is exactly one feature of Usenet that
+has a form of democracy: newsgroup creation.
+
+A new newsgroup is unlikely to be widely propagated unless its sponsor
+follows the newsgroup creation guidelines; and the current guidelines
+require a new newsgroup to pass an open vote.
+
+There are those who consider the newsgroup creation process to be a
+remarkably powerful form of democracy, since without any coercion, its
+decisions are almost always carried out.  In their view, the
+democratic aspect of newsgroup creation is the precursor to an
+organized and democratic Usenet Of The Future.
+
+On the other hand, some consider the democratic aspect of the
+newsgroup creation process a sham and a fraud, since there is no power
+of enforcement behind its decisions, and since there appears little
+likelihood that any such power of enforcement will ever be given it.
+For them, the appearance of democracy is only a tool used to keep
+proponents of flawed newsgroup proposals from complaining about their
+losses.
+
+So, is Usenet on its way to full democracy?  Or will property rights
+and mistrust of central authority win the day?  Beats me.
+
+IF YOU ARE UNHAPPY...
+---------------------
+
+Property rights being what they are, there is no higher authority on
+Usenet than the people who own the machines on which Usenet traffic is
+carried.  If the owner of the machine you use says, "We will not carry
+alt.sex on this machine," and you are not happy with that order, you
+have no Usenet recourse.  What can we outsiders do, after all?
+
+That doesn't mean you are without options.  Depending on the nature of
+your site, you may have some internal political recourse.  Or you might
+find external pressure helpful.  Or, with a minimal investment, you can
+get a feed of your own from somewhere else. Computers capable of taking
+Usenet feeds are down in the $500 range now, UNIX-capable boxes are going
+for under $1000 (that price is dropping fast, so by the time you read
+this, it may already be out-of-date!) and there are several
+freely-redistributable UNIX-like operating systems (NetBSD, FreeBSD,
+386BSD and Linux from ftp sites all around the world, complete with
+source code and all the software needed to run a Usenet site) and at
+least two commercial UNIX or UNIX-like systems in the $100 price range.
+
+No matter what, though, appealing to "Usenet" won't help.  Even if
+those who read such an appeal are sympathetic to your cause, they will
+almost certainly have even less influence at your site than you do.
+
+By the same token, if you don't like what some user at another site is
+doing, only the administrator and owner of that site have any
+authority to do anything about it.  Persuade them that the user in
+question is a problem for them, and they might do something -- if they
+feel like it, that is.
+
+If the user in question is the administrator or owner of the site from
+which she posts, forget it; you can't win.  If you can, arrange for
+your newsreading software to ignore articles from her; and chalk one
+up to experience.
+
+WORDS TO LIVE BY #1:
+ USENET AS SOCIETY
+--------------------
+
+  Those who have never tried electronic communication may not be aware
+  of what a "social skill" really is.  One social skill that must be
+  learned, is that other people have points of view that are not only
+  different, but *threatening*, to your own.  In turn, your opinions may
+  be threatening to others.  There is nothing wrong with this.  Your
+  beliefs need not be hidden behind a facade, as happens with
+  face-to-face conversation.  Not everybody in the world is a bosom
+  buddy, but you can still have a meaningful conversation with them.
+  The person who cannot do this lacks in social skills.
+
+                                     -- Nick Szabo
+
+WORDS TO LIVE BY #2:
+ USENET AS ANARCHY  
+--------------------
+
+  Anarchy means having to put up with things that really piss you off.
+
+                                     -- Unknown
