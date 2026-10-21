@@ -111,8 +111,7 @@ void CNewsgroup::sUpdateOverview(void)
 						// Remove article from disk
 						// the file is named after the article
 						// number (see NVNewsgroup::setarticle)
-						snprintf(fn, sizeof(fn), "%s/.art%u",
-							 _SpoolDirectory, f);
+						artfile(fn, sizeof(fn), f);
 						unlink(fn);
 					}
 					nvfree(arrtab[i]);
@@ -236,8 +235,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 				if (*(mem_p + arrtab[i] + sizeof(long)) ==
 				    bigarticle) {
 					// Remove article from disk
-					snprintf(fn, sizeof(fn), "%s/.art%u",
-						 _SpoolDirectory, f);
+					artfile(fn, sizeof(fn), f);
 					unlink(fn);
 				}
 				nvfree(arrtab[i]);

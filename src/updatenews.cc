@@ -232,7 +232,7 @@ int main(int argc, char **argv)
 	int opt_config = 0, opt_flagsset = 0;
 	int c, aerr = 0;
 
-	sprintf(conffile, "%s/newscache.conf", SYSCONFDIR);
+	snprintf(conffile, sizeof(conffile), "%s/newscache.conf", SYSCONFDIR);
 
 	cmnd = argv[0];
 	while (1) {
@@ -360,7 +360,7 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	sprintf (logfile, "%s/newscache_updatenews.log", Cfg.LogDirectory);
+	snprintf(logfile, sizeof(logfile), "%s/newscache_updatenews.log", Cfg.LogDirectory);
 	slog.open (logfile);
 #endif
 

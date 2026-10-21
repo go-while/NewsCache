@@ -1071,7 +1071,8 @@ int RServer::post(Article * article)
 	const char *p, *q;
 	string cgroup;
 	char buf[MAXHOSTNAMELEN + 256];
-	char msgid[MAXHOSTNAMELEN + 256];
+	// "Message-ID: <newscache$" + mid + ">\r\n"
+	char msgid[FQDN_BUFSIZE + 128];
 	MPListEntry **mpe;
 	MPListEntry *c;
 	int sc = 0, i;
@@ -1134,7 +1135,8 @@ int RServer::post(Article * article)
 	if (needmsgid && !article->has_field("message-id:")) {
 		struct timeval tv;
 		int j;
-		char mid[768];
+		// three base-36 numbers, "$$@" and the host name
+		char mid[FQDN_BUFSIZE + 64];
 		char *p;
 		p = mid;
 		gettimeofday(&tv, NULL);
@@ -1147,12 +1149,15 @@ int RServer::post(Article * article)
 
 		TOBASE36(i, pc, p);
 		*p++ = '@';
-		strcpy(p, nntp_hostname);
+		snprintf(p, sizeof(mid) - (p - mid), "%s", nntp_hostname);
 		pc++;
 
-		snprintf(msgid, sizeof(msgid),
-			 "Message-ID: <newscache$%s>\r\n", mid);
-		article->setfield("Message-ID:", msgid);
+		// Both buffers are sized for the longest host name
+		// (FQDN_BUFSIZE), so neither can be cut short.
+		if (snprintf(msgid, sizeof(msgid),
+			     "Message-ID: <newscache$%s>\r\n", mid) <
+		    (int) sizeof(msgid))
+			article->setfield("Message-ID:", msgid);
 	}
 
 	int posts = 0, spool = 0, err = 0;

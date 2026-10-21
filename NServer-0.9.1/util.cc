@@ -54,14 +54,16 @@ int mkpdir(const char *dirname, int mode)
 
 const char *group2dir(const char *name)
 {
-	static char buf[MAXPATHLEN], *p;
-	const char *q;
+	static char buf[MAXPATHLEN];
 
-	p = buf;
-	q = name;
-	while (((*p) = ((*q != '.') ? *q : '/')) != '\0') {
-		p++;
-		q++;
+	if (strlen(name) >= sizeof(buf)) {
+		return NULL;
+	}
+	char *p = buf;
+	for (const char *q = name; ; p++, q++) {
+		*p = (*q != '.') ? *q : '/';
+		if (*q == '\0')
+			break;
 	}
 
 	return buf;

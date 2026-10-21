@@ -1382,8 +1382,9 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			} else if (strcasecmp(argv[1], "newsgroups") == 0) {
 				char buf[MAXPATHLEN];
 				string strg;
-				sprintf(buf, "%s/.newsgroups",
-					Cfg.SpoolDirectory);
+				if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
+					     Cfg.SpoolDirectory) >= (int) sizeof(buf))
+					buf[0] = '\0';	// can't happen: see LServer::init
 				ifstream ifs(buf);
 				(*clt->
 				 co) << "215 Description follows\r\n";
@@ -2574,7 +2575,7 @@ int main(int argc, char **argv)
 	int opt_nofork = 0, opt_config_options = 0;
 	int aerr = 0, c;
 
-	sprintf(config_file, "%s/newscache.conf", SYSCONFDIR);
+	snprintf(config_file, sizeof(config_file), "%s/newscache.conf", SYSCONFDIR);
 
 	cmnd = argv[0];
 	while (1) {
@@ -2684,7 +2685,7 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	sprintf (logfile, "%s/newscache.log", Cfg.LogDirectory);
+	snprintf(logfile, sizeof(logfile), "%s/newscache.log", Cfg.LogDirectory);
 	slog.open (logfile);
 #endif
 
