@@ -119,7 +119,8 @@ systemd unit, spool cleanup timer, a config that lets nobody in); see
 [`debian/README.Debian`](debian/README.Debian).
 
 `make check` runs the unit tests and the end-to-end tests in
-[`tests/e2e`](tests/e2e) (Go, skipped when Go is not installed).
+[`tests/e2e`](tests/e2e) (Go 1.26 or later, skipped when Go is missing or
+older).
 
 - `texinfo` is required. Without `makeinfo`, `make` stops at the manual
   (`doc/NewsCache.texinfo`), even though the programs themselves have already

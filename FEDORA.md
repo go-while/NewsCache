@@ -30,8 +30,8 @@ sudo dnf install gcc-c++ make autoconf automake libtool \
 - `gnutls-devel` is optional. Without it, configure with `--without-gnutls`
   (no TLS connections to upstream servers).
 - `redhat-rpm-config` only provides the Fedora compiler flags used below.
-- `golang` is only needed for the end-to-end tests. Without Go, `make check`
-  skips them.
+- `golang` is only needed for the end-to-end tests, which need Go 1.26 or
+  later (Fedora 43 and later have it). Without it, `make check` skips them.
 
 ## Build
 

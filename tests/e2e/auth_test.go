@@ -141,7 +141,7 @@ func TestLoginOnlyEntry(t *testing.T) {
 	e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,post")
 	c := e.session()
 	for _, cmd := range []string{"MODE READER", "LIST", "GROUP test.alpha", "ARTICLE 1", "POST"} {
-		if code, line := c.Cmd(cmd); code != 480 {
+		if code, line := c.Cmd("%s", cmd); code != 480 {
 			t.Fatalf("%s before login: %q, want 480", cmd, line)
 		}
 	}
