@@ -167,7 +167,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 	time_t now;
 	char *data;
 	size_t szdata;
-	unsigned int f, l, infof, infol;
+	unsigned int f, infof, infol;
 	char *lstgrp;
 	char fn[MAXPATHLEN];
 	Article *art = NULL;
@@ -190,7 +190,6 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 		NVArray::lock(NVcontainer::ShrdLock);
 	}
 	f = infof;
-	l = infol;
 	try {
 		listgroup(lstgrp, infof, infol);
 

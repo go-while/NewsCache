@@ -179,8 +179,13 @@ void update(void)
 		while (wi == opt_workers) {
 			// maximum workers spawned, wait until a worker exits
 			int cstat;
-			int cid;
-			cid = wait(&cstat);
+			if (wait(&cstat) < 0) {
+				if (errno == EINTR)
+					continue;
+				// no child left (ECHILD): nothing to wait for
+				wi = 0;
+				break;
+			}
 			if (WIFSIGNALED(cstat)) {
 				slog.
 				    p(Logger::
@@ -229,7 +234,7 @@ int main(int argc, char **argv)
 	pid_t p;
 #endif
 	char conffile[MAXPATHLEN];
-	int opt_config = 0, opt_flagsset = 0;
+	int opt_flagsset = 0;
 	int c, aerr = 0;
 
 	snprintf(conffile, sizeof(conffile), "%s/newscache.conf", SYSCONFDIR);
@@ -292,7 +297,6 @@ int main(int argc, char **argv)
 
 			case 'c':
 				strcpy (conffile, optarg);
-				++opt_config;
 				break;
 
 			default:
@@ -360,7 +364,11 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	snprintf(logfile, sizeof(logfile), "%s/newscache_updatenews.log", Cfg.LogDirectory);
+	if (snprintf(logfile, sizeof(logfile), "%s/newscache_updatenews.log",
+		     Cfg.LogDirectory) >= (int) sizeof(logfile)) {
+		cerr << "LogDirectory is too long\n";
+		exit(1);
+	}
 	slog.open (logfile);
 #endif
 

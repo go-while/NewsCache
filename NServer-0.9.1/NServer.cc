@@ -452,6 +452,9 @@ string RServer::issue(const char *command, const char *expresp)
 			    "RServer::issue: error in command sending, good: "
 			    << _pServerStream->good() << "\n";
 		}
+		// 0 if nlreadline throws: no response, so the check after the
+		// loop throws ResponseError.
+		rs = 0;
 		try {
 			rs = nlreadline(*_pServerStream, resp, 0);
 		}
@@ -600,7 +603,8 @@ void RServer::selectgroup(const char *name, int force)
 		// probably inconsistent posting flag ('y')
 
 		if (mpe->limitgroupsize) {
-			if (lst - fst + 1 > mpe->limitgroupsize) {
+			if (lst >= fst &&
+			    (unsigned int) (lst - fst + 1) > mpe->limitgroupsize) {
 				fst = lst - mpe->limitgroupsize + 1;
 				nbr = mpe->limitgroupsize;
 			}
@@ -989,7 +993,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			}
 		}
 	}
-	catch(NoSuchFieldError e) {
+	catch(const NoSuchFieldError &) {
 		VERB(slog.
 		     p(Logger::
 		       Debug) << "RServer::post message-id not found\n");
@@ -1497,10 +1501,10 @@ void CServer::spoolarticle(Article * article)
 
 	try {
 		pSpool->spoolArt(*article);
-	} catch(SystemError se) {
+	} catch(const SystemError &) {
 		slog.p(Logger::Error) << "CServer::spoolarticle: catched\
 		SystemError while spooling article\n";
-		throw se;
+		throw;
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::spoolarticle: catched\
@@ -1534,7 +1538,7 @@ void CServer::postspooled(void)
 					pSpool->storeBadArt(*pA);
 				}
 			}
-			catch(InvalidArticleError iae) {
+			catch(const InvalidArticleError &) {
 				slog.p(Logger::Error)
 				    << "CServer::postspooled(): RServer::post\
 				throw InvalidArticleError; ID: "
@@ -1544,10 +1548,10 @@ void CServer::postspooled(void)
 			delete pA;
 		}
 	}
-	catch(SystemError se) {
+	catch(const SystemError &) {
 		slog.p(Logger::Error) << "CServer::postspooled():\
 			Error posting articles from spool\n";
-		throw se;
+		throw;
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::postspooled();\

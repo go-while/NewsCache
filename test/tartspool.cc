@@ -48,11 +48,11 @@ int main(int argc, char **argv)
 
 		return (0);
 	}
-	catch(SystemError e) {
+	catch(const SystemError &e) {
 		e.print();
 		return (1);
 	}
-	catch(Error e) {
+	catch(const Error &e) {
 		e.print();
 		cerr << "Duplicate article" << endl;
 		return (1);

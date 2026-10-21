@@ -143,7 +143,7 @@ void NVcontainer::make_current()
 		strstream sb;
 #endif
 		sb << "NVConatiner::make_current(): info-record shrunk;"
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << " st.st_size: " << (unsigned long int) st.st_size
 		   << " sizeof(Header): " << (unsigned long int) sizeof(Header);
 		throw Error(sb.rdbuf()->str(), ERROR_LOCATION);
@@ -167,7 +167,7 @@ void NVcontainer::make_current()
 		strstream sb;
 #endif
 		sb << "NVConatiner::make_current(): wrong header size"
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << " mem_hdr->hlen: " << (unsigned long int) mem_hdr->hlen
 		   << " sizeof(Header): " << (unsigned long int) sizeof(Header);
 		rename_to_bad_and_close(); // close manipulate the member structure !!
@@ -180,7 +180,7 @@ void NVcontainer::make_current()
 		strstream sb;
 #endif
 		sb << "NVConatiner::make_current(): wrong header version"
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << " mem_hdr->version: " << (unsigned long int) mem_hdr->version;
 		rename_to_bad_and_close(); // close manipulate the member structure !!
 		throw Error(sb.rdbuf()->str(), ERROR_LOCATION);
@@ -193,7 +193,7 @@ void NVcontainer::make_current()
 #endif
 		sb << "NVConatiner::make_current(): wrong database size stored "
 		   << "in db-header - may be a hazard"
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << " mem_sz: " << (unsigned long int) mem_sz
 		   << " mem_hdr->size: " << (unsigned long int) mem_hdr->size;
 		slog.p(Logger::Critical) << sb.rdbuf()->str();
@@ -221,7 +221,7 @@ size_t NVcontainer::resize(size_t nsz)
 		strstream sb;
 #endif
 		sb << "NVConatiner::resize(): ftruncate failed  "
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << " nsz: " << (unsigned long int) nsz;
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
@@ -632,7 +632,7 @@ void NVcontainer::open(const char *dbname, int flags)
 		strstream sb;
 #endif
 		sb << "NVConatiner::open(): cannot open("
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn))
+		   << " mem_fn: " << mem_fn
 		   << ",O_RDWR|O_CREAT)";
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
@@ -645,7 +645,7 @@ void NVcontainer::open(const char *dbname, int flags)
 		strstream sb;
 #endif
 		sb << "NVConatiner::open(): fstat failed"
-		   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn));
+		   << " mem_fn: " << mem_fn;
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
 	if (st.st_size == 0) {
@@ -664,7 +664,7 @@ void NVcontainer::open(const char *dbname, int flags)
 			strstream sb;
 #endif
 			sb << "NVConatiner::open(): ftruncate failed, unlinked"
-			   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn));
+			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 			}
 		if (write(mem_fd, &hdr, sizeof(Header)) != sizeof(Header)) {
@@ -675,7 +675,7 @@ void NVcontainer::open(const char *dbname, int flags)
 			strstream sb;
 #endif
 			sb << "NVConatiner::open(): write(info-record) failed, unlinked"
-			   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn));
+			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 		}
 		if (write(mem_fd, &fl, sizeof(FreeList)) !=
@@ -687,7 +687,7 @@ void NVcontainer::open(const char *dbname, int flags)
 			strstream sb;
 #endif
 			sb << "NVConatiner::open(): write(free-record) failed unlinked"
-			   << " mem_fn: " << ((mem_fn==NULL)? ("NULL") : (mem_fn));
+			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 		}
 	}

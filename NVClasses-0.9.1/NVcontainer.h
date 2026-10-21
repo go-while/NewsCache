@@ -108,7 +108,9 @@ class NVcontainer {
 	int lock(int command, int block = Block);
 	int get_lock(void);
 
-	virtual void open(const char *dbname, int flags = 0);
+	// Not virtual: every caller calls its own class's open(), and
+	// NVHash/NVActiveDB have open()s with other parameters.
+	void open(const char *dbname, int flags = 0);
 	virtual int is_open(void);
 	
 	/*
