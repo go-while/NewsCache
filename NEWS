@@ -26,6 +26,10 @@ Bug fixes:
   for 480 before they send AUTHINFO, so they couldn't log in. Such commands
   now get "480 Authentication required". Unknown commands, and entries
   without Authentication, still get 500.
+* newscache -p and the xdebug command printed "allow authentication" as a
+  bare "allow" (and "allow read authentication" as "allow read"). Read
+  back as a config, a bare "allow" is allow none, so a login-only entry
+  copied from the -p output let nobody in.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
