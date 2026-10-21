@@ -206,6 +206,19 @@ void remove_elements(long max_blocks, struct cache_statistic *pS)
 	}
 }
 
+// The group's database in the spool directory cpath, or NULL if there is
+// none. Throws NoSuchGroupError if NVNewsgroup refuses the group.
+static NVNewsgroup *open_spool_group(OverviewFmt *fmt, const char *cpath,
+				     const char *ngname)
+{
+	string dbname = cpath;
+	dbname += "/.db";
+	struct stat s;
+	if (stat (dbname.c_str(), &s) != 0)
+		return NULL;
+	return new NVNewsgroup (fmt, (const char *) Cfg.SpoolDirectory, ngname);
+}
+
 void clean(const char *cpath)
 {
 	VERB(slog.p(Logger::Debug) << "clean(" << cpath << ")\n");
@@ -280,16 +293,7 @@ void clean(const char *cpath)
 		// The inner try handles NoSuchGroupError, NC_CATCH_ALL the
 		// rest (its own NoSuchGroupError handler would never run here).
 		try {
-			string dbname = cpath;
-			dbname += "/.db";
-			struct stat s;
-			if (stat (dbname.c_str(), &s) == 0) {
-				ng = new NVNewsgroup (fmt,
-					(const char *) Cfg.SpoolDirectory,
-					ngname.c_str());
-			} else {
-				ng = NULL;
-			}
+			ng = open_spool_group(fmt, cpath, ngname.c_str());
 		} catch (const NoSuchGroupError &e) {
 			ng = NULL;
 		}
