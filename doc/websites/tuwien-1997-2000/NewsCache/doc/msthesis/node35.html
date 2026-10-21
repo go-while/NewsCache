@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Server Class Library</TITLE>
+<META NAME="description" CONTENT="News Server Class Library">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node36.html">
+<LINK REL="previous" HREF="node34.html">
+<LINK REL="up" HREF="node31.html">
+<LINK REL="next" HREF="node36.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html647"
+ HREF="node36.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html644"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html638"
+ HREF="node34.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html646"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html648"
+ HREF="node36.html">News Database</A>
+<B> Up:</B> <A NAME="tex2html645"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html639"
+ HREF="node34.html">News Cache Daemon</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html649"
+ HREF="node35.html#SECTION001041000000000000000">
+News Server Class (NServer)</A>
+<LI><A NAME="tex2html650"
+ HREF="node35.html#SECTION001042000000000000000">
+Remote Server Class (RServer)</A>
+<LI><A NAME="tex2html651"
+ HREF="node35.html#SECTION001043000000000000000">
+Local Server Class (LServer)</A>
+<LI><A NAME="tex2html652"
+ HREF="node35.html#SECTION001044000000000000000">
+Cache Server Class (CServer)</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001040000000000000000">
+News Server Class Library</A>
+</H1>
+<A NAME="sec:imp_libNServer">&#160;</A>
+The following sections show the implementation of the news server
+classes. These classes provide an interface to several kinds of news
+databases.  The <EM>NServer</EM>  class is an abstract class that acts
+only as common superclass for the news server classes. For
+facilitating the exploitation of polymorphism the methods of the
+<EM>NServer</EM>  class are declared as abstract and virtual.
+Table&nbsp;<A HREF="node35.html#tab:virt_abst_fnc">6.1</A> gives an explanation of these concepts.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="tab:virt_abst_fnc">&#160;</A>
+<P>    <A NAME="732">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1">
+<CAPTION><STRONG>Table 6.1:</STRONG>
+Abstract and virtual methods in C++</CAPTION>
+<TR VALIGN="TOP"><TH ALIGN="LEFT"><DL>
+<DT><STRONG>Abstract Method</STRONG>
+<DD>An abstract method only defines the interface
+for the method. The actual implementation for the method must be
+provided by classes that inherit the method from its parent class.
+Using abstract methods in a class ensures that all subclasses of
+the base class implement at least the abstract methods provided by
+the base class.
+<DT><STRONG>Virtual Method</STRONG>
+<DD>Declaring methods of a class as virtual allows
+to exploit polymorphism across its subclasses.  Consider a class
+<EM>GeometricShape</EM>  and some subclasses (e.g., <EM>Rectangle</EM> ,
+<EM>Circle</EM> , ...) that define the method <EM>draw</EM> .
+Whenever <EM>GeometricShape</EM>  is used in the place of one of its
+subclasses, the correct method <EM>draw</EM>  will be called.
+</DL></TH>
+</TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The current version of the <EM>News Server Class Library</EM>  already
+provides a class for the retrieval of news articles from a remote news
+server (<EM>RServer</EM> ), from a local news database (<EM>LServer</EM> )
+and a class retrieving news articles from a remote news server with
+the ability to cache already requested data in a local news database
+(<EM>LServer</EM> ). The relationship between those classes has been
+explained in section&nbsp;<A HREF="node29.html#sec:design_libNServer">5.4</A> and is shown again in
+Figure&nbsp;<A HREF="node35.html#fig:imp_class_hierarchy">6.2</A>.  The classes of this library
+allow any program (e.g., news readers, proxy news servers, news
+caches, etc.) to access a news database in different ways.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:imp_class_hierarchy">&#160;</A><A NAME="1104">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 6.2:</STRONG>
+Hierarchy of the <EM>News Server</EM>  classes</CAPTION>
+<TR><TD><IMG WIDTH="264" HEIGHT="401"
+ SRC="img24.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/class_hierarchy.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION001041000000000000000">
+News Server Class (NServer)</A>
+</H2>
+<A NAME="sec:imp_NServer">&#160;</A>
+The <EM>NServer</EM>  class defines the interface for all methods needed
+to access a news server.  These methods are declared <TT>abstract</TT>
+and <TT>virtual</TT>. The methods are declared <TT>abstract</TT>
+because the method has to be implemented by the subclass of this
+class. The methods are declared <TT>virtual</TT> to provide
+polymorphism across the news server classes.
+<P>
+An <EM>NVActiveDB</EM>  class is used for the active database and an
+<EM>NVOverviewDB</EM>  class for the overview database. Currently these
+two classes have to be used by all the <EM>NServer</EM> 's subclasses.
+However, this is likely to change in the future (See
+section&nbsp;<A HREF="https://web.archive.org/web/20070812232250/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node43.html#sec:future_database">8.1.1</A>) for a detailed explanation).
+<P>
+The following methods have been defined for the retrieval of
+newsgroups articles and the overview database:
+<P><DL>
+<DT><STRONG>active()</STRONG>
+<DD>This method returns a pointer to the active database. 
+<DT><STRONG>group(char *name)</STRONG>
+<DD>This method returns a pointer to information
+about the newsgroup <TT>name</TT>. It contains the type of the
+  newsgroup, the number of the first and last article and the total
+  number of articles.
+<DT><STRONG>xoverfmt()</STRONG>
+<DD>This method returns the order of the database
+  entries stored in the overview database.
+<DT><STRONG>xoverdb(int fst, int lst)</STRONG>
+<DD>This method returns a pointer to the
+  overview database of the newsgroup. The overview database contains
+  at least the overview records for the articles within the range
+  <TT>fst</TT>-<TT>lst</TT>.
+<DT><STRONG>article(int nbr)</STRONG>
+<DD>returns the article with the number
+  <TT>nbr</TT> from the current newsgroup.
+<DT><STRONG>post(Article *article)</STRONG>
+<DD>posts the article stored in
+  <TT>article</TT> to the news database.
+<DT><STRONG>setserver(char *ns_name, char *ns_serv)</STRONG>
+<DD>This method selects a
+  new database. The parameters <TT>ns_name</TT> and
+  <TT>ns_serv</TT> define the name of the database. For the
+  <EM>RServer</EM>  and <EM>CServer</EM>  classes <TT>ns_name</TT> and
+  <TT>ns_serv</TT> reflect the name and the service of the news
+  server. This function has been added to allow multiplexing between
+  different news databases. This interface may change in the future.
+</DL><H2><A NAME="SECTION001042000000000000000">
+Remote Server Class (RServer)</A>
+</H2>
+<P>
+The <EM>RServer</EM>  class is a subclass of the <EM>NServer</EM>  class and
+implements the news server interface as specified by the<EM>NServer</EM> 
+class. The <EM>RServer</EM>  class uses the news database provided by a
+news server. The data on the news server is accessed using NNRP.
+<P>
+The <EM>RServer</EM>  class implements the following methods in addition
+to the methods specified in section&nbsp;<A HREF="node35.html#sec:imp_NServer">6.4.1</A>:
+<P><DL>
+<DT><STRONG>connect()</STRONG>
+<DD>This method connects to the news server specified by
+the <TT>setserver</TT> method.
+<DT><STRONG>is_connected()</STRONG>
+<DD>This method returns, whether the <EM>RServer</EM> 
+  class currently is connected to the news server.
+<DT><STRONG>disconnect()</STRONG>
+<DD>This method disconnects the <EM>RServer</EM>  class
+  from the news server.
+</DL><H2><A NAME="SECTION001043000000000000000">
+Local Server Class (LServer)</A>
+</H2>
+<P>
+The <EM>LServer</EM>  class is a subclass of the <EM>NServer</EM>  class and
+implements the news server interface as specified by the
+<EM>NServer</EM>  class. The <EM>LServer</EM>  class uses a local news
+database to provide newsgroups and news articles.
+<P>
+The <EM>LServer</EM>  class needs not implement any method in addition to
+the ones defined in the <EM>NServer</EM>  class.
+<P><H2><A NAME="SECTION001044000000000000000">
+Cache Server Class (CServer)</A>
+</H2>
+<P>
+The <EM>CServer</EM>  class is a subclass of the <EM>RServer</EM>  and the
+<EM>LServer</EM>  class and implements the news server interface as
+specified by the<EM>NServer</EM>  class. The <EM>CServer</EM>  class is used
+to retrieve newsgroups and articles from a news server using NNRP.
+Before these groups and articles are passed back to the caller, the
+data are cached in a local news database. The local news database is
+used to satisfy successive requests to the same data.
+<P>
+In addition to the methods defined in its superclasses, the
+<EM>CServer</EM>  class implements the <TT>setttl(ttl_list,
+  ttl_desc, ttl_group)</TT> method. This method is used to specify the
+timeouts used for the ActiveDB (<TT>ttl_list</TT>), the group
+description file (<TT>ttl_desc</TT>) and for the newsgroups
+(<TT>ttl_group</TT>). Whenever a client requests a database being
+expired, the databases is requested from the news server again.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html647"
+ HREF="node36.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html644"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html638"
+ HREF="node34.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html646"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html648"
+ HREF="node36.html">News Database</A>
+<B> Up:</B> <A NAME="tex2html645"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html639"
+ HREF="node34.html">News Cache Daemon</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

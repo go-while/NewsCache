@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily NewsCache spool cleanup
+Documentation=man:newscacheclean(8)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

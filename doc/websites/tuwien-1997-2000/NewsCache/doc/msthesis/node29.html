@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Server Class Library</TITLE>
+<META NAME="description" CONTENT="News Server Class Library">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node30.html">
+<LINK REL="previous" HREF="node28.html">
+<LINK REL="up" HREF="node25.html">
+<LINK REL="next" HREF="node30.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html567"
+ HREF="node30.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html564"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html558"
+ HREF="node28.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html566"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html568"
+ HREF="node30.html">News Database</A>
+<B> Up:</B> <A NAME="tex2html565"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html559"
+ HREF="node28.html">News Cache Architecture</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html569"
+ HREF="node29.html#SECTION00941000000000000000">
+News Server Class (<EM>NServer</EM> )</A>
+<LI><A NAME="tex2html570"
+ HREF="node29.html#SECTION00942000000000000000">
+Remote Server Class (<EM>RServer</EM> )</A>
+<LI><A NAME="tex2html571"
+ HREF="node29.html#SECTION00943000000000000000">
+Local Server Class (<EM>LServer</EM> )</A>
+<LI><A NAME="tex2html572"
+ HREF="node29.html#SECTION00944000000000000000">
+Cache Server Class (<EM>CServer</EM> )</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00940000000000000000">
+News Server Class Library</A>
+</H1>
+<A NAME="sec:design_libNServer">&#160;</A>
+As explained in section&nbsp;<A HREF="node28.html#sec:arch_ncache">5.3</A>, the architecture of the
+News Cache is based on several news server objects providing an
+interface to different kinds of news databases. Each of these objects
+will be implemented using their own class and all these classes
+together will form the <EM>News Server Class Library</EM> .
+<P>
+Figure&nbsp;<A HREF="node29.html#fig:class_hierarchy">5.5</A> shows the hierarchy for the classes
+of the <EM>News Server Class Library</EM> .  The base of all news server
+class types is an abstract class called <EM>NServer</EM> .  This class
+defines a general interface to a news database that has to be
+implemented by all of its subclasses.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:class_hierarchy">&#160;</A><A NAME="545">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.5:</STRONG>
+Hierarchy of the <EM>News Server</EM>  classes</CAPTION>
+<TR><TD><IMG WIDTH="264" HEIGHT="401"
+ SRC="img24.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/class_hierarchy.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION00941000000000000000">
+News Server Class (<EM>NServer</EM> )</A>
+</H2>
+<P>
+The <EM>NServer</EM>  class does not implement the access to any news
+database. It defines only the interface for the methods necessary to
+access a news database. The methods are defined as <TT>virtual</TT> to
+allow the exploitation of polymorphism across the <EM>News Server</EM> 
+classes.  This gives the possibility to write functions and methods
+that operate on any news server class. Depending on the exact class
+given to those functions the appropriate class method will be called.
+<P><H2><A NAME="SECTION00942000000000000000">
+Remote Server Class (<EM>RServer</EM> )</A>
+</H2>
+<P>
+The <EM>RServer</EM>  class uses a news server as its news database.
+Newsgroups and articles will be retrieved from the news server using
+NNRP. Hence this class may be used in programs that need to access a
+news server (e.g., the news reader, proxy news server, etc.).
+Figure&nbsp;<A HREF="node29.html#fig:rserver_usage">5.6</A> shows this configuration.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:rserver_usage">&#160;</A><A NAME="548">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.6:</STRONG>
+News reader 
+      using the <EM>RServer</EM>  class</CAPTION>
+<TR><TD><IMG WIDTH="274" HEIGHT="166"
+ SRC="img25.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/rserver_usage.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION00943000000000000000">
+Local Server Class (<EM>LServer</EM> )</A>
+</H2>
+<P>
+The <EM>LServer</EM>  class uses a local news database. This class may be
+used in programs that need to access a local news database (e.g., a
+news server, etc.). Figure&nbsp;<A HREF="node29.html#fig:lserver_usage">5.7</A> shows this
+configuration.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:lserver_usage">&#160;</A><A NAME="550">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.7:</STRONG>
+News server 
+      using the <EM>LServer</EM>  Class to access the local news 
+      database</CAPTION>
+<TR><TD><IMG WIDTH="289" HEIGHT="73"
+ SRC="img26.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/lserver_usage.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION00944000000000000000">
+Cache Server Class (<EM>CServer</EM> )</A>
+</H2>
+<P>
+The <EM>CServer</EM>  class retrieves newsgroups and articles from a news
+server and caches these data in its own local news database. It is
+built on top of the <EM>RServer</EM>  class, which is used to retrieve
+the data from the news server and on top of the <EM>LServer</EM>  class,
+which is used for the local news database. Using this class it is
+possible to implement a news reader with a local cache or even a cache
+server for the News System. Figure&nbsp;<A HREF="node29.html#fig:cserver_usage">5.8</A> shows an
+example.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:cserver_usage">&#160;</A><A NAME="552">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.8:</STRONG>
+News Cache 
+      using the <EM>CServer</EM>  class for its database</CAPTION>
+<TR><TD><IMG WIDTH="289" HEIGHT="166"
+ SRC="img27.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/cserver_usage.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html567"
+ HREF="node30.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html564"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html558"
+ HREF="node28.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html566"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html568"
+ HREF="node30.html">News Database</A>
+<B> Up:</B> <A NAME="tex2html565"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html559"
+ HREF="node28.html">News Cache Architecture</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

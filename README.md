@@ -18,12 +18,15 @@ Releases start at 1.3.17 (see [`NEWS`](NEWS)). Report bugs at
 <https://github.com/go-while/NewsCache/issues>.
 
 > Most of the text below comes from the project's two original websites, which
-> are now offline:
+> are now offline (the Wayback Machine's last good captures are the ones linked
+> below; after them the pages are 404):
 >
 > - Thomas Gschwind, TU Wien (1997 to 2000):
->   <https://web.archive.org/web/20060201234800/http://www.infosys.tuwien.ac.at/NewsCache/>
+>   <https://web.archive.org/web/20080916074415/http://www.infosys.tuwien.ac.at/NewsCache/>
 > - Herbert Straub, linuxhacker.at (2002 to 2008):
->   <https://web.archive.org/web/20140626020920/http://www.linuxhacker.at/NewsCache>
+>   <https://web.archive.org/web/20150907023521/http://www.linuxhacker.at/NewsCache/>
+>
+> A browsable offline copy of both is in [`doc/websites/`](doc/websites/).
 >
 > Each claim was checked against the current code on 2026-10-17. Anything that
 > is no longer true is marked, and the full list is in
@@ -109,6 +112,11 @@ Tested on 2026-10-17:
 | Fedora 44 | g++ 16.2 | builds with GnuTLS, PAM and Fedora's hardened flags (2026-10-18); see [`FEDORA.md`](FEDORA.md) |
 
 All builds produce compiler warnings, but no errors.
+
+On Debian 13 and Ubuntu 24.04, `sudo apt-get build-dep ./` and
+`dpkg-buildpackage -us -uc -b` build a `newscache` package (GnuTLS, PAM,
+systemd unit, spool cleanup timer, a config that lets nobody in); see
+[`debian/README.Debian`](debian/README.Debian).
 
 `make check` runs the unit tests and the end-to-end tests in
 [`tests/e2e`](tests/e2e) (Go, skipped when Go is not installed).
@@ -198,8 +206,10 @@ servers don't offer STARTTLS on 119.
   `newscache -n`.
 - **SysV init:** an init script is generated as `etc/NewsCache.init`.
 - **inetd:** use `newscache -i`.
-- **cron:** run `updatenews` and `newscacheclean` regularly, as in
-  [`debian/newscache.cron.daily`](debian/newscache.cron.daily).
+- **cron or a timer:** run `newscacheclean` regularly to keep the spool
+  below `SpoolSize`, for example daily with
+  [`debian/newscache.newscacheclean.timer`](debian/newscache.newscacheclean.timer),
+  and `updatenews` if you prefetch groups.
 
 More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt

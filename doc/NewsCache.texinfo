@@ -10,6 +10,11 @@
 @syncodeindex cd cp
 @c %**end of header
 
+@dircategory News
+@direntry
+* NewsCache: (NewsCache).       A caching news server for USENET news.
+@end direntry
+
 @c *** 
 @c *** Summary Description and Copyright
 @c *** 

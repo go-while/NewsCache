@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Solution Strategies</TITLE>
+<META NAME="description" CONTENT="Solution Strategies">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node13.html">
+<LINK REL="up" HREF="node10.html">
+<LINK REL="next" HREF="node15.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html383"
+ HREF="node15.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html380"
+ HREF="node10.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html376"
+ HREF="node13.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html382"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html384"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Up:</B> <A NAME="tex2html381"
+ HREF="node10.html">Problem Domain</A>
+<B> Previous:</B> <A NAME="tex2html377"
+ HREF="node13.html">News over Networks with</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html385"
+ HREF="node14.html#SECTION00741000000000000000">
+Server-Multiplexing by the Client</A>
+<LI><A NAME="tex2html386"
+ HREF="node14.html#SECTION00742000000000000000">
+Server-Multiplexing by the News Cache</A>
+<LI><A NAME="tex2html387"
+ HREF="node14.html#SECTION00743000000000000000">
+News on Networks with Limited Bandwidth</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00740000000000000000">
+Solution Strategies</A>
+</H1>
+<A NAME="sec:solutions">&#160;</A>
+<P>
+The previous sections have shown drawbacks of the provision of local
+newsgroups and provision of Usenet News to areas with limited network
+bandwidth.  The following sections will give an overview of possible
+solution strategies for these drawbacks.  Among these solutions we
+will present our News Cache and will explain the benefits of this
+approach briefly. The News Cache itself will be discussed in the
+following chapters in detail.
+<P><H2><A NAME="SECTION00741000000000000000">
+Server-Multiplexing by the Client</A>
+</H2>
+<A NAME="sec:prob_sol_clientmulti">&#160;</A>
+This demand can be solved by patching all existing news readers.
+Unfortunately it is obvious that this is impossible. However, this
+would be the cleanest approach, because the client would decide which
+server to contact for which newsgroup without requirements for
+additional software. A possible solution is to keep a configuration
+file for each news server and to reconfigure the news reader for each
+session.  Figure&nbsp;<A HREF="node14.html#fig:nrpatch">3.6</A> shows a possible workaround for
+news readers storing their configuration in <code>~/.newsrc</code>. This
+workaround works for most Unix and Unix-like systems. Similar
+workarounds exist for other news readers and other environments.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:nrpatch">&#160;</A><A NAME="288">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 3.6:</STRONG>
+Workaround to multiplex between different news servers</CAPTION>
+<TR><TD><IMG WIDTH="653" HEIGHT="382"
+ SRC="img13.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ \begin{tabular}
+{p{14cm}}
+ \hline
+\...
+ ...i
+
+exec $MYNS $*\end{verbatim}\  \hline
+ \end{tabular} \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION00742000000000000000">
+Server-Multiplexing by the News Cache</A>
+</H2>
+<A NAME="sec:prob_sol_servermulti">&#160;</A>
+The workaround presented in section&nbsp;<A HREF="node14.html#sec:prob_sol_clientmulti">3.4.1</A>
+does not work for all news servers and is inconvenient to the user in
+several ways. On the one hand if the user wants to read a newsgroup
+from another server, he has to terminate the news reader and restart
+it. On the other hand the presented workaround reduces the
+functionality of some news reader to work on several newsgroups
+simultaneously. This functionality will not be available for
+newsgroups stored on different news servers.
+<P>
+The News Cache can include the functionality to contact different news
+servers for different newsgroups. Whenever a news reader selects a
+newsgroup from the News Cache, the News Cache decides which news
+server to contact for the given newsgroup. All this will be done
+transparently to the news reader. Another advantage of this approach
+is that the user needs not to worry about which newsgroups are
+provided by which news server.
+<P><H2><A NAME="SECTION00743000000000000000">
+News on Networks with Limited Bandwidth</A>
+</H2>
+<A NAME="sec:prob_sol_bw">&#160;</A>
+This problem can only be solved for leaf node news servers without
+modifications to NNTP. Since leaf node news servers need not hold the
+whole news feed, they can be replaced by a News Cache. The News Cache
+retrieves only those articles that are requested by a news client.
+Thus the News Cache eliminates the transmission of articles that will
+never be accessed by any news client.
+<P>
+To solve this problem in general it is necessary to add some new
+commands to NNTP. One command could be a request to transfer the
+articles in compressed form. This could reduce the required network
+bandwidth by approximately <IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img14.gif"
+ ALT="$50\%$">.  Another command could request the
+transfer of all newly arrived articles smaller than a given size. This
+is useful, because it does not pay to negotiate the transmission of
+small articles and the transmission of larger articles (e.g. those
+found in the binary newsgroups) will be negotiated. An explanation of
+the currently used article negotiations can be found in&nbsp;[<A
+ HREF="node68.html#rfc977">KL86</A>].
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html383"
+ HREF="node15.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html380"
+ HREF="node10.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html376"
+ HREF="node13.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html382"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html384"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Up:</B> <A NAME="tex2html381"
+ HREF="node10.html">Problem Domain</A>
+<B> Previous:</B> <A NAME="tex2html377"
+ HREF="node13.html">News over Networks with</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

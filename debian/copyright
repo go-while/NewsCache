@@ -1,16 +1,44 @@
-This package was debianized by Herbert Straub <h.straub@aon.at> on
-Thu, 10 Apr 2003 15:53:41 +0200.
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: NewsCache
+Upstream-Contact: https://github.com/go-while/NewsCache/issues
+Source: https://github.com/go-while/NewsCache
+Comment:
+ First debianized by Michael Alan Dorman in 1998, later maintained by
+ Herbert Straub and Christof Meerwald. The original download location,
+ http://members.aon.at/hstraub/linux/newscache/, no longer exists.
 
-It is developed at https://github.com/go-while/NewsCache.
-(It was first downloaded from http://members.aon.at/hstraub/linux/newscache/,
-which no longer exists.)
+Files: *
+Copyright: 1996-2000 Thomas Gschwind <tom@infosys.tuwien.ac.at>
+           2001-2004 Herbert Straub <herbert@linuxhacker.at>
+           2008-2024 Christof Meerwald <cmeerw@cmeerw.org>
+           2026 Billy G. <newscache-maintainer@pugleaf.net>
+License: GPL-2+
 
-Upstream Author(s):
-	
-	1996-2000 Thomas Gschwind <tom@w0.infosys.tuwien.ac.at>
-	2001-2003 Herbert Straub <h.straub@aon.at>
+Files: md5lib/md5.cc
+Copyright: none claimed (Colin Plumb, 1993)
+License: public-domain
+ This code implements the MD5 message-digest algorithm. The algorithm is
+ due to Ron Rivest. This code was written by Colin Plumb in 1993, no
+ copyright is claimed. This code is in the public domain; do with it what
+ you wish.
 
-Copyright:
+Files: debian/*
+Copyright: 1998 Michael Alan Dorman <mdorman@debian.org>
+           2002-2004 Herbert Straub <herbert@linuxhacker.at>
+           2002-2024 Christof Meerwald <cmeerw@cmeerw.org>
+           2026 Billy G. <newscache-maintainer@pugleaf.net>
+License: GPL-2+
 
-This package is licensed under the GNU GENERAL PUBLIC LICENSE. A copy of the
-GPL is provided on Debian systems in the /usr/share/common-licenses directory.
+License: GPL-2+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the full text of the GNU General Public License
+ version 2 can be found in /usr/share/common-licenses/GPL-2.

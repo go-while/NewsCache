@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Where to Locate News Caches</TITLE>
+<META NAME="description" CONTENT="Where to Locate News Caches">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node18.html">
+<LINK REL="previous" HREF="node16.html">
+<LINK REL="up" HREF="node15.html">
+<LINK REL="next" HREF="node18.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html428"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html425"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html419"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node16.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html427"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html429"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">News Server Multiplexing</A>
+<B> Up:</B> <A NAME="tex2html426"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html420"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node16.html">Cache Accuracy</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00820000000000000000">
+Where to Locate News Caches</A>
+</H1>
+<P>
+As pointed out in section&nbsp;<A HREF="node14.html#sec:prob_sol_bw">3.4.3</A> a News Cache can be
+used in areas with an unreliable or slow Internet link
+(Figure&nbsp;<A HREF="node17.html#fig:nntpcache_slow">4.1(a)</A>).  In this case the News Cache
+reduces the transferred data to the absolute minimum. Only those
+articles being requested by a news client will be transferred from the
+feeding news server. Articles will be retrieved from the news server
+only once, since articles that are requested repeatedly are already
+stored in the News Cache's news database.
+<P>
+The reduction of the network bandwidth can be calculated using the
+following formula, where <I>n</I><SUB><I>i</I></SUB> is the number of accesses and <I>sz</I><SUB><I>i</I></SUB>
+the size of article&nbsp;<I>i</I>.
+<P>
+<P ALIGN="CENTER"><IMG WIDTH="268" HEIGHT="34"
+ SRC="img15.gif"
+ ALT="\begin{displaymath}
+Gain=\sum{(n_i-1)*sz_i} \quad \mbox{[Bytes]} \end{displaymath}"></P>
+<P>
+A News Cache can replace a leaf node news server since a News Cache
+requires less hardware and less network bandwidth.
+Figure&nbsp;<A HREF="node17.html#fig:nntpcache_leave">4.1(b)</A> shows a scenario, where a leaf node
+news server is replaced by a News Cache.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:nntpcache_slow">&#160;</A><A NAME="fig:nntpcache_leave">&#160;</A><A NAME="fig:nntpcache_multi">&#160;</A><A NAME="fig:nntpcache_load">&#160;</A><A NAME="fig:nntpcache">&#160;</A><A NAME="320">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 4.1:</STRONG>
+Where to locate a News Cache</CAPTION>
+<TR><TD><IMG WIDTH="510" HEIGHT="57"
+ SRC="img16.gif"
+ ALT="\begin{figure}
+ \centering
+ \subfigure[Slow link to news server]{ 
+\epsfig {file...
+ ...eps/nntpcache_nsload.eps}
+
+ }
+ 
+\epsfig {file=eps/nntpcache_key.eps}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The News Cache reduces the required network bandwidth between the news
+cache (the former leaf node news server) and its feeding news server.
+The news cache also reduces the hardware requirements, because it uses
+less disk space and less CPU time than a news server (the hardware
+requirements necessary for a news server have been explained in
+chapter&nbsp;<A HREF="node10.html#cha:problem">3</A> in detail.). To use fewer hard disk space
+the News Cache has to expire older articles.  In case an expired
+article will be requested again, it has to be requested from the news
+server again.
+<P>
+The News Cache can be used to multiplex between different news
+servers. This can be necessary if a user needs to access newsgroups
+from both news servers (e.g., because one server holds the local news
+groups and the other the globally accessible groups) and his news
+reader is not able to distinguish between different news servers. In
+this situation the user connects his news reader to the News Cache
+instead of connecting it to the news server directly.
+<P>
+The News Cache can also reduce the load of heavily used news servers
+(Figure&nbsp;<A HREF="node17.html#fig:nntpcache_load">4.1(d)</A>). This reduces the problem to catch
+up a backlog. (see section&nbsp;<A HREF="node11.html#sec:prob_catchup">3.1</A> for an explanation
+of this problem).  Instead of directly connecting to the news server
+the user's news reader connects to one of the news caches.  Users may
+connect to whatever cache they like, because the contained articles
+have the same article numbering as the news server itself.
+<P>
+However, the cache server cannot replace non leaf node news server.
+These are news servers with links to several other news servers.  Non
+leaf node news servers collect data from many news servers and have
+to store all arriving articles for distribution.  Since the News Cache
+does not include this functionality, it is impossible to replace these
+news servers by a News Cache.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html428"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html425"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html419"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node16.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html427"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html429"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">News Server Multiplexing</A>
+<B> Up:</B> <A NAME="tex2html426"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html420"
+ HREF="https://web.archive.org/web/20060722234008/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node16.html">Cache Accuracy</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

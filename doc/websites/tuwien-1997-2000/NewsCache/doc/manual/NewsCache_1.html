@@ -1,0 +1,88 @@
+<HTML>
+<HEAD>
+<!-- This HTML file has been created by texi2html 1.52
+     from NewsCache.texinfo on 22 June 1998 -->
+
+<TITLE>NewsCache - Introduction</TITLE>
+</HEAD>
+<BODY>
+Go to the first, previous, <A HREF="NewsCache_2.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+<P><HR><P>
+
+<P>
+Copyright (C) 1998 Thomas Gschwind &#60;tom@infosys.tuwien.ac.at&#62;
+
+</P>
+<P>
+Permission is granted to make and distribute verbatim copies of
+this manual provided the copyright notice and this permission notice
+are preserved on all copies.
+
+</P>
+<P>
+Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+</P>
+<P>
+Permission is granted to copy and distribute translations of this manual
+into another language, under the above conditions for modified versions,
+except that this permission notice may be stated in a translation approved
+by the Free Software Foundation.
+
+</P>
+
+
+
+<H1><A NAME="SEC1" HREF="NewsCache_toc.html#TOC1">Introduction</A></H1>
+
+<P>
+<A NAME="IDX1"></A>
+
+</P>
+<P>
+NewsCache is a free cache server for USENET News. NewsCache acts to
+news reading clients like a news server, except that it stores only
+those articles that have been requested by at least one client.
+NewsCache targets problems of the current News System like network
+bandwidth consumption or the IO load caused by news clients.
+
+</P>
+<P>
+NewsCache can be used in combination with a news server. In this setup
+news reading clients are connected to NewsCache instead of to the news
+server.  In a small test at our university, we got a hit rate of over
+30%, although the interests of the people accessing NewsCache was
+relatively wide spread.  This figure can be mapped onto a reduction of
+the load at the news server.
+
+</P>
+<P>
+NewsCache can also replace leaf node news servers, if not all of the
+articles are permanently accessed by news clients. NewsCache only stores
+those newsgroups and articles being accessed frequently, while still
+providing a virtual full feed. This reduces the network bandwidth
+between the former news server and the news feed and also hardware
+requirements (both in terms of disk space and CPU performance).  Less
+CPU performance is sufficient because no local article numbering has to
+be performed and a smaller database has to be searched.
+
+</P>
+<P>
+NewsCache can also be used for the provision of local newsgroups without
+setting up and maintaining a news server with a full feed.  Instead you
+set up a news server holding only your local newsgorups and let
+NewsCache multiplex between those news servers.
+
+</P>
+<P>
+In the rest of this document, we will explain, how NewsCache can be
+configured for different operation environments.
+
+</P>
+<P><HR><P>
+Go to the first, previous, <A HREF="NewsCache_2.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+</BODY>
+</HTML>

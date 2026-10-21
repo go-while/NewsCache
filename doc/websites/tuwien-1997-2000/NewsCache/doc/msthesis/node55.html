@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>NNRP Commands</TITLE>
+<META NAME="description" CONTENT="NNRP Commands">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node54.html">
+<LINK REL="up" HREF="node52.html">
+<LINK REL="next" HREF="node56.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html897"
+ HREF="node56.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html894"
+ HREF="node52.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html890"
+ HREF="https://web.archive.org/web/20080611235033/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html896"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html898"
+ HREF="node56.html">Installation of the News</A>
+<B> Up:</B> <A NAME="tex2html895"
+ HREF="node52.html">The Network News Reader</A>
+<B> Previous:</B> <A NAME="tex2html891"
+ HREF="https://web.archive.org/web/20080611235033/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html">NNTP Commands</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html899"
+ HREF="node55.html#SECTION001631000000000000000">
+List</A>
+<LI><A NAME="tex2html900"
+ HREF="node55.html#SECTION001632000000000000000">
+Listgroup</A>
+<LI><A NAME="tex2html901"
+ HREF="node55.html#SECTION001633000000000000000">
+Xover</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001630000000000000000">
+NNRP Commands</A>
+</H1>
+<P>
+NNRP provides the <TT>article</TT>, <TT>body</TT>, <TT>group</TT>,
+<TT>head</TT>, <TT>newgroups</TT>, <TT>post</TT> and <TT>stat</TT>
+commands in the same form as they are provided by NNTP. The
+<TT>list</TT> command is available in an extended form. As in the
+previous section we do not describe all of the commands available. A
+comprehensive discussion of the commands available can be found
+in&nbsp;[<A
+ HREF="node68.html#rfc977">KL86</A>] and in&nbsp;[<A
+ HREF="node68.html#NNTPe">Bar97</A>].
+<P>
+One extension of NNRP is the <EM>Overview Database</EM> . The overview
+database [<A
+ HREF="node68.html#NNTPe">Bar97</A>] stores data for each article, like the author,
+the subject, message-id, etc. This is basically all the information
+that is necessary for a news reader to display a summary of the
+articles available in a newsgroup.  The overview database is
+transferred to a client in a fixed format without field identifiers.
+The format of the overview database can be requested using the
+<TT>list overview.fmt</TT> command. Figure&nbsp;<A HREF="node55.html#fig:overview">B.2</A> shows
+the overview record for the article shown in Figure&nbsp;<A HREF="node9.html#fig:article">2.2</A>
+(<IMG WIDTH="22" HEIGHT="15" ALIGN="BOTTOM" BORDER="0"
+ SRC="img55.gif"
+ ALT="$\rightarrow$"> indicates the tabulator character).
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:overview">&#160;</A><A NAME="1585">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure B.2:</STRONG>
+A sample overview record</CAPTION>
+<TR><TD><IMG WIDTH="545" HEIGHT="41"
+ SRC="img56.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ \begin{tabular}
+{p{14cm}}
+ \texttt{...
+ ...ow$\texttt{301}$\rightarrow$\texttt{7}\  \end{tabular} \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The overview database has approximately half the size of the head of
+its article and reduces the transmission time for the newsgroup by
+about 50%.  Since the overview database is smaller than the sum of
+all article heads, the news reader can reduce the network bandwidth
+and transmission time. To display the summary of available articles
+the news reader requests the overview database instead of all the
+articles' heads.
+<P>
+The overview database does not reduce the required network bandwidth
+if the whole group is read and the news reader caches the articles'
+heads. However, this is rarely the case.
+<P><H2><A NAME="SECTION001631000000000000000">
+List</A>
+</H2>
+<P>
+The <TT>List</TT> command is extended. In addition to the format
+explained in section&nbsp;<A HREF="https://web.archive.org/web/20080611235033/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html#app:nntp_list">B.2.1</A> the command may have one of
+the following arguments. In all cases the response codes of the
+<TT>list</TT> command without arguments are valid responses.
+<P><H3><A NAME="SECTION001631100000000000000">
+active</A>
+</H3>
+<P>
+Returns the list of newsgroups available on the news server along with
+the numbers of the first and last article and the newsgroups type
+(e.g., public, moderated, etc.).  As optional argument a
+<TT>wildmat</TT> pattern can be specified that allows to limit the
+newsgroups to those that match the pattern.
+<P><H3><A NAME="SECTION001631200000000000000">
+active.times</A>
+</H3>
+<P>
+Returns the list of newsgroups with their creation date and creator.
+<P><H3><A NAME="SECTION001631300000000000000">
+newsgroups</A>
+</H3>
+<P>
+Returns a short description for each newsgroup.
+<P><H3><A NAME="SECTION001631400000000000000">
+overview.fmt</A>
+</H3>
+<P>
+Returns the format of the overview database.
+<P><H2><A NAME="SECTION001632000000000000000">
+Listgroup</A>
+</H2>
+<P>
+This command returns a list of numbers of available articles within the
+currently selected newsgroup. If a name of the newsgroup is given as
+argument the given newsgroup will be selected and the article numbers
+of this group will be returned.
+<P><H3><A NAME="SECTION001632100000000000000">
+Responses</A>
+</H3>
+<P><A NAME="1585">&#160;</A>
+<TABLE CELLPADDING=3>
+<CAPTION><STRONG>Figure B.2:</STRONG>
+A sample overview record</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>211 list of article numbers follows</TT></TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>412 not currently in a newsgroup</TT></TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>502 no permission</TT></TD>
+</TR>
+</TABLE><H2><A NAME="SECTION001633000000000000000">
+Xover</A>
+</H2>
+<P>
+The XOVER command returns information from the overview database for
+the article(s) specified. If no argument is specified, then the
+overview record for the current article is returned. Alternatively an
+argument in the form <EM>first</EM> -<EM>last</EM>  may be specified. If
+<EM>first</EM>  or <EM>last</EM>  is omitted, then this is equivalent with
+the first or the last article number respectively.
+<P>
+On success this command returns a <TT>224</TT> response code along with
+the overview records for the requested articles.
+<P><H3><A NAME="SECTION001633100000000000000">
+Responses</A>
+</H3>
+<P><TABLE CELLPADDING=3>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>224 Overview information follows</TT></TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>412 No news group current selected</TT></TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>420 No article(s) selected</TT></TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT"><TT>502 no permission</TT></TD>
+</TR>
+</TABLE><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html897"
+ HREF="node56.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html894"
+ HREF="node52.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html890"
+ HREF="https://web.archive.org/web/20080611235033/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html896"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html898"
+ HREF="node56.html">Installation of the News</A>
+<B> Up:</B> <A NAME="tex2html895"
+ HREF="node52.html">The Network News Reader</A>
+<B> Previous:</B> <A NAME="tex2html891"
+ HREF="https://web.archive.org/web/20080611235033/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html">NNTP Commands</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

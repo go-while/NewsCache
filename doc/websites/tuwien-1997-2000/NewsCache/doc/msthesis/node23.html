@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Cache Cooperation</TITLE>
+<META NAME="description" CONTENT="News Cache Cooperation">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node24.html">
+<LINK REL="previous" HREF="node22.html">
+<LINK REL="up" HREF="node15.html">
+<LINK REL="next" HREF="node24.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html496"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node24.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html493"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html487"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node22.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html495"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html497"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node24.html">Concurrent Access to the</A>
+<B> Up:</B> <A NAME="tex2html494"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html488"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node22.html">News Cache Interfaces</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html498"
+ HREF="node23.html#SECTION00881000000000000000">
+Cascading</A>
+<LI><A NAME="tex2html499"
+ HREF="node23.html#SECTION00882000000000000000">
+Neighboring</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00880000000000000000">
+News Cache Cooperation</A>
+</H1>
+<P>
+The simplest configuration is using a single cache server attached to
+a single news server and having several clients attached to the news
+cache.  Other cooperation patterns among the caches are hierarchical
+news caches or a cooperating pool of caches. These organization types
+are called <EM>cascading</EM>  and <EM>neighboring</EM> , respectively.
+Both patterns are already in use on the World-Wide Web. For a detailed
+discussion see&nbsp;[<A
+ HREF="node68.html#Harvest">BDH+94</A>]. We will discuss the
+usability and implications of these cooperation patterns in the
+following sections.
+<P><H2><A NAME="SECTION00881000000000000000">
+Cascading</A>
+</H2>
+<P>
+Cascading means to build a tree of news caches as shown in
+Figure&nbsp;<A HREF="node23.html#fig:cascading">4.3</A>. If a news cache at a certain layer does
+not provide the requested data, it forwards the request to its
+upstream news cache and so on.  Since the news cache acts as an NNRP
+server and uses NNRP commands on the server side setting up a tree of
+news caches is easy.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:cascading">&#160;</A><A NAME="378">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 4.3:</STRONG>
+Cascading News Caches</CAPTION>
+<TR><TD><IMG WIDTH="403" HEIGHT="166"
+ SRC="img18.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/cascading.eps}
+
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+A high tree usually brings only minor benefits, because the higher
+level caches may have to store so many articles that they may be
+replaced by ordinary news servers. Also the performance might degrade,
+because a request for an article will possibly have to be processed by
+each news cache possibly up to the root of the tree.  Under these
+circumstances it is often better to set up a news server instead of
+one of the higher level caches and attach the other caches to this
+news server.
+<P><H2><A NAME="SECTION00882000000000000000">
+Neighboring</A>
+</H2>
+<P>
+Neighboring is a technique where the cache server checks whether the
+requested document can be found in other caches before asking the
+information server. If one of these neighboring caches stores the
+data, the data will be retrieved from that cache server.
+<P>
+We think that it is not necessary to consider this structure for a
+News Cache currently. The infrastructure provided by the currently
+existing news servers is very dense and it is faster to query a news
+server than the neighboring caches.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html496"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node24.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html493"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html487"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node22.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html495"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html497"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node24.html">Concurrent Access to the</A>
+<B> Up:</B> <A NAME="tex2html494"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html488"
+ HREF="https://web.archive.org/web/20070812232423/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node22.html">News Cache Interfaces</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

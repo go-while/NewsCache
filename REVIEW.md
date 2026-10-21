@@ -77,6 +77,8 @@ CI, not yet by the systematic review.
 | Expired big articles: `.art` files never deleted (file name `.art<index>d`, and articles after a fetched block skipped) | 9 | compiler warning | #22 |
 | One upstream group name over 511 characters emptied the whole group list (`NVActiveDB::read` gave up) | 10 | review | #24 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
+| `debian/` didn't build (debhelper compat 2 rules, no autoreconf, `mandir=/user/...`) and had no config, news-owned spool or `ExecReload` | 14 | review | #25 |
+| Info manual without a dir entry, `newscache.conf(5)` without a whatis line | 0, 14 | lintian #25 | #25 |
 | Login examples in FEDORA.md and the container config didn't require a login (`allow read post` + `Authentication file:` makes it optional); wrong user-file format | 0, 3 | Debian packaging #25 | #27 |
 
 ## Open points
@@ -108,14 +110,16 @@ that it stays as it is.
   `allow authentication`, the read commands are removed from the client's
   command map, so before login they get `500`. Newsreaders that wait for a
   `480` before sending AUTHINFO probably never offer a login.
-- **PAM/unix logins can't check local passwords** (area 3, unverified):
-  sessions run as `Username` (news), which can't read `/etc/shadow`.
-  Found while packaging (#25).
-- **`setugid()` doesn't call `setgroups()`** (area 5, unverified): started by
-  hand as root, the daemon keeps root's supplementary groups. Found while
-  packaging (#25).
-- **`newscache -p` prints `allow authentication` as `allow`** (area 6,
-  unverified), which reads back as allow none. Found while packaging (#25).
+- **PAM and `Authentication unix` can't check local passwords** (area 3):
+  sessions run as `news`, pam_unix's `unix_chkpwd` only checks the caller's
+  own password, and `getspnam` needs root.
+- **`setugid()` keeps root's supplementary groups** (area 5): no
+  `setgroups()`, so `newscache` started by hand as root runs as `news` with
+  group 0. Under systemd the list is empty.
+- **`newscache -p` prints `allow authentication` as `allow`** (area 6), which
+  read back is `allow none`.
+- **Auth-file lines need at least `user:hash:list`** (area 3); `user:hash`
+  alone is refused.
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Introduction</TITLE>
+<META NAME="description" CONTENT="Introduction">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node6.html">
+<LINK REL="previous" HREF="node4.html">
+<LINK REL="up" HREF="NewsCache.html">
+<LINK REL="next" HREF="node6.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html276"
+ HREF="node6.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html273"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html267"
+ HREF="node4.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html275"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html277"
+ HREF="node6.html">Terminology and Basic Technologies</A>
+<B> Up:</B> <A NAME="tex2html274"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html268"
+ HREF="node4.html">List of Tables</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00500000000000000000">
+Introduction</A>
+</H1>
+<P>
+Usenet News is a popular and easy way for world-wide discussion on the
+Internet.  Newsgroups being dedicated to various topics
+are its basic building blocks. Users can offer information through
+articles (also called postings), and read other users' articles.
+<P>
+In order to access News a frontend program called <EM>news reader</EM> 
+(or <EM>news client</EM> ) is needed. A news reader connects to a news
+server, requests the list of newsgroups and presents this list to the
+user. When the user selects a newsgroup, the news reader requests the
+list of articles available in that group and presents a summary of the
+articles to the user. From this list the user can choose the articles
+he wants to read. The news reader will remember articles read by the
+user and will not present these articles in the next session in this
+group (though still available). Other functions, like grouping related
+articles (threading), replying to articles or sending email to the
+author of an article are provided too.
+<P>
+The Usenet is composed of several news servers that store the
+available newsgroups and articles.  Whenever an article is posted to a
+newsgroup on a news server, the article will be propagated to all
+other news servers storing the same newsgroup.  This means that the
+article will be copied to all other news servers.
+<P>
+On the Internet articles are usually distributed by the ``Network News
+Transport Protocol'' and in some cases still using ``Unix to Unix
+CoPy'' (UUCP). The distribution of articles is done by best afford,
+but is not guaranteed.  This means that an article needs not be
+transferred to the other news servers immediately and that a news
+server does not necessarily receive all existing news articles.
+<P>
+Since the Usenet has been growing rapidly over the last years and
+still continues to grow, its network bandwidth requirements for
+newsgroup and article distribution increase.  Hence, the News system
+will reach its limits within the next years and new mechanisms have to
+be found to overcome this situation.  Additionally these mechanisms
+might even give better access to the news system for people who are
+connected over lower bandwidth networks, because these mechanisms
+reduce bandwidth while maintaining the same quality of service.
+<P>
+In chapter&nbsp;<A HREF="node6.html#cha:concepts">2</A> we will present the terminology used
+throughout this document. A short overview of basic technologies like
+caching and the operational principles of the Usenet News system will
+also be given.
+<P>
+In chapter&nbsp;<A HREF="node10.html#cha:problem">3</A> we will explain the problems inherent in
+the currently used News system. These problems include a high load on
+the news server in some settings and the increased network bandwidth
+requirements for the transmission of news.  At the end of this chapter
+we will give an overview of possible solution strategies to reduce or
+even eliminate the existing problems.
+<P>
+In chapter&nbsp;<A HREF="node15.html#cha:analysis">4</A> we will analyze the News Cache in
+general. We will analyze which areas can benefit from the News Cache
+and the News Cache's requirements. Special care has been taken that
+the News Cache can be integrated into existing environments without
+need for modifications.
+<P>
+The architecture and design of the News Cache will be shown in
+chapter&nbsp;<A HREF="node25.html#cha:design">5</A>. In the first section we will present the
+general design of a news server being the basic design for the News
+Cache.
+<P>
+A brief overview and an explanation of the interaction between
+different modules will be given in chapter&nbsp;<A HREF="node31.html#cha:implementation">6</A>.
+The exact implementation details are documented within the News
+Cache's source code.
+<P>
+In chapter&nbsp;<A HREF="node42.html#cha:futurework">8</A> we will show work that will be
+included in future releases of the News Cache. This includes the
+improvement of the existing classes and the addition of new features.
+<P>
+In chapter&nbsp;<A HREF="node46.html#cha:related">9</A> we will present related work that has
+been done in this area and in chapter&nbsp;<A HREF="node48.html#cha:summary">10</A> we will give a
+summary of this thesis.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html276"
+ HREF="node6.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html273"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html267"
+ HREF="node4.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html275"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html277"
+ HREF="node6.html">Terminology and Basic Technologies</A>
+<B> Up:</B> <A NAME="tex2html274"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html268"
+ HREF="node4.html">List of Tables</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

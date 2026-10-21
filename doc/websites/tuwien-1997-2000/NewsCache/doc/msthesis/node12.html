@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Provision of Local Newsgroups</TITLE>
+<META NAME="description" CONTENT="Provision of Local Newsgroups">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node13.html">
+<LINK REL="previous" HREF="node11.html">
+<LINK REL="up" HREF="node10.html">
+<LINK REL="next" HREF="node13.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html363"
+ HREF="node13.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html360"
+ HREF="node10.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html354"
+ HREF="node11.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html362"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html364"
+ HREF="node13.html">News over Networks with</A>
+<B> Up:</B> <A NAME="tex2html361"
+ HREF="node10.html">Problem Domain</A>
+<B> Previous:</B> <A NAME="tex2html355"
+ HREF="node11.html">Catching Up a Backlog</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00720000000000000000">
+Provision of Local Newsgroups</A>
+</H1>
+<A NAME="sec:prob_localgroups">&#160;</A>
+With the software currently available it is expensive to provide local
+newsgroups in addition to the newsgroups provided by the feeding news
+server.
+<P>
+It seems obvious to set up another news server providing the local
+newsgroups and let the news reader decide which news server to contact
+for which newsgroups. This configuration is shown in
+figure&nbsp;<A HREF="node12.html#fig:localideal">3.3(a)</A>.  This method does not require access to
+the news server holding the global newsgroups. Unfortunately most news
+readers do not support news retrieval from different news servers.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:localideal">&#160;</A><A NAME="fig:localcurrent">&#160;</A><A NAME="fig:local">&#160;</A><A NAME="230">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 3.3:</STRONG>
+Provision of local newsgroups</CAPTION>
+<TR><TD><IMG WIDTH="318" HEIGHT="32"
+ SRC="img8.gif"
+ ALT="\begin{figure}
+ \centering
+ \subfigure[News reader multiplexes between local and...
+ ...
+\epsfig {file=eps/local3.eps}
+
+ }
+ 
+\epsfig {file=eps/localkey.eps}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+Thus, the only way to accomplish this is to set up a news server
+holding both the local and the global newsgroups.
+Figure&nbsp;<A HREF="node12.html#fig:localcurrent">3.3(b)</A> shows this configuration.  This method
+requires neither access to the news server holding the global
+newsgroups nor a news reader being able to distinguish between
+different news servers.  However, this method has some disadvantages.
+<P><UL>
+<LI> The administrator of the local news server has to manage a news
+  spool for the global newsgroups in addition to the local newsgroups.
+  This extra management work is a time consuming task.
+<LI> More network bandwidth is required, because the articles of all
+  global newsgroups have to be transferred to the local site, even if
+  these articles will never be accessed by the users of the local news
+  server.  This is even worse if the connection to the feeding news
+  server is fast enough to retrieve the articles on demand only.
+<LI> The local news server requires more hardware: more disk space,
+  because all articles have to be stored, a more powerful processor,
+  because the articles in the local and the global newsgroups have to
+  be indexed and even a better network adapter is required, because
+  increased network traffic has to be handled.
+</UL>
+<P>
+This proves that it is expensive to operate a news server with local
+and global groups just for the provision of local newsgroups.  Hence a
+better solution has to be found where local and global groups can be
+combined without setting up a news server with a full feed and without
+modification to any news server or reader.
+Figure&nbsp;<A HREF="node12.html#fig:localgroups">3.4</A> outlines such a configuration.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:localgroups">&#160;</A><A NAME="241">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 3.4:</STRONG>
+Merging local and global newsgroups by an intermediate server</CAPTION>
+<TR><TD><IMG WIDTH="376" HEIGHT="217"
+ SRC="img9.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/local4.eps}
+
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html363"
+ HREF="node13.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html360"
+ HREF="node10.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html354"
+ HREF="node11.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html362"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html364"
+ HREF="node13.html">News over Networks with</A>
+<B> Up:</B> <A NAME="tex2html361"
+ HREF="node10.html">Problem Domain</A>
+<B> Previous:</B> <A NAME="tex2html355"
+ HREF="node11.html">Catching Up a Backlog</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

@@ -1,0 +1,96 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML><HEAD>
+<META HTTP-EQUIV=Content-type CONTENT="text/html; charset=ISO-8859-1">
+<META NAME=Author CONTENT="Thomas Gschwind">
+<META NAME=Keywords CONTENT="NNTP NNRP high performance cache caching usenet news discussion forum">
+<META NAME=Description CONTENT="A cache server for Usenet News. Reduces the required network bandwidth for news distribution and the IO load of the upstream news server. Additionally, multiplexes between different news servers and allows offline news reading.">
+<TITLE>NewsCache</TITLE>
+</HEAD>
+<BODY>
+<h1 align="center">NewsCache</h1>
+<HR NOSHADE>
+
+<table cellspacing=0 cellpadding=4>
+<tr><td valign="top" bgcolor="#A0C0C0"><!-- Navigation -->
+<p><font color="#000000" size="+1">General</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="general.html#usenet">Usenet News</a><br>
+<img SRC="dot.gif"><a href="general.html#problems">The Problems</a><br>
+<img SRC="dot.gif"><a href="general.html#newscache">NewsCache, A Solution</a><br>
+<img SRC="dot.gif"><a href="general.html#acknowledgements">Acknowledgements</a></font>
+<p><font color="#F02020" size="+1">NewsCache</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="newscache.html#what">What is NewsCache?</a><br>
+<img SRC="dot.gif"><a href="newscache.html#functionality">Functionality</a><br>
+<img SRC="dot.gif"><a href="newscache.html#compatibility">Compatibility</a></font>
+<p><font color="#000000" size="+1">Documentation</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="doc.html#installation">Installation</a><br>
+<img SRC="dot.gif"><a href="doc.html#user">User's Manual</a><br>
+<img SRC="dot.gif"><a href="doc.html#mailinglist">Mailing List</a><br>
+<img SRC="dot.gif"><a href="doc.html#publications">Publications</a></font>
+<p><font color="#000000" size="+1">PSTL</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="pstl.html#overview">Overview</a><br>
+<img SRC="dot.gif"><a href="pstl.html#documentation">Documentation</a><br>
+<img SRC="dot.gif"><a href="pstl.html#download">Download</a></font>
+<br>&nbsp;
+<br>&nbsp;
+<br>&nbsp;
+<p><font color="#000000" size="+1">For Students</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Praktika">Praktika!</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Dipl">Diplomarbeiten!</a></font>
+<p><font color="#000000" size="+1">Download</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#status">Status</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#download">Download</a></font><br></td>
+<td valign="top"><!-- Content -->
+
+<h2><a name="what">What is NewsCache?</h2>
+
+<p>NewsCache is a free cache server for USENET News available under
+the <a href="gpl.txt">GNU General Public License</a>.  NewsCache can
+be plugged in between your news reader(s) and your news server.
+NewsCache acts to news readers like a news server and retrieves news
+articles from the news server like a news reader.  Whenever, a client
+requests an article from NewsCache, NewsCache checks whether the
+article has already been stored in the cache area.  If this is the
+case, the article is sent directly to its client.  Otherwise, the
+article is requested from the upstream news server, stored in the
+cache area and sent back to the client.
+
+<h2><a name="functionality">Functionality</a></h2>
+<p>NewsCache provides the following functionality:
+<UL>
+<LI> Offline news reading.
+<LI> Small articles are stored within a single database. This improves 
+performance and reduces the number of inodes used of your system.
+<LI> The overview-database is generated on the fly for articles 
+already cached by the cache server. This reduces the amount of
+disk space used, but decreases performance slightly.
+<LI> The newsgroup-database is now managed as an array instead of 
+a list to allow direct access to articles.
+<LI> Merging different news servers to a virtual feed (on a per
+newsgroup basis).
+</UL>
+
+<h2><a name="compatibility">Compatibility</a></h2>
+
+<p>All news readers conforming to the current NNTP standard as defined
+in <a href="download/doc/rfc977.txt">RFC977</a> or in the new <a
+href="download/doc/draft-ietf-nntpext-base-07.txt">internet draft</a>
+should work in combination with NewsCache.  Currently, we have tested
+the following news readers: gnus, knews, MS Internet Mail and News, MS
+Outlook Express, netscape, slrn, tin, xrn.  Some news readers,
+however, mark deleted articles as read which does not conform to the
+NNTP specification Fortunately, this can only be a problem, if
+NewsCache is used in offline mode.  See <a href="arb.txt">Article
+Reinstatement Bug</a> for details.
+
+<p>NewsCache should work in combination with all news servers that
+conform to the NNTP standard and provide an overview database.
+Currently, we have tested NewsCache in combination with: ANU NEWS
+(VMS), INN, MS Internet Services, Netscape Collabra.
+
+</td></tr></table>
+
+<HR NOSHADE>
+<P ALIGN="right"><font size="-1">© 1997-2000
+<A HREF="http://www.infosys.tuwien.ac.at/Staff/tom/">Thomas Gschwind</A></P>
+</BODY></HTML>
+

@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Database</TITLE>
+<META NAME="description" CONTENT="News Database">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node20.html">
+<LINK REL="previous" HREF="node18.html">
+<LINK REL="up" HREF="node15.html">
+<LINK REL="next" HREF="node20.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html450"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node20.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html447"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html441"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html449"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html451"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node20.html">Caching Strategy</A>
+<B> Up:</B> <A NAME="tex2html448"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html442"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">News Server Multiplexing</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html452"
+ HREF="node19.html#SECTION00841000000000000000">
+Newsgroup and Article Database</A>
+<LI><A NAME="tex2html453"
+ HREF="node19.html#SECTION00842000000000000000">
+Overview Database</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00840000000000000000">
+News Database</A>
+</H1>
+<P>
+Data cached by the News Cache have to be stored in a database. Hence
+the News Cache has to maintain a news database consisting of the
+newsgroup, article and overview database similar to the database of
+the news server.
+<P><H2><A NAME="SECTION00841000000000000000">
+Newsgroup and Article Database</A>
+</H2>
+<A NAME="sec:analyse_database">&#160;</A>
+Standard news servers like INN&nbsp;[<A
+ HREF="node68.html#INN">Sal92</A>] and CNews&nbsp;[<A
+ HREF="node68.html#CNews">CS</A>]
+use the local file system to store their newsgroups and articles. Each
+newsgroup uses its own directory and the articles are stored using a
+file for each article. To provide a unique file name for each article,
+the article number is being used for the file name.  This
+straightforward approach has several disadvantages:
+<P><UL>
+<LI> News articles are usually very small (about 1-4 Kilobytes).
+  Disk space is allocated in blocks which are typically between 512
+  and 4096 Bytes. Thus disk space is wasted depending on the block
+  size (approximately between 10% and 25%, as shown in
+  Figure&nbsp;<A HREF="node19.html#fig:pfs_wasted">4.2</A>).
+<LI> The total number of files is limited in most file systems.
+  Thus free disk space may be available, but cannot be allocated if
+  the maximum number of files has already been reached.
+</UL>
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:pfs_wasted">&#160;</A><A NAME="341">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 4.2:</STRONG>
+File system space overhead</CAPTION>
+<TR><TD><IMG WIDTH="553" HEIGHT="142"
+ SRC="img17.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ \center
+ 
+\epsfig {file=eps/pfs_wasted.eps}
+
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+Hence, a new and better approach should be found for the News Cache
+and future news servers.  An alternative approach is the use of a
+database for each newsgroup, where all the newsgroup's articles are
+stored. However, this requires the availability of a powerful
+database.  Nevertheless we adopted this approach. On the one hand the
+News Cache does not store as much articles as the news server does and
+on the other hand we did not have the resources and time to design a
+new article database.
+<P><H2><A NAME="SECTION00842000000000000000">
+Overview Database</A>
+</H2>
+<P>
+The overview database provides a short summary of the articles
+available within a newsgroup. The news server can compute this data
+when the clients requests it since all articles are stored within the
+news server's database.
+<P>
+The News Cache does not necessarily store all the articles of a
+newsgroup. Therefore the News Cache cannot compute this database on
+the fly using the article database. Hence, we will have to use another
+database storing the overview informations for each article. The
+design and implementation of this database will be presented in
+section&nbsp;<A HREF="node30.html#sec:design_overviewdb">5.5.3</A> and
+section&nbsp;<A HREF="node36.html#sec:imp_overviewdb">6.5.3</A>, respectively.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html450"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node20.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html447"
+ HREF="node15.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html441"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html449"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html451"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node20.html">Caching Strategy</A>
+<B> Up:</B> <A NAME="tex2html448"
+ HREF="node15.html">Analysis and Requirements</A>
+<B> Previous:</B> <A NAME="tex2html442"
+ HREF="https://web.archive.org/web/20070717005155/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html">News Server Multiplexing</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

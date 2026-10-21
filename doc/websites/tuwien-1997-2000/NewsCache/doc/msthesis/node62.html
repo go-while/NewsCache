@@ -1,0 +1,92 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>NewsServers</TITLE>
+<META NAME="description" CONTENT="NewsServers">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node63.html">
+<LINK REL="previous" HREF="node61.html">
+<LINK REL="up" HREF="node60.html">
+<LINK REL="next" HREF="node63.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html987"
+ HREF="node63.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html984"
+ HREF="node60.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html978"
+ HREF="node61.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html986"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html988"
+ HREF="node63.html">SpoolDirectory</A>
+<B> Up:</B> <A NAME="tex2html985"
+ HREF="node60.html">Operation of the News</A>
+<B> Previous:</B> <A NAME="tex2html979"
+ HREF="node61.html">ConfigVersion</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION001820000000000000000">
+NewsServers</A>
+</H1>
+<P>
+This command specifies a set of news servers and which newsgroups have
+to be retrieved from which news server. Each entry in the news server
+set is of the form <TT>Server host port group-pattern</TT> or of the
+form <TT>NoServer group-pattern</TT>. The <TT>host</TT> and
+<TT>port</TT> variables specify the news server and the
+<TT>group-pattern</TT> specifies the newsgroups. The entries with the
+longest match have the highest priority.  An example is shown in
+figure&nbsp;<A HREF="node62.html#fig:ex_ns">D.1</A>.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:ex_ns">&#160;</A><A NAME="1659">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure D.1:</STRONG>
+News server configuration</CAPTION>
+<TR><TD><IMG WIDTH="588" HEIGHT="107"
+ SRC="img57.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+\begin{verbatim}
+NewsServers {
+ Serv...
+ ...ver alt.binaries.pictures.*,microsoft.*
+}\end{verbatim} \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The example specifies that newsgroups should be retrieved from
+<TT>news.tuwien.ac.at</TT> by default. The second lines indicates
+that the newsgroups beginning with <TT>linux.</TT> and <TT>aaf.</TT>,
+except those beginning with <TT>aaf.internal.</TT> (This is indicated
+by the exclamation mark), should be retrieved from
+<TT>news.aaf.or.at</TT>. Finally the <TT>NoServer</TT> statement
+indicates that those groups beginning with
+<TT>alt.binaries.pictures.</TT> and <TT>microsoft.</TT> should not
+be retrieved at all.
+<P>
+<BR><HR>
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

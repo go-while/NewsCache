@@ -1,0 +1,310 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Database</TITLE>
+<META NAME="description" CONTENT="News Database">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node29.html">
+<LINK REL="up" HREF="node25.html">
+<LINK REL="next" HREF="node31.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html580"
+ HREF="node31.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html577"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html573"
+ HREF="node29.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html579"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html581"
+ HREF="node31.html">Implementation</A>
+<B> Up:</B> <A NAME="tex2html578"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html574"
+ HREF="node29.html">News Server Class Library</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html582"
+ HREF="node30.html#SECTION00951000000000000000">
+Non Volatile Container Class Library</A>
+<LI><A NAME="tex2html583"
+ HREF="node30.html#SECTION00952000000000000000">
+Active Database</A>
+<LI><A NAME="tex2html584"
+ HREF="node30.html#SECTION00953000000000000000">
+Overview Database</A>
+<LI><A NAME="tex2html585"
+ HREF="node30.html#SECTION00954000000000000000">
+Article Database</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION00950000000000000000">
+News Database</A>
+</H1>
+<A NAME="sec:design_database">&#160;</A>
+The <EM>Non Volatile Container Class Library</EM>  and the local file
+system will be used to store the news database. The <EM>Non Volatile
+  Container Class Library</EM>  has been implemented, because no suitable
+library currently exists, that stores its data structures on non
+volatile memory.  Special care has been taken to design this library
+as general as possible. The <EM>Non Volatile Container Class
+  Library</EM>  is used to store the active database and the overview
+database. To store news articles the local filesystem is used.
+<P><H2><A NAME="SECTION00951000000000000000">
+Non Volatile Container Class Library</A>
+</H2>
+<P>
+The <EM>Non Volatile Container Class Library (NVContainer Class
+  Library)</EM>  provides a set of containers storing their data structures
+on non volatile (external) memory (e.g., on the
+hard disk).<A NAME="tex2html28"
+ HREF="https://web.archive.org/web/20070809010523/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/footnode.html#666"><SUP></SUP></A>
+<P>
+Since the <EM>NVContainer</EM>  classes store their data on external
+memory, they reduce the virtual memory used by a process using this
+library.  In addition this approach allows that the database provided
+by an <EM>NVContainer</EM>  class can be used by several processes
+concurrently. Hence an <EM>NVContainer</EM>  class can be used for the
+provision of ``shared memory'' too.
+<P>
+The use of a memory mapped file has the following advantages and
+disadvantages:
+<DL COMPACT>
+<DT>+
+<DD>The containers contents need not be written to or read from
+the file explicitly.
+<DT>+
+<DD>The process does not consume virtual memory for the data
+  mapped from the file. Figure&nbsp;<A HREF="node30.html#fig:NVList_memusage">5.9</A> shows this on
+  a SunOS system for a process having allocated 5&nbsp;Megabytes in an
+  NVList. The <TT>SZ</TT> column indicates the total amount of memory
+  used for the data and stack segments in Kilobytes and the
+  <TT>RSS</TT> column indicates the total amount of main memory used
+  by the process.
+<DT>+
+<DD>If a list should be shared by several processes they
+  will use the same file for their memory. The file's contents can be
+  shared by several processes.
+<DT>-
+<DD>If the file size changes the memory region has to be
+  unmapped and remapped again, since the size of the mapped region
+  must be provided with the <code>mmap</code> system-call. This might
+  decrease the performance slightly.
+</DL>
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:NVList_memusage">&#160;</A><A NAME="668">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.9:</STRONG>
+The virtual memory 
+    usage of a process with an <EM>NVList</EM>  of 5&nbsp;Megabytes </CAPTION>
+<TR><TD><IMG WIDTH="653" HEIGHT="105"
+ SRC="img28.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ \begin{tabular}
+{p{14cm}}
+ \hline
+\...
+ ... 0:00 testNVList\end{verbatim}\  \hline
+ \end{tabular} \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The <EM>NVContainer</EM>  class consists of an abstract parent class
+(<EM>NVcontainer</EM> ) providing the basic functionality necessary
+in all its subclasses.  The <EM>NVcontainer</EM>  manages the memory
+allocation and deallocation of the non volatile memory and provides
+functions for locking and unlocking of the external memory. The latter
+is necessary to ensure mutual exclusion between different processes
+that access the database provided by an <EM>NVContainer</EM>  class
+simultaneously.
+<P>
+The current version of the <EM>NVContainer Class Library</EM>  provides a
+<EM>Non Volatile List (NVList)</EM>  and a <EM>Non Volatile Hash
+  (NVHash)</EM>  class. Both are subclasses of the abstract class
+<EM>NVlist</EM> .  <EM>NVlist</EM>  is a direct subclass of
+<EM>NVcontainer</EM>  and implements basic list operations. In future
+versions of the <EM>NVContainer Class Library</EM>  we will also provide
+classes storing their data using trees, arrays and other data
+structures. Each container class comes with an iterator that allows to
+access the data stored within the class.
+Figure&nbsp;<A HREF="node30.html#fig:nvclasshierarchy">5.10</A> shows the hierarchy of the classes
+provided by the <EM>NVContainer Class Library</EM> . Classes being
+planned for future releases (e.g., <EM>NVtree</EM> ) are shown using gray
+color.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:nvclasshierarchy">&#160;</A><A NAME="669">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.10:</STRONG>
+Class hierarchy of the <EM>Non Volatile Container</EM>  
+      classes</CAPTION>
+<TR><TD><IMG WIDTH="551" HEIGHT="359"
+ SRC="img29.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/nvclasshierarchy.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H3><A NAME="SECTION00951100000000000000">
+The NVList Class and its Iterator</A>
+</H3>
+<P>
+This class uses a list to store its data.  Whenever an <EM>NVList</EM> 
+class is instantiated it creates a new file to store its data or if
+the file already exists it uses the contents stored in this file. The
+<EM>NVListIter</EM>  class is used to iterate over an <EM>NVList</EM> 
+class.
+<P><H3><A NAME="SECTION00951200000000000000">
+The NVHash Class and its Iterator</A>
+</H3>
+<P>
+This class uses a hash table to store its data.  Whenever an
+<EM>NVHash</EM>  class is instantiated a new file to hold the class's
+data is created. If the file already exists the contents of this file
+will be used for the hash table. The <EM>NVHashIter</EM>  class is used
+to iterate over an <EM>NVHash</EM>  class.
+<P><H2><A NAME="SECTION00952000000000000000">
+Active Database</A>
+</H2>
+<A NAME="sec:design_activedb">&#160;</A>
+The <EM>Active Database</EM>  consists of several classes. Its classes
+and their relationship are shown in Figure&nbsp;<A HREF="node30.html#fig:oo_activedb">5.11</A>.  The
+abstract base class <EM>ActiveDB</EM>  defines only the interface to the
+active database. This is done using virtual methods to allow the
+exploitation of polymorphism. <EM>VActiveDB</EM>  and <EM>NVActiveDB</EM> 
+are subclasses of <EM>ActiveDB</EM> .
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:oo_activedb">&#160;</A><A NAME="636">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.11:</STRONG>
+Class hierarchy for the active database</CAPTION>
+<TR><TD><IMG WIDTH="424" HEIGHT="187"
+ SRC="img31.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/oo_activedb.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P><EM>VActiveDB</EM>  implements an active database stored on volatile
+memory. It is used for the <EM>RServer</EM>  class, because this class
+does not need to store its databases on external memory.
+<P><EM>NVActiveDB</EM>  implements an active database stored on non volatile
+memory. To offer this the <EM>NVActiveDB</EM>  inherits the functionality
+provided by the <EM>NVHash</EM>  class. The class is used for the news
+server classes that need to maintain a local news database. These are
+the <EM>LServer</EM>  and <EM>CServer</EM>  classes.
+<P><H2><A NAME="SECTION00953000000000000000">
+Overview Database</A>
+</H2>
+<A NAME="sec:design_overviewdb">&#160;</A>
+The overview database holds a short summary for each article. The
+summary consists of the date, the subject, the author, the article id,
+the number of lines of the article, and other data depending on the
+news server.
+<P>
+The overview database has been introduced to allow news readers a
+faster access to these data. Without this extension the news reader
+would have to retrieve the article header for each article, which
+increases the required network bandwidth and the time necessary to
+prepare the listing of available articles.
+<P>
+The overview database uses the same design as the active database. It
+consists of an abstract parent class (<EM>OverviewDB</EM> ) defining the
+interface and the subclasses <EM>VOverviewDB</EM>  and
+<EM>NVOverviewDB</EM> .
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:oo_overviewdb">&#160;</A><A NAME="655">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.12:</STRONG>
+Class hierarchy for the overview database</CAPTION>
+<TR><TD><IMG WIDTH="422" HEIGHT="201"
+ SRC="img32.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/oo_overviewdb.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><H2><A NAME="SECTION00954000000000000000">
+Article Database</A>
+</H2>
+<A NAME="sec:design_articledb">&#160;</A>
+The article database is stored in the same format used by INN
+[<A
+ HREF="node68.html#INN">Sal92</A>] and CNews [<A
+ HREF="node68.html#CNews">CS</A>].  Each newsgroup has its own
+directory named after the group name. The articles of the newsgroup
+are stored in its directory and each article is stored in its own
+file.  For example, the article&nbsp;567 in newsgroup
+<TT>linux.dev.kernel</TT> will be stored in
+<TT>linux/dev/kernel/a567</TT>.
+<P>
+We adopted this scheme for the News Cache, because we did not want to
+use a relational database to store articles on the one hand. This has
+been explained in section&nbsp;<A HREF="node19.html#sec:analyse_database">4.4.1</A>. And on the other
+hand the News Cache does not store as many articles as a news server.
+Nevertheless, the format of the article database may change in future
+versions of the News Cache.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html580"
+ HREF="node31.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html577"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html573"
+ HREF="node29.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html579"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html581"
+ HREF="node31.html">Implementation</A>
+<B> Up:</B> <A NAME="tex2html578"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html574"
+ HREF="node29.html">News Server Class Library</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

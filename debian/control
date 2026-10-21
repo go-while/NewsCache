@@ -1,19 +1,32 @@
 Source: newscache
-Section: unknown
+Section: news
 Priority: optional
-Maintainer: Billy G. <root@pugleaf.net>
-Build-Depends: debhelper (>= 9), libgnutls28-dev, libpam0g-dev, texinfo
-Standards-Version: 3.6.0
+Maintainer: Billy G. <newscache-maintainer@pugleaf.net>
+Build-Depends: autoconf,
+               automake,
+               debhelper-compat (= 13),
+               libcrypt-dev,
+               libgnutls28-dev,
+               libpam0g-dev,
+               texinfo,
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
 Homepage: https://github.com/go-while/NewsCache
+Vcs-Browser: https://github.com/go-while/NewsCache
+Vcs-Git: https://github.com/go-while/NewsCache.git
 
 Package: newscache
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: NewsCache is a free cache server for USENET News.
-  NewsCache is a free cache server for USENET News. NewsCache acts to news
-  reading clients like a news server, except that it stores only those articles
-  that have been requested by at least one client.  NewsCache  targets problems
-  of the current News System like network bandwidth consump- tion or the IO
-  load caused by news clients. NewsCache acts to the upstream news server  like
-  a news reader programm. It supports the following modes: cached, not-cached, 
-  offline.
+Depends: ca-certificates,
+         netbase,
+         ${misc:Depends},
+         ${shlibs:Depends},
+Description: caching news server for USENET news (NNTP)
+ NewsCache acts like a news server towards news reading clients, but it
+ stores only the articles that at least one client has asked for. It gets
+ group lists and articles from one or more upstream news servers, optionally
+ over TLS, and so saves network bandwidth and load on those servers. Each
+ upstream server can be used cached, not cached or offline.
+ .
+ The shipped /etc/newscache.conf reads from news.blueworldhosting.com and
+ lets no client in until a Client entry or a login is added.

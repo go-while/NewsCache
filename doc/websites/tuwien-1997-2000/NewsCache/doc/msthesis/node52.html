@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>The Network News Reader and Transport
+Protocols (NNTP &amp; NNRP)</TITLE>
+<META NAME="description" CONTENT="The Network News Reader and Transport
+Protocols (NNTP &amp; NNRP)">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node56.html">
+<LINK REL="previous" HREF="node49.html">
+<LINK REL="up" HREF="NewsCache.html">
+<LINK REL="next" HREF="node53.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html855"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node53.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html852"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html846"
+ HREF="node51.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html854"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html856"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node53.html">Difference between NNTP and</A>
+<B> Up:</B> <A NAME="tex2html853"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html847"
+ HREF="node51.html">Finite State Machine</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION001600000000000000000">&#160;</A>NNTP and NNRP
+<BR>
+The Network News Reader and Transport
+Protocols (NNTP &amp; NNRP)
+</H1>
+<A NAME="app:nntp">&#160;</A>
+NNTP was specified in 1986 in RFC&nbsp;977 [<A
+ HREF="node68.html#rfc977">KL86</A>]. It is a protocol
+for the distribution, inquiry, retrieval, and posting of news articles
+using a reliable stream-based transmission mechanism.  NNTP uses a
+stream connection (such as TCP) and SMTP-like commands and responses
+(SMTP is the ``Simple Mail Transfer Protocol'' which is specified
+in&nbsp;[<A
+ HREF="node68.html#RFC821">Pos82</A>]).  The commands and responses are in human readable
+ASCII format.  This means that it is possible to manually connect to
+the <TT>nntp</TT> port of a machine, e.g. using <TT>telnet</TT>, issue
+NNTP commands and receive readable answers as shown in
+figure&nbsp;<A HREF="node52.html#fig:ex_nntp">B.1</A>.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:ex_nntp">&#160;</A><A NAME="1423">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure B.1:</STRONG>
+Telnet session to a news server's NNTP port</CAPTION>
+<TR><TD><IMG WIDTH="653" HEIGHT="302"
+ SRC="img54.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ \begin{tabular}
+{p{14cm}}
+ \hline
+ ...
+ ...y comes here...}\  \texttt{.}\  \hline
+ \end{tabular} \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The client (e.g., a news reader) issues a command and gets a numeric
+reply with an optional textual argument.  The textual argument is a
+human readable explanation of the numeric reply and may usually be
+ignored.  The numeric response indicates the success of the command
+and whether additional data follows.  If the command has to supply
+additional data, then this is indicated within the numeric reply code.
+The additional data follows the numeric reply line and is terminated
+by a single dot on a line.  Tables&nbsp;<A HREF="node52.html#tab:nntp_reply_digit1">B.1</A>
+and&nbsp;<A HREF="node52.html#tab:nntp_reply_digit2">B.2</A> show the meaning of the first two
+digits in the numeric reply code.  The third digit is command
+dependent. These codes are described in detail in&nbsp;[<A
+ HREF="node68.html#rfc977">KL86</A>].
+<P>
+Figure&nbsp;<A HREF="node52.html#fig:ex_nntp">B.1</A> shows the <TT>GROUP</TT> and <TT>ARTICLE</TT>
+commands. The first command (<TT>GROUP</TT>) selects the newsgroup
+<TT>comp.os.linux.admin</TT>. The news server's reply (<TT>211</TT>)
+indicates that the newsgroup was selected successfully. Now it is
+possible to retrieve an article from this newsgroup using the
+<TT>ARTICLE</TT> command. In the example above article&nbsp;<TT>870</TT>
+is requested. The news server indicates that the command
+completed successfully (using reply code <TT>220</TT>) and supplies
+the article header and body as additional data. The end of the article
+is marked by a single dot on a line.
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1450">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table B.1:</STRONG>
+Meaning of the first digit of an NNTP/NNRP reply</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP>Code</TD>
+<TD ALIGN="LEFT">Description</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>1yz</TT></TD>
+<TD ALIGN="LEFT">This is only an information message and 
+may be ignored</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>2yz</TT></TD>
+<TD ALIGN="LEFT">Command completed successfully</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>3yz</TT></TD>
+<TD ALIGN="LEFT">Command ok so far, send the rest of it</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>4yz</TT></TD>
+<TD ALIGN="LEFT">Command was correct, but couldn't be 
+performed for some reason</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>5yz</TT></TD>
+<TD ALIGN="LEFT">Command unimplemented, or incorrect, or a 
+serious program error occurred</TD>
+</TR>
+</TABLE></DIV>
+<BR>
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1466">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table B.2:</STRONG>
+Meaning of the second digit of an NNTP/NNRP reply</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP>Code</TD>
+<TD ALIGN="LEFT">Description</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x0z</TT></TD>
+<TD ALIGN="LEFT">Connection, setup, and miscellaneous 
+messages</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x1z</TT></TD>
+<TD ALIGN="LEFT">Newsgroup selection</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x2z</TT></TD>
+<TD ALIGN="LEFT">Article selection</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x3z</TT></TD>
+<TD ALIGN="LEFT">Distribution functions</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x4z</TT></TD>
+<TD ALIGN="LEFT">Posting</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x8z</TT></TD>
+<TD ALIGN="LEFT">Nonstandard (private implementation) 
+extensions</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="CENTER" NOWRAP><TT>x9z</TT></TD>
+<TD ALIGN="LEFT">Debugging output</TD>
+</TR>
+</TABLE></DIV>
+<BR>
+<BR><HR>
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS">&#160;</A>
+<UL>
+<LI><A NAME="tex2html857"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node53.html#SECTION001610000000000000000">
+Difference between NNTP and NNRP</A>
+<LI><A NAME="tex2html858"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node54.html#SECTION001620000000000000000">
+NNTP Commands</A>
+<LI><A NAME="tex2html859"
+ HREF="node55.html#SECTION001630000000000000000">
+NNRP Commands</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<!--Navigation Panel-->
+<A NAME="tex2html855"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node53.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html852"
+ HREF="NewsCache.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html846"
+ HREF="node51.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html854"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html856"
+ HREF="https://web.archive.org/web/20080804122359/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node53.html">Difference between NNTP and</A>
+<B> Up:</B> <A NAME="tex2html853"
+ HREF="NewsCache.html">No Title</A>
+<B> Previous:</B> <A NAME="tex2html847"
+ HREF="node51.html">Finite State Machine</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

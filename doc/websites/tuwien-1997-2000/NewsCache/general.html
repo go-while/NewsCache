@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML><HEAD>
+<META HTTP-EQUIV=Content-type CONTENT="text/html; charset=ISO-8859-1">
+<META NAME=Author CONTENT="Thomas Gschwind">
+<META NAME=Keywords CONTENT="NNTP NNRP high performance cache caching usenet news discussion forum">
+<META NAME=Description CONTENT="A cache server for Usenet News. Reduces the required network bandwidth for news distribution and the IO load of the upstream news server. Additionally, multiplexes between different news servers and allows offline news reading.">
+<TITLE>NewsCache</TITLE>
+</HEAD>
+<BODY>
+<h1 align="center">NewsCache</h1>
+
+<HR NOSHADE>
+<p><font color="#ff0000">Due to serious time constraints, I 
+unfortunately have no longer time to work on NewsCache.  Thanks to 
+Herbert Straub <tt>&lt;h.straub at aon.at&gt;</tt>, however, further 
+development has been picked up again and can be found 
+<a href="http://members.aon.at/hstraub/linux/newscache/">here</a>.
+<HR NOSHADE>
+
+<table cellspacing=0 cellpadding=4>
+<tr><td valign="top" bgcolor="#A0C0C0"><!-- Navigation -->
+<p><font color="#F02020" size="+1">General</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="general.html#usenet">Usenet News</a><br>
+<img SRC="dot.gif"><a href="general.html#problems">Problems</a><br>
+<img SRC="dot.gif"><a href="general.html#newscache">NewsCache, A Solution</a><br>
+<img SRC="dot.gif"><a href="general.html#acknowledgements">Acknowledgements</a></font>
+<p><font color="#000000" size="+1">NewsCache</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="newscache.html#what">What is NewsCache?</a><br>
+<img SRC="dot.gif"><a href="newscache.html#functionality">Functionality</a><br>
+<img SRC="dot.gif"><a href="newscache.html#compatibility">Compatibility</a></font>
+<p><font color="#000000" size="+1">Documentation</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="doc.html#installation">Installation</a><br>
+<img SRC="dot.gif"><a href="doc.html#user">User's Manual</a><br>
+<img SRC="dot.gif"><a href="doc.html#mailinglist">Mailing List</a><br>
+<img SRC="dot.gif"><a href="doc.html#publications">Publications</a></font>
+<p><font color="#000000" size="+1">PSTL</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="pstl.html#overview">Overview</a><br>
+<img SRC="dot.gif"><a href="pstl.html#documentation">Documentation</a><br>
+<img SRC="dot.gif"><a href="pstl.html#evaluation">Evaluation</a><br>
+<img SRC="dot.gif"><a href="pstl.html#download">Download</a></font>
+<br>&nbsp;
+<br>&nbsp;
+<br>&nbsp;
+<p><font color="#000000" size="+1">For Students</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Praktika">Praktika!</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Dipl">Diplomarbeiten!</a></font>
+<p><font color="#000000" size="+1">Download</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#status">Status</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#download">Download</a></font><br></td>
+<td valign="top"><!-- Content -->
+
+<h2><a name="usenet">Usenet News</a></h2>
+
+<p>Usenet News provides a global distributed blackboard on top of
+other networks.  It consists of a set of hierarchical newsgroups which
+are dedicated to specific topics.  Articles (<em>messages</em>) are
+submitted (<em>posted</em>) to one or more newsgroups and are
+replicated to all Usenet sites holding one of the newsgroups the
+article was posted to.  The newsgroups that are stored on a news
+server and thus provided to its clients are defined by the news
+server's administrator.
+
+<p>The world-wide set of cooperating news servers makes up the
+distribution infrastructure of the News system.  Articles are
+distributed among news servers using the Network News Transfer
+Protocol (NNTP) which is defined in <a
+href="download/doc/rfc977.txt">RFC977</a>.  In recent years several
+extensions have been applied to NNTP.  These are currently available
+as an Internet draft (<a
+href="download/doc/draft-ietf-nntpext-base-07.txt">draft-ietf-nntpext-base</a>)
+which will supersede RFC977 within the next few months.  The format of
+Usenet messages is defined in <a
+href="download/doc/rfc1036.txt">RFC1036</a>.
+
+<p>For a detailed discussion of Usenet, please have a look at <a
+href="download/doc/what_is_usenet.txt">Chip Salzenberg, "What is
+Usenet?"</a>.
+
+<h2><a name="problems">Problems</a></h2>
+
+<p>Usenet's main problem is its growth.  The volume of news articles
+that has to be distributed doubles every 1.5 years (currently, about
+15GB/day).  This causes network load and a high I/O-load on news
+servers.
+
+<p>The result is that many organizations can no longer afford to run
+their own news server with a full news distribution.  One solution to
+this problem is the introduction of caching.
+
+<p>For a deeper explanation, please consult <a
+href="https://web.archive.org/web/20080223001444/http://www.infosys.tuwien.ac.at/NewsCache/doc/hicss32/">Thomas Gschwind and Manfred Hauswirth, "A Cache
+Architecture for Modernizing the Usenet Infrastructure"</a>.
+
+<h2><a name="newscache">NewsCache, A Solution</a></h2>
+
+<p>The main idea of NewsCache is to separate the news access
+infrastructure from the distribution infrastructure.
+
+<p>NewsCache can be used in the following configurations:
+
+<dl>
+<dt>As a Cache Server
+<dd>NewsCache can be used in combination with a news server.  In this
+setup news reading clients connect to NewsCache instead of to
+the news server.  In a small test at our university, we got a hit rate
+of over 30%, although the interests of the people accessing NewsCache
+was relatively wide spread.  This figure can be mapped onto a
+reduction of the load at the news server.
+<dt>Instead of a Leaf Node News Server
+<dd>NewsCache can replace a leaf node news server. Usually, news
+readers access only a small fraction of the articles available at the
+news server.  NewsCache only stores those newsgroups and articles
+being accessed frequently, while still providing a virtual full feed.
+This reduces the network bandwidth between the former news server and
+the news feed and also hardware requirements (both in terms of disk
+space and CPU performance).  Less CPU performance is sufficient
+because no local article numbering has to be performed and a smaller
+database has to be searched.
+<dt>Multiplexing Between Different News Servers
+<dd>NewsCache allows to retrieve news from different news servers.
+This allows you to merge the feed of multiple news servers into one
+virtual feed and thus your users do not have to configure multiple
+news servers in their news clients (which is not always possible).
+This is of especial interest of you frequently access vendor specific
+news servers.
+<dt>Partitioning the Spool Among News Server
+<dd>In case you need to provide a full news service, you might be
+benefit from NewsCache by partitioning the spool among different news
+servers and let NewsCache multiplex between them.  This allows you to
+replace one powerful news server by several less powerful, but more
+cost effective news servers.
+<dt>Provision of Local Newsgroups
+<dd>NewsCache can also be used for the provision of local newsgroups
+without setting up and maintaining a news server with a full feed.
+To you use this feature, you simply set up a small news server that
+just holds the local newsgroups and let NewsCache multiplex between
+the local and the upstream news server.
+</dl>
+
+<h2><a name="acknowledgements">Acknowledgements</a></h2>
+
+<img align="left" src="usenix.png"> <a
+href="http://www.infosys.tuwien.ac.at/">We</a> received a grant from
+<a href="http://www.usenix.org/">USENIX</a> (The Advanced Computing
+Systems Association) for improving NewsCache and its database
+organization.
+
+
+</td></tr></table>
+
+<HR NOSHADE>
+<P ALIGN="right"><font size="-1">© 1997-2000
+<A HREF="http://www.infosys.tuwien.ac.at/Staff/tom/">Thomas Gschwind</A></P>
+</BODY></HTML>

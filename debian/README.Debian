@@ -1,12 +1,110 @@
 newscache for Debian
---------------------
+====================
 
 This is not an official Debian package, so please don't file bugs in the
 Debian bug tracker. Report them at https://github.com/go-while/NewsCache/issues.
 
-Build the package from a checkout with:
 
+Configuration
+-------------
+
+/etc/newscache.conf reads from news.blueworldhosting.com (free, no account)
+over TLS and lets nobody in: every client gets "502 You have no permission
+to talk". The daemon runs as a systemd service (newscache.service) and is
+started on installation. It listens on port 119 (nntp) on all IPv4
+addresses; to use another address or port, change ListenTo.
+
+After changing the config, check it and reload the daemon:
+
+  newscache -p -c /etc/newscache.conf
+  systemctl reload newscache
+
+-p prints the parsed configuration, or the line with an error. If a reload
+finds an error, the daemon logs it and keeps the old configuration.
+
+The sample with every option is in
+/usr/share/doc/newscache/examples/newscache.conf-dist; all options are
+described in newscache.conf(5).
+
+
+Letting clients in
+------------------
+
+The first matching entry of the AccessList is used, so add entries before
+Default.
+
+Clients by address: add a Client entry for a host or network (CIDR):
+
+  Client 192.0.2.0/24 {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+
+To test from the server itself, use Client 127.0.0.1/32 (or ::1/128):
+
+  printf 'QUIT\r\n' | nc 127.0.0.1 119
+
+(nc is in the package netcat-openbsd) should answer "200 NewsCache ..., accepting NNRP commands".
+
+Clients with a login: replace the Default entry with
+
+  Default {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    Authentication file:/etc/newscache.users
+  }
+
+and put one line per user into /etc/newscache.users:
+
+  user:password-hash:*:*:*:read,post
+
+The fields after the hash are the groups the user may list, read and post
+to, and the extra permissions (see newscache.conf(5)); a line needs at least
+the list field. Create the hash with "openssl passwd -6" (or -1), and make
+the file readable for the group news only:
+
+  chown root:news /etc/newscache.users
+  chmod 0640 /etc/newscache.users
+
+Without login a client can then only send AUTHINFO, HELP and QUIT. Note
+that "allow read post" together with an Authentication entry does not
+require a login: clients that don't log in get the allowed access anyway,
+and a login only adds the permissions from the file.
+
+PAM: the package is built with PAM, and "Authentication pam" uses
+/etc/pam.d/newscache (common-auth and common-account). NewsCache checks
+passwords after it has switched to the user news, so pam_unix cannot check
+local passwords from /etc/shadow (only root may check other users'
+passwords); "Authentication unix" fails for the same reason. Use the
+password file above, or PAM modules that work without root, such as
+pam_sss or pam_ldap.
+
+
+Logs, spool and cleanup
+-----------------------
+
+NewsCache logs to syslog (facility news), so read the log with
+
+  journalctl -u newscache
+
+The spool is /var/cache/newscache, owned by the user news. newscacheclean
+keeps it below SpoolSize (in KBytes, 1000000 in the shipped config); the
+timer newscacheclean.timer runs it daily (systemctl list-timers). Purging
+the package removes the spool.
+
+
+Building the package
+--------------------
+
+From a git checkout (the release tarballs don't contain debian/):
+
+  sudo apt-get build-dep ./
   dpkg-buildpackage -us -uc -b
 
-The apt repository and the mailing list mentioned in older versions of this
-file (linuxhacker.at) no longer exist.
+The packages are written to the parent directory. The build runs autoreconf
+itself, so there is no need to run ./autogen first.

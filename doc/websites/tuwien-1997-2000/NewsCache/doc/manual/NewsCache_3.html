@@ -1,0 +1,376 @@
+<HTML>
+<HEAD>
+<!-- This HTML file has been created by texi2html 1.52
+     from NewsCache.texinfo on 22 June 1998 -->
+
+<TITLE>NewsCache - ServerList Option</TITLE>
+</HEAD>
+<BODY>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_2.html">previous</A>, <A HREF="NewsCache_4.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+<P><HR><P>
+
+
+<H1><A NAME="SEC3" HREF="NewsCache_toc.html#TOC3">ServerList Configuration</A></H1>
+
+<P>
+The configuration of the news server(s) depends on your application
+domain. The following sections present and discuss different
+NewsCache-configurations.
+
+</P>
+
+
+<H2><A NAME="SEC4" HREF="NewsCache_toc.html#TOC4">Reducing the Load of a News Server</A></H2>
+
+<P>
+<A NAME="IDX19"></A>
+If you just want to reduce the load caused by news reading clients, you
+set up NewsCache with your news server as its feed and let all the
+clients read news from NewsCache. The server configuration is rather
+trivial because you have only one news server where newsgroups are read
+from and all the articles are posted to.
+
+</P>
+
+<PRE>
+NewsServerList {
+  Server news.tuwien.ac.at nntp {
+    Read *
+    PostTo *
+    GroupTimeout 180
+    Options cached 
+  }
+}
+</PRE>
+
+<P>
+The arguments given to the <CODE>Server</CODE>-directive are the name of your
+news server followed by its port, followed by the per-server
+configuration options. The per-server configuration options are:
+
+</P>
+<DL COMPACT>
+
+<DT><CODE>Read</CODE>
+<DD>
+indicates which newsgroups should be read from the news server. Its
+argument is  a comma separated list of newsgroup names. Each newsgroup
+name may have the <CODE>*</CODE> at its end indicating any sequence of
+characters. 
+<DT><CODE>PostTo</CODE>
+<DD>
+indicates which articles should be posted to the news server. Its
+argument has the same syntax as the argument of the
+<CODE>Read</CODE>-option. All articles posted to one or more of these
+newsgroups will be sent to that news server.
+<DT><CODE>GroupTimeout</CODE>
+<DD>
+after that amount of seconds the newsgroup's active database is
+requested anew.
+<DT><CODE>Options</CODE>
+<DD>
+gives one or more of the following options: <CODE>not-offline</CODE>,
+<CODE>semioffline</CODE>, <CODE>offline</CODE>; <CODE>not-setpostflag</CODE>,
+<CODE>setpostflag</CODE>; <CODE>not-cached</CODE>, <CODE>cached</CODE>. 
+</DL>
+
+<P>
+In the example above, all articles are cached, read from and posted to
+the news server <CODE>news.tuwien.ac.at</CODE>.  When a client accesses a
+newsgroup older than 180 seconds, it is checked for new articles. 
+
+</P>
+
+
+<H2><A NAME="SEC5" HREF="NewsCache_toc.html#TOC5">Local Newsgroups</A></H2>
+
+<P>
+<A NAME="IDX20"></A>
+<A NAME="IDX21"></A>
+NewsCache can be configured to provide transparent access to local
+newsgroups. For this configuration you have to setup a small news server
+holding all your local newsgroups and let NewsCache multiplex betwenn
+these two news servers.
+
+</P>
+<P>
+Assume that our primary news server is <CODE>news.tuwien.ac.at</CODE> as in
+the example above and that the news server holding our local newsgroups
+is located at <CODE>news.infosys.tuwien.ac.at</CODE>.  In this case our server
+configuration looks as follows:
+
+</P>
+
+<PRE>
+NewsServerList {
+  Server news.tuwien.ac.at nntp {
+    Read *
+    PostTo *
+    GroupTimeout 180
+    Options cached 
+  }
+  Server news.infosys.tuwien.ac.at #120 {
+    Read at.tuwien.infosys.*
+    PostTo at.tuwien.infosys.*
+    GroupTimeout 120
+    Options not-cached 
+  }
+}
+</PRE>
+
+<P>
+The newsgroups starting with at.tuwien.infosys.* are retrieved from our
+local news server and the others from <CODE>news.tuwien.ac.at</CODE>. With the
+statements above all the newsgroups from our primary news server
+beginning with <CODE>at.tuwien.infosys.</CODE> are eliminated.  Even those
+that do not appear on our local news servers.  This behavior is intended
+because newsgroups are added and deleted rather frequently and otherwise
+it would be difficult to say which newsgroup comes from which news
+server.
+
+</P>
+<P>
+The matching of newsgroup-names is based on the longest match. For
+instance if the newsgroup configuration of our primary news server is
+<CODE>*,at.tuwien.infosys.tuwien.general</CODE> than
+<CODE>at.tuwien.infosys.tuwien.general</CODE> would be retrieved from our
+primary news server.
+
+</P>
+<P>
+The <CODE>not-cached</CODE> option indicates that articles requested from our
+local news server must now be cached. Caching these articles is
+pointless because our local news server is not that much loaded and has
+a good connection to our local news server. In fact they are located on
+the same machine.
+
+</P>
+<P>
+<EM>Whether the cached/not-cached flag is supported depends on your
+installation. If you configured NewsCache at compile time with the
+<CODE>--enable-notcached</CODE> flag this flag is supported, otherwise
+not. This is disabled by default due to problems of gcc-2.7.2.  If you
+are using egcs or gcc-2.8.1, you can turn on this flag safely.</EM>
+
+</P>
+
+
+<H2><A NAME="SEC6" HREF="NewsCache_toc.html#TOC6">Offline Mode</A></H2>
+
+<P>
+<A NAME="IDX22"></A>
+In the case, you cannot (or do not want to) have a permanent connection
+to your news server, you must operate NewsCache in offline mode. This is
+usually the case if you have some sort of dial-up networking. Two types
+of offline operation modes are possible:
+
+</P>
+
+<OL>
+<LI>
+
+You tell NewsCache that it must never try to contact its news server.
+<LI>
+
+NewsCache may contact the news server, but fails because no network is
+available.
+</OL>
+
+<P>
+If you use some sort of dial on demand solution like diald, you have to
+use the first solution. Otherwise, it depends on your preferences. The
+second solution has the advantage that users can access all newsgroups,
+when the connection to your provider is active. However, the
+disadvantage is additional overhead because NewsCache will try to
+connect to the news server, whenever a newsgroup times out.
+
+</P>
+<P>
+<A NAME="IDX23"></A>
+Assume, that we chose the first approach because we have diald
+installed. Here is a sample news server configuration for this
+case. Since we are reading news from different news servers, we want
+NewsCache to do the multiplexing for us.
+
+</P>
+
+<PRE>
+NewsServerList {
+  Server news.tuwien.ac.at nntp {
+    Read *
+    PostTo *
+    GroupTimeout 180
+    Options offline 
+  }
+  Server news.wu-wien.ac.at nntp {
+    Read at.wu-wien.*
+    PostTo .none.
+    GroupTimeout 300
+    Options offline not-setpostflag
+  }
+}
+</PRE>
+
+<P>
+The first Server definition indicates your primary news server. The news
+server at Technische Universität Wien. The GroupTimeout directive is
+ignored in offline and semioffline mode.
+
+</P>
+<P>
+The secondary news server is <CODE>news.wu-wien.ac.at</CODE>. However, from
+our provider (TU Wien), we are not allowed to post on this news
+server. So posting is switched off by specifying <CODE>.none.</CODE> for the
+<CODE>PostTo</CODE> newsgroup pattern. Postings to those newsgroups will also
+be handled by news.tuwien.ac.at because some of the at.wu-wien groups
+are also available from news.tuwien.ac.at. This is the reason, why we
+set the <CODE>not-setpostflag</CODE>. Otherwise the posting flag of all the
+at.wu-wien groups would be set to <CODE>n</CODE> (=forbidden) since we do not
+have permission to submit postings to that server.
+
+</P>
+<P>
+<A NAME="IDX24"></A>
+Since the configuration options prohibit NewsCache to retrieve News from
+<CODE>news.tuwien.ac.at</CODE> or <CODE>news.wu-wien.ac.at</CODE>, we have to fetch
+the newsgroups we are interested to read manually.  This is done with
+the <CODE>updatenews</CODE> program which retrieves all newsgroups listed in
+your <CODE>prefetch</CODE>-file.
+
+</P>
+
+
+<H2><A NAME="SEC7" HREF="NewsCache_toc.html#TOC7">Replacing a Leaf Node News Server with NewsCache</A></H2>
+
+<P>
+<A NAME="IDX25"></A>
+NewsCache can also be used to replace leaf node news servers. The
+advantages are clear: The cache server retrieves articles on demand
+only. Thus fewer disk space and CPU performance is sufficient because
+the news database is smaller.
+
+</P>
+<P>
+Below, you can find a sample configuration file:
+
+</P>
+
+<PRE>
+NewsServerList {
+  Server news.tuwien.ac.at nntp {
+    Read *
+    PostTo *
+    GroupTimeout 120
+    Options cached
+  }
+  Server starnews.stardivision.de nntp {
+    Read stardivision.*
+    PostTo stardivision.*
+    GroupTimeout 180
+    Options cached,semioffline
+  }
+  NoServer {
+    Read alt.binaries.*,another.hierarchy.*
+    PostTo alt.binaries.*
+  }
+}
+</PRE>
+
+<P>
+In this example, we read all groups except <CODE>stardivison.*</CODE>,
+<CODE>alt.binaries.*</CODE>, and <CODE>another.hierarchy.*</CODE> from
+<CODE>news.tuwien.ac.at</CODE>. All postings, except for <CODE>stardivision.*</CODE>
+and <CODE>alt.binaries.*</CODE> are posted to <CODE>news.tuwien.ac.at</CODE>.  All
+articles being retrieved from any news server are cached.
+
+</P>
+<P>
+<A NAME="IDX26"></A>
+<A NAME="IDX27"></A>
+All of these configurations are already explained in the previous
+section except for <CODE>semioffline</CODE>. This option indicates that the
+active database should not be retrieved from this news server. In this
+case it has to be retrieved seperately using <CODE>updatenews</CODE>. 
+
+</P>
+<P>
+Explain this option in more detail. Why it is useful (servers with slow
+link)...
+
+</P>
+
+
+<H2><A NAME="SEC8" HREF="NewsCache_toc.html#TOC8">Different Configuration for Newsgroups on same News Server</A></H2>
+
+<P>
+It is possible to have different configurations for different newsgroups
+on the same news server. The trick is to list one server several
+times--each time with a different set of newsgroups.
+
+</P>
+<P>
+The example below shows a configuration, where the local newsgroups are
+updated every 60 seconds and all the other groups every 15 minutes. The
+reason to do is obvious. Over 90% of postings to the at.* groups are
+posted to news.tuwien.ac.at. While most of the postings to the other
+groups are not posted directly to news.tuwien.ac.at. Since our news
+server does not permanently check for new articles on its news feed, it
+makes no sense to request those articles every minute.
+
+</P>
+
+<PRE>
+NewsServerList {
+  Server news.tuwien.ac.at nntp {
+    Read *
+    PostTo *
+    GroupTimeout 900
+    Options offline
+  }
+  Server news.tuwien.ac.at nntp {
+    Read at.tuwien.*
+    PostTo .none.
+    GroupTimeout 60
+    Options semioffline
+  }
+}
+</PRE>
+
+<P>
+In the current implementation, the configuration as shown above has a
+slight disadvantage, if the group descriptions are not disjunct. The
+active database will be requested twice from news.tuwien.ac.at. In our
+case for all newsgroups, with all the at.tuwien.* groups eliminated and
+once for all the at.tuwien.* groups. If the news server does not support
+the <CODE>list active [wildmat]</CODE> command, the <EM>whole</EM> active
+database will be requested twice.  While this does not matter for a news
+server with a good connection to the cache, you will think twice
+reconsider your choice if the connection is not that good.
+
+</P>
+<P>
+Whether <CODE>list active [wildmat]</CODE> is supported by your news server
+can be found out by connecting with telnet to the news server on port
+NNTP. As soon as the news server welcomes you, you type <KBD>list active
+comp.*<KBD>RET</KBD></KBD>. If the server replies with <CODE>215 ...</CODE> and a list
+of newsgroups, it is supported, otherwise it your server does not
+support it.
+
+</P>
+
+<PRE>
+$ telnet news.tuwien.ac.at nntp
+200 news.tuwien.ac.at InterNetNews...
+list active comp.*
+list active comp.*
+215 Newsgroups in form "group high low flags".
+comp.ai 0000045852 0000045542 y
+comp.ai.alife 0000010191 0000010141 y
+...
+.
+</PRE>
+
+<P><HR><P>
+Go to the <A HREF="NewsCache_1.html">first</A>, <A HREF="NewsCache_2.html">previous</A>, <A HREF="NewsCache_4.html">next</A>, <A HREF="NewsCache_6.html">last</A> section, <A HREF="NewsCache_toc.html">table of contents</A>.
+</BODY>
+</HTML>

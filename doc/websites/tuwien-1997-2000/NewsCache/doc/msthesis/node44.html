@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Cache Extensions</TITLE>
+<META NAME="description" CONTENT="News Cache Extensions">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node45.html">
+<LINK REL="previous" HREF="node43.html">
+<LINK REL="up" HREF="node42.html">
+<LINK REL="next" HREF="node45.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html763"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node45.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html760"
+ HREF="node42.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html754"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node43.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html762"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html764"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node45.html">Extensions to NNTP</A>
+<B> Up:</B> <A NAME="tex2html761"
+ HREF="node42.html">Future Work</A>
+<B> Previous:</B> <A NAME="tex2html755"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node43.html">Improvements</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html765"
+ HREF="node44.html#SECTION001221000000000000000">
+Local Newsgroups</A>
+<LI><A NAME="tex2html766"
+ HREF="node44.html#SECTION001222000000000000000">
+Prefetching</A>
+<LI><A NAME="tex2html767"
+ HREF="node44.html#SECTION001223000000000000000">
+Offline News Reading</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001220000000000000000">
+News Cache Extensions</A>
+</H1>
+<A NAME="sec:improvements">&#160;</A>
+Besides the basic functions presented in&nbsp;<A HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node22.html#sec:requirements">4.7</A>, the
+News Cache might offer additional functionality like local newsgroups
+stored within the news cache or to prefetch some newsgroups at special
+times of the day, etc.
+<P><H2><A NAME="SECTION001221000000000000000">
+Local Newsgroups</A>
+</H2>
+<P>
+The current release of the News Cache allows to set up local
+newsgroups as defined in section&nbsp;<A HREF="node12.html#sec:prob_localgroups">3.2</A>. The
+administrator has to set up a local news server holding the newsgroups
+that should be provided locally. Then the News Cache has to be
+configured to contact the local news server for the locally spooled
+newsgroups. Figure&nbsp;<A HREF="node44.html#fig:future_local">8.1</A> shows this configuration.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:future_local">&#160;</A><A NAME="1254">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 8.1:</STRONG>
+Merging local and global newsgroups by an intermediate
+    cache server</CAPTION>
+<TR><TD><IMG WIDTH="376" HEIGHT="217"
+ SRC="img9.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/local4.eps}
+
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+However, this setup costs more performance and more administrative
+work than necessary. A better solution could be to integrate the
+management of the local newsgroups into the News Cache. This has the
+advantages that the administrator needs not to set up and configure a
+local news server.
+<P>
+This extended functionality of the News Cache will be available in one
+of the News Cache's future releases.
+<P><H2><A NAME="SECTION001222000000000000000">
+Prefetching</A>
+</H2>
+<P>
+Prefetching means that all new articles of some or all newsgroups
+available on the news server will be cached prior to a user request.
+This is useful for newsgroups being accessed frequently, because it
+reduces the response time for the first request. Additionally this may
+balance the network load if those frequently used newsgroups are
+cached when the network has fewer load.
+<P>
+For example, the computer languages department may want to download
+the <TT>comp.lang</TT> newsgroups at 6&nbsp;am. This has the advantage that
+the news articles are immediately available when somebody logs in and
+starts reading a <TT>comp.lang</TT> newsgroup.
+<P><H2><A NAME="SECTION001223000000000000000">
+Offline News Reading</A>
+</H2>
+<P>
+The News Cache may even provide the possibility to read news
+offline. To do this the newsgroups subscribed have to be cached when
+the News Cache is online. Afterwards, it may supply the cached news
+articles without the necessity of a network link to its news server.
+<P>
+For example, somebody attached with a modem to the Internet does not
+want to be connected permanently (especially in cases when the
+telephone line is billed for each minute like in Europe). Hence he
+might want to download all the newsgroups he wishes to read at once
+and read those newsgroups afterwards.
+<P>
+In the current version, this is possible with limited functionality.
+Whenever you are connected to your newsfeed, you may run the
+<TT>getnews</TT> utility provided with the News Cache system. This
+retrieves all the groups and articles you are subscribed to. However,
+this is rather user-unfriendly and will change in future releases.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html763"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node45.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html760"
+ HREF="node42.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html754"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node43.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html762"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html764"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node45.html">Extensions to NNTP</A>
+<B> Up:</B> <A NAME="tex2html761"
+ HREF="node42.html">Future Work</A>
+<B> Previous:</B> <A NAME="tex2html755"
+ HREF="https://web.archive.org/web/20070812061240/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node43.html">Improvements</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

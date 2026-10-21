@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Cache Architecture</TITLE>
+<META NAME="description" CONTENT="News Cache Architecture">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node29.html">
+<LINK REL="previous" HREF="node27.html">
+<LINK REL="up" HREF="node25.html">
+<LINK REL="next" HREF="node29.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html556"
+ HREF="node29.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html553"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html547"
+ HREF="node27.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html555"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html557"
+ HREF="node29.html">News Server Class Library</A>
+<B> Up:</B> <A NAME="tex2html554"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html548"
+ HREF="node27.html">News Server Architecture</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00930000000000000000">
+News Cache Architecture</A>
+</H1>
+<A NAME="sec:arch_ncache">&#160;</A>
+The News Cache consists of several modules as shown in
+Figure&nbsp;<A HREF="node28.html#fig:arch_ncache">5.4</A>. The Cache Daemon module handles requests
+from clients and passes these requests to the News Cache's controlling
+module (the CacheServer module). The CacheServer module checks whether
+the requested data are available in the local database, which is
+handled by the LocalServer module. Otherwise the requested data will
+be retrieved from the news server using the RemoteServer module.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:arch_ncache">&#160;</A><A NAME="474">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.4:</STRONG>
+Architecture of the News Cache</CAPTION>
+<TR><TD><IMG WIDTH="274" HEIGHT="226"
+ SRC="img23.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/arch_ncache.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The Cache Daemon object reads NNRP requests from its clients and
+transforms the request into appropriate calls to the CacheServer
+module. The result returned will be passed back to the clients.
+<P>
+The CacheServer module is responsible for the cache management.
+Whenever a request is being made to this module it checks whether the
+LocalServer module can fulfill the request. The LocalServer can
+fulfill the request if the requested data are already cached and the
+data have not timed out. As we have explained in
+section&nbsp;<A HREF="https://web.archive.org/web/20070819001815/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node16.html#sec:cmanagement">4.1</A> data requested by the News Cache remains
+valid for a predefined period of time. If the request cannot be
+fulfilled by the LocalServer module the CacheServer module uses the
+RemoteServer module to retrieve the data. The fetched data are
+stored in the LocalServer's news database and passed back to the
+requester.
+<P>
+The LocalServer module gives access to a local news database and the
+RemoteServer module allows the retrieval of newsgroups and articles
+from a news server.
+<P>
+The architecture of the CacheServer, LocalServer and RemoteServer
+modules is based on the architecture of a News Server as explained in
+section&nbsp;<A HREF="node27.html#sec:newsserver">5.2</A>, because they provide access to the news
+database in the same way as a news server does. Each module is
+implemented as separate class. For historical reasons these classes
+are called <EM>CServer</EM> , <EM>LServer</EM> , and <EM>RServer</EM> .
+Section&nbsp;<A HREF="node29.html#sec:design_libNServer">5.4</A> explains these classes in detail.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html556"
+ HREF="node29.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html553"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html547"
+ HREF="node27.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html555"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html557"
+ HREF="node29.html">News Server Class Library</A>
+<B> Up:</B> <A NAME="tex2html554"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html548"
+ HREF="node27.html">News Server Architecture</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>
