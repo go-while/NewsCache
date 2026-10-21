@@ -160,13 +160,19 @@ jobs:
             image: docker.io/library/alpine:3.24
             setup: apk add -q build-base autoconf automake texinfo gnutls-dev linux-pam-dev go bash
             configure: --with-pam
+          # Go from trixie-backports: trixie has Go 1.24, and the e2e tests
+          # need what tests/e2e/go.mod says (1.26).
           - name: Debian 13
             image: docker.io/library/debian:13
             setup: >-
+              echo 'deb http://deb.debian.org/debian trixie-backports main'
+              > /etc/apt/sources.list.d/backports.list &&
               apt-get update -qq &&
               DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends
               build-essential autoconf automake texinfo libgnutls28-dev libpam0g-dev
-              golang-go ca-certificates
+              ca-certificates &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends
+              -t trixie-backports golang-go
             configure: --with-pam
     steps:
       - name: Checkout

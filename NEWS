@@ -41,6 +41,10 @@ Other changes:
   with a timer and ships an /etc/newscache.conf that lets nobody in. See
   debian/README.Debian.
 * The info manual has a dir entry, and newscache.conf(5) a whatis line.
+* The end-to-end tests use nntp-testkit 0.2.0 and need Go 1.26 or later.
+  With an older Go, make check now skips them with a message, instead of
+  having Go try to download a newer toolchain (which fails offline). Set
+  GOTOOLCHAIN to let Go fetch one anyway.
 * doc/websites/ holds an offline copy, from the Wayback Machine, of the
   two original NewsCache websites (Thomas Gschwind, TU Wien; Herbert
   Straub, linuxhacker.at).
