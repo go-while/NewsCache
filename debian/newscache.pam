@@ -1,0 +1,5 @@
+#%PAM-1.0
+# Used by "Authentication pam" in /etc/newscache.conf
+# (PAMServicename newscache). See README.Debian.
+@include common-auth
+@include common-account

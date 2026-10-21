@@ -1,0 +1,9 @@
+[Unit]
+Description=NewsCache spool cleanup
+Documentation=man:newscacheclean(8)
+
+[Service]
+Type=oneshot
+# newscacheclean switches to Username/Groupname from /etc/newscache.conf.
+ExecStart=/usr/sbin/newscacheclean
+IOSchedulingClass=idle
