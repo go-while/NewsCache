@@ -37,6 +37,12 @@ Bug fixes:
   groups to the user's (initgroups) and, without a Groupname, use the
   user's primary group. A service that systemd starts as root has no
   supplementary groups, so there only the Username-only case was affected.
+* In the allow field of an auth-file line (and the last field of
+  "Authentication unix:" and "pam:"), "!read", "!post" and "!debug" set
+  every other right instead of removing that one: "read,!post" gave a
+  logged-in user debug (XDEBUG, which shows the configuration), and "!post"
+  didn't take away the post right of the Client entry. They now remove only
+  the named right.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

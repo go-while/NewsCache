@@ -83,6 +83,7 @@ CI, not yet by the systematic review.
 | Commands a login would allow answered `500 What?` before login, not `480`, so newsreaders never offered a login | 1, 3 | testing #27 | #28 |
 | `newscache -p` and `xdebug` printed `allow authentication` as a bare `allow`, which reads back as `allow none` | 6 | Debian packaging #25 | #31 |
 | Started as root, the programs kept root's supplementary groups (group 0), and with only a `Username` root's primary group (`setugid()` had no `initgroups`/`setgroups`) | 5 | Debian packaging #25 | #32 |
+| `!read`, `!post`, `!debug` in an auth allow field set every other right (`\|= ~flag`) instead of removing that one; `!post` granted debug | 3 | review #31 | #33 |
 
 ## Open points
 

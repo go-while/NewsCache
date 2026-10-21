@@ -211,3 +211,49 @@ func TestNoLoginNo480(t *testing.T) {
 		t.Fatalf("POST: %q, want 500", line)
 	}
 }
+
+// login logs in as tester with password secret.
+func login(t *testing.T, c interface {
+	Cmd(format string, args ...any) (int, string)
+}) {
+	t.Helper()
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+}
+
+// TestAuthFileNegatedFlagGrantsNothing: "!post" in an auth-file line must
+// not grant anything. It used to set every flag except post (access_flags
+// |= ~post), so after the login the client also got debug (XDEBUG).
+func TestAuthFileNegatedFlagGrantsNothing(t *testing.T) {
+	e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,!post")
+	c := e.session()
+	login(t, c)
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after login: %q, want 211", line)
+	}
+	// XDEBUG without arguments answers 501 when debug is allowed.
+	if code, line := c.Cmd("XDEBUG"); code != 500 {
+		t.Fatalf("XDEBUG after login: %q, want 500 (no debug right)", line)
+	}
+	if code, line := c.Cmd("POST"); code != 500 {
+		t.Fatalf("POST after login: %q, want 500 (no post right)", line)
+	}
+}
+
+// TestAuthFileNegatedFlagRemoves: "!post" in an auth-file line takes the
+// post right of the Client entry away after the login. It used to leave it.
+func TestAuthFileNegatedFlagRemoves(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:!post")
+	c := e.session()
+	login(t, c)
+	if code, line := c.Cmd("POST"); code != 500 {
+		t.Fatalf("POST after login: %q, want 500 (post removed)", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after login: %q, want 211 (read kept)", line)
+	}
+}

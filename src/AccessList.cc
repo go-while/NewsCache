@@ -238,15 +238,15 @@ void AccessEntry::modifyAccessFlags (const std::string &flags)
 		if (t == "read") {
 			access_flags |= af_read;
 		} else if (t == "!read") {
-			access_flags |= ~af_read;
+			access_flags &= ~af_read;
 		} else if (t == "post") {
 			access_flags |= af_post;
 		} else if (t == "!post") {
-			access_flags |= ~af_post;
+			access_flags &= ~af_post;
 		} else if (t == "debug") {
 			access_flags |= af_debug;
 		} else if (t == "!debug") {
-			access_flags |= ~af_debug;
+			access_flags &= ~af_debug;
 		}
 		i=++j;
 	} while (j<flags.length());
