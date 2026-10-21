@@ -1,0 +1,5278 @@
+Index: debian/control
+===================================================================
+--- debian/control	(.../tags/1.2rc6)	(revision 0)
++++ debian/control	(.../trunk)	(revision 12)
+@@ -0,0 +1,18 @@
++Source: newscache
++Section: unknown
++Priority: optional
++Maintainer: Herbert Straub <herbert@linuxhacker.at>
++Build-Depends: debhelper (>= 4.0.0), libpam0g-dev
++Standards-Version: 3.6.0
++
++Package: newscache
++Architecture: any
++Depends: ${shlibs:Depends}, ${misc:Depends}
++Description: NewsCache is a free cache server for USENET News.
++  NewsCache is a free cache server for USENET News. NewsCache acts to news
++  reading clients like a news server, except that it stores only those articles
++  that have been requested by at least one client.  NewsCache  targets problems
++  of the current News System like network bandwidth consump- tion or the IO
++  load caused by news clients. NewsCache acts to the upstream news server  like
++  a news reader programm. It supports the following modes: cached, not-cached, 
++  offline.
+Index: debian/newscache.cron.daily
+===================================================================
+--- debian/newscache.cron.daily	(.../tags/1.2rc6)	(revision 0)
++++ debian/newscache.cron.daily	(.../trunk)	(revision 12)
+@@ -0,0 +1,6 @@
++#!/bin/sh -e
++
++# If it's configured
++if [ -f /etc/newscache.conf ]; then
++    /usr/sbin/newscacheclean > /dev/null
++fi
+Index: debian/dirs
+===================================================================
+--- debian/dirs	(.../tags/1.2rc6)	(revision 0)
++++ debian/dirs	(.../trunk)	(revision 12)
+@@ -0,0 +1,3 @@
++usr/sbin
++var/log/news
++var/cache/newscache
+Index: debian/postinst
+===================================================================
+--- debian/postinst	(.../tags/1.2rc6)	(revision 0)
++++ debian/postinst	(.../trunk)	(revision 12)
+@@ -0,0 +1,21 @@
++#!/bin/sh -e
++
++# Install the links into /etc/init.d
++update-rc.d newscache defaults >/dev/null
++
++# Setting the permissions on SpoolDirectory
++chown news:news /var/cache/newscache
++chmod 0770 /var/cache/newscache
++
++# If there's not already a configuration file
++if [ ! -f /etc/newscache.conf ]; then
++    echo " "
++    echo "There is currently no autoconfiguration for newscache."
++    echo " "
++    echo "Please examine /usr/share/doc/newscache/examples/newscache.conf"
++    echo "and read the manpage for newscache.conf(5)."
++    echo " "
++else 
++	/etc/init.d/newscache start
++fi
++
+Index: debian/postrm
+===================================================================
+--- debian/postrm	(.../tags/1.2rc6)	(revision 0)
++++ debian/postrm	(.../trunk)	(revision 12)
+@@ -0,0 +1,22 @@
++#!/bin/sh -e
++
++# If we're purging the package
++if [ "$1" = "purge" ]; then
++
++    # Remove the links
++    update-rc.d newscache remove >/dev/null
++
++    # Remove the configuration file
++    if [ -f /etc/newscache.conf ]; then
++	rm -f /etc/newscache.conf
++    fi
++
++    # Remove the spool directory
++    if [ -d /var/cache/newscache ]; then
++	rm -rf /var/cache/newscache
++    fi
++
++    # Remove the log directory
++    # Not done here, because the log directory
++    # is configured by the sysklogd package
++fi
+Index: debian/init.d
+===================================================================
+--- debian/init.d	(.../tags/1.2rc6)	(revision 0)
++++ debian/init.d	(.../trunk)	(revision 12)
+@@ -0,0 +1,66 @@
++#! /bin/sh
++#
++# skeleton	example file to build /etc/init.d/ scripts.
++#		This file should be used to construct scripts for /etc/init.d.
++#
++#		Written by Miquel van Smoorenburg <miquels@cistron.nl>.
++#		Modified for Debian 
++#		by Ian Murdock <imurdock@gnu.ai.mit.edu>.
++#
++# Version:	@(#)skeleton  1.9  26-Feb-2001  miquels@cistron.nl
++#
++
++PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
++DAEMON=/usr/sbin/newscache
++NAME=newscache
++DESC=newscache
++
++test -x $DAEMON || exit 0
++test -f /etc/newscache.conf || exit 0
++
++# Include newscache defaults if available
++if [ -f /etc/default/newscache ] ; then
++	. /etc/default/newscache
++fi
++
++set -e
++
++case "$1" in
++  start)
++	echo -n "Starting $DESC: "
++	start-stop-daemon --start --quiet --pidfile /var/run/$NAME.pid \
++		--exec $DAEMON -- $DAEMON_OPTS
++	echo "$NAME."
++	;;
++  stop)
++	echo -n "Stopping $DESC: "
++	start-stop-daemon --stop --oknodo --quiet --pidfile /var/run/$NAME.pid \
++		--exec $DAEMON
++	echo "$NAME."
++	;;
++  reload)
++	echo "Reloading $DESC configuration files."
++	start-stop-daemon --stop --signal 1 --quiet --pidfile \
++		/var/run/$NAME.pid --exec $DAEMON
++  ;;
++  restart|force-reload)
++	#
++	#	If the "reload" option is implemented, move the "force-reload"
++	#	option to the "reload" entry above. If not, "force-reload" is
++	#	just the same as "restart".
++	#
++	echo -n "Restarting $DESC: "
++	$0 stop
++	sleep 2
++	$0 start
++	echo "$NAME."
++	;;
++  *)
++	N=/etc/init.d/$NAME
++	# echo "Usage: $N {start|stop|restart|reload|force-reload}" >&2
++	echo "Usage: $N {start|stop|restart|force-reload}" >&2
++	exit 1
++	;;
++esac
++
++exit 0
+Index: debian/changelog
+===================================================================
+--- debian/changelog	(.../tags/1.2rc6)	(revision 0)
++++ debian/changelog	(.../trunk)	(revision 12)
+@@ -0,0 +1,145 @@
++newscache (1.2rc6-1cmeerw.2) unstable; urgency=low
++
++  * Issue "mode reader" command before authentication
++
++ -- Christof Meerwald <cmeerw@web.de>  Mon, 21 May 2007 20:02:53 +0100
++
++newscache (1.2rc6-1cmeerw) unstable; urgency=low
++
++  * Applied my own patches.
++
++ -- Christof Meerwald <cmeerw@web.de>  Sun, 20 Feb 2005 17:45:27 +0100
++
++newscache (1.2rc6-1) unstable; urgency=low
++
++  * New upstream release
++  
++  * debian/control: adding build-depends: libpam0g-dev
++
++ -- Herbert Straub <herbert@linuxhacker.at>  Sun, 26 Sep 2004 22:36:54 +0200
++
++newscache (1.2rc5-1) unstable; urgency=low
++
++  * New upstream release
++
++  * debian/dirs: adding var/log/news and var/spool/newscache
++
++  * debian/init.d: lowercase for pidfilename and checking newscache.conf file,
++    restart is now $0 stop and $0 start; sleep 2 seconds; implementing reload
++
++  * debian/newscache.cron.daily: removing updatenews
++
++  * debian/postinst: removing obsolete links in/from doc dir.  Setting
++    permissions on SpoolDirectory. Removing "Press return".
++
++  * debian/postrm: don't remove /var/log/news directory, start-stop-daemon
++    with --oknodo
++
++  * debian/rules: configure --with-pam, moving /etc/newscache.auth-dist and
++    /etc/newscache.conf-dist to ../examples/
++ 
++ -- Herbert Straub <herbert@linuxhacker.at>  Mon,  7 Jul 2004 14:17:25 +0200
++
++newscache (1.1.2-1) unstable; urgency=low
++
++  * New upstream version
++
++ -- Herbert Straub <h.straub@aon.at>  Mon, 28 Jun 2004 00:00:00 +0200
++
++newscache (1.1.12-1) unstable; urgency=low
++
++  * New upstream version
++
++  * Bugfix: this version including the Tilman Linneweh patch-configure.in
++
++  * Bugfix: this version including the Tilman Linneweh patch-Article.cc
++
++ -- Herbert Straub <h.straub@aon.at>  Thu, 10 Apr 2003 15:53:41 +0200
++
++newscache (1.1.8-1) unstable; urgency=low
++
++  * New upstream version.
++
++  * /usr/sbin/hoststat conflicts with sendmail, therefore /usr/sbin/hoststats
++
++ -- Herbert Straub <h.straub@aon.at>  Wed, 18 Dec 2002 21:25:16 +0100
++
++newscache (0.99.22-1) unstable; urgency=low
++
++  * New upstream version.
++
++  * /usr/sbin/hoststat conflicts with sendmail, therefor /usr/sbin/hoststats
++
++ -- Herbert Straub <h.straub@aon.at>  Sat, 09 Nov 2002 12:44:41 +0100
++
++newscache (0.99.19-0cmeerw) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Christof Meerwald <cmeerw@web.de>  Sat, 16 Mar 2002 01:45:00 +0100
++
++newscache (0.99.17-0cmeerw) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Christof Meerwald <cmeerw@web.de>  Sat, 16 Mar 2002 00:15:00 +0100
++
++newscache (0.99.9-2) frozen unstable; urgency=low
++
++  * Recompiled against libstdc++2.9
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Mon, 19 Oct 1998 09:09:09 -0400
++
++newscache (0.99.9-1) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Thu, 25 Jun 1998 09:09:09 -0400
++
++newscache (0.99.7-1) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Thu,  1 Jun 1998 09:09:09 -0400
++
++newscache (0.99.6-1) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Thu, 30 Apr 1998 09:09:09 -0400
++
++newscache (0.99.4-1) unstable; urgency=low
++
++  * New upstream version.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Wed, 22 Apr 1998 09:09:09 -0400
++
++newscache (0.99.3-1) unstable; urgency=low
++
++  * New upstream version.
++  * Move /etc/newscache.conf-dist into examples
++  * Add /etc/init.d/newscache
++  * Add postinst, prerm, postrm
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Mon, 20 Apr 1998 09:09:09 -0400
++
++newscache (0.99.2-1) unstable; urgency=low
++
++  * New upstream version.
++  * Fix NVClasses/Error.h to not use errno as an internal variable name.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Tue, 13 Apr 1998 09:09:09 -0400
++
++newscache (0.99.1-1) unstable; urgency=low
++
++  * New upstream version
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Tue,  3 Apr 1998 09:09:09 -0400
++
++newscache (0.9.16-1) unstable; urgency=low
++
++  * Initial Debianization.
++
++ -- Michael Alan Dorman <mdorman@debian.org>  Tue,  3 Mar 1998 09:09:09 -0400
++
++
+Index: debian/copyright
+===================================================================
+--- debian/copyright	(.../tags/1.2rc6)	(revision 0)
++++ debian/copyright	(.../trunk)	(revision 12)
+@@ -0,0 +1,14 @@
++This package was debianized by Herbert Straub <h.straub@aon.at> on
++Thu, 10 Apr 2003 15:53:41 +0200.
++
++It was downloaded from http://members.aon.at/hstraub/linux/newscache/
++
++Upstream Author(s):
++	
++	1996-2000 Thomas Gschwind <tom@w0.infosys.tuwien.ac.at>
++	2001-2003 Herbert Straub <h.straub@aon.at>
++
++Copyright:
++
++This package is licensed under the GNU GENERAL PUBLIC LICENSE. A copy of the
++GPL is provided on Debian systems in the /usr/share/common-licenses directory.
+Index: debian/docs
+===================================================================
+--- debian/docs	(.../tags/1.2rc6)	(revision 0)
++++ debian/docs	(.../trunk)	(revision 12)
+@@ -0,0 +1,3 @@
++NEWS
++README
++TODO
+Index: debian/rules
+===================================================================
+--- debian/rules	(.../tags/1.2rc6)	(revision 0)
++++ debian/rules	(.../trunk)	(revision 12)
+@@ -0,0 +1,127 @@
++#!/usr/bin/make -f
++# -*- makefile -*-
++# Author: Herbert Straub <herbert@linuxhacker.at>
++# derived from:
++# Sample debian/rules that uses debhelper.
++# GNU copyright 1997 to 1999 by Joey Hess.
++
++# Uncomment this to turn on verbose mode.
++#export DH_VERBOSE=1
++DH_COMPAT=2
++
++CFLAGS = -Wall -g
++
++ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
++	CFLAGS += -O0
++else
++	CFLAGS += -O2
++endif
++ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
++	INSTALL_PROGRAM += -s
++endif
++
++configure: configure-stamp
++configure-stamp:
++	dh_testdir
++	# Add here commands to configure the package.
++	./autogen
++	./configure --prefix=/usr --infodir=/usr/share/info \
++		--mandir=/user/share/man --sysconfdir=/etc --with-pam
++
++	touch configure-stamp
++
++
++build: build-stamp
++
++build-stamp: configure-stamp 
++	dh_testdir
++
++	# Add here commands to compile the package.
++	$(MAKE)
++
++	touch build-stamp
++
++clean:
++	dh_testdir
++	dh_testroot
++	rm -f build-stamp configure-stamp
++
++	# Add here commands to clean up after the build process.
++	#-$(MAKE) clean
++	if [ -e Makefile ]; then \
++		$(MAKE) clean; \
++	fi
++
++	rm -fR $(CURDIR)/autom4te.cache
++	rm -f $(CURDIR)/configure
++	rm -f $(CURDIR)/config.guess
++	rm -f $(CURDIR)/config.log
++	rm -f $(CURDIR)/config.status
++	rm -f $(CURDIR)/config.sub
++	rm -f $(CURDIR)/depcomp
++	rm -f $(CURDIR)/install-sh
++	rm -f $(CURDIR)/libtool
++	rm -f $(CURDIR)/ltmain.sh
++	rm -f $(CURDIR)/Makefile
++	rm -f $(CURDIR)/missing
++	rm -f $(CURDIR)/mkinstalldirs
++
++
++
++	dh_clean 
++
++install: build
++	dh_testdir
++	dh_testroot
++	dh_clean -k 
++	dh_installdirs
++
++	# Add here commands to install the package into debian/newscache.
++	$(MAKE) prefix=$(CURDIR)/debian/tmp/usr \
++		infodir=$(CURDIR)/debian/tmp/usr/share/info \
++		mandir=$(CURDIR)/debian/tmp/usr/share/man \
++		sysconfdir=$(CURDIR)/debian/tmp/etc \
++		install
++
++	# Now correcting Names
++	mv $(CURDIR)/etc/NewsCache.init $(CURDIR)/etc/newscache.init
++
++# Build architecture-independent files here.
++binary-indep: build install
++# We have nothing to do by default.
++
++# Build architecture-dependent files here.
++binary-arch: build install
++	dh_testdir
++	dh_testroot
++	dh_installchangelogs ChangeLog
++	dh_installdocs
++	dh_installexamples 	$(CURDIR)/etc/newscache.conf-dist \
++				$(CURDIR)/etc/newscache.auth-dist \
++				$(CURDIR)/etc/newscache.init
++#	dh_install
++#	dh_installmenu
++#	dh_installdebconf	
++#	dh_installlogrotate
++#	dh_installemacsen
++#	dh_installpam
++#	dh_installmime
++	dh_installinit
++	dh_installcron
++	dh_installinfo
++	dh_installman
++	dh_link
++	dh_strip
++	dh_compress
++	dh_fixperms
++#	dh_perl
++#	dh_python
++#	dh_makeshlibs
++	dh_installdeb
++	dh_shlibdeps
++	dh_gencontrol
++	dh_md5sums
++	dh_builddeb
++
++binary: binary-indep binary-arch
++.PHONY: build clean binary-indep binary-arch binary install configure
+
+Property changes on: debian/rules
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Index: debian/info
+===================================================================
+--- debian/info	(.../tags/1.2rc6)	(revision 0)
++++ debian/info	(.../trunk)	(revision 12)
+@@ -0,0 +1 @@
++doc/NewsCache.info
+Index: debian/README.Debian
+===================================================================
+--- debian/README.Debian	(.../tags/1.2rc6)	(revision 0)
++++ debian/README.Debian	(.../trunk)	(revision 12)
+@@ -0,0 +1,19 @@
++newscache for Debian
++--------------------
++
++This is not a official package from Debian. Please don't file bugs to the
++Debian Bug Database! Send bug report direct to the Newscache Mailinglist
++newscache@linuxhacker.org or direct to me using one of the following e-mail
++addresses: herbert@linuxhacker.at or h.straub@aon.at or herbert@hstraub.at.
++
++The Debian Package is also available on http://apt-get.linuxhacker.at/ Package
++Archive. If you want to use this Package Archiv on you server, then you have to
++add the following lines to your /etc/apt/sources.list file:
++
++deb	http://apt-get.linuxhacker.at/debian/ stable newscache
++deb-src	http://apt-get.linuxhacker.at/debian/ stable newscache
++
++deb	http://apt-get.linuxhacker.at/debian/ stable libsocket++
++deb-src	http://apt-get.linuxhacker.at/debian/ stable libsocket++
++
++ -- Herbert Straub <herbert@linuxhacker.at>, Mon,  5 Jul 2004 10:43:02 +0200
+Index: AUTHORS
+===================================================================
+--- AUTHORS	(.../tags/1.2rc6)	(revision 12)
++++ AUTHORS	(.../trunk)	(revision 12)
+@@ -9,6 +9,8 @@
+ 
+ 2001-2004 Herbert Straub <h.straub@aon.at>
+ 	See ChangeLog file for details.
++2008 Christof Meerwald <cmeerw@web.de>
++	IPv6 support, removed libsocket++ dependency
+ 
+ 
+ Author of Program Parts
+Index: configure.in
+===================================================================
+--- configure.in	(.../tags/1.2rc6)	(revision 12)
++++ configure.in	(.../trunk)	(revision 12)
+@@ -9,9 +9,6 @@
+ 
+ AC_DEFUN([AC_PROG_CXX_EXCEPTIONS],[])
+ 
+-dnl Compiler flags
+-CXXFLAGS="-Wall ${CXXFLAGS}"
+-
+ dnl ****************************************************************
+ dnl Configuration options.
+ dnl ****************************************************************
+@@ -171,8 +168,6 @@
+ AC_HEADER_STDC
+ AC_HEADER_SYS_WAIT
+ AC_CHECK_HEADERS(fcntl.h limits.h shadow.h sys/file.h syslog.h unistd.h tcpd.h sstream getopt.h)
+-AC_CHECK_HEADER(socket++/sockinet.h,,
+-	AC_MSG_ERROR(Headers for library libsocket++ not found))
+ if eval "test x${with_pam+set} = xset"; then
+ 	 AC_CHECK_HEADERS(security/pam_appl.h)
+ 	 if test $ac_cv_header_security_pam_appl_h = no; then
+@@ -245,24 +240,6 @@
+   AC_DEFINE(SOCKLEN_TYPE,unsigned int)
+ fi
+ 
+-dnl libsocket++
+-OLDLIBS=$LIBS
+-libsocket_found=no
+-AC_MSG_CHECKING("libsocket++")
+-LIBS="-lsocket++ $LIBS"
+-AC_TRY_LINK([#include <socket++/sockinet.h>], [iosockinet sio; sio.rdbuf()->setname("Test");],
+-	libsocket_found=yes ,)
+-if  eval "test x$libsocket_found = xyes"; then
+-	AC_MSG_RESULT(yes)
+-else
+-	AC_MSG_RESULT(no)
+-	LIBS=$OLDLIBS
+-fi
+-
+-if eval "test x$libsocket_found = xno"; then
+-	AC_MSG_ERROR(No libsocket++ Library found!)
+-fi
+-
+ dnl CONF_UIDROOT
+ dnl The userid of your superuser (usually root).
+ dnl Usually, this is 0.
+Index: NServer-0.9.1/sstream.h
+===================================================================
+--- NServer-0.9.1/sstream.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/sstream.h	(.../trunk)	(revision 12)
+@@ -1,61 +0,0 @@
+-#ifndef __sstream_h__
+-#define __sstream_h__
+-
+-/*
+- * Copyright (C) 2002 Herbert Straub
+- * Change the original hierachy [(C) Thomas Gschwind] 
+- * from fstream -> sstream to iosockinet -> sstream
+- * This is for g++ >= 3.0 necessary.
+- */
+-
+-
+-#include <socket++/sockinet.h>
+-
+-/**
+- * \class sstream
+- * \author Herbert Straub
+- * \date 2002
+- * Change the original hierachy [(C) Thomas Gschwind] 
+- * from fstream -> sstream to iosockinet -> sstream
+- * This is for g++ >= 3.0 necessary.
+- *
+- * \bug Documentation is missing.
+- */
+-class sstream:public iosockinet {
+-	char _name[256];
+-	char _service[256];
+-	int connected;
+-      public:
+-	 sstream():iosockinet(sockbuf::sock_stream) {
+-		_name[0] = '\0';
+-		_service[0] = '\0';
+-		connected = 0;
+-		setstate(std::ios::badbit);
+-		rdbuf()->setname ("upstream server socket");
+-	} sstream(char *name,
+-		  char *service):iosockinet(sockbuf::sock_stream) {
+-		rdbuf()->setname ("upstream server socket");
+-		connectTo(name, service);
+-	}
+-	sstream(char *name, char *service,
+-		char *from):iosockinet(sockbuf::sock_stream) {
+-		rdbuf()->setname ("upstream server socket");
+-		connectTo(name, service, from);
+-	}
+-	~sstream() {
+-		disconnect();
+-	}
+-
+-	const char *hostname() {
+-		return _name;
+-	}
+-	const char *servicename() {
+-		return _service;
+-	}
+-	int is_connected();
+-	void connectTo(char *name, char *service);
+-	void connectTo(char *name, char *service, char *from);
+-	void disconnect();
+-};
+-
+-#endif
+Index: NServer-0.9.1/sstream.cc
+===================================================================
+--- NServer-0.9.1/sstream.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/sstream.cc	(.../trunk)	(revision 12)
+@@ -1,118 +0,0 @@
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>
+-#include <errno.h>
+-#include <sys/types.h>
+-#include <sys/socket.h>
+-#include <unistd.h>
+-#include <netdb.h>
+-#include <netinet/in.h>
+-#include <arpa/inet.h>
+-
+-#include "config.h"
+-#include "Debug.h"
+-#include "sstream.h"
+-
+-using namespace std;
+-
+-void sstream::connectTo(char *name, char *service)
+-{
+-	connectTo(name, service, "");
+-}
+-
+-void sstream::connectTo(char *name, char *service, char *from)
+-{
+-	char buf[1024];
+-
+-	if (is_connected())
+-		disconnect();
+-	strcpy(_name, name);
+-	strcpy(_service, service);
+-
+-	try {
+-		if ((strcmp(from, "") != 0)) {
+-			VERB(slog.
+-			     p(Logger::
+-			       Debug) <<
+-			     "sstream::connectTo using interface " << from
+-			     << "\n");
+-			sockinetaddr bindAddr(from);
+-			(*((iosockinet *) this))->bind(bindAddr);
+-		}
+-	}
+-	catch(sockerr e) {
+-		sprintf(buf, "can't bind to %s\n", from);
+-		slog.
+-		    p(Logger::
+-		      Error) << "sstream::connectTo: can't bind to " <<
+-		    from << " sockerr code: " << e.serrno()
+-		    << " sockerr operation: " << e.operation()
+-		    << " sockerrtext: " << e.errstr() << "\n";
+-		setstate(ios::badbit);
+-		return;
+-	}
+-
+-	try {
+-		VERB(slog.
+-		     p(Logger::
+-		       Debug) << "sstream::connectTo connecting to " <<
+-		     name << " service " << service << "\n");
+-		sockinetaddr serverAddr(name, service);
+-		(*this)->connect(serverAddr);
+-	}
+-	catch(sockerr e) {
+-		sprintf(buf, "cannot connect to %s (%s)\n", name, service);
+-		slog.
+-		    p(Logger::
+-		      Error) << "sstream::connectTo can't connect to " <<
+-		    name << " " << service << " sockerr code: " << e.
+-		    serrno() << " sockerr operation: " << e.operation()
+-		    << " sockerrtext: " << e.errstr() << "\n";
+-		setstate(ios::badbit);
+-		return;
+-	}
+-
+-	try {
+-		(*this)->recvtimeout(-1);
+-		//(*this)->sendtimeout (-1);
+-		(*this)->keepalive(1);
+-	}
+-	catch(sockerr e) {
+-		slog.
+-		    p(Logger::
+-		      Error) <<
+-		    "sstream::connectTo: setting keepalive error " <<
+-		    " sockerr code: " << e.
+-		    serrno() << " sockerr operation: " << e.operation()
+-		    << " sockerrtext: " << e.errstr() << "\n";
+-		// FIXME: is this a fatal error?
+-	}
+-
+-	connected = 1;
+-	clear();
+-}
+-
+-void sstream::disconnect()
+-{
+-	sockbuf *pS;
+-
+-	VERB(slog.p(Logger::Debug) << "sstream::disconnect()\n");
+-	try {
+-		pS = rdbuf();
+-		pS->shutdown(sockbuf::shut_readwrite);
+-	} catch (sockerr e) {
+-		VERB(slog.p(Logger::Debug) << "sstream::disconnect() sockerror"
+-			<< e.serrno() << " sockerr operation: "
+-			<< e.operation() << " sockerrtext: " << e.errstr()
+-			<< "\n");
+-	}
+-	_name[0] = '\0';
+-	_service[0] = '\0';
+-	connected = 0;
+-	setstate(ios::badbit);
+-}
+-
+-int sstream::is_connected()
+-{
+-	return connected;
+-}
+Index: NServer-0.9.1/Newsgroup.h
+===================================================================
+--- NServer-0.9.1/Newsgroup.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/Newsgroup.h	(.../trunk)	(revision 12)
+@@ -76,7 +76,7 @@
+ 	virtual void prefetchOverview(void) = 0;
+ 
+ 	virtual const char *getover(unsigned int nbr) = 0;
+-	virtual void setover(const string & over) = 0;
++	virtual void setover(const std::string & over) = 0;
+ 	virtual void printover(std::ostream & os, unsigned int nbr) {
+ 		const char *o = getover(nbr);
+ 		if (o)
+Index: NServer-0.9.1/ArtSpooler.h
+===================================================================
+--- NServer-0.9.1/ArtSpooler.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/ArtSpooler.h	(.../trunk)	(revision 12)
+@@ -45,7 +45,7 @@
+ 	 * \throw Error
+ 	 * \todo Das ist ein Testpunkt
+ 	 */
+-	ArtSpooler(const string & spoolDir);
++	ArtSpooler(const std::string & spoolDir);
+ 
+ 	~ArtSpooler();
+ 
+@@ -81,24 +81,24 @@
+ 	 * Create a unique ID
+ 	 * \return The ID String
+ 	 */
+-	 string createID(void);
++	std::string createID(void);
+ 
+ 	/**
+ 	 * Extract ID from article message id
+ 	 * \return The ID String
+ 	 */
+-	string extractID(Article & a);
++	std::string extractID(Article & a);
+ 
+ 	/**
+ 	 * store Article in path
+ 	 * return 0 success, 1 duplicated
+ 	 */
+-	int storeArticle(const string & path, Article & a);
++	int storeArticle(const std::string & path, Article & a);
+ 
+       private:
+-	 string spoolDir;
+-	string artSpool;
+-	string badArticles;
++	std::string spoolDir;
++	std::string artSpool;
++	std::string badArticles;
+ 	ObjLock *pLock;
+ };
+ 
+Index: NServer-0.9.1/NSError.h
+===================================================================
+--- NServer-0.9.1/NSError.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/NSError.h	(.../trunk)	(revision 12)
+@@ -32,15 +32,15 @@
+ 	} NSError(const char *txt, const char *file, const char *function,
+ 		  int line):Error(txt, file, function, line) {
+ 	}
+-	NSError(const string & txt):Error(txt) {
++	NSError(const std::string & txt):Error(txt) {
+ 	}
+-	NSError(const string & txt, const char *file, const char *function,
++	NSError(const std::string & txt, const char *file, const char *function,
+ 		int line):Error(txt, file, function, line) {
+ 	}
+ 	virtual ~ NSError() {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception! "
+ 		    << " Type: NServer"
+ 		    << " File: " << _file
+@@ -64,15 +64,15 @@
+ 								   function,
+ 								   line) {
+ 	}
+-	NoSuchFieldError(const string & txt):NSError(txt) {
++	NoSuchFieldError(const std::string & txt):NSError(txt) {
+ 	}
+-	NoSuchFieldError(const string & txt, const char *file,
++	NoSuchFieldError(const std::string & txt, const char *file,
+ 			 const char *function, int line):NSError(txt, file,
+ 								 function,
+ 								 line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: NotFound"
+ 		    << " File: " << _file
+@@ -96,16 +96,16 @@
+ 								    function,
+ 								    line) {
+ 	}
+-	NoNewsServerError(const string & txt):NSError(txt) {
++	NoNewsServerError(const std::string & txt):NSError(txt) {
+ 	}
+-	NoNewsServerError(const string & txt, const char *file,
++	NoNewsServerError(const std::string & txt, const char *file,
+ 			  const char *function, int line):NSError(txt,
+ 								  file,
+ 								  function,
+ 								  line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: NoNewsServer"
+ 		    << " File: " << _file
+@@ -129,15 +129,15 @@
+ 								   function,
+ 								   line) {
+ 	}
+-	NoSuchGroupError(const string & txt):NSError(txt) {
++	NoSuchGroupError(const std::string & txt):NSError(txt) {
+ 	}
+-	NoSuchGroupError(const string & txt, const char *file,
++	NoSuchGroupError(const std::string & txt, const char *file,
+ 			 const char *function, int line):NSError(txt, file,
+ 								 function,
+ 								 line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: NoSuchGroup"
+ 		    << " File: " << _file
+@@ -160,9 +160,9 @@
+ 				int line):NSError(txt, file, function,
+ 						  line) {
+ 	}
+-	DuplicateArticleError(const string & txt):NSError(txt) {
++	DuplicateArticleError(const std::string & txt):NSError(txt) {
+ 	}
+-	DuplicateArticleError(const string & txt, const char *file,
++	DuplicateArticleError(const std::string & txt, const char *file,
+ 			      const char *function, int line):NSError(txt,
+ 								      file,
+ 								      function,
+@@ -170,7 +170,7 @@
+ 	{
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: DuplicateArticle"
+ 		    << " File: " << _file
+@@ -195,16 +195,16 @@
+ 								     line)
+ 	{
+ 	}
+-	NoSuchArticleError(const string & txt):NSError(txt) {
++	NoSuchArticleError(const std::string & txt):NSError(txt) {
+ 	}
+-	NoSuchArticleError(const string & txt, const char *file,
++	NoSuchArticleError(const std::string & txt, const char *file,
+ 			   const char *function, int line):NSError(txt,
+ 								   file,
+ 								   function,
+ 								   line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: NoSuchArticle"
+ 		    << " File: " << _file
+@@ -229,16 +229,16 @@
+ 								     line)
+ 	{
+ 	}
+-	PostingFailedError(const string & txt):NSError(txt) {
++	PostingFailedError(const std::string & txt):NSError(txt) {
+ 	}
+-	PostingFailedError(const string & txt, const char *file,
++	PostingFailedError(const std::string & txt, const char *file,
+ 			   const char *function, int line):NSError(txt,
+ 								   file,
+ 								   function,
+ 								   line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: PostingFailedError"
+ 		    << " File: " << _file
+@@ -256,15 +256,15 @@
+ 								  function,
+ 								  line) {
+ 	}
+-	NotAllowedError(const string & txt):NSError(txt) {
++	NotAllowedError(const std::string & txt):NSError(txt) {
+ 	}
+-	NotAllowedError(const string & txt, const char *file,
++	NotAllowedError(const std::string & txt, const char *file,
+ 			const char *function, int line):NSError(txt, file,
+ 								function,
+ 								line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: NoSuchArticle"
+ 		    << " File: " << _file
+@@ -287,15 +287,15 @@
+ 							     function,
+ 							     line) {
+ 	}
+-	UsageError(const string & txt):NSError(txt) {
++	UsageError(const std::string & txt):NSError(txt) {
+ 	}
+-	UsageError(const string & txt, const char *file,
++	UsageError(const std::string & txt, const char *file,
+ 		   const char *function, int line):NSError(txt, file,
+ 							   function,
+ 							   line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: Usage"
+ 		    << " File: " << _file
+@@ -313,9 +313,9 @@
+  */
+ class ResponseError:public NSError {
+       public:
+-	string _command;
+-	string _expected;
+-	string _got;
++	std::string _command;
++	std::string _expected;
++	std::string _got;
+ 
+ 	 ResponseError() {
+ 	} ResponseError(const char *command, const char *exp,
+@@ -325,19 +325,19 @@
+ 		ResponseError::print();
+ 	}
+ 	ResponseError(const char *command, const char *exp,
+-		      const string & got)
++		      const std::string & got)
+ 	:_command(command), _expected(exp), _got(got) {
+ 		slog.p(Logger::Error);
+ 		ResponseError::print();
+ 	}
+-	ResponseError(const string & command, const string & exp,
+-		      const string & got)
++	ResponseError(const std::string & command, const std::string & exp,
++		      const std::string & got)
+ 	:_command(command), _expected(exp), _got(got) {
+ 		slog.p(Logger::Error);
+ 		ResponseError::print();
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: Response"
+ 		    << " File: " << _file
+Index: NServer-0.9.1/CNewsgroup.cc
+===================================================================
+--- NServer-0.9.1/CNewsgroup.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/CNewsgroup.cc	(.../trunk)	(revision 12)
+@@ -79,40 +79,54 @@
+ 	try {
+ 		listgroup(lstgrp, infof, infol);
+ 
+-		f = infof;
+-		while (f <= infol) {
+-			if ((NVArray::shas_element(f) && lstgrp[f - infof])
+-			    || (!NVArray::shas_element(f)
+-				&& !lstgrp[f - infof])) {
+-				f++;
+-				continue;
+-			}
+-			if (lstgrp[f - infof]) {
+-				// We do not have this article
+-				l = f;
+-				for (i = l + 1; i < l + 8 && i <= infol;
+-				     i++) {
+-					if (!NVArray::shas_element(i)
+-					    && lstgrp[i - infof])
+-						l = i;
++		if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP) {
++			f = infof;
++			while (f <= infol) {
++				if ((NVArray::shas_element(f) && lstgrp[f - infof])
++				    || (!NVArray::shas_element(f)
++					&& !lstgrp[f - infof])) {
++					f++;
++					continue;
+ 				}
+-				_RServer->overviewdb(this, f, l);
+-				f = i;
+-			} else {
+-				i = f - infof;
+-				// We do have this article, but it has been deleted
+-				if (*(mem_p + arrtab[i] + sizeof(long)) ==
+-				    bigarticle) {
+-					// Remove article from disk
+-					sprintf(fn, "%s/.art%ud",
+-						_SpoolDirectory, i);
+-					unlink(fn);
++				if (lstgrp[f - infof]) {
++					// We do not have this article
++					l = f;
++					for (i = l + 1; i < l + 8 && i <= infol;
++					     i++) {
++						if (!NVArray::shas_element(i)
++						    && lstgrp[i - infof])
++							l = i;
++					}
++					_RServer->overviewdb(this, f, l);
++					f = i;
++				} else {
++					i = f - infof;
++					// We do have this article, but it has been deleted
++					if (*(mem_p + arrtab[i] + sizeof(long)) ==
++					    bigarticle) {
++						// Remove article from disk
++						sprintf(fn, "%s/.art%ud",
++							_SpoolDirectory, i);
++						unlink(fn);
++					}
++					nvfree(arrtab[i]);
++					arrtab[i] = 0;
++					f++;
+ 				}
+-				nvfree(arrtab[i]);
+-				arrtab[i] = 0;
+-				f++;
+ 			}
++		} else {
++			f = infol;
++			while ((f >= infof) && !NVArray::shas_element(f)) {
++				f--;
++			}
++
++			/* do we have at least one new article? */
++			if (f < infol)
++			{
++				_RServer->overviewdb(this, f + 1, infol);
++                        }
+ 		}
++
+ 		time(&now);
+ 		setmtime(now);
+ 	} catch(Error & e) {
+Index: NServer-0.9.1/NewsgroupFilter.h
+===================================================================
+--- NServer-0.9.1/NewsgroupFilter.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/NewsgroupFilter.h	(.../trunk)	(revision 12)
+@@ -18,9 +18,9 @@
+  */
+ class NewsgroupFilter {
+       private:
+-	string rulelist;
++	std::string rulelist;
+ 	const char *c_rulelist;
+-	string Wildmat;
++	std::string Wildmat;
+ 	int WildmatSearch;
+ 
+ 	class RuleIterator {
+@@ -91,7 +91,7 @@
+ 	 * \param rulelist The list of rules.
+ 	 * \param rule Rule to be added.
+ 	 */
+-	void add_rule_to_rulelist(string & rulelist, const char *rule) {
++	void add_rule_to_rulelist(std::string & rulelist, const char *rule) {
+ 		const char *p = rulelist.c_str(), *q;
+ 
+ 		do {
+@@ -158,7 +158,7 @@
+ 		return *this;
+ 	}
+ 
+-	NewsgroupFilter & operator=(const string & rulelist) {
++	NewsgroupFilter & operator=(const std::string & rulelist) {
+ 		this->rulelist = rulelist;
+ 		this->c_rulelist = this->rulelist.c_str();
+ 		return *this;
+@@ -185,7 +185,7 @@
+ 	 * \author Herbert Straub
+ 	 * \return rulelist
+ 	 */
+-	const string& getRulelist (void) {
++	const std::string& getRulelist (void) {
+ 		return rulelist;
+ 	}
+ 
+@@ -268,7 +268,7 @@
+ 	 * \param filter2 The other filter.
+ 	 */
+ 	NewsgroupFilter & operator|=(const NewsgroupFilter & filter2) {
+-		string new_rulelist;
++		std::string new_rulelist;
+ 		RuleIterator begin, end;
+ 		const char *grp;
+ 
+@@ -317,7 +317,7 @@
+ 	 * \param filter2 The other filter.
+ 	 */
+ 	NewsgroupFilter & operator&=(const NewsgroupFilter & filter2) {
+-		string new_rulelist;
++		std::string new_rulelist;
+ 		RuleIterator begin, end;
+ 		const char *grp;
+ 
+Index: NServer-0.9.1/MPList.h
+===================================================================
+--- NServer-0.9.1/MPList.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/MPList.h	(.../trunk)	(revision 12)
+@@ -4,9 +4,11 @@
+ #include <stdio.h>
+ #include <netdb.h>
+ #include <sys/param.h>
++#include <sys/socket.h>
++#include <sys/types.h>
+ 
+ #include <iostream>
+-#include <fstream>
++#include <string>
+ #include <vector>
+ 
+ #include "Debug.h"
+@@ -20,7 +22,8 @@
+ 		F_SETPOSTFLAG = 0x01,
+ 		F_CACHED = 0x02,
+ 		F_OFFLINE = 0x04,
+-		F_SEMIOFFLINE = 0x08
++		F_SEMIOFFLINE = 0x08,
++		F_DONTGENMSGID = 0x10
+ 	};
+ 	// nntp commands supported by the server
+ 	enum {
+@@ -33,22 +36,27 @@
+ 		F_POST = 0x40
+ 	};
+ 
+-	char hostname[MAXHOSTNAMELEN];
+-	char servicename[256];
+-	char user[64];
+-	char passwd[64];
++	std::string hostname;
++	std::string servicename;
++	std::string user;
++	std::string passwd;
+ 
+ 	OverviewFmt overview;
+ 
+-	char read[2048];	// Groups read from that server
+-	char postTo[2048];	// Postings handled by this server
+-	char bindFrom[2048];	// From which interface
+-	time_t groupTimeout;
++	std::string read;	// Groups read from that server
++	std::string postTo;	// Postings handled by this server
++	struct sockaddr_storage bindFrom;	// From which interface
+ 
++	unsigned int groupTimeout;
+ 	unsigned int flags;	// configuration flags
+ 	unsigned int nntpflags;	// supported NNTP-Commands
+-	int retries;
++	unsigned int limitgroupsize; // limit the size of a group
++	unsigned int retries;
++	unsigned int connectBackoff;
++	unsigned int connectTimeout;
+ 
++	mutable time_t connectFailed;
++
+ 	MPListEntry();
+ 	void init(void);
+ 	void printParameters (std::ostream *pOut);
+@@ -69,7 +77,7 @@
+       public:
+ 	MPList() {};
+ //   void addserver(const char *ns,const char *p,const char *g) {//     if(e_used==e_alloc) myrealloc(e_used+1);//     entries[e_used].init(ns,p);//     if(g) {//       strcpy(entries[e_used].read,g);//       strcpy(entries[e_used].postTo,g);//     }//     e_used++;//   }
+-	const char *makeFilter(unsigned int servernbr,
++	std::string makeFilter(unsigned int servernbr,
+ 			       const char *listarg) const;
+ 	MPListEntry *server(const char *group);
+ 	MPListEntry *postserver(const char *group);
+@@ -88,74 +96,79 @@
+ 
+ inline void MPListEntry::init(void)
+ {
+-	hostname[0] = servicename[0] = '\0';
+-	user[0] = passwd[0] = '\0';
+-
+-	read[0] = postTo[0] = bindFrom[0] = '\0';
++	bindFrom.ss_family = AF_UNSPEC;
+ 	groupTimeout = 600;	// 10m
++	limitgroupsize = 0;
+ 	retries = 3;
+ 
++	connectBackoff = 0;
++	connectTimeout = 0;
++	connectFailed = 0;
++
+ 	flags = F_SETPOSTFLAG | F_CACHED;
+ 	nntpflags = 0xffffffff;
+ }
+ 
+-inline const char *MPList::makeFilter(unsigned int servernbr, const char *listarg) const
++inline std::string MPList::makeFilter(unsigned int servernbr, const char *listarg) const
+ {
+-	static string filter;
+-	char c;
+-	unsigned int i;
++	std::string filter;
+ 
+ 	if (strcmp(listarg, "*") == 0) {
+-		const char *p, *q;
+ 		filter = entries[servernbr].read;
+-		for (i = 0; i < entries.size(); i++) {
++		for (unsigned int i = 0; i < entries.size(); i++) {
+ 			if (i != servernbr) {
+-				p = entries[i].read;
++				std::string::const_iterator p = entries[i].read.begin();
++				const std::string::const_iterator end = entries[i].read.end();
++				std::string::const_iterator q;
+ 				for (;;) {
+ 					q = p;
+-					while ((c = *p) != ',' && c)
+-						p++;
++					char c;
++					while (p != end && (c = *p) != ',')
++						++p;
+ 					filter += ",!";
+-					filter.append(q, p - q);
+-					if (!c)
++					filter.append(q, p);
++					if (p == end)
+ 						break;
+-					p++;
++					++p;
+ 				}
+ 			}
+ 		}
+ 	} else {
+-		const char *listp, *p = NULL, *q = NULL;
++		unsigned int i;
+ 		filter = "*";
+ 		if (servernbr == 0)
+ 			i = 1;
+ 		else
+ 			i = 0;
+-		listp = listarg;
+-		c = '\0';
++		const char *listp = listarg;
++		char c = '\0';
++		std::string::const_iterator p, q;
++		std::string::const_iterator end;
+ 		while (i < entries.size()) {
+ 			if (!c) {
+-				q = p = entries[i].read;
++				q = p = entries[i].read.begin();
++				end = entries[i].read.end();
+ 			}
+-			while ((c = *listp) && c == *p) {
++			while ((c = *listp) && p != end && c == *p) {
+ 				listp++;
+-				p++;
++				++p;
+ 			}
+ 			if (*listp == '*') {
+ 				// p is matched by listarg
+-				ASSERT(if (*p == '*') {
++				ASSERT(if (p != end && *p == '*') {
+ 				       slog.
+ 				       p(Logger::
+ 					 Error) <<
+ 				       "Same newsgroup expression configured for two different servers!\n";}
+ 				);
+ 				filter += ",!";
+-				while ((c = *p) != ',' && c)
+-					p++;
+-				filter.append(q, p - q);
++				while (p != end && (c = *p) != ',')
++					++p;
++				filter.append(q, p);
+ 			} else {
+ 				// p is not matched by listarg
+-				while ((c = *p) != ',' && c)
+-					p++;
++				while (p != end && (c = *p) != ',')
++					++p;
+ 			}
+ 			if (!c) {
+ 				i++;
+@@ -167,7 +180,7 @@
+ 		}
+ 	}
+ 
+-	return filter.c_str();
++	return filter;
+ }
+ 
+ inline void MPList::init(void)
+Index: NServer-0.9.1/sockstream.cc
+===================================================================
+--- NServer-0.9.1/sockstream.cc	(.../tags/1.2rc6)	(revision 0)
++++ NServer-0.9.1/sockstream.cc	(.../trunk)	(revision 12)
+@@ -0,0 +1,235 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <errno.h>
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <unistd.h>
++#include <netdb.h>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <arpa/inet.h>
++
++#include "config.h"
++#include "Debug.h"
++#include "sockstream.h"
++
++
++sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
++
++
++void sockstream::sockstreambuf::connect(const char *name, const char *service,
++					const struct sockaddr *from,
++					socklen_t fromlen,
++					unsigned int timeout)
++{
++  disconnect();
++
++  struct addrinfo hints;
++
++  memset(&hints, 0, sizeof(hints));
++  hints.ai_flags = AI_ADDRCONFIG | ((service[0] == '#') ? AI_NUMERICSERV : 0);
++  hints.ai_family = (from != NULL) ? from->sa_family : AF_UNSPEC;
++  hints.ai_socktype = SOCK_STREAM;
++  hints.ai_protocol = IPPROTO_TCP;
++
++  struct addrinfo *res;
++  if (getaddrinfo(name, (service[0] == '#') ? service + 1 : service,
++		  &hints, &res))
++  {
++    slog.p(Logger::Error) << "Can't resolve " << name << ' ' << service
++			  << "\n";
++    return;
++  }
++
++  struct addrinfo *addr = res;
++  while ((_fd < 0) && (addr != NULL))
++  {
++    _fd = ::socket(addr->ai_addr->sa_family, SOCK_STREAM, IPPROTO_TCP);
++    if (_fd >= 0)
++    {
++      if (from != NULL)
++      {
++	if (::bind(_fd, from, fromlen) < 0)
++	{
++	  slog.p(Logger::Error) << "Unable to bind to outgoing address"
++				<< "\n";
++
++	  while (::close(_fd) && (errno == EINTR))
++	  { }
++	  _fd = -1;
++	  freeaddrinfo(res);
++
++	  return;
++	}
++      }
++
++      if (timeout && _alarm_indicator)
++      {
++	*_alarm_indicator = 0;
++	alarm(timeout);
++      }
++
++      int rc_connect;
++      while (((rc_connect = ::connect(_fd, addr->ai_addr,
++				      addr->ai_addrlen)) < 0) &&
++	     (errno == EINTR) &&
++	     (!timeout || !_alarm_indicator || !*_alarm_indicator))
++      { }
++
++      if (timeout && _alarm_indicator)
++      {
++	alarm(0);
++      }
++
++      if (rc_connect)
++      {
++	if (timeout && _alarm_indicator && *_alarm_indicator)
++	{
++	  *_alarm_indicator = 0;
++	  slog.p(Logger::Notice) << "Connection attempt to " << name
++				 << " timed out\n";
++	}
++	else
++	{
++	  slog.p(Logger::Notice) << "Connection attempt to " << name
++				 << " failed: " << strerror(errno) << "\n";
++	}
++      
++	while (::close(_fd) && (errno == EINTR))
++	{ }
++	_fd = -1;
++      }
++    }
++
++    addr = addr->ai_next;
++  }
++
++  if (_fd < 0)
++  {
++    slog.p(Logger::Warning) << "Unable to connect to " << name << ' '
++			    << service << "\n";
++  }
++
++  freeaddrinfo(res);
++}
++
++void sockstream::sockstreambuf::attach(int fd)
++{
++  disconnect();
++  _fd = fd;
++}
++
++void sockstream::sockstreambuf::disconnect()
++{
++  if (connected())
++  {
++    sync();
++    setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
++    setp(_pbuf, _pbuf + sizeof(_gbuf));
++
++    while (::close(_fd) && (errno == EINTR))
++    { }
++
++    _fd = -1;
++  }
++}
++
++void sockstream::sockstreambuf::setkeepalive(bool fl)
++{
++  const int value = fl;
++
++  if (setsockopt(_fd, SOL_SOCKET, SO_KEEPALIVE, &value, sizeof(value)) < 0)
++  {
++    slog.p(Logger::Error) << "setsockopt failed: "
++			  << strerror(errno) << "\n";
++  }
++}
++
++void sockstream::sockstreambuf::setnodelay(bool fl)
++{
++  const int value = fl;
++  if (setsockopt(_fd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) < 0)
++  {
++    slog.p(Logger::Error) << "setsockopt failed: "
++			  << strerror(errno) << "\n";
++  }
++}
++
++
++int sockstream::sockstreambuf::overflow(int c)
++{
++  if (_fd < 0)
++  {
++    return traits_type::eof();
++  }
++
++  if (c == traits_type::eof())
++  {
++    return sync() ? traits_type::eof() : 0;
++  }
++
++  if (pptr() == epptr())
++  {
++    if (sync())
++    {
++      return traits_type::eof();
++    }
++  }
++
++  *pptr() = char(c);
++  pbump(1);
++
++  return c;
++}
++
++int sockstream::sockstreambuf::sync()
++{
++  size_t off = 0;
++
++  while ((pbase() + off) != pptr())
++  {
++    int rc_send;
++    do
++    {
++      rc_send = ::send(_fd, pbase() + off, pptr() - pbase() - off, 0);
++    } while ((rc_send < 0) && (errno == EINTR) &&
++	     (!_alarm_indicator || !*_alarm_indicator));
++
++    if (rc_send < 0)
++    {
++      return -1;
++    }
++
++    off += rc_send;
++  }
++
++  setp(_pbuf, _pbuf + sizeof(_pbuf));
++
++  return 0;
++}
++
++int sockstream::sockstreambuf::underflow()
++{
++  if (gptr() < egptr())
++  {
++    return *gptr();
++  }
++
++  int rc_recv;
++  do
++  {
++    rc_recv = ::recv(_fd, _gbuf, sizeof(_gbuf), 0);
++  } while ((rc_recv < 0) && (errno == EINTR) &&
++	   (!_alarm_indicator || !*_alarm_indicator));
++
++  if (rc_recv > 0)
++  {
++    setg(_gbuf, _gbuf, _gbuf + rc_recv);
++    return (unsigned char) *gptr();
++  }
++  else
++  {
++    return traits_type::eof();
++  }
++}
+Index: NServer-0.9.1/RNewsgroup.cc
+===================================================================
+--- NServer-0.9.1/RNewsgroup.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/RNewsgroup.cc	(.../trunk)	(revision 12)
+@@ -22,7 +22,7 @@
+ 	}
+ }
+ 
+-void RNewsgroup::printarticle(ostream & os, unsigned int nbr)
++void RNewsgroup::printarticle(std::ostream & os, unsigned int nbr)
+ {
+ 	try {
+ 		Article article;
+Index: NServer-0.9.1/sockstream.h
+===================================================================
+--- NServer-0.9.1/sockstream.h	(.../tags/1.2rc6)	(revision 0)
++++ NServer-0.9.1/sockstream.h	(.../trunk)	(revision 12)
+@@ -0,0 +1,116 @@
++#ifndef __sstream_h__
++#define __sstream_h__
++
++#include <signal.h>
++#include <sys/socket.h>
++
++#include <iostream>
++
++class sockstream
++  : public std::iostream
++{
++  class sockstreambuf
++    : public std::streambuf
++  {
++    static sig_atomic_t *_alarm_indicator;
++
++    int _fd;
++    char _gbuf[4096];
++    char _pbuf[4096];
++
++   public:
++    static inline void alarm_indicator(sig_atomic_t &var)
++    {
++      _alarm_indicator = &var;
++    }
++
++    sockstreambuf()
++      : _fd(-1)
++    {
++      setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
++      setp(_pbuf, _pbuf + sizeof(_gbuf));
++    }
++
++    ~sockstreambuf()
++    { disconnect(); }
++
++    inline bool connected() const
++    { return _fd >= 0; }
++
++    void connect(const char *name, const char *service,
++		 const struct sockaddr *from, socklen_t fromlen,
++		 unsigned int timeout = 0);
++
++    void attach(int fd);
++
++    void disconnect();
++
++    void setkeepalive(bool fl = true);
++    void setnodelay(bool fl = true);
++
++    virtual int overflow(int c = traits_type::eof());
++    virtual int sync();
++
++    virtual int underflow();
++  } _buf;
++
++ public:
++  static inline void alarm_indicator(sig_atomic_t &var)
++  {
++    sockstreambuf::alarm_indicator(var);
++  }
++
++  inline sockstream()
++    : std::iostream(&_buf)
++  {
++    setstate(std::ios::badbit);
++  }
++
++  inline sockstream(const char *name, const char *service,
++                    const struct sockaddr *from = NULL, socklen_t fromlen = 0)
++    : std::iostream(&_buf)
++  {
++    _buf.connect(name, service, from, fromlen);
++  }
++
++  inline ~sockstream()
++  { }
++
++  inline bool connected() const
++  { return _buf.connected(); }
++
++  inline void connect(const char *name, const char *service,
++		      const struct sockaddr *from = NULL,
++		      socklen_t fromlen = 0, unsigned int timeout = 0)
++  {
++    _buf.connect(name, service, from, fromlen, timeout);
++    clear(_buf.connected() ? std::ios::goodbit : std::ios::badbit);
++  }
++
++  inline void connect(const char *name, const char *service,
++		      unsigned int timeout = 0)
++  {
++    _buf.connect(name, service, NULL, 0, timeout);
++    clear(_buf.connected() ? std::ios::goodbit : std::ios::badbit);
++  }
++
++  inline void attach(int fd)
++  {
++    _buf.attach(fd);
++    clear();
++  }
++
++  inline void disconnect()
++  {
++    _buf.disconnect();
++    clear(std::ios::badbit);
++  }
++
++  inline void setkeepalive(bool fl = true)
++  { _buf.setkeepalive(fl); }
++
++  inline void setnodelay(bool fl = true)
++  { _buf.setnodelay(fl); }
++};
++
++#endif
+Index: NServer-0.9.1/RNewsgroup.h
+===================================================================
+--- NServer-0.9.1/RNewsgroup.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/RNewsgroup.h	(.../trunk)	(revision 12)
+@@ -30,9 +30,9 @@
+  * \bug Documentation is missing.
+  */
+ class RNewsgroup:public Newsgroup {
+-	typedef std::map < unsigned int, string >::iterator iterator;
++	typedef std::map < unsigned int, std::string >::iterator iterator;
+ 
+-	 std::map < unsigned int, string > _OverviewDB;
++	 std::map < unsigned int, std::string > _OverviewDB;
+ 	unsigned int _first, _last;
+ 
+ 	// News stuff
+@@ -94,7 +94,7 @@
+ 			return NULL;
+ 	}
+ 
+-	virtual void setover(const string & over) {
++	virtual void setover(const std::string & over) {
+ 		unsigned int i = atoi(over.c_str());
+ 
+ 		if (_first <= i && i <= _last) {
+@@ -105,7 +105,7 @@
+ 	virtual void readoverdb(std::istream & is) {
+ 		VERB(slog.
+ 		     p(Logger::Debug) << "RNewsgroup::readoverdb(&is)\n");
+-		string line1, line2;
++		std::string line1, line2;
+ 
+ 		for (;;) {
+ 			nlreadline(is, line1, 0);
+@@ -121,13 +121,13 @@
+ 		}
+ 	}
+ 
+-	virtual void printheaderdb(ostream & os,
++	virtual void printheaderdb(std::ostream & os,
+ 				   const char *header,
+ 				   unsigned int f = 0, unsigned int l =
+ 				   UINT_MAX) {
+ 		char xheader[512], *p;
+ 		const char *q;
+-		string fld;
++		std::string fld;
+ 
+ 		p = xheader;
+ 		q = header;
+@@ -157,7 +157,7 @@
+ 		}
+ 	}
+ 
+-	virtual void printlistgroup(ostream & os) {
++	virtual void printlistgroup(std::ostream & os) {
+ 		iterator begin = _OverviewDB.begin(), end =
+ 		    _OverviewDB.end();
+ 
+Index: NServer-0.9.1/util.h
+===================================================================
+--- NServer-0.9.1/util.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/util.h	(.../trunk)	(revision 12)
+@@ -25,7 +25,6 @@
+  * 		will be returned.
+  */
+ extern int matchgroup(const char *pattern, const char *group);
+-extern int matchaddress(const char *pattern, const char *address);
+ 
+ /**
+  * \author Thomas Gschwind
+Index: NServer-0.9.1/Lexer.h
+===================================================================
+--- NServer-0.9.1/Lexer.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/Lexer.h	(.../trunk)	(revision 12)
+@@ -21,9 +21,9 @@
+ 	const char *_fn;
+ 	 std::ifstream _is;
+ 
+-	string _tok;
++	std::string _tok;
+ 
+-	string _buf;
++	std::string _buf;
+ 	int _line;
+ 	const char *_cbuf;
+ 	const char *_cbufp;
+@@ -53,11 +53,11 @@
+ 		return _is.eof();
+ 	}
+ 
+-	string curToken() {
++	std::string curToken() {
+ 		return _tok;
+ 	}
+ 
+-	string getToken() {
++	std::string getToken() {
+ 		const char *q;
+ 		while (!(*_cbufp)) {
+ 			if (!_is.good())
+@@ -86,12 +86,12 @@
+ 		return _tok;
+ 	}
+ 
+-	void putbackToken(string token) {
++	void putbackToken(std::string token) {
+ 		_buf.replace(0, _cbufp - _cbuf, token + ' ');
+ 		_cbufp = _cbuf = _buf.c_str();
+ 	}
+ 
+-	int isFlag(const string & token, const char *strg, int *flag) {
++	int isFlag(const std::string & token, const char *strg, int *flag) {
+ 		const char *ctok = token.c_str();
+ 		if (strcmp(ctok, strg) == 0) {
+ 			*flag = 1;
+@@ -125,7 +125,8 @@
+ 		 _errtext += txt;
+ 		 VERB(slog.p(Logger::Error);
+ 		      SyntaxError::print());
+-	} virtual void print() {
++	}
++	virtual void print() const {
+ 		slog << "Exception!\n"
+ 		    << "  Type: Syntax\n"
+ 		    << "  Desc: " << _errtext << "\n";
+Index: NServer-0.9.1/ObjLock.cc
+===================================================================
+--- NServer-0.9.1/ObjLock.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/ObjLock.cc	(.../trunk)	(revision 12)
+@@ -25,7 +25,7 @@
+ #include "Error.h"
+ #include "ObjLock.h"
+ 
+-ObjLock::ObjLock(const string & name)
++ObjLock::ObjLock(const std::string & name)
+ {
+ 	this->name = name;
+ 
+Index: NServer-0.9.1/ObjLock.h
+===================================================================
+--- NServer-0.9.1/ObjLock.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/ObjLock.h	(.../trunk)	(revision 12)
+@@ -34,7 +34,7 @@
+ 	//! Constructor
+ 	//! \param name of Resource
+ 	//! \throw SystemError Error creating Lock File
+-	ObjLock(const string & name);
++	ObjLock(const std::string & name);
+ 
+ 	//! Destructor
+ 	~ObjLock();
+@@ -64,7 +64,7 @@
+ 	void unlock(void);
+ 
+       private:
+-	 string name;
++	std::string name;
+ 	int fd;
+ #ifndef USE_FLOCK
+ 	struct flock l;
+Index: NServer-0.9.1/NServer.h
+===================================================================
+--- NServer-0.9.1/NServer.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/NServer.h	(.../trunk)	(revision 12)
+@@ -39,7 +39,7 @@
+ #include "config.h"
+ #include "Debug.h"
+ 
+-#include "sstream.h"
++#include "sockstream.h"
+ #include "util.h"
+ 
+ #include "OverviewFmt.h"
+@@ -238,7 +238,7 @@
+ 	MPListEntry *_CurrentServer;
+ 	GroupInfo _CurrentGroup;
+ 
+-	sstream *_pServerStream;
++	sockstream *_pServerStream;
+ 
+ 	 RServer():NServer() {
+ 		_ServerList = NULL;
+@@ -478,6 +478,14 @@
+ 	* \todo Synchronize Description and Code (Parameters).
+ 	*/
+ 	virtual void article(const char *id, Article * art);
++
++	inline unsigned int getserverflags() {
++		return _CurrentServer->flags;
++	}
++
++	inline unsigned int getnntpflags() {
++		return _CurrentServer->nntpflags;
++	}
+ };
+ 
+ /**
+Index: NServer-0.9.1/NVNewsgroup.h
+===================================================================
+--- NServer-0.9.1/NVNewsgroup.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/NVNewsgroup.h	(.../trunk)	(revision 12)
+@@ -81,7 +81,7 @@
+ 	}
+ 
+ 	virtual const char *getover(unsigned int nbr);
+-	virtual void setover(const string & over);
++	virtual void setover(const std::string & over);
+ 	virtual void printover(std::ostream & os, unsigned int nbr) {
+ 		NVArray::lock(NVcontainer::ShrdLock);
+ 		sprintover(os, nbr);
+Index: NServer-0.9.1/MPList.cc
+===================================================================
+--- NServer-0.9.1/MPList.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/MPList.cc	(.../trunk)	(revision 12)
+@@ -1,10 +1,11 @@
+ #include "util.h"
+ #include "MPList.h"
+ 
+-//#include <vector>
+-//#include <algorithm>
++#include <netinet/in.h>
+ 
+-using namespace std;
++#include <algorithm>
++#include <iostream>
++#include <vector>
+ 
+ MPListEntry *MPList::postserver(const char *group)
+ {
+@@ -13,7 +14,7 @@
+ 	int bm = -1, bmlen = 0, clen;
+ 
+ 	for (i = 0; i < entries.size(); i++) {
+-		clen = matchgroup(entries[i].postTo, group);
++		clen = matchgroup(entries[i].postTo.c_str(), group);
+ 		if (clen > bmlen) {
+ 			bm = i;
+ 			bmlen = clen;
+@@ -31,7 +32,7 @@
+ 	int bm = -1, bmlen = 0, clen;
+ 
+ 	for (i = 0; i < entries.size(); i++) {
+-		clen = matchgroup(entries[i].read, group);
++		clen = matchgroup(entries[i].read.c_str(), group);
+ 		if (clen > bmlen) {
+ 			bm = i;
+ 			bmlen = clen;
+@@ -42,30 +43,27 @@
+ 	return NULL;
+ }
+ 
+-void MPListEntry::printParameters (ostream *pOut)
++void MPListEntry::printParameters (std::ostream *pOut)
+ {
+ 	if (hostname[0] != '\0') {
+ 		*pOut << "\tServer " << hostname << " " << servicename
+-			<< " {" << endl;
++			<< " {" << std::endl;
+ 	} else {
+-		*pOut << "\tNoServer " << " {" << endl;
++		*pOut << "\tNoServer " << " {" << std::endl;
+ 	}
+ 	if (user[0] != '\0') {
+-		*pOut << "\t\tUser " << user << endl;
++		*pOut << "\t\tUser " << user << std::endl;
+ 	}
+ 	if (passwd[0] != '\0') {
+-		*pOut << "\t\tPassword " << passwd << endl;
++		*pOut << "\t\tPassword " << passwd << std::endl;
+ 	}
+ 	if (read[0] != '\0') {
+-		*pOut << "\t\tRead "<< read << endl;
++		*pOut << "\t\tRead "<< read << std::endl;
+ 	}
+ 	if (postTo[0] != '\0') {
+-		*pOut << "\t\tPostTo " << postTo << endl;
++		*pOut << "\t\tPostTo " << postTo << std::endl;
+ 	}
+-	if (bindFrom[0] != '\0') {
+-		*pOut << "\t\tBindFrom " << bindFrom << endl;
+-	}
+-	*pOut << "\t\tGroupTimeout " << groupTimeout << endl;
++	*pOut << "\t\tGroupTimeout " << groupTimeout << std::endl;
+ 	*pOut << "\t\tOptions";
+ 	if (flags & F_SETPOSTFLAG) {
+ 		*pOut << " setpostflag";
+@@ -79,7 +77,7 @@
+ 	if (flags & F_SEMIOFFLINE) {
+ 		*pOut << " semioffline";
+ 	}
+-	*pOut << endl;
++	*pOut << std::endl;
+ 	if (~nntpflags) {
+ 		*pOut << "\t\tCommands";
+ 		if ((~nntpflags) & F_LIST_ACTIVE_WILDMAT) {
+@@ -103,15 +101,18 @@
+ 		if ((~nntpflags) & F_POST) {
+ 			*pOut << " not-post";
+ 		}
+-		*pOut << endl;
++		*pOut << std::endl;
+ 	}
+-	*pOut << "\t\tRetries " << retries << endl;
+-	*pOut << "\t}" << endl;
++	*pOut << "\t\tLimitGroupSize " << limitgroupsize << std::endl;
++	*pOut << "\t\tRetries " << retries << std::endl;
++	*pOut << "\t\tConnectBackoff " << connectBackoff << std::endl;
++	*pOut << "\t\tConnectTimeout " << connectTimeout << std::endl;
++	*pOut << "\t}" << std::endl;
+ }
+ 
+ void MPList::read(Lexer & lex)
+ {
+-	string tok, host, port;
++	std::string tok, host, port;
+ 
+ 	tok = lex.getToken();
+ 	if (tok != "{")
+@@ -136,13 +137,13 @@
+ 
+ void MPList::readServer(Lexer & lex, const char *host, const char *port)
+ {
+-	string tok, a1, a2, a3;
++	std::string tok, a1, a2, a3;
+ 	int havePostTo = 0;
+ 	MPListEntry cur;
+ 
+ 	if (host) {
+-		strcpy(cur.hostname, host);
+-		strcpy(cur.servicename, port);
++		cur.hostname = host;
++		cur.servicename = port;
+ 	}
+ 
+ 	tok = lex.getToken();
+@@ -152,44 +153,52 @@
+ 		tok = lex.getToken();
+ 		if (tok == "Read") {
+ 			a1 = lex.getToken();
+-			if (a1.length() >= sizeof(cur.read))
+-				throw SyntaxError(lex,
+-						  "group description too long",
+-						  ERROR_LOCATION);
+-			strcpy(cur.read, a1.c_str());
++			cur.read = a1;
+ 			if (!havePostTo) {
+-				if (a1.length() >= sizeof(cur.postTo))
+-					throw SyntaxError(lex,
+-							  "group description too long",
+-							  ERROR_LOCATION);
+-				strcpy(cur.postTo, a1.c_str());
++				cur.postTo = a1;
+ 			}
+ 		} else if (tok == "BindFrom") {
+ 			a1 = lex.getToken();
+-			if (a1.length() >= sizeof(cur.bindFrom))
++			struct addrinfo hints;
++			memset(&hints, 0, sizeof(hints));
++			hints.ai_flags = AI_ADDRCONFIG | AI_PASSIVE | AI_NUMERICHOST;
++			hints.ai_family = AF_UNSPEC;
++			hints.ai_socktype = SOCK_STREAM;
++			hints.ai_protocol = IPPROTO_TCP;
++
++			struct addrinfo *res;
++			if (getaddrinfo(a1.c_str(), NULL, &hints, &res)) {
+ 				throw SyntaxError(lex,
+-						  "BindFrom field is too long",
++						  "unable to resolve BindFrom",
+ 						  ERROR_LOCATION);
+-			strcpy(cur.bindFrom, a1.c_str());
++			}
++
++			memcpy(&cur.bindFrom, res->ai_addr, res->ai_addrlen);
++			freeaddrinfo(res);
+ 		} else if (tok == "PostTo") {
+ 			a1 = lex.getToken();
+-			if (a1.length() >= sizeof(cur.postTo))
+-				throw SyntaxError(lex,
+-						  "group description too long",
+-						  ERROR_LOCATION);
+-			strcpy(cur.postTo, a1.c_str());
++			cur.postTo = a1;
+ 		} else if (tok == "GroupTimeout") {
+ 			a1 = lex.getToken();
+ 			cur.groupTimeout = atoi(a1.c_str());
++		} else if (tok == "LimitGroupSize") {
++			a1 = lex.getToken();
++			cur.limitgroupsize = atoi(a1.c_str());
+ 		} else if (tok == "Retries") {
+ 			a1 = lex.getToken();
+ 			cur.retries = atoi(a1.c_str());
++		} else if (tok == "ConnectBackoff") {
++			a1 = lex.getToken();
++			cur.connectBackoff = atoi(a1.c_str());
++		} else if (tok == "ConnectTimeout") {
++			a1 = lex.getToken();
++			cur.connectTimeout = atoi(a1.c_str());
+ 		} else if (tok == "User") {
+ 			a1 = lex.getToken();
+-			strncpy(cur.user, a1.c_str(), 64);
++			cur.user = a1;
+ 		} else if (tok == "Password") {
+ 			a1 = lex.getToken();
+-			strncpy(cur.passwd, a1.c_str(), 64);
++			cur.passwd = a1;
+ 		} else if (tok == "Options") {
+ 			int flag;
+ 			for (;;) {
+@@ -227,6 +236,9 @@
+ 				} else if (a1 == "semioffline") {
+ 					cur.flags |=
+ 					    MPListEntry::F_SEMIOFFLINE;
++				} else if(a1=="dontgenmsgid") {
++					cur.flags |=
++					    MPListEntry::F_DONTGENMSGID;
+ 				} else {
+ 					break;
+ 				}
+@@ -273,11 +285,11 @@
+ 	entries.push_back(cur);
+ }
+ 
+-void MPList::printParameters (ostream *pOut)
++void MPList::printParameters (std::ostream *pOut)
+ {
+-	vector<MPListEntry>::iterator begin, end;
++	std::vector<MPListEntry>::iterator begin, end;
+ 
+-	*pOut << "NewsServerList {" << endl;
++	*pOut << "NewsServerList {" << std::endl;
+ 	
+ 	
+ 	for (begin=entries.begin(), end=entries.end();
+@@ -285,5 +297,5 @@
+ 		begin->printParameters (pOut);
+ 	}
+ 
+-	*pOut << "}" << endl;
++	*pOut << "}" << std::endl;
+ }
+Index: NServer-0.9.1/OverviewFmt.h
+===================================================================
+--- NServer-0.9.1/OverviewFmt.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/OverviewFmt.h	(.../trunk)	(revision 12)
+@@ -81,8 +81,8 @@
+ 	 * 	\li 0 => strip fieldname
+ 	 * 	\li 1 => add fieldname
+ 	 */
+-	string getfield(const char *over, const char *fld, int full = -1) {
+-		string field;
++	std::string getfield(const char *over, const char *fld, int full = -1) {
++		std::string field;
+ 		int i;
+ 
+ 		for (i = 0; i < _osz; i++) {
+@@ -133,7 +133,7 @@
+ 	 * \param recin The overview record that has to be converted.
+ 	 * \param recout The converted overview record.
+ 	 */
+-	void convert(const string & recin, string & recout) const {
++	void convert(const std::string & recin, std::string & recout) const {
+ 		int tabs[256];
+ 		int i, j, k, rinsz;
+ 		if (!dotrans) {
+@@ -206,9 +206,9 @@
+ 		}
+ 	}
+ 
+-	void convert(const Article & article, string & recout) const {
++	void convert(const Article & article, std::string & recout) const {
+ 		char buf[256];
+-		string fld;
++		std::string fld;
+ 		int i;
+ 
+ 		 sprintf(buf, "%d", article.getnbr());
+Index: NServer-0.9.1/Article.cc
+===================================================================
+--- NServer-0.9.1/Article.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/Article.cc	(.../trunk)	(revision 12)
+@@ -41,7 +41,7 @@
+ {
+ }
+ 
+-void InvalidArticleError::print(void) 
++void InvalidArticleError::print(void) const
+ {
+ 	slog << "Exception!\n"
+ 	    << "  Type: InvalidArticle\n"
+Index: NServer-0.9.1/NServer.cc
+===================================================================
+--- NServer-0.9.1/NServer.cc	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/NServer.cc	(.../trunk)	(revision 12)
+@@ -226,8 +226,9 @@
+ 	sleep(1); \
+ 	continue; \
+       } \
+-      sprintf(buf,"Connection to %s:%s failed", \
+-	      _CurrentServer->hostname,_CurrentServer->servicename); \
++      snprintf(buf, sizeof(buf), "Connection to %s:%s failed",\
++	       _CurrentServer->hostname.c_str(),\
++	       _CurrentServer->servicename.c_str()); \
+       throw SystemError(buf,errno, ERROR_LOCATION); \
+     }
+ void RServer::connect()
+@@ -236,47 +237,41 @@
+ 	if (is_connected())
+ 		return;
+ 
++	const time_t now = time(NULL);
++	if (now <
++	    _CurrentServer->connectFailed + _CurrentServer->connectBackoff) {
++		throw SystemError("RServer::connect: no connection to news server");
++	}
++
+ 	string grt, resp;
+ 	char buf[1024];
+-	int i = _CurrentServer->retries;
+-	_pServerStream = new sstream;
++	unsigned int i = _CurrentServer->retries;
++	_pServerStream = new sockstream;
+ 
+ 	for (;;) {
+-		// Open connection
+-		if (strcmp(_CurrentServer->bindFrom, "") == 0) {
+-			slog.
+-			    p(Logger::
+-			      Debug) << "RServer::connect: Connecting to "
+-			    << _CurrentServer->
+-			    hostname <<
+-			    " from DEFAULT interface to servicename " <<
+-			    _CurrentServer->servicename << "\n";
+-			_pServerStream->connectTo(_CurrentServer->hostname,
+-						  _CurrentServer->
+-						  servicename);
+-		} else {
+-			slog.
+-			    p(Logger::
+-			      Debug) << "RServer::connect: Connecting to "
+-			    << _CurrentServer->
+-			    hostname << " from interface " <<
+-			    _CurrentServer->
+-			    bindFrom << " to servicename " <<
+-			    _CurrentServer->servicename << "\n";
+-			_pServerStream->connectTo(_CurrentServer->hostname,
+-						  _CurrentServer->
+-						  servicename,
+-						  _CurrentServer->
+-						  bindFrom);
+-		}
++		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
++		  _CurrentServer->hostname << " to servicename " <<
++		  _CurrentServer->servicename << "\n";
++
++		const struct sockaddr *bindFrom =
++		  (_CurrentServer->bindFrom.ss_family == AF_UNSPEC) ?
++		  NULL : (const struct sockaddr *) &_CurrentServer->bindFrom;
++
++		_pServerStream->connect(_CurrentServer->hostname.c_str(),
++					_CurrentServer->servicename.c_str(),
++					bindFrom,
++					sizeof(_CurrentServer->bindFrom),
++					_CurrentServer->connectTimeout);
+ 		if (!_pServerStream->good()) {
+ 			delete _pServerStream;
+ 			_pServerStream = NULL;
++			_CurrentServer->connectFailed = time(NULL);
+ 			throw
+ 			    SystemError
+ 			    ("RServer::connect: cannot connect to news server",
+ 			     errno, ERROR_LOCATION);
+ 		}
++		_pServerStream->setnodelay();
+ 		_pServerStream->unsetf(ios::skipws);
+ 
+ 		//FIXME! repl nlreadline by nntpreadline that transparently
+@@ -296,26 +291,10 @@
+ 			string c("_connect_"), e("20[01]");
+ 			delete _pServerStream;
+ 			_pServerStream = NULL;
++			_CurrentServer->connectFailed = time(NULL);
+ 			throw ResponseError(c, e, grt);
+ 		}
+ 
+-		if (_CurrentServer->user[0]) {
+-			sprintf(buf, "authinfo user %s\r\n",
+-				_CurrentServer->user);
+-			resp = issue(buf, NULL);
+-			if (resp[0] == '3') {
+-				sprintf(buf, "authinfo pass %s\r\n",
+-					_CurrentServer->passwd);
+-				resp = issue(buf, NULL);
+-			}
+-			if (resp[0] != '2') {
+-				string c("_authenticate_"), e("[23]..");
+-				delete _pServerStream;
+-				_pServerStream = NULL;
+-				throw ResponseError(c, e, resp);
+-			}
+-		}
+-
+ 		if (_CurrentServer->nntpflags & MPListEntry::F_MODE_READER) {
+ 			// mode reader
+ 			resp = issue("mode reader\r\n", NULL);
+@@ -336,6 +315,24 @@
+ 			_CurrentServer->nntpflags &= ~MPListEntry::F_POST;
+ 		}
+ 
++		if (_CurrentServer->user[0]) {
++			snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
++				 _CurrentServer->user.c_str());
++			resp = issue(buf, NULL);
++			if (resp[0] == '3') {
++				snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
++					 _CurrentServer->passwd.c_str());
++				resp = issue(buf, NULL);
++			}
++			if (resp[0] != '2') {
++				string c("_authenticate_"), e("[23]..");
++				delete _pServerStream;
++				_pServerStream = NULL;
++				_CurrentServer->connectFailed = time(NULL);
++				throw ResponseError(c, e, resp);
++			}
++		}
++
+ 		if (_CurrentServer->
+ 		    nntpflags & MPListEntry::F_LIST_OVERVIEW_FMT) {
+ 			resp = issue("list overview.fmt\r\n", "215");
+@@ -364,6 +361,7 @@
+ 		if (_CurrentGroup.name()[0] != '\0') {
+ 			selectgroup(_CurrentGroup.name(), 1);
+ 		}
++		_CurrentServer->connectFailed = 0;
+ 		return;
+ 	}
+ }
+@@ -512,7 +510,7 @@
+ 	}
+ 
+ 	setserver(mpe);
+-	sprintf(buf, "group %s\r\n", name);
++	snprintf(buf, sizeof(buf), "group %s\r\n", name);
+ 	resp = issue(buf, NULL);
+ 
+ 	p = resp.c_str();
+@@ -551,6 +549,14 @@
+ 		_ActiveDB->get(name, &_CurrentGroup);
+ 		// If the above call fails, _ActiveDB will be updated with a
+ 		// probably inconsistent posting flag ('y')
++
++		if (mpe->limitgroupsize) {
++			if (lst - fst + 1 > mpe->limitgroupsize) {
++				fst = lst - mpe->limitgroupsize + 1;
++				nbr = mpe->limitgroupsize;
++			}
++		}
++
+ 		_CurrentGroup.set(name, fst, lst, nbr);
+ 		_ActiveDB->set(_CurrentGroup);
+ 	}
+@@ -577,7 +583,6 @@
+ 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
+ 	unsigned int i, flags;
+ 	char cgroup[MAXGROUPNAMELEN + 1], *cgp, buf[1024];
+-	const char *sp;
+ 	char c;
+ 
+ 	ASSERT(if (!_ServerList) {
+@@ -610,26 +615,29 @@
+ 			    nntpflags & MPListEntry::
+ 			    F_LIST_ACTIVE_WILDMAT) {
+ 				try {
+-					sp = _CurrentServer->read;
++					std::string::const_iterator sp =
++					  _CurrentServer->read.begin();
++					const std::string::const_iterator end =
++					  _CurrentServer->read.end();
+ 					do {
+ 						// Extract a newsgroup-expression
+ 						cgp = cgroup;
+-						while ((c = *sp++) != ','
+-						       && c)
++						while (sp != end &&
++						       (c = *sp++) != ',')
+ 							*cgp++ = c;
+ 						*cgp = '\0';
+-						sprintf(buf,
+-							"list active %s\r\n",
+-							cgroup);
++						snprintf(buf, sizeof(buf),
++							 "list active %s\r\n",
++							 cgroup);
+ 						issue(buf, "215");
+ 						// read active database and filter unwanted groups
+ 						_ActiveDB->
+ 						    read(*_pServerStream,
+ 							 _ServerList->
+ 							 makeFilter(i,
+-								    cgroup),
++								    cgroup).c_str(),
+ 							 flags);
+-					} while (c);
++					} while (sp != end);
+ 				}
+ 				catch(ResponseError & re) {
+ 					slog.p(Logger::Notice)
+@@ -651,7 +659,7 @@
+ 				issue("list active\r\n", "215");
+ 				_ActiveDB->read(*_pServerStream,
+ 						_ServerList->makeFilter(i,
+-									"*"),
++									"*").c_str(),
+ 						flags);
+ 			}
+ 		}
+@@ -726,24 +734,31 @@
+ 	string resp, line;
+ 
+ 	selectgroup(gname);
+-	resp = issue("listgroup\r\n", NULL);
+-	p = resp.c_str();
+-	if (!NNTP_ISCODE(p, "211")) {
+-		string c("listgroup\r\n"), e("211");
+-		throw ResponseError(c, e, resp);
+-	}
++	if (_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP) {
++		resp = issue("listgroup\r\n", NULL);
++		p = resp.c_str();
++		if (!NNTP_ISCODE(p, "211")) {
++			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
++			string c("listgroup\r\n"), e("211");
++			throw ResponseError(c, e, resp);
++		}
+ 
+-	for (;;) {
+-		nlreadline(*_pServerStream, line);
+-		if (line == ".\r\n")
+-			break;
+-		if (!_pServerStream->good())
+-			throw
+-			    SystemError("error while reading from server",
+-					errno, ERROR_LOCATION);
+-		i = atoi(line.data());
+-		if (f <= i && i <= l)
++		for (;;) {
++			nlreadline(*_pServerStream, line);
++			if (line == ".\r\n")
++				break;
++			if (!_pServerStream->good())
++				throw
++					SystemError("error while reading from server",
++						    errno, ERROR_LOCATION);
++			i = atoi(line.data());
++			if (f <= i && i <= l)
++				lstgrp[i - f] = 1;
++		}
++	} else {
++		for (i = f; i <= l; i++) {
+ 			lstgrp[i - f] = 1;
++		}
+ 	}
+ }
+ 
+@@ -779,7 +794,7 @@
+ 			     ERROR_LOCATION);
+ 		}
+ 
+-		sprintf(buf, fmt, fst, lst);
++		snprintf(buf, sizeof(buf), fmt, fst, lst);
+ 		resp = issue(buf, NULL);
+ 		p = resp.c_str();
+ 		if (NNTP_ISCODE(p, "224")) {
+@@ -815,7 +830,7 @@
+ 
+ 	selectgroup(gname);
+ 
+-	sprintf(buf, "article %u\r\n", nbr);
++	snprintf(buf, sizeof(buf), "article %u\r\n", nbr);
+ 	resp = issue(buf, NULL);
+ 	p = resp.c_str();
+ 	if (strncmp(p, "220", 3) != 0) {
+@@ -838,7 +853,7 @@
+ 	const char *p;
+ 	string resp;
+ 
+-	sprintf(buf, "article %s\r\n", id);
++	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+ 	if (_CurrentServer) {
+ 		resp = issue(buf, NULL);
+ 		p = resp.c_str();
+@@ -903,7 +918,7 @@
+ 
+ 	try {
+ 		resp = article->getfield("message-id:");
+-		sprintf(buf, "stat %s\r\n", resp.c_str());
++		snprintf(buf, sizeof(buf), "stat %s\r\n", resp.c_str());
+ 		resp = issue(buf, NULL);
+ 		p = resp.c_str();
+ 		if (strncmp(p, "223", 3) == 0)
+@@ -1005,12 +1020,13 @@
+ 	//FIXME! We should use the path field here, or introduce a 
+ 	//FIXME! new field that shows the cache-posting-chain
+ 	if (nntp_posting_host[0]) {
+-		sprintf(buf, "X-NNTP-Posting-Host: %s\r\n",
+-			nntp_posting_host);
++		snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
++			 nntp_posting_host);
+ 		article->setfield("X-NNTP-Posting-Host:", buf);
+ 	}
+ 
+-	if (!article->has_field("message-id:")) {
++	if (!(_CurrentServer->flags & MPListEntry::F_DONTGENMSGID) &&
++	    !article->has_field("message-id:")) {
+ 		struct timeval tv;
+ 		int j;
+ 		char mid[768];
+@@ -1029,7 +1045,8 @@
+ 		strcpy(p, nntp_hostname);
+ 		pc++;
+ 
+-		sprintf(msgid, "Message-ID: <newscache$%s>\r\n", mid);
++		snprintf(msgid, sizeof(msgid),
++			 "Message-ID: <newscache$%s>\r\n", mid);
+ 		article->setfield("Message-ID:", msgid);
+ 	}
+ 
+@@ -1069,7 +1086,7 @@
+ 
+ 	if (!sc) {
+ 		slog.p(Logger::Info) << "no news server configured for "
+-		    << msgid << "\n";
++		    << newsgroups << "\n";
+ 		free(mpe);
+ 		throw InvalidArticleError("no valid newsgroup",
+ 					  ERROR_LOCATION);
+@@ -1158,7 +1175,7 @@
+ 		_OverviewFormat = new OverviewFmt;
+ 	}
+ 	if (!_ActiveDB) {
+-		sprintf(buf, "%s/.active", spooldir);
++		snprintf(buf, sizeof(buf), "%s/.active", spooldir);
+ 		_ActiveDB = _NVActiveDB = new NVActiveDB(buf);
+ 	}
+ 
+@@ -1339,7 +1356,7 @@
+ 
+ 	gettimeofday(&tv, NULL);
+ 
+-	sprintf(fn, "%s/.headerlog", _SpoolDirectory);
++	ssprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
+ 	fs.open(fn, ios::app);
+ 	fs << getpid() << " " << tv.tv_sec << endl;
+ 	article->write(fs, Article::Head);
+@@ -1487,7 +1504,7 @@
+ 	const char *p;
+ 	string resp;
+ 
+-	sprintf(buf, "article %s\r\n", id);
++	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+ 	if (_CurrentServer
+ 	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)) {
+ 		resp = issue(buf, NULL);
+Index: NServer-0.9.1/Article.h
+===================================================================
+--- NServer-0.9.1/Article.h	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/Article.h	(.../trunk)	(revision 12)
+@@ -23,7 +23,7 @@
+ 	InvalidArticleError(const std::string & txt, const char *file,
+ 			      const char *function, int line);
+ 
+-	virtual void print(void);
++	virtual void print(void) const;
+ };
+ 
+ /**
+Index: NServer-0.9.1/Makefile.am
+===================================================================
+--- NServer-0.9.1/Makefile.am	(.../tags/1.2rc6)	(revision 12)
++++ NServer-0.9.1/Makefile.am	(.../trunk)	(revision 12)
+@@ -39,8 +39,8 @@
+ 	RNewsgroup.cc\
+ 	RNewsgroup.h\
+ 	VirtualIterator.h\
+-	sstream.cc\
+-	sstream.h\
++	sockstream.cc\
++	sockstream.h\
+ 	util.cc\
+ 	util.h\
+ 	readline.cc\
+Index: src/AccessList.cc
+===================================================================
+--- src/AccessList.cc	(.../tags/1.2rc6)	(revision 12)
++++ src/AccessList.cc	(.../trunk)	(revision 12)
+@@ -6,12 +6,16 @@
+ #include <strstream>
+ #endif
+ 
++#include <arpa/inet.h>
++#include <sys/socket.h>
++#include <netdb.h>
+ 
++
+ #include <algorithm>
+ 
+ using namespace std;
+ 
+-ostream & operator<<(ostream & os, const AccessEntry & ae)
++std::ostream & operator<<(std::ostream & os, const AccessEntry & ae)
+ {
+ #ifdef HAVE_SSTREAM
+ 	stringstream sb;
+@@ -28,7 +32,7 @@
+ 	os << "  postto=" << ae.postTo << endl;
+ 	ae.authentication.printParameters (&sb);
+ 	os << "  PAMServicename " << ae.PAMServicename << endl;
+-	string t = sb.str();
++	std::string t = sb.str();
+ 	// replace \t\tAuthentication with ""
+ 	t.replace(0, 17, "");
+ 	os << "  authentication=" << t << endl;
+@@ -45,64 +49,98 @@
+ 
+ #define NOT_INADDR(s) (s[strspn(s,"01234567890./")] != 0)
+ 
+-int in_domain(const char *name, const char *domain)
++bool in_domain(const std::string &name, const std::string &domain)
+ {
+-	int name_len = strlen(name);
+-	int domain_len = strlen(domain);
++	const size_t name_len = name.length();
++	const size_t domain_len = domain.length();
+ 
+-	if (domain[domain_len - 1] == '.') {	/* prefix */
+-		return STRN_EQ(name, domain, domain_len);
+-	} else if (domain[0] == '.') {	/* suffix */
+-		int n = name_len - domain_len;
+-		return n > 0 && STR_EQ(name + n, domain);
++	if (domain[0] == '.') {	/* suffix */
++		if (name_len > domain_len) {
++			const size_t n = name_len - domain_len;
++			return STR_EQ(name.c_str() + n, domain.c_str());
++		}
+ 	} else {		/* exact match */
+-		return STR_EQ(name, domain);
++		return STR_EQ(name.c_str(), domain.c_str());
+ 	}
++
++	return false;
+ }
+ 
+-int matchaddress(const char *pattern,
+-		 const char *name, const struct in_addr &host_addr)
++bool matchaddress(const struct sockaddr *pattern_addr,
++		  socklen_t pattern_addrlen, unsigned short prefixlen,
++		  const struct sockaddr *host_addr, socklen_t host_addrlen)
+ {
+-	const char *p = pattern;
++	const uint8_t *pattern_bytes = NULL;
++	const uint8_t *host_bytes = NULL;
++	size_t addrlen = 0;
+ 
+-	while (*p && *p != '/')
+-		++p;
++	if ((pattern_addr->sa_family == AF_INET) &&
++	    (host_addr->sa_family == AF_INET)) {
++		addrlen = 4;
++		pattern_bytes = (uint8_t *) &((const struct sockaddr_in *) pattern_addr)->sin_addr.s_addr;
++		host_bytes = (uint8_t *) &((const struct sockaddr_in *) host_addr)->sin_addr.s_addr;
++	}
+ 
+-	if (*p) {
+-		string net(pattern, p - pattern);
+-		string mask(p + 1);
++	if ((pattern_addr->sa_family == AF_INET6) &&
++	    (host_addr->sa_family == AF_INET6)) {
++		addrlen = 16;
++		pattern_bytes = ((const struct sockaddr_in6 *) pattern_addr)->sin6_addr.s6_addr;
++		host_bytes = ((const struct sockaddr_in6 *) host_addr)->sin6_addr.s6_addr;
++	}
+ 
+-		struct in_addr net_addr, mask_addr;
+-		if (!inet_aton(net.c_str(), &net_addr))
+-			return 0;
+-		if (!inet_aton(mask.c_str(), &mask_addr))
+-			return 0;
++	if ((pattern_addr->sa_family == AF_INET) &&
++	    (host_addr->sa_family == AF_INET6) &&
++	    (IN6_IS_ADDR_V4MAPPED(&((const struct sockaddr_in6 *) host_addr)->sin6_addr))) {
++		addrlen = 4;
++		pattern_bytes = (uint8_t *) &((const struct sockaddr_in *) pattern_addr)->sin_addr.s_addr;
++		host_bytes = &((const struct sockaddr_in6 *) host_addr)->sin6_addr.s6_addr[12];
++	}
+ 
+-		return (host_addr.s_addr & mask_addr.s_addr) ==
+-		    net_addr.s_addr;
+-	} else {		/* anything else */
+-		return NOT_INADDR(name) && in_domain(name, pattern);
++	if ((pattern_bytes != NULL) && (host_bytes != NULL)) {
++		for (unsigned int i = 0; i < addrlen; i++) {
++			if (prefixlen >= (8*i + 8)) {
++				if ((*pattern_bytes ^ *host_bytes) != 0) {
++					return false;
++				}
++			} else {
++				return (*pattern_bytes ^ *host_bytes) < (1 << (8 - (prefixlen % 8)));
++			}
++
++			pattern_bytes++;
++			host_bytes++;
++		}
+ 	}
++
++	return false;
+ }
+ 
+-AccessEntry *AccessList::client(const char *name, struct in_addr addr)
++AccessEntry *AccessList::client(const char *name, const struct sockaddr *addr,
++				socklen_t addrlen)
+ {
+-	std::vector < AccessEntry >::iterator begin = vector.begin(), end =
+-	    vector.end();
++	std::vector < AccessEntry >::iterator iter = vector.begin();
++	const std::vector < AccessEntry >::iterator &end = vector.end();
+ 
+-	while (begin != end) {
+-		if (matchaddress(begin->hostname, name, addr) ||
+-		    begin->hostname[0] == '\0') {
+-			return &(*begin);
++	while (iter != end) {
++		if (iter->addr.ss_family == AF_UNSPEC) {
++			if (iter->hostname.empty() ||
++			    in_domain(name, iter->hostname)) {
++				return &(*iter);
++			}
++		} else {
++			if (matchaddress((const struct sockaddr *) &iter->addr,
++					 sizeof(iter->addr),
++					 iter->prefixlen, addr, addrlen)) {
++				return &(*iter);
++			}
+ 		}
+-		++begin;
++		++iter;
+ 	}
+ 	return NULL;
+ }
+ 
+ void AccessList::read(Lexer & lex)
+ {
+-	string tok, host, port;
++	std::string tok, host, port;
+ 	int default_found = 0;
+ 	tok = lex.getToken();
+ 	if (tok != "{")
+@@ -135,7 +173,7 @@
+       if (!(filter_set&0x02)) cur.read=a1; \
+       if (!(filter_set&0x04)) cur.postTo=a1;
+ 
+-void AccessEntry::printParameters (ostream *pOut)
++void AccessEntry::printParameters (std::ostream *pOut)
+ {
+ 	if (hostname[0] != '\0') {
+ 		*pOut << "\tClient " << hostname << " {" << endl;
+@@ -159,17 +197,17 @@
+ 	*pOut << "\t}" << endl;
+ }
+ 
+-void AccessEntry::modifyAccessFlags (const string &flags)
++void AccessEntry::modifyAccessFlags (const std::string &flags)
+ {
+-	string t;
+-	string::size_type i=0, j;
++	std::string t;
++	std::string::size_type i=0, j;
+ 
+ 	if (flags.length() == 0) {
+ 		return;
+ 	}
+ 
+ 	do {
+-		if ((j=flags.find (",", i)) == string::npos) {
++		if ((j=flags.find (",", i)) == std::string::npos) {
+ 			j=flags.length();
+ 		}
+ 		t = flags.substr (i, j-i);
+@@ -196,11 +234,69 @@
+ 
+ void AccessList::readClient(Lexer & lex, const char *address)
+ {
+-	string tok, a1, a2, a3;
++	std::string tok, a1, a2, a3;
+ 	int filter_set = 0;
+ 	AccessEntry cur;
+-	strcpy(cur.hostname, address);
+ 
++	int family = AF_UNSPEC;
++	const char *slash = strchr(address, '/');
++	if (slash != NULL) {
++		if (strspn(slash + 1, "0123456789") == strlen(slash + 1)) {
++			cur.prefixlen = atoi(slash + 1);
++		} else {
++			unsigned char mask[4];
++			if (inet_pton(AF_INET, slash + 1, &mask) != 1) {
++				throw SyntaxError(lex, "unable to parse IPv4 netmask", ERROR_LOCATION);
++			}
++
++			unsigned char b = 0;
++			for (unsigned int i = 0; i < sizeof(mask); i++) {
++				if (mask[i] != 0xff) {
++					b = mask[i];
++					break;
++				}
++				cur.prefixlen += 8;
++			}
++
++			if ((b & 0xf0) == 0xf0) {
++				cur.prefixlen += 4;
++				b &= 0x0f;
++			} else {
++				b >>= 4;
++			}
++
++			if ((b & 0x0c) == 0x0c) {
++				cur.prefixlen += 2;
++				b &= 0x03;
++			} else {
++				b >>= 2;
++			}
++
++			if (b & 0x02) {
++				cur.prefixlen++;
++			}
++		}
++
++		cur.hostname.assign(address, slash);
++	} else {
++		cur.hostname = address;
++	}
++
++	struct addrinfo hints;
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICHOST;
++	hints.ai_family = family;
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_protocol = IPPROTO_TCP;
++
++	struct addrinfo *res;
++	if (!getaddrinfo(cur.hostname.c_str(), NULL, &hints, &res)) {
++		memcpy(&cur.addr, res->ai_addr, res->ai_addrlen);
++
++		cur.hostname.erase();
++		freeaddrinfo(res);
++	}
++
+ 	tok = lex.getToken();
+ 	if (tok != "{")
+ 		throw SyntaxError(lex, "expected '{'", ERROR_LOCATION);
+@@ -241,7 +337,7 @@
+ 			filter_set |= 0x04;
+ 			ACCESSLIST_SET_FILTERS;
+ 		} else if (tok == "Authentication") {
+-			string t = lex.getToken();
++			std::string t = lex.getToken();
+ 			cur.authentication.set (t);
+ 		} else if (tok == "PAMServicename") {
+ 			cur.PAMServicename = lex.getToken();
+@@ -271,9 +367,9 @@
+ 	*pOut << "}" << endl;
+ }
+ 
+-void Authentication::set (const string &AuthString)
++void Authentication::set (const std::string &AuthString)
+ {
+-	string::size_type beg=0, end=0; 
++	std::string::size_type beg=0, end=0; 
+ 
+ 	fields.clear();
+ 
+@@ -282,24 +378,24 @@
+ 	}
+ 
+ 	do {
+-		if ((end=AuthString.find(":",beg)) == string::npos) {
++		if ((end=AuthString.find(":",beg)) == std::string::npos) {
+ 			end=AuthString.length();
+ 		}
+ 		if (end>beg) {
+ 			fields.push_back (AuthString.substr(beg, end-beg));
+ 		} else {
+-			fields.push_back (string(""));
++			fields.push_back (std::string(""));
+ 		}
+ 		beg=++end;
+ 	} while (end<AuthString.length());
+ 
+ 	// empty field at the end of AuthString?
+ 	if (AuthString[AuthString.length()-1] == ':') {
+-		fields.push_back (string(""));
++		fields.push_back (std::string(""));
+ 	}
+ }
+ 
+-void Authentication::printParameters (ostream *pOut) const
++void Authentication::printParameters (std::ostream *pOut) const
+ {
+ 	int i,e=fields.size();
+ 
+@@ -321,8 +417,8 @@
+ void Authentication::modify (unsigned int start, Authentication &source)
+ {
+ 	unsigned int i;
+-	vector<string>::iterator sp, se;
+-	vector<string>::iterator dp, de;
++	vector<std::string>::iterator sp, se;
++	vector<std::string>::iterator dp, de;
+ 
+ 	sp = source.fields.begin();
+ 	se = source.fields.end();
+@@ -336,7 +432,7 @@
+ 			sp++;
+ 		} else if (sp == se) {
+ 			if (i>=start)
+-				fields.push_back (string(""));
++				fields.push_back (std::string(""));
+ 			dp++;
+ 		} else {
+ 			if (i>=start)
+@@ -346,7 +442,7 @@
+ 	}
+ }
+ 
+-int Authentication::typeEqual (const string &v)
++int Authentication::typeEqual (const std::string &v)
+ {
+ 	const char *s = fields[0].c_str();
+ 	const char *p = v.c_str();
+Index: src/AccessList.h
+===================================================================
+--- src/AccessList.h	(.../tags/1.2rc6)	(revision 12)
++++ src/AccessList.h	(.../trunk)	(revision 12)
+@@ -99,7 +99,7 @@
+ 
+   private:
+ 	std::vector<std::string> fields;
+-	string defAuth;
++	std::string defAuth;
+ };
+ 
+ /**
+@@ -110,7 +110,9 @@
+  */
+ class AccessEntry {
+       public:
+-	char hostname[MAXHOSTNAMELEN];
++	std::string hostname;
++	struct sockaddr_storage addr;
++	unsigned short prefixlen;
+ 
+ 	enum {
+ 		af_read = 0x1,
+@@ -125,12 +127,13 @@
+ 	NewsgroupFilter read;	//! groups that clients may read
+ 	NewsgroupFilter postTo;	//! groups that clients may post to
+ 	Authentication authentication;
+-	string PAMServicename;  //! PAM Service name for this Client
++	std::string PAMServicename;  //! PAM Service name for this Client
+ 
+ 	 AccessEntry() {
+ 		init();
+ 	} void init() {
+-		hostname[0] = '\0';
++		addr.ss_family = AF_UNSPEC;
++		prefixlen = 0;
+ 		access_flags = 0x0;
+ 		PAMServicename = PAM_DEFAULT_SERVICENAME;
+ 	}
+@@ -170,7 +173,9 @@
+ 
+       public:
+ 	AccessList() {
+-	} AccessEntry *client(const char *name, struct in_addr addr);
++	}
++	AccessEntry *client(const char *name, const struct sockaddr *addr,
++			    socklen_t addrlen);
+ 	void init() {
+ 		vector.clear();
+ 	}
+Index: src/updatenews.cc
+===================================================================
+--- src/updatenews.cc	(.../tags/1.2rc6)	(revision 12)
++++ src/updatenews.cc	(.../trunk)	(revision 12)
+@@ -15,10 +15,14 @@
+  * along with this program; if not, write to the Free Software
+  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+  */
++#include "config.h"
++
+ #include <unistd.h>
+ #include <string.h>
+ #include <errno.h>
++#ifdef HAVE_GETOPT_H
+ #include <getopt.h>
++#endif
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+ #include <netdb.h>
+@@ -30,7 +34,6 @@
+ #include <iostream>
+ #include <vector>
+ 
+-#include "config.h"
+ #include "Debug.h"
+ #include "Config.h"
+ #include "NServer.h"
+@@ -234,6 +237,7 @@
+ 
+ 	cmnd = argv[0];
+ 	while (1) {
++#ifdef HAVE_GETOPT_H
+ 		int option_index = 0;
+ 		static struct option long_options[] = {
+ 			{"version", 0, 0, 'v'},
+@@ -249,7 +253,9 @@
+ 
+ 		c = getopt_long (argc, argv, "vhc:agolw:", long_options,
+ 				&option_index);
+-
++#else
++		c = getopt (argc, argv, "vhc:agolw:");
++#endif
+ 		if (c == -1)
+ 			break;
+ 
+Index: src/NewsCache.cc
+===================================================================
+--- src/NewsCache.cc	(.../tags/1.2rc6)	(revision 12)
++++ src/NewsCache.cc	(.../trunk)	(revision 12)
+@@ -31,7 +31,9 @@
+ #include <unistd.h>
+ #include <string.h>
+ #include <errno.h>
++#ifdef HAVE_GETOPT_H
+ #include <getopt.h>
++#endif
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+ #include <netdb.h>
+@@ -47,7 +49,6 @@
+ #include <sys/wait.h>
+ #include <time.h>
+ #include <limits.h>
+-#include <socket++/sockstream.h>
+ 
+ char *ConfigurationOptions[] = {
+ #ifdef MD5_CRYPT
+@@ -83,8 +84,6 @@
+ 	NULL
+ };
+ 
+-using namespace std;
+-
+ #ifdef HAVE_LIBWRAP
+ #include <tcpd.h>
+ extern "C" int hosts_ctl(char *daemon, char *client_name,
+@@ -111,6 +110,7 @@
+ #include <iostream>
+ #include <algorithm>
+ #include <map>
++#include <string>
+ 
+ #include "NServer.h"
+ #include "Newsgroup.h"
+@@ -119,10 +119,22 @@
+ #include "setugid.h"
+ #include "Config.h"
+ #include "Logger.h"
++#include "sockstream.h"
+ 
+-using namespace std;
++using std::cin;
++using std::cout;
++using std::cerr;
++using std::endl;
++using std::for_each;
++using std::ifstream;
++using std::ios;
++using std::istream;
++using std::ofstream;
++using std::ostream;
++using std::map;
++using std::string;
++using std::vector;
+ 
+-
+ /* CONF_MultiClient
+  * Allow several simultaneous clients in standalone mode.
+  * This switch is turned off for debug purposes mainly.
+@@ -138,7 +150,7 @@
+ #define SOCKLEN_TYPE size_t
+ #endif
+ 
+-int clientTimeoutReached=0;
++sig_atomic_t alarmed=0;
+ Logger slog;
+ const char *cmnd;
+ class ClientData;
+@@ -297,8 +309,9 @@
+ 
+ char config_file[MAXPATHLEN];
+ Config Cfg;
++bool reReadConfig;
+ 
+-int Xsignal;
++sig_atomic_t Xsignal;
+ int nntp_connections;
+ 
+ enum {
+@@ -316,9 +329,10 @@
+  */
+ class ClientData {
+       public:
+-	struct sockaddr_in sock;
++	struct sockaddr_storage sock;
+ 	SOCKLEN_TYPE socklen;
+ 	char client_name[MAXHOSTNAMELEN];
++	char client_addr[INET6_ADDRSTRLEN];
+ 	string client_logname;
+ 	istream *ci;
+ 	ostream *co;
+@@ -752,77 +766,7 @@
+ 	return -1;
+ }
+ 
+-// fills sin_addr.s and sin_port in addr
+-// return -1 if an error occurred
+-int fillHostStruct(struct sockaddr_in *addr, char *pHost)
+-{
+-	char fname[] = "getHost";
+-	char *p;
+-	struct servent *cport;
+-	struct hostent *host;
+-	int portFlg = 0;
+ 
+-	addr->sin_family = AF_INET;
+-
+-	if ((p = strchr(pHost, ':')) != NULL) {
+-		portFlg = 1;
+-		*p = '\0';
+-	}
+-
+-	if (strcmp(pHost, "DEFAULT") == 0) {
+-		addr->sin_addr.s_addr = INADDR_ANY;
+-	} else if ((addr->sin_addr.s_addr = inet_addr(pHost)) ==
+-		   INADDR_NONE) {
+-		if ((host =
+-		     gethostbyname(pHost)) == NULL | host->h_addrtype !=
+-		    AF_INET) {
+-			if (portFlg)
+-				*p = ':';
+-			slog.
+-			    p(Logger::
+-			      Error) << fname << ": gethostbyname (" <<
+-			    pHost << ") error: " << strerror(errno) <<
+-			    "\n";
+-			return -1;
+-		} else {
+-			if (host->h_addr_list[0]) {
+-				memcpy(&addr->sin_addr.s_addr,
+-				       host->h_addr_list[0],
+-				       host->h_length);
+-			} else {
+-				if (portFlg)
+-					*p = ':';
+-				slog.
+-				    p(Logger::
+-				      Error) << fname <<
+-				    ":host->h_addr_list[0] of " << pHost <<
+-				    "not valid\n";
+-				return -1;
+-			}
+-		}
+-	}
+-	if (portFlg)
+-		*p = ':';
+-
+-	if (portFlg && isdigit(*(p + 1))) {
+-		addr->sin_port = htons(atoi(p + 1));
+-	} else
+-	    if ((cport =
+-		 getservbyname((portFlg) ? (p + 1) : ("nntp"),
+-			       "tcp")) == NULL) {
+-
+-		slog.p(Logger::Error) << fname << ": getservbyname ("
+-		    << ((portFlg) ? ((const char *) (p + 1))
+-			: ((const char *) "nntp")) << "/tcp error \n";
+-		return -1;
+-	} else {
+-		addr->sin_port = cport->s_port;
+-	}
+-
+-	return 1;
+-}
+-
+-
+ GroupInfo *selectgroup(ClientData * clt, const char *group)
+ {
+ 	GroupInfo *gi;
+@@ -832,7 +776,7 @@
+ 
+ 	try {
+ 		gi = clt->srvr->groupinfo(group);
+-	} catch(NSError & nse) {
++	} catch(const NSError & nse) {
+ 		return NULL;
+ 	}
+ 	catch(...) {
+@@ -975,11 +919,11 @@
+ 				clt->grp =
+ 				    clt->srvr->getgroup(clt->groupname);
+ 		}
+-		catch(NoSuchGroupError & nsge) {
++		catch(const NoSuchGroupError & nsge) {
+ 			(*clt->co) << "411 no such newsgroup\r\n";
+ 			return -1;
+ 		}
+-		catch(Error & e) {
++		catch(const Error & e) {
+ 			(*clt->co) << "412 operation failed\r\n";
+ 			return -1;
+ 		}
+@@ -1016,16 +960,16 @@
+ 			clt->srvr->article(argv[1], &a);
+ 			nsh_particle(clt, argv[0], 0, &a);
+ 		}
+-		catch(NoSuchArticleError nsae) {
++		catch(const NoSuchArticleError &nsae) {
+ 			(*clt->co) << "430 no such article id found\r\n";
+ 			return -1;
+ 		}
+-		catch(ResponseError e) {
++		catch(const ResponseError &e) {
+ 			// error
+ 			(*clt->co) << e._got << "\r\n";
+ 			return -1;
+ 		}
+-		catch(Error e) {
++		catch(const Error &e) {
+ 			// error
+ 			(*clt->co) << "520 ???\r\n";
+ 			slog.
+@@ -1080,11 +1024,11 @@
+ 				clt->grp =
+ 				    clt->srvr->getgroup(clt->groupname);
+ 		}
+-		catch(NoSuchGroupError & nsge) {
++		catch(const NoSuchGroupError & nsge) {
+ 			(*clt->co) << "411 no such newsgroup\r\n";
+ 			return -1;
+ 		}
+-		catch(Error & e) {
++		catch(const Error & e) {
+ 			(*clt->co) << "412 operation failed\r\n";
+ 			return -1;
+ 		}
+@@ -1115,16 +1059,16 @@
+ 			clt->srvr->article(argv[1], &a);
+ 			//nsh_particle(clt, argv[0], 0, &a);
+ 		}
+-		catch(NoSuchArticleError nsae) {
++		catch(const NoSuchArticleError &nsae) {
+ 			(*clt->co) << "430 no such article id found\r\n";
+ 			return -1;
+ 		}
+-		catch(ResponseError e) {
++		catch(const ResponseError &e) {
+ 			// error
+ 			(*clt->co) << e._got << "\r\n";
+ 			return -1;
+ 		}
+-		catch(Error e) {
++		catch(const Error &e) {
+ 			// error
+ 			(*clt->co) << "520 ???\r\n";
+ 			slog.
+@@ -1255,11 +1199,11 @@
+ 		if (!clt->grp)
+ 			clt->grp = clt->srvr->getgroup(clt->groupname);
+ 	}
+-	catch(NoSuchGroupError & nsge) {
++	catch(const NoSuchGroupError & nsge) {
+ 		(*clt->co) << "411 no such news group\r\n";
+ 		return -1;
+ 	}
+-	catch(Error & e) {
++	catch(const Error & e) {
+ 		(*clt->co) << "412 operation failed\r\n";
+ 		return -1;
+ 	}
+@@ -1396,7 +1340,7 @@
+ 					 print_list_active > (*clt->co,
+ 							      filter));
+ 			}
+-			catch(SystemError & se) {
++			catch(const SystemError & se) {
+ 				return -2;
+ 			}
+ 			(*clt->co) << ".\r\n";
+@@ -1417,7 +1361,7 @@
+ 					 print_list_active_times >
+ 					 (*clt->co, filter));
+ 			}
+-			catch(SystemError & se) {
++			catch(const SystemError & se) {
+ 				return -2;
+ 			}
+ 			(*clt->co) << ".\r\n";
+@@ -1492,11 +1436,11 @@
+ 		if (!clt->grp)
+ 			clt->grp = clt->srvr->getgroup(clt->groupname);
+ 	}
+-	catch(NoSuchGroupError & nsge) {
++	catch(const NoSuchGroupError & nsge) {
+ 		(*clt->co) << "411 no such news group\r\n";
+ 		return -1;
+ 	}
+-	catch(Error & e) {
++	catch(const Error & e) {
+ 		(*clt->co) << "412 operation failed\r\n";
+ 		e.print();
+ 		return -1;
+@@ -1624,7 +1568,7 @@
+ 	try {
+ 		active = clt->srvr->active();
+ 	}
+-	catch(Error & e) {
++	catch(const Error & e) {
+ 		(*clt->co) << "410 operation failed\r\n";
+ 		return -1;
+ 	}
+@@ -1639,7 +1583,7 @@
+ 						    clt->access_entry->
+ 						    list, lt));
+ 	}
+-	catch(SystemError & se) {
++	catch(const SystemError & se) {
+ 		return -2;
+ 	}
+ 	(*clt->co) << ".\r\n";
+@@ -1681,11 +1625,11 @@
+ 			i2 = newsgroups.find(",", i1);
+ 		}
+ 	}
+-	catch(InvalidArticleError & iae) {
++	catch(const InvalidArticleError & iae) {
+ 		(*clt->co) << "441 invalid article\r\n";
+ 		return -1;
+ 	}
+-	catch(NoSuchFieldError & nsfe) {
++	catch(const NoSuchFieldError & nsfe) {
+ 		(*clt->co) << "441 invalid article\r\n";
+ 		return -1;
+ 	}
+@@ -1696,15 +1640,15 @@
+ 		(*clt->co) << "240 Article posted\r\n";
+ 		return 0;
+ 	}
+-	catch(InvalidArticleError & iae) {
++	catch(const InvalidArticleError & iae) {
+ 		(*clt->co) << "441 invalid article\r\n";
+ 		return -1;
+ 	}
+-	catch(NotAllowedError & nae) {
++	catch(const NotAllowedError & nae) {
+ 		(*clt->co) << "440 posting not allowed\r\n";
+ 		return -1;
+ 	}
+-	catch(Error & e) {
++	catch(const Error & e) {
+ 		(*clt->co) << "449 operation failed\r\n";
+ 		return -1;
+ 	}
+@@ -1768,11 +1712,11 @@
+ 		if (!clt->grp)
+ 			clt->grp = clt->srvr->getgroup(clt->groupname);
+ 	}
+-	catch(NoSuchGroupError & nsge) {
++	catch(const NoSuchGroupError & nsge) {
+ 		(*clt->co) << "411 no such news group\r\n";
+ 		return -1;
+ 	}
+-	catch(Error & e) {
++	catch(const Error & e) {
+ 		e.print();
+ 		(*clt->co) << "412 operation failed\r\n";
+ 		return -1;
+@@ -1868,7 +1812,6 @@
+  */
+ void nnrpd(int fd)
+ {
+-	struct hostent *he;
+ 	ClientData clt;
+ 	char req[1024], oreq[1024], *rp;
+ 	char *argv[256];
+@@ -1877,8 +1820,7 @@
+ 	map < string, nnrp_command_t * >::iterator cmdp, end =
+ 	    nnrp_commands.end();
+ 	int errc = 0;
+-	sockbuf *psock_buff = NULL;
+-	iosockstream *psock_stream = NULL;
++	sockstream sock_stream;
+ 	int nice;
+ 
+ 	/* set nice value for master server */
+@@ -1901,16 +1843,14 @@
+ #endif
+ 
+ 	if (fd >= 0) {
+-		// FIXME: check NULL Pointer and throw exception
+-		psock_buff = new sockbuf(fd);
+-		psock_buff->setname ("nntp client socket");
+-		psock_stream = new iosockstream(psock_buff);
+-		psock_buff->recvtimeout(-1);
+-		psock_buff->sendtimeout(-1);
+-		psock_stream->unsetf(ios::skipws);
+-		clt.co = psock_stream;
+-		clt.ci = psock_stream;
++		sock_stream.attach(fd);
+ 
++		sock_stream.setkeepalive();
++		sock_stream.setnodelay();
++
++		clt.co = &sock_stream;
++		clt.ci = &sock_stream;
++
+ 		// get network address and name of client
+ 		clt.socklen = sizeof(clt.sock);
+ 		if (getpeername
+@@ -1923,22 +1863,61 @@
+ 			// get the name of the client and store it in clt.client_name.
+ 			// if the client does not have a name, use the ip-address instead
+ 			// store it in nntp_posting_host as used by libnserver
+-			he = gethostbyaddr((const char *)
+-					   &(clt.sock.sin_addr),
+-					   sizeof(clt.sock.sin_addr),
+-					   AF_INET);
+-			if (he) {
+-				strncpy(clt.client_name, he->h_name,
+-					sizeof(clt.client_name));
+-				clt.client_name[sizeof(clt.client_name) -
+-						1] = '\0';
+-			} else {
+-				strncpy(clt.client_name,
+-					inet_ntoa(clt.sock.sin_addr),
+-					sizeof(clt.client_name));
+-				clt.client_name[sizeof(clt.client_name) -
+-						1] = '\0';
++			clt.client_name[0] = '\0';
++			getnameinfo((const struct sockaddr *) &clt.sock,
++				    clt.socklen,
++				    clt.client_name, sizeof(clt.client_name),
++				    NULL, 0, 0);
++
++			struct addrinfo hints;
++			memset(&hints, 0, sizeof(hints));
++			hints.ai_flags =
++			  (clt.sock.ss_family == AF_INET6) ? AI_V4MAPPED : 0;
++			hints.ai_family = clt.sock.ss_family;
++			hints.ai_socktype = SOCK_STREAM;
++			hints.ai_protocol = IPPROTO_TCP;
++
++			struct addrinfo *res = NULL;
++			getaddrinfo(clt.client_name, NULL, &hints, &res);
++
++			// have to verify the address we got from getnameinfo
++			bool found_addr = false;
++			struct addrinfo *addr = res;
++			while (addr != NULL) {
++				if (addr->ai_addr->sa_family == clt.sock.ss_family) {
++					if (addr->ai_addr->sa_family == AF_INET) {
++						if (((const struct sockaddr_in *) addr->ai_addr)->sin_addr.s_addr ==
++						    ((const struct sockaddr_in *) &clt.sock)->sin_addr.s_addr) {
++							found_addr = true;
++							break;
++						}
++					} else if (addr->ai_addr->sa_family == AF_INET6) {
++						if (!memcmp(((const struct sockaddr_in6 *) addr->ai_addr)->sin6_addr.s6_addr,
++							    ((const struct sockaddr_in6 *) &clt.sock)->sin6_addr.s6_addr,
++							    16)) {
++							found_addr = true;
++							break;
++						}
++					}
++				}
++
++				addr = addr->ai_next;
+ 			}
++			freeaddrinfo(res);
++
++			if (!found_addr) {
++				clt.client_name[0] = '\0';
++			}
++
++			clt.client_addr[0] = '\0';
++			getnameinfo((const struct sockaddr *) &clt.sock,
++				    clt.socklen,
++				    clt.client_addr, sizeof(clt.client_addr),
++				    NULL, 0, NI_NUMERICHOST);
++
++			if (clt.client_name[0] == '\0') {
++				strcpy(clt.client_name, clt.client_addr);
++			}
+ 			strcpy(nntp_posting_host, clt.client_name);
+ 
+ 			// add the client's name to its logging name (clt.client_logname),
+@@ -1952,8 +1931,7 @@
+ 					clt.client_logname += " [";
+ 				else
+ 					clt.client_logname += '[';
+-				clt.client_logname +=
+-				    inet_ntoa(clt.sock.sin_addr);
++				clt.client_logname += clt.client_addr;
+ 				clt.client_logname += ']';
+ 			}
+ 			// check whether the client is allowed access according to
+@@ -1961,8 +1939,7 @@
+ #ifdef HAVE_LIBWRAP
+ 			// Check the hosts_access configuration; emulate INN error message
+ 			if (!hosts_ctl(PACKAGE,
+-				       clt.client_name,
+-				       inet_ntoa(clt.sock.sin_addr),
++				       clt.client_name, clt.client_addr,
+ 				       STRING_UNKNOWN)) {
+ 				slog.p(Logger::Notice) << clt.
+ 				    client_logname << " denied - hosts.allow\n";
+@@ -1998,7 +1975,8 @@
+ 	// check whether the client is allowed access according to
+ 	// our own access configuration
+ 	clt.access_entry =
+-	    Cfg.clnts.client(clt.client_name, clt.sock.sin_addr);
++		Cfg.client(clt.client_name,
++			   (struct sockaddr *) &clt.sock, clt.socklen);
+ 	if (!clt.access_entry || !clt.access_entry->access_flags) {
+ //   nnrpd_deny:
+ 		slog.p(Logger::Notice) << clt.
+@@ -2043,7 +2021,7 @@
+ 		clt.srvr = new CServer(Cfg.SpoolDirectory, &(Cfg.srvrs));
+ 		clt.srvr->setttl(Cfg.ttl_list, Cfg.ttl_desc);
+ 	}
+-	catch(SystemError & se) {
++	catch(const SystemError & se) {
+ 		slog.
+ 		    p(Logger::
+ 		      Alert) << "CServer failed, check permissions\n";
+@@ -2059,15 +2037,17 @@
+ 	do {
+ 		flush(*clt.co);
+ 
++		alarmed = 0;
+ 		alarm (Cfg.ClientTimeout);
+ 		clt.ci->getline(req, sizeof(req), '\n');
+ 		alarm (0);
+-		if (clientTimeoutReached) {
++		if (alarmed) {
++			alarmed = 0;
+ 			(*clt.co) << "400 " PACKAGE " " VERSION ", service timed out!\r\n";
+ 			slog.p(Logger::Notice) << clt.client_logname << " ClientTimeout reached\n";
+ 			goto client_exit;
+ 		}
+-		if (Xsignal >= 0) {
++		if (Xsignal != -1) {
+ 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
+ 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
+ 			goto client_exit;
+@@ -2171,23 +2151,12 @@
+ 
+ void nntpd()
+ {
+-	int sock;
+-	struct sockaddr_in nproxy;
+-	struct servent *cport;
+-
+-	struct sockaddr_in clt_sa;
+-	SOCKLEN_TYPE clt_salen;
+-
+-	int clt_fd;
+-	int clt_pid = 0;
+-	int nice;
+-
+ 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
+ 
+ 	/* set nice value for master server */
+ #ifdef HAVE_SETPRIORITY
+ 	errno = 0;
+-	nice = Cfg.NiceServer;
++	int nice = Cfg.NiceServer;
+ 	nice += getpriority(PRIO_PROCESS, 0);
+ 	if (nice == -1 && errno != 0) {
+ 		slog.
+@@ -2206,9 +2175,79 @@
+ 	/* nobody is connecting to NewsCache currently */
+ 	nntp_connections = 0;
+ 
+-	{			/* create socket and set some socket options */
+-		int one = 1;
+-		if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++	/* create socket and set some socket options */
++	string hostname;
++	const char *nodename = NULL;
++	const char *servname = NULL;
++	struct addrinfo hints;
++
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_flags = AI_ADDRCONFIG | AI_PASSIVE | AI_NUMERICHOST;
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_protocol = IPPROTO_TCP;
++
++	/* fill the sockaddr with the port we should listen too */
++	if (Cfg.CachePort[0] != '\0') {
++		// old variant
++		if (Cfg.CachePort[0] != '#') {
++			servname = Cfg.CachePort + 1;
++			hints.ai_flags |= AI_NUMERICSERV;
++		} else {
++			servname = Cfg.CachePort;
++		}
++	} else {
++		if (Cfg.ListenTo[0] == '[') {
++			const char *end = strrchr(Cfg.ListenTo, ']');
++			if ((end == NULL) ||
++			    ((end[1] != '\0') && (end[1] != ':'))) {
++				slog.
++				  p(Logger::
++				    Error) << cmnd <<
++				  ": Invalid parameter ListenTo: " <<
++				  Cfg.ListenTo << "\n";
++				exit(1);
++			}
++
++			hostname.assign(const_cast<const char *>(Cfg.ListenTo + 1), end);
++			nodename = hostname.c_str();
++
++			if (end[1] == ':') {
++				servname = end + 2;
++			} else {
++				servname = "nntp";
++			}
++		} else {
++			const char *colon = strrchr(Cfg.ListenTo, ':');
++			if (colon != NULL) {
++				hostname.assign(const_cast<const char *>(Cfg.ListenTo), colon);
++				servname = colon + 1;
++			} else {
++				hostname.assign(Cfg.ListenTo);
++				servname = "nntp";
++			}
++
++			if (hostname != "DEFAULT") {
++				nodename = hostname.c_str();
++			}
++		}
++	}
++
++	struct addrinfo *res;
++	if (getaddrinfo(nodename, servname, &hints, &res)) {
++		slog.
++		  p(Logger::
++		    Error) << cmnd <<
++		  ": Can't resolve parameter ListenTo: " << Cfg.
++		  ListenTo << "\n";
++		exit(1);
++	}
++
++	int sock = -1;
++	struct addrinfo *addr = res;
++	while ((sock < 0) && (addr != NULL)) {
++		if ((sock = socket(addr->ai_addr->sa_family,
++				   SOCK_STREAM, 0)) < 0) {
+ 			slog.
+ 			    p(Logger::
+ 			      Error) << "socket failed: " <<
+@@ -2216,6 +2255,7 @@
+ 			exit(1);
+ 		}
+ 
++		int one = 1;
+ 		if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+ 			       (char *) &one, sizeof(int)) < 0) {
+ 			slog.
+@@ -2232,44 +2272,18 @@
+ 			    strerror(errno) << "\n";
+ 		}
+ 
+-		/* fill the sockaddr with the port we should listen too */
+-		if (Cfg.CachePort[0] != '\0') {
+-			// old variant
+-			const char *cp = Cfg.CachePort;
+-			nproxy.sin_family = AF_INET;
+-			nproxy.sin_addr.s_addr = INADDR_ANY;
+-			if (cp[0] != '#') {
+-				if ((cport =
+-				     getservbyname(cp, "tcp")) == NULL) {
+-					slog.
+-					    p(Logger::
+-					      Error) << cmnd <<
+-					    ": Can't resolve service " <<
+-					    cp << "/tcp\n";
+-					exit(1);
+-				}
+-				nproxy.sin_port = cport->s_port;
+-			} else {
+-				nproxy.sin_port = htons(atoi(cp + 1));
+-			}
+-		} else if (fillHostStruct(&nproxy, Cfg.ListenTo) == -1) {
++		if (bind(sock, addr->ai_addr, addr->ai_addrlen) < 0) {
+ 			slog.
+-			    p(Logger::
+-			      Error) << cmnd <<
+-			    ": Can't resolve parameter ListenTo: " << Cfg.
+-			    ListenTo << "\n";
++			  p(Logger::
++			    Error) << "can't bind socket: " << strerror(errno) <<
++			  "\n";
+ 			exit(1);
+ 		}
++
++		addr = addr->ai_next;
+ 	}			/* end create socket and set some socket options */
++	freeaddrinfo(res);
+ 
+-	if (bind(sock, (struct sockaddr *) &nproxy, sizeof(nproxy)) < 0) {
+-		slog.
+-		    p(Logger::
+-		      Error) << "can't bind socket: " << strerror(errno) <<
+-		    "\n";
+-		exit(1);
+-	}
+-
+ 	{			/* store pid in Cfg.PidFile */
+ 		ofstream pid(Cfg.PidFile);
+ 		pid << getpid() << endl;
+@@ -2282,14 +2296,20 @@
+ 	setugid(Cfg.Username, Cfg.Groupname);
+ 	listen(sock, 4);
+ 	for (;;) {
++		int clt_fd;
++		int clt_pid = 0;
++
+ 		/* Accept connection */
+-		clt_salen = sizeof(clt_sa);
+ 		do {
++			if (reReadConfig) {
++				Cfg.init();
++				Cfg.read(config_file);
++				reReadConfig = false;
++			}
++
+ 			errno = 0;
+-			clt_fd =
+-			    accept(sock, (struct sockaddr *) &clt_sa,
+-				   &clt_salen);
+-			if (Xsignal >= 0) {
++			clt_fd = accept(sock, NULL, NULL);
++			if (Xsignal != -1) {
+ 				close(sock);
+ 				exit(0);
+ 			}
+@@ -2316,69 +2336,55 @@
+ 			// success
+ 			if (clt_pid == 0) {
+ 				// child
+-				int one = 1;
+ 				close(sock);
+-				if (setsockopt
+-				    (clt_fd, SOL_SOCKET, SO_KEEPALIVE,
+-				     (char *) &one, sizeof(int)) < 0) {
+-					slog.
+-					    p(Logger::
+-					      Error) <<
+-					    "client setsockopt failed: " <<
+-					    strerror(errno) << "\n";
+-				}
++
+ 				try {
+ 					nnrpd(clt_fd);
+-				} catch (sockerr e) {
++				} catch (const UsageError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+-						<< "sockbuf " << e.operation ()
+-						<< e.serrno ()
+-						<< " " << e.errstr () << "\n";
+-				} catch (UsageError e) {
+-					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "UsageError ";
+ 					e.print();
+-				} catch (NotAllowedError e) {
++				} catch (const NotAllowedError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NotAllowdError ";
+ 					e.print();
+-				} catch (NoSuchArticleError e) {
++				} catch (const NoSuchArticleError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NoSuchArticleError ";
+ 					e.print();
+-				} catch (DuplicateArticleError e) {
++				} catch (const DuplicateArticleError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "DuplicateArticleError ";
+ 					e.print();
+-				} catch (NoSuchGroupError e) {
++				} catch (const NoSuchGroupError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NoSuchGroupError ";
+ 					e.print();
+-				} catch (NoNewsServerError e) {
++				} catch (const NoNewsServerError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NoNewsServerError ";
+ 					e.print();
+-				} catch (NoSuchFieldError e) {
++				} catch (const NoSuchFieldError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NoSuchFieldError ";
+ 					e.print();
+-				} catch (NSError e) {
++				} catch (const NSError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "NSError ";
+ 					e.print();
+-				} catch (AssertionError e) {
++				} catch (const AssertionError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "AssertionError ";
+ 					e.print();
+-				} catch (IOError e) {
++				} catch (const IOError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "IOError ";
+ 					e.print();
+-				} catch (SystemError e) {
++				} catch (const SystemError &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "SystemError ";
+ 					e.print();
+-				} catch (Error e) {
++				} catch (const Error &e) {
+ 					slog.p(Logger::Error) << "nnrpd caught "
+ 						<< "Error ";
+ 					e.print();
+@@ -2390,7 +2396,9 @@
+ 				exit(0);
+ 			}
+ 			//Parent
+-			close(clt_fd);
++
++			while ((close(clt_fd) < 0) && (errno == EINTR)) {
++			}
+ 			nntp_connections++;
+ 		}
+ #else
+@@ -2407,7 +2415,7 @@
+ 	int pid;
+ 	int st;
+ 
+-	slog.p(Logger::Debug) << "receiving signal SIGCHLD: " << num << "\n";
++	//slog.p(Logger::Debug) << "receiving signal SIGCHLD: " << num << "\n";
+ 	/* Reinstall the signal handler */
+ #ifdef HAVE_SIGACTION
+ 	struct sigaction action;
+@@ -2443,8 +2451,8 @@
+ 
+ void catchsigalarm(int num)
+ {
+-	slog.p(Logger::Debug) << "receiving signal SIGALRM: " << num << "\n";
+-	clientTimeoutReached=1;
++	//slog.p(Logger::Debug) << "receiving signal SIGALRM: " << num << "\n";
++	alarmed=1;
+ #ifdef HAVE_SIGACTION
+ 	/* Reinstall the signal handler */
+ 	struct sigaction action;
+@@ -2459,9 +2467,8 @@
+ 
+ void catchsighup(int num)
+ {
+-	slog.p(Logger::Debug) << "receiving signal SIGHUP: " << num << "\n";
+-	Cfg.init();
+-	Cfg.read(config_file);
++	//slog.p(Logger::Debug) << "receiving signal SIGHUP: " << num << "\n";
++	reReadConfig=true;
+ #ifdef HAVE_SIGACTION
+ 	/* Reinstall the signal handler */
+ 	struct sigaction action;
+@@ -2476,7 +2483,7 @@
+ 
+ void catchsignal(int num)
+ {
+-	slog.p(Logger::Debug) << "receiving signal: " << num << "\n";
++	//slog.p(Logger::Debug) << "receiving signal: " << num << "\n";
+ 	Xsignal = num;
+ #ifdef HAVE_SIGACTION
+ 	/* Reinstall the signal handler */
+@@ -2529,6 +2536,7 @@
+ 
+ 	cmnd = argv[0];
+ 	while (1) {
++#ifdef HAVE_GETOPT_H
+ 		int option_index = 0;
+ 		static struct option long_options[] = {
+ 			{"version", 0, 0, 'v'},
+@@ -2544,6 +2552,9 @@
+ 
+ 		c = getopt_long (argc, argv, "vfhc:idpo", long_options,
+ 				&option_index);
++#else
++		c = getopt (argc, argv, "vfhc:idpo");
++#endif
+ 		if (c == -1) 
+ 			break;
+ 
+@@ -2597,11 +2608,11 @@
+ 		Cfg.read(config_file);
+ 		strcpy(nntp_hostname, Cfg.Hostname);
+ 	}
+-	catch(IOError & io) {
++	catch(const IOError & io) {
+ 		cerr << "unexpected EOF in " << config_file << "\n";
+ 		exit(2);
+ 	}
+-	catch(SyntaxError & se) {
++	catch(const SyntaxError & se) {
+ 		cerr << se._errtext << "\n";
+ 		exit(2);
+ 	}
+@@ -2628,7 +2639,9 @@
+ #endif
+ 
+ 	// signal handling
++	sockstream::alarm_indicator(alarmed);
+ 	Xsignal = -1;
++	reReadConfig = false;
+ 
+ #ifdef HAVE_SIGACTION
+ 	struct sigaction action;
+Index: src/NewsCacheClean.cc
+===================================================================
+--- src/NewsCacheClean.cc	(.../tags/1.2rc6)	(revision 12)
++++ src/NewsCacheClean.cc	(.../trunk)	(revision 12)
+@@ -31,7 +31,9 @@
+ #include "config.h"
+ 
+ #include <string.h>
++#ifdef HAVE_GETOPT_H
+ #include <getopt.h>
++#endif
+ #include <sys/param.h>
+ #include <sys/stat.h>
+ #include <sys/time.h>
+@@ -274,7 +276,7 @@
+ 		} else {
+ 			ng = NULL;
+ 		}
+-	} catch (NoSuchGroupError e) {
++	} catch (const NoSuchGroupError &e) {
+ 		ng = NULL;
+ 	}
+ 	// FIXME: what we are doing with bad database files?
+@@ -360,6 +362,7 @@
+ 
+ 	cmnd = argv[0];
+ 	while (1) {
++#ifdef HAVE_GETOPT_H
+ 		int option_index = 0;
+ 		static struct option long_options[] = {
+ 			{"version", 0, 0, 'v'},
+@@ -373,6 +376,9 @@
+ 
+ 		c = getopt_long (argc, argv, "vhc:stp", long_options,
+ 				&option_index);
++#else
++		c = getopt (argc, argv, "vhc:stp");
++#endif
+ 
+ 		if (c == -1)
+ 			break;
+@@ -421,11 +427,11 @@
+ 		Cfg.read(conffile);
+ //    strcpy(nntp_hostname,Cfg.Hostname);
+ 	}
+-	catch(IOError & io) {
++	catch(const IOError & io) {
+ 		cerr << "unexpected EOF in " << conffile << "\n";
+ 		exit(2);
+ 	}
+-	catch(SyntaxError & se) {
++	catch(const SyntaxError & se) {
+ 		cerr << se._errtext << "\n";
+ 		exit(2);
+ 	}
+Index: src/Config.cc
+===================================================================
+--- src/Config.cc	(.../tags/1.2rc6)	(revision 12)
++++ src/Config.cc	(.../trunk)	(revision 12)
+@@ -82,9 +82,10 @@
+ 	return srvrs.server(group);
+ }
+ 
+-AccessEntry *Config::client(const char *name, struct in_addr addr)
++AccessEntry *Config::client(const char *name, const struct sockaddr *addr,
++			    socklen_t addrlen)
+ {
+-	return clnts.client(name, addr);
++	return clnts.client(name, addr, addrlen);
+ }
+ 
+ void Config::read(const char *fn)
+Index: src/Config.h
+===================================================================
+--- src/Config.h	(.../tags/1.2rc6)	(revision 12)
++++ src/Config.h	(.../trunk)	(revision 12)
+@@ -63,7 +63,8 @@
+ 	void init(void);
+ 	void read(const char *fn);
+ 	MPListEntry *server(const char *group);
+-	AccessEntry *client(const char *name, struct in_addr addr);
++	AccessEntry *client(const char *name, const struct sockaddr *addr,
++			    socklen_t addrlen);
+ 	void printParameters(std::ostream * pOut);
+ };
+ 
+Index: README
+===================================================================
+--- README	(.../tags/1.2rc6)	(revision 12)
++++ README	(.../trunk)	(revision 12)
+@@ -1,6 +1,7 @@
+ # NewsCache --- The free cache server for USENET News.
+ # Copyright (C) 1996-1998  Thomas Gschwind
+ # Copyright (C) 2001,2002  Herbert Straub
++# Copyright (C) 2008       Christof Meerwald
+ #
+ # This program is free software; you can redistribute it and/or modify
+ # it under the terms of the GNU General Public License as published by
+@@ -46,10 +47,6 @@
+ 
+ See INSTALL for details.
+ 
+-The Library Socket++ 1.2 is required by NewsCache. You can install Socket++
+-as shared or static library. Please see:
+-http://members.aon.at/hstraub/Socket++/
+-
+ After successful installation, you have to create your configuration
+ file ${prefix}/etc/newscache.conf. A sample configuration file is copied
+ to ${prefix}/etc/newscache.conf-dist.
+Index: NVClasses-0.9.1/Error.h
+===================================================================
+--- NVClasses-0.9.1/Error.h	(.../tags/1.2rc6)	(revision 12)
++++ NVClasses-0.9.1/Error.h	(.../trunk)	(revision 12)
+@@ -32,9 +32,9 @@
+  */
+ class Error {
+       public:
+-	string _errtext;
+-	string _file;
+-	string _function;
++	std::string _errtext;
++	std::string _file;
++	std::string _function;
+ 	int _line;
+ 	 Error(const char *txt = "unknown"):_errtext(txt) {
+ 		VERB(slog.p(Logger::Debug);
+@@ -45,11 +45,11 @@
+ 		VERB(slog.p(Logger::Debug);
+ 		     print());
+ 	}
+-	Error(const string & txt):_errtext(txt) {
++	Error(const std::string & txt):_errtext(txt) {
+ 		VERB(slog.p(Logger::Debug);
+ 		     print());
+ 	}
+-	Error(const string & txt, const char *file, const char *function,
++	Error(const std::string & txt, const char *file, const char *function,
+ 	      int line)
+ 	:_errtext(txt), _file(file), _function(function), _line(line) {
+ 		VERB(slog.p(Logger::Debug);
+@@ -58,7 +58,7 @@
+ 	virtual ~ Error() {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " File: " << _file
+ 		    << " Function: " << _function
+@@ -77,19 +77,19 @@
+ 	int _errno;
+ 	 SystemError(const char *txt = "unknown", int errnbr = -1)
+ 	:Error(txt), _errno(errnbr) {
+-	} SystemError(const string & txt, int errnbr = -1)
++	} SystemError(const std::string & txt, int errnbr = -1)
+ 	:Error(txt), _errno(errnbr) {
+ 	}
+ 	SystemError(const char *txt, int errnbr, const char *file,
+ 		    const char *function, int line)
+ 	:Error(txt, file, function, line), _errno(errnbr) {
+ 	}
+-	SystemError(const string & txt, int errnbr, const char *file,
++	SystemError(const std::string & txt, int errnbr, const char *file,
+ 		    const char *function, int line)
+ 	:Error(txt, file, function, line), _errno(errnbr) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: System"
+ 		    << " File: " << _file
+@@ -117,16 +117,16 @@
+ 							      function,
+ 							      line) {
+ 	}
+-	IOError(const string & txt, int errnbr =
++	IOError(const std::string & txt, int errnbr =
+ 		-1):SystemError(txt, errnbr) {
+ 	}
+-	IOError(const string & txt, int errnbr, const char *file,
++	IOError(const std::string & txt, int errnbr, const char *file,
+ 		const char *function, int line):SystemError(txt, errnbr,
+ 							    file, function,
+ 							    line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: IO"
+ 		    << " File: " << _file
+@@ -152,15 +152,15 @@
+ 							       function,
+ 							       line) {
+ 	}
+-	AssertionError(const string & txt):Error(txt) {
++	AssertionError(const std::string & txt):Error(txt) {
+ 	}
+-	AssertionError(const string & txt, const char *file,
++	AssertionError(const std::string & txt, const char *file,
+ 		       const char *function, int line):Error(txt, file,
+ 							     function,
+ 							     line) {
+ 	}
+ 
+-	virtual void print() {
++	virtual void print() const {
+ 		slog << "Exception!"
+ 		    << " Type: Assertion"
+ 		    << " File: " << _file
+Index: NVClasses-0.9.1/Logger.h
+===================================================================
+--- NVClasses-0.9.1/Logger.h	(.../tags/1.2rc6)	(revision 12)
++++ NVClasses-0.9.1/Logger.h	(.../trunk)	(revision 12)
+@@ -15,8 +15,6 @@
+ #include<syslog.h>
+ #endif
+ 
+-using std::string;
+-
+ /**
+  * \class Logger
+  * \author Thomas Gschwind
+@@ -105,7 +103,7 @@
+ 	}
+ 
+ 	friend Logger & operator<<(Logger & l, const char *s);
+-	friend Logger & operator<<(Logger & l, const string & s);
++	friend Logger & operator<<(Logger & l, const std::string & s);
+ 	friend Logger & operator<<(Logger & l, char ch);
+ 	friend Logger & operator<<(Logger & l, unsigned int i);
+ 	friend Logger & operator<<(Logger & l, int i);
+Index: NVClasses-0.9.1/NVArray.h
+===================================================================
+--- NVClasses-0.9.1/NVArray.h	(.../tags/1.2rc6)	(revision 12)
++++ NVClasses-0.9.1/NVArray.h	(.../trunk)	(revision 12)
+@@ -5,8 +5,6 @@
+ 
+ #include"NVcontainer.h"
+ 
+-using std::ostream;
+-
+ /* NVContainer Class Library */
+ class NVArray;
+ class NVArrayIter;
+@@ -28,7 +26,7 @@
+ 	int sis_empty(void);
+ 	int shas_element(unsigned long i);
+ 	void sget(unsigned long i, char **data, size_t * szdata);
+-	void sprint(ostream & os);
++	void sprint(std::ostream & os);
+ 
+       public:
+ 	enum {
+@@ -79,7 +77,7 @@
+ 	int is_empty(void);
+ 	int has_element(unsigned long i);
+ 	void get(unsigned long i, const char **data, size_t * szdata);
+-	void print(ostream & os);
++	void print(std::ostream & os);
+ };
+ 
+ #ifdef NVArrayIter
+Index: NVClasses-0.9.1/Debug.h
+===================================================================
+--- NVClasses-0.9.1/Debug.h	(.../tags/1.2rc6)	(revision 12)
++++ NVClasses-0.9.1/Debug.h	(.../trunk)	(revision 12)
+@@ -36,37 +36,28 @@
+ #endif
+ 
+ #define NC_CATCH_ALL(text) \
+-catch(sockerr e) \
++catch(const UsageError &e) \
+ { \
+-	slog.p(Logger::Error) << text << " caught " \
+-	    << "sockbuf " << e.operation() \
+-	    << e.serrno() \
+-	    << " " << e.errstr() << "\n"; \
+-	throw; \
+-} \
+- \
+-catch(UsageError e) \
+-{ \
+ 	slog.p(Logger::Error) << text << " caught " << "UsageError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(NotAllowedError e) \
++catch(const NotAllowedError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NotAllowdError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(NoSuchArticleError e) \
++catch(const NoSuchArticleError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NoSuchArticleError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(DuplicateArticleError e) \
++catch(const DuplicateArticleError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " \
+ 	    << "DuplicateArticleError "; \
+@@ -74,56 +65,56 @@
+ 	throw; \
+ } \
+  \
+-catch(NoSuchGroupError e) \
++catch(const NoSuchGroupError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NoSuchGroupError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(NoNewsServerError e) \
++catch(const NoNewsServerError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NoNewsServerError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(NoSuchFieldError e) \
++catch(const NoSuchFieldError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NoSuchFieldError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(NSError e) \
++catch(const NSError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "NSError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(AssertionError e) \
++catch(const AssertionError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "AssertionError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(IOError e) \
++catch(const IOError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "IOError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(SystemError e) \
++catch(const SystemError &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "SystemError "; \
+ 	e.print(); \
+ 	throw; \
+ } \
+  \
+-catch(Error e) \
++catch(const Error &e) \
+ { \
+ 	slog.p(Logger::Error) << text << " caught " << "Error "; \
+ 	e.print(); \
+Index: doc/NewsCache.info
+===================================================================
+--- doc/NewsCache.info	(.../tags/1.2rc6)	(revision 12)
++++ doc/NewsCache.info	(.../trunk)	(revision 12)
+@@ -1,822 +0,0 @@
+-This is Info file NewsCache.info, produced by Makeinfo version 1.68
+-from the input file NewsCache.texinfo.
+-
+-   This is the NewsCache Reference Manual.
+-
+-   Copyright (C) 1998 Thomas Gschwind <tom@infosys.tuwien.ac.at>
+-
+-   This edition is for NewsCache version 0.2.
+-
+-   Permission is granted to make and distribute verbatim copies of this
+-manual provided the copyright notice and this permission notice are
+-preserved on all copies.
+-
+-   Permission is granted to copy and distribute modified versions of
+-this manual under the conditions for verbatim copying, provided that the
+-entire resulting derived work is distributed under the terms of a
+-permission notice identical to this one.
+-
+-   Permission is granted to copy and distribute translations of this
+-manual into another language, under the above conditions for modified
+-versions, except that this permission notice may be stated in a
+-translation approved by the Free Software Foundation.
+-
+-
+-File: NewsCache.info,  Node: Top,  Next: Introduction,  Prev: (dir),  Up: (dir)
+-
+-NewsCache Reference Manual
+-**************************
+-
+-   NewsCache is a free cache server for USENET News. This manual
+-explains the configuration options and describes, how to configure
+-NewsCache to work in different environments. This manual applies to
+-NewsCache version 0.2.
+-
+-* Menu:
+-
+-* Introduction::                Introduction
+-* Compatibility::               Compatible news readers and servers
+-* General Options::             General configuration options
+-* ServerList Option::           How to configure the list of news servers
+-* Access Control::              Allow/Deby hosts from connecting to NewsCache
+-* Statistics::                  Gathering statistics from the log files
+-* Bugs and Misfeatures::        Bugs and Misfeatures
+-* FAQ::                         Frequently Asked Questions
+-* Inside NewsCache::            The source code of NewsCache
+-* Concept Index::               Concept index
+-
+-
+-File: NewsCache.info,  Node: Introduction,  Next: Compatibility,  Prev: Top,  Up: Top
+-
+-Introduction
+-************
+-
+-   NewsCache is a free cache server for USENET News. NewsCache acts to
+-news reading clients like a news server, except that it stores only
+-those articles that have been requested by at least one client.
+-NewsCache targets problems of the current News System like network
+-bandwidth consumption or the IO load caused by news clients.
+-
+-   NewsCache can be used in combination with a news server. In this
+-setup news reading clients are connected to NewsCache instead of to the
+-news server.  In a small test at our university, we got a hit rate of
+-over 30%, although the interests of the people accessing NewsCache was
+-relatively wide spread.  This figure can be mapped onto a reduction of
+-the load at the news server.
+-
+-   NewsCache can also replace leaf node news servers, if not all of the
+-articles are permanently accessed by news clients. NewsCache only stores
+-those newsgroups and articles being accessed frequently, while still
+-providing a virtual full feed. This reduces the network bandwidth
+-between the former news server and the news feed and also hardware
+-requirements (both in terms of disk space and CPU performance).  Less
+-CPU performance is sufficient because no local article numbering has to
+-be performed and a smaller database has to be searched.
+-
+-   NewsCache can also be used for the provision of local newsgroups
+-without setting up and maintaining a news server with a full feed.
+-Instead you set up a news server holding only your local newsgorups and
+-let NewsCache multiplex between those news servers.
+-
+-   In the rest of this document, we will explain, how NewsCache can be
+-configured for different operation environments.
+-
+-
+-File: NewsCache.info,  Node: Compatibility,  Next: General Options,  Prev: Introduction,  Up: Top
+-
+-Compatibility
+-*************
+-
+-   NewsCache has been tested in combination with several news readers
+-and servers.
+-
+-News Readers
+-============
+-
+-   The following news readers have been reported to work in combination
+-with NewsCache: gnus, knews, MS Internet Mail and News, MS Outlook
+-Express, netscape, pine, slrn, tin, xrn.
+-
+-   MS Internet Explorer für Windows 3.1, Version 3.01.2723 should work
+-starting from NewsCache Version 0.99.12. However, this version of
+-Internet Explorer retrieves articles by their article id and this
+-version of NewsCache does not cache articles retrieved by their article
+-identifier.
+-
+-Article Reinstatement Bug
+--------------------------
+-
+-   Some news readers mark deleted articles as read. However, if the
+-article is reinstated on the news server, the article is still marked
+-as read and the user will never see this article as unread.  According
+-to RFC977, (Network News Transfer Protocol) (http://info.internet.isi.edu/in-notes/rfc/files/rfc977.txt) it is allowed that deleted articles
+-are reinstated. This is also documented in the new NNTP-draft which
+-should be published as RFC within the next months.
+-
+-   This bug can only occur if NewsCache cannot connect to its news
+-server.  The following gives a scenario when this can happen, which is
+-mainly the case in offline mode.
+-
+-  1. A client requests the active database from NewsCache. (The active
+-     database is a list of all the available newsgroups and their low
+-     and high watermarks.)
+-
+-  2. The client selects a newsgroup and requests its overview database.
+-
+-  3. However, the link between NewsCache and its news server is down
+-     and thus NewsCache cannot provide the overview records for all the
+-     articles.
+-
+-  4. The client assumes that all the articles without overview record
+-     have been deleted and marks those as read.
+-
+-News Servers
+-============
+-
+-   All news servers that provide an overview database should work in
+-combination with NewsCache. Tested news servers are: INN, Microsoft's
+-News server, AMU News under VMS. In fact NewsCache should work with
+-every News Server that supports the `list', `group', `listgroup',
+-`[x]over', `article' commands.
+-
+-
+-File: NewsCache.info,  Node: General Options,  Next: ServerList Option,  Prev: Compatibility,  Up: Top
+-
+-General Configuration Options
+-*****************************
+-
+-   No matter which configuration you use, I recommend to set up a
+-separate user for NewsCache, although I took care of security issues,
+-when writing NewsCache. *A service that needs not to run as priviledged
+-user, should not run as priviledged user.*
+-
+-   First of all, you should specify, which configuration version, you
+-are using. The current version is version 5. Thus, you should include
+-the following line at the beginning of your `newscache.conf'-file:
+-
+-     ConfigVersion 5
+-
+-   NewsCache can be started either as `standalone' server or from
+-`inetd'. Using a standalone server has the advantage that the
+-configuration file will be read only at the first startup. However, you
+-will have one more process running all of the time (although sleeping).
+-Starting NewsCache in standalone mode allows you specify some additional
+-configuration options.  Usually, you start a service (NewsCache in this
+-case) as standalone server, if it is accessed frequently or, if you need
+-one of the additional configuration options.
+-
+-   If you are running NewsCache as standalone server, you should also
+-specify the port where NewsCache should listen for NNTP connections and
+-a pid file where NewsCache stores its pid. The port name may be one of
+-the well known ports (usually listed in `/etc/services') or a port
+-number prepended by the `#'-sign.
+-
+-     ServerType standalone
+-     CachePort nntp
+-     PidFile /var/run/NewsCache.pid
+-
+-   If NewsCache is started as standalone server, the maximum number of
+-connections can be specified using the `MaxConnections' command.
+-Whenever a new client connects when this limit is reached, it will
+-receive a `400 too many users' response and the connection will be
+-closed afterwards.
+-
+-     MaxConnections 16
+-
+-   If you start NewsCache as standalone server with a port below 1024,
+-you have to start NewsCache as root. However, NewsCache will switch the
+-user and groupname as soon as it has bound to the socket. The Username
+-and Groupname options specify the user and group to switch to.  If
+-NewsCache is started by inetd, you should set the username in
+-inetd.conf and repeat it in `newscache.conf' as shown above.
+-
+-     Username news
+-     Groupname news
+-
+-   If NewsCache cannot determine your hostname, you must specify your
+-hostname using the `Hostname' directive.
+-     Hostname my.host.name
+-
+-   You also should set the email-address of the person responsible for
+-this installation of NewsCache.  This address will be displayed in the
+-help message displayed by NNTP's `HELP' command.
+-
+-     Admin you@your.provider
+-
+-   Timeouts for the retrieval of the active database and the description
+-(*In version 0.99.13, the retrieval of the newsgroup descriptions is
+-not implemented*) of the newsgroups are set with the `Timeouts' command
+-(The values are given in seconds). The values indicate the time, when
+-NewsCache reloads the active database or the description of the
+-newsgroups. While the active database changes rather frequently, the
+-description for newsgroups changes seldomly. I recommend to use a value
+-around 5 minutes for the active database and a value around 1 day for
+-the newsgroup descriptions.
+-
+-   With `ClientTimeout' you can specify an inactivity timer. If the
+-client does not send any commands for this time, the connection is
+-closed by the server. A useful value is around 15 minutes. Values below
+-3 minutes should not be used because that would violate the current NNTP
+-draft specification.
+-
+-     Timeouts 300 86400
+-     ClientTimeout 900
+-
+-   The directory for the spool area of NewsCache is set using the
+-`SpoolDirectory' command.  The size in KiloBytes of the spool area can
+-be set with with the `SpoolSize' directive.  Usually, the spool area
+-should be big enough to store the most frequently used newsgroups.
+-NewsCache itself does not perform article replacement.  This is done by
+-the the `NewsCacheClean' program which should be run every few hours by
+-crond. `NewsCacheClean' removes newsgroups until the used diskspace is
+-below `SpoolSize'.
+-
+-   *Before starting NewsCache, check that this directory exists and
+-that NewsCache has read and write permissions. Additionally, this
+-directory must be on a local partition! NewsCache uses file locking and
+-does not make use of lockd. Mounting this directory via NFS would
+-decrease performance, so it does not make sense anyway.*
+-
+-     SpoolDirectory /lhome/newscache/NSpool
+-     SpoolSize 100000
+-
+-   NewsCache supports two different log-facilities. a) it can log
+-messages using syslogd (the default) and b) it can use its own log
+-files. This has to be configured, when building NewsCache. If you
+-prefer log files, use the `--without-syslog' when configuring
+-NewsCache. For detailed build instructions see the INSTALL and README
+-files.
+-
+-   If you are using log files you have to set the log directory using
+-the `LogDirectory' command. If you are using syslogd, this statement
+-has no effect. *Before starting NewsCache, check that this directory
+-exists and that NewsCache has read and write permissions.*
+-
+-     LogDirectory /lhome/newscache/log
+-
+-   NewsCache supports several log styles. A host accessing NewsCache
+-can be logged with its IP-address (`ip-address'), its (`hostname'), or
+-both. NewsCache uses the same log format as INN and some additional log
+-entries. If you want to log only INN style log messages, add the
+-`strict-inn' option. This will be only useful if you use some statistic
+-tools for INN that get confused with those extra messages. *In version
+-0.99.13 `strict-inn' is only supported on the LOG_NOTICE level.*
+-
+-     LogStyle ip-address strict-inn
+-
+-   Whenever a News Server closes the connection, NewsCache retries to
+-connect to the News Server and to issue the command again. After a
+-certain number of retries, NewsCache gives up.
+-
+-     Retries 3
+-
+-   The file that lists all those newsgroups that have to be prefetched
+-is set by the `PrefetchFile'-directive.
+-
+-     PrefetchFile /lhome/newscache/etc/prefetch
+-
+-
+-File: NewsCache.info,  Node: ServerList Option,  Next: Access Control,  Prev: General Options,  Up: Top
+-
+-ServerList Configuration
+-************************
+-
+-   The list of News Servers to be used is specified using the
+-`NewsServerList' command.  The command's syntax is as follows:
+-
+-     NewsServerList := "NewsServerList" "{" serverlist "}"
+-     serverlist := | "Server" hostname port "{" optionlist "}" serverlist
+-     optionlist := | option optionlist
+-     option := "Read" grouplist | "PostTo" grouplist |
+-               "User" string | "Password" string
+-               "GroupTimeout" number | "Options" flags
+-
+-   In the following example, all articles are cached, read from and
+-posted to the news server `news.tuwien.ac.at'.  When a client accesses a
+-newsgroup older than 180 seconds, NewsCache checks whether new articles
+-arrived on its upstream news server.
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 180
+-         Options cached
+-       }
+-     }
+-
+-   The arguments given to the `Server'-directive are the name of your
+-news server followed by its port, followed by the per-server
+-configuration options. The per-server configuration options are:
+-
+-`Read'
+-     indicates which newsgroups should be read from the news server. Its
+-     argument is  a comma separated list of newsgroup names. Each
+-     newsgroup name may have the `*' at its end indicating any sequence
+-     of characters.
+-
+-`PostTo'
+-     indicates which articles should be posted to the news server. Its
+-     argument has the same syntax as the argument of the `Read'-option.
+-     All articles posted to one or more of these newsgroups will be
+-     sent to that news server.
+-
+-`GroupTimeout'
+-     after that amount of seconds the newsgroup's active database is
+-     requested anew.
+-
+-`User'
+-     If authentication is required by the upstream news server, use this
+-     option to specify the username that should be used.
+-
+-`Password'
+-     If authentication is required by the upstream news server, use this
+-     option to specify the password for the above mentioned username.
+-
+-`Options'
+-     gives one or more of the following options: `not-offline'--contact
+-     the upstream news server whenever necessary; `offline'--never
+-     contact the upstream news server; `semioffline'--contact the
+-     upstream news server whenever necessary, except for retrieving the
+-     list of newsgroups; `not-setpostflag', `setpostflag';
+-     `not-cached', `cached'.
+-
+-`Commands'
+-     This option indicates which commands are (or are not) supported by
+-     the upstream news server. Some versions of the netscape collabra
+-     server do not support the `OVER' command correctly.  If you are
+-     connecting to such a news server, you might want to specify
+-     `not-over' here.
+-
+-   The configuration of the news server(s) depends on your application
+-domain. The following sections present and discuss different
+-NewsCache-configurations.
+-
+-Reducing the Load of a News Server
+-==================================
+-
+-   If you just want to reduce the load caused by news reading clients,
+-you set up NewsCache with your news server as its feed and let all the
+-clients read news from NewsCache. The server configuration can be as
+-simple as in the following example because you have only one news server
+-where newsgroups are read from and all the articles are posted to.
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 180
+-         Options cached
+-       }
+-     }
+-
+-Local Newsgroups
+-================
+-
+-   NewsCache can be configured to provide transparent access to local
+-newsgroups. For this configuration you have to setup a small news server
+-holding all your local newsgroups and let NewsCache multiplex betwenn
+-these two news servers.
+-
+-   Assume that our primary news server is `news.tuwien.ac.at' as in the
+-example above and that the news server holding our local newsgroups is
+-located at `news.infosys.tuwien.ac.at'.  In this case our server
+-configuration looks as follows:
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 180
+-         Options cached
+-       }
+-       Server news.infosys.tuwien.ac.at #120 {
+-         Read at.tuwien.infosys.*
+-         PostTo at.tuwien.infosys.*
+-         GroupTimeout 120
+-         Options not-cached
+-       }
+-     }
+-
+-   The newsgroups starting with at.tuwien.infosys.* are retrieved from
+-our local news server and the others from `news.tuwien.ac.at'. With the
+-statements above all the newsgroups from our primary news server
+-beginning with `at.tuwien.infosys.' are eliminated.  Even those that do
+-not appear on our local news servers.  This behavior is intended
+-because newsgroups are added and deleted rather frequently and otherwise
+-it would be difficult to say which newsgroup comes from which news
+-server.
+-
+-   The matching of newsgroup-names is based on the longest match. For
+-instance if the newsgroup configuration of our primary news server is
+-`*,at.tuwien.infosys.tuwien.general' than
+-`at.tuwien.infosys.tuwien.general' would be retrieved from our primary
+-news server.
+-
+-   The `not-cached' option indicates that articles requested from our
+-local news server must now be cached. Caching these articles is
+-pointless because our local news server is not that much loaded and has
+-a good connection to our local news server. In fact they are located on
+-the same machine.
+-
+-   *Whether the cached/not-cached flag is supported depends on your
+-installation. If you configured NewsCache at compile time with the
+-`--enable-notcached' flag this flag is supported, otherwise not. This
+-is disabled by default due to problems of gcc-2.7.2.  If you are using
+-egcs or gcc-2.8.1, you can turn on this flag safely.*
+-
+-Replacing a Leaf Node News Server
+-=================================
+-
+-   NewsCache can also be used to replace leaf node news servers. The
+-advantages are clear: The cache server retrieves articles on demand
+-only. Thus fewer disk space and CPU performance is sufficient because
+-the news database is smaller.
+-
+-   Below, you can find a sample configuration file:
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 120
+-         Options cached
+-       }
+-       Server starnews.stardivision.de nntp {
+-         Read stardivision.*
+-         PostTo stardivision.*
+-         GroupTimeout 180
+-         Options cached,semioffline
+-       }
+-       NoServer {
+-         Read alt.binaries.*,another.hierarchy.*
+-         PostTo alt.binaries.*
+-       }
+-     }
+-
+-   In this example, we read all groups except `stardivison.*',
+-`alt.binaries.*', and `another.hierarchy.*' from `news.tuwien.ac.at'.
+-All postings, except for `stardivision.*' and `alt.binaries.*' are
+-posted to `news.tuwien.ac.at'.  All articles being retrieved from any
+-news server are cached.
+-
+-   All of these configurations are already explained in the previous
+-section except for `semioffline'. This option indicates that the active
+-database should not be retrieved from this news server. In that case it
+-has to be retrieved seperately using `updatenews'.
+-
+-   Explain this option in more detail. Why it is useful (servers with
+-slow link)...
+-
+-Offline Mode
+-============
+-
+-   In the case, you cannot (or do not want to) have a permanent
+-connection to your news server, you must operate NewsCache in offline
+-mode. This is usually the case if you have some sort of dial-up
+-networking. Two types of offline operation modes are possible:
+-
+-  1. You tell NewsCache that it must never try to contact its news
+-     server.
+-
+-  2. NewsCache may contact the news server, but fails because no
+-     network is available.
+-
+-   If you use some sort of dial on demand solution like diald, you have
+-to use the first solution. Otherwise, it depends on your preferences.
+-The second solution has the advantage that users can access all
+-newsgroups, when the connection to your provider is active. However, the
+-disadvantage is additional overhead because NewsCache will try to
+-connect to the news server, whenever a newsgroup times out.
+-
+-   Assume, that we chose the first approach because we have diald
+-installed. Here is a sample news server configuration for this case.
+-Since we are reading news from different news servers, we want
+-NewsCache to do the multiplexing for us.
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 180
+-         Options offline
+-       }
+-       Server news.wu-wien.ac.at nntp {
+-         Read at.wu-wien.*
+-         PostTo .none.
+-         GroupTimeout 300
+-         Options offline not-setpostflag
+-       }
+-     }
+-
+-   The first Server definition indicates your primary news server. The
+-news server at Technische Universität Wien. The GroupTimeout directive
+-is ignored in offline and semioffline mode.
+-
+-   The secondary news server is `news.wu-wien.ac.at'. However, from our
+-provider (TU Wien), we are not allowed to post on this news server. So
+-posting is switched off by specifying `.none.' for the `PostTo'
+-newsgroup pattern. Postings to those newsgroups will also be handled by
+-news.tuwien.ac.at because some of the at.wu-wien groups are also
+-available from news.tuwien.ac.at. This is the reason, why we set the
+-`not-setpostflag'. Otherwise the posting flag of all the at.wu-wien
+-groups would be set to `n' (=forbidden) since we do not have permission
+-to submit postings to that server.
+-
+-   Since the configuration options prohibit NewsCache to retrieve News
+-from `news.tuwien.ac.at' or `news.wu-wien.ac.at', we have to fetch the
+-newsgroups we are interested to read manually.  This is done with the
+-`updatenews' program which retrieves all newsgroups listed in your
+-`prefetch'-file.
+-
+-Different Configuration for Newsgroups on same News Server
+-==========================================================
+-
+-   It is possible to have different configurations for different
+-newsgroups on the same news server. The trick is to list one server
+-several times--each time with a different set of newsgroups.
+-
+-   The example below shows a configuration, where the local newsgroups
+-are updated every 60 seconds and all the other groups every 15 minutes.
+-The reason to do is obvious. Over 90% of postings to the at.* groups are
+-posted to news.tuwien.ac.at. While most of the postings to the other
+-groups are not posted directly to news.tuwien.ac.at. Since our news
+-server does not permanently check for new articles on its news feed, it
+-makes no sense to request those articles every minute.
+-
+-     NewsServerList {
+-       Server news.tuwien.ac.at nntp {
+-         Read *
+-         PostTo *
+-         GroupTimeout 900
+-         Options offline
+-       }
+-       Server news.tuwien.ac.at nntp {
+-         Read at.tuwien.*
+-         PostTo .none.
+-         GroupTimeout 60
+-         Options semioffline
+-       }
+-     }
+-
+-   In the current implementation, the configuration as shown above has a
+-slight disadvantage, if the group descriptions are not disjunct. The
+-active database will be requested twice from news.tuwien.ac.at. In our
+-case for all newsgroups, with all the at.tuwien.* groups eliminated and
+-once for all the at.tuwien.* groups. If the news server does not support
+-the `list active [wildmat]' command, the *whole* active database will
+-be requested twice.  While this does not matter for a news server with
+-a good connection to the cache, you will think twice reconsider your
+-choice if the connection is not that good.
+-
+-   Whether `list active [wildmat]' is supported by your news server can
+-be found out by connecting with telnet to the news server on port NNTP.
+-As soon as the news server welcomes you, you type `list active
+-comp.*<RET>'. If the server replies with `215 ...' and a list of
+-newsgroups, it is supported, otherwise your server does not support it.
+-
+-     $ telnet news.tuwien.ac.at nntp
+-     200 news.tuwien.ac.at InterNetNews...
+-     list active comp.*
+-     215 Newsgroups in form "group high low flags".
+-     comp.ai 0000045852 0000045542 y
+-     comp.ai.alife 0000010191 0000010141 y
+-     ...
+-     .
+-
+-
+-File: NewsCache.info,  Node: Access Control,  Next: Statistics,  Prev: ServerList Option,  Up: Top
+-
+-Access Control
+-**************
+-
+-   Access Control is implemented using libwrap (the same mechanism as
+-used by `tcpd'). However, NewsCache has to be compiled with libwrap
+-(This is done automatically, if it is found on your system). libwrap
+-allows to sepcify hosts that are allowed or denied from accessing
+-NewsCache in `/etc/hosts.allow' or `/etc/hosts.deny'. The service name
+-is `NewsCache'.
+-
+-   If users from `news.tuwien.ac.at' and the domain `bad.guy.com'
+-should be blocked from accessing NewsCache, the `hosts.deny' should
+-include the following line.
+-
+-     NewsCache: news.tuwien.ac.at, .bad.guy.com
+-
+-   For detailed information, please consult the `libwrap',
+-`hosts.allow', `hosts.deny' manual pages.
+-
+-
+-File: NewsCache.info,  Node: Statistics,  Next: Bugs and Misfeatures,  Prev: Access Control,  Up: Top
+-
+-Statistics
+-**********
+-
+-   The NewsCache distribution includes several programs for analyzing
+-log files.
+-
+-   There are two commands: accesslog, cachestat
+-
+-   Tool for hit and miss statistics, should accept inet and file format
+-(conversion script).
+-
+-   Top newsgroups (#art, bytes)
+-
+-   Top hosts (#connect, bytes)
+-
+-
+-File: NewsCache.info,  Node: Bugs and Misfeatures,  Next: FAQ,  Prev: Statistics,  Up: Top
+-
+-Bugs and Misfeatures
+-********************
+-
+-   The description of newsgroups is currently not cached properly. The
+-file containing the descriptions (`.newsgroups' in NewsCache's spool
+-directory) has to be created manually. The file's format is `newsgroup
+-description'.
+-
+-     comp.os.linux.alpha Linux on Digital Alpha machines.
+-     comp.os.linux.m68k  Linux operating system on 680x0 Amiga, Atari, VME.
+-     comp.os.linux.networking Networking and communications under Linux.
+-     comp.os.linux.setup Linux installation and system administration.
+-     comp.os.linux.x     Linux X Window System servers, clients, libs and fonts.
+-
+-   The file containing the descriptions can be obtained from your News
+-Server. Initiate a `telnet' session on port `nntp' and issue the `list
+-newsgroups' command.
+-
+-     $ telnet news.tuwien.ac.at nntp
+-     200 news.tuwien.ac.at InterNetNews...
+-     list newsgroups
+-     215 Newsgroups in form "group high low flags".
+-     comp.os.linux.alpha Linux on Digital Alpha machines.
+-     comp.os.linux.m68k  Linux operating system on 680x0 Amiga, Atari, VME.
+-     ...
+-     .
+-
+-
+-File: NewsCache.info,  Node: FAQ,  Next: Inside NewsCache,  Prev: Bugs and Misfeatures,  Up: Top
+-
+-Frequently Asked Questions
+-**************************
+-
+-Where can I get NewsCache?
+-     You can can get NewsCache from its
+-     homepage (http://www.infosys.tuwien.ac.at/NewsCache/).
+-
+-What is the latest version of NewsCache?
+-     As of this writing the latest version is 0.99.13. The latest
+-     version of NewsCache can always be found at its
+-     homepage (http://www.infosys.tuwien.ac.at/NewsCache/).
+-
+-How does this compare to NNTPCACHE?
+-     NNTPCACHE is a cache server similar to NewsCache. Features of
+-     NewsCache are offline news reading and a cleanly designed class
+-     hierarchy, which is easily extendible. It provides classes for
+-     accessing news from a news server and base classes for
+-     implementing a news server tailored to user needs.
+-
+-How can I contribute to the development of NewsCache?
+-     Volunteers are always welcome! Simply send an email to
+-     tom@infosys.tuwien.ac.at. I am sure that we will find something
+-     interesting for you.
+-
+-Does it have any concept of expiry of articles?
+-     At the moment, NewsCache expires articles on a per newsgroup basis.
+-     This degrades the hit rate of NewsCache only slightly as long as
+-     the most frequently read newsgroups fit into the spool area. With
+-     the current implementation, expiry on a per article basis would be
+-     too inefficient, since this requires an index of all the articles.
+-     An index with all the articles and thus article replacement on a
+-     per article basis should be finished around January.
+-
+-Which newsgroups are returned by the list commands?
+-     The list command will return those newsgroups from the news
+-     server(s) that match the newsgroup descriptions of the Server
+-     directives.
+-
+-Why does the list command return more than the configured newsgroups?
+-     Whenever you change the set of newsgroups to be retrieved from the
+-     news server(s), you should remove the active database. Simply type
+-     rm /path/to/news/spool/.active. This is not done automatically.
+-
+-I do not get any logging messages?
+-     NewsCache uses either syslog or log files (depending on the
+-     compile time configuration). For syslog, you should include a line
+-     similar to: news.info /var/log/news/newslog For a detailed
+-     explanation, see man syslog.conf.
+-
+-When I start my news reader it takes several seconds before I can
+-     read news.  Many news readers request the active database or a
+-     list of new newsgrousp when starting up. The latter is implemented
+-     by the former in NewsCache which may take more time. If your news
+-     reader issues only a request for new newsgroups it will take
+-     substantially longer when you use NewsCache. In this situation set
+-     the timeout for the active database to once a week or even higher.
+-     If the news reader does not request the active database, it uses
+-     another mean for requesting the number of articles in each group
+-     (E.g., netscape issues the group command for each newsgroup).
+-
+-
+-File: NewsCache.info,  Node: Inside NewsCache,  Next: Concept Index,  Prev: FAQ,  Up: Top
+-
+-Inside NewsCache
+-****************
+-
+-   The source code of NewsCache is structured as follows:
+-
+-`src/Config*'
+-     reads and stores the general configuration options.
+-
+-`NServer/MPList*'
+-     responsible for storing per server configuration options.
+-
+-`NServer/*'
+-     handles all the news databases and the communication with News
+-     Servers.
+-
+-`NServer/NServer*'
+-     the logic to retrieve information from different servers (LServer
+-     for retrieving information from the local database; RServer for
+-     retrieving articles from a remote News Server; CServer an RServer
+-     with caching functionality)
+-
+-`NVClasses/*'
+-     the basic database routines.
+-
+-`src/NewsCache.cc'
+-     responsible for interacting with news readers.
+-
+-   This will help you to look around. If you have questions, send email.
+-
+-
+-File: NewsCache.info,  Node: Concept Index,  Prev: Inside NewsCache,  Up: Top
+-
+-Concept Index
+-*************
+-
+-* Menu:
+-
+-* access control:                        Access Control.
+-* accesslog:                             Statistics.
+-* Admin:                                 General Options.
+-* authentication:                        ServerList Option.
+-* cachestat:                             Statistics.
+-* ClientTimeout:                         General Options.
+-* compatible news readers:               Compatibility.
+-* compatible news servers:               Compatibility.
+-* ConfigVersion:                         General Options.
+-* FAQ:                                   FAQ.
+-* Groupname:                             General Options.
+-* GroupTimeout:                          ServerList Option.
+-* Hostname:                              General Options.
+-* Implementation:                        Inside NewsCache.
+-* Introduction:                          Introduction.
+-* list newsgroups:                       Bugs and Misfeatures.
+-* load reduction:                        ServerList Option.
+-* local newsgroups:                      ServerList Option.
+-* LogDirectory:                          General Options.
+-* logging <1>:                           Statistics.
+-* logging:                               General Options.
+-* LogStyle:                              General Options.
+-* MaxConnections:                        General Options.
+-* multiplexing:                          ServerList Option.
+-* NewsCacheClean:                        General Options.
+-* newsgroup descriptions:                Bugs and Misfeatures.
+-* NewsServerList:                        ServerList Option.
+-* offline operation:                     ServerList Option.
+-* Options:                               ServerList Option.
+-* Password:                              ServerList Option.
+-* PidFile:                               General Options.
+-* PostTo:                                ServerList Option.
+-* PrefetchFile:                          General Options.
+-* Read:                                  ServerList Option.
+-* replace leaf node news server:         ServerList Option.
+-* Retries:                               General Options.
+-* Server:                                ServerList Option.
+-* ServerType:                            General Options.
+-* slow server:                           ServerList Option.
+-* SpoolDirectory:                        General Options.
+-* SpoolSize:                             General Options.
+-* statistics:                            Statistics.
+-* Timeouts:                              General Options.
+-* updatenews:                            ServerList Option.
+-* User:                                  ServerList Option.
+-* Username:                              General Options.
+-
+-
+-
+-Tag Table:
+-Node: Top939
+-Node: Introduction1929
+-Node: Compatibility3686
+-Node: General Options5941
+-Node: ServerList Option12020
+-Node: Access Control24092
+-Node: Statistics24900
+-Node: Bugs and Misfeatures25318
+-Node: FAQ26509
+-Node: Inside NewsCache29572
+-Node: Concept Index30467
+-
+-End Tag Table
+Index: doc/NewsCache.texinfo
+===================================================================
+--- doc/NewsCache.texinfo	(.../tags/1.2rc6)	(revision 12)
++++ doc/NewsCache.texinfo	(.../trunk)	(revision 12)
+@@ -393,8 +393,10 @@
+ serverlist := | "Server" hostname port "@{" optionlist "@}" serverlist
+ optionlist := | option optionlist
+ option := "Read" grouplist | "PostTo" grouplist | 
+-          "User" string | "Password" string
+-          "GroupTimeout" number | "Options" flags 
++          "User" string | "Password" string |
++          "GroupTimeout" number | "LimitGroupSize" number |
++          "ConnectTimeout" number | "ConnectBackoff" number |
++	  "Options" flags 
+ @end example
+ 
+ In the following example, all articles are cached, read from and posted
+@@ -445,6 +447,16 @@
+ @cindex authentication
+ If authentication is required by the upstream news server, use this
+ option to specify the password for the above mentioned username.
++@item ConnectTimeout
++@cdindex ConnectTimeout
++Limit the timeout for connections to upstream servers.
++@item ConnectBackoff
++@cdindex ConnectBackoff
++Wait the specfied amount of seconds before trying to reconnect to an
++upstream server again after a refused connection attempt.
++@item LimitGroupSize
++@cdindex LimitGroupSize
++Limits the maximum size of a group.
+ @item Options
+ @cdindex Options
+ gives one or more of the following options: @code{not-offline}---contact
+@@ -452,7 +464,7 @@
+ contact the upstream news server; @code{semioffline}---contact the
+ upstream news server whenever necessary, except for retrieving the list
+ of newsgroups; @code{not-setpostflag}, @code{setpostflag};
+-@code{not-cached}, @code{cached}.
++@code{not-cached}, @code{cached}, @code{dontgenmsgid}.
+ @item Commands
+ This option indicates which commands are (or are not) supported by the
+ upstream news server. Some versions of the netscape collabra server do
+Index: etc/newscache.conf-dist
+===================================================================
+--- etc/newscache.conf-dist	(.../tags/1.2rc6)	(revision 12)
++++ etc/newscache.conf-dist	(.../trunk)	(revision 12)
+@@ -191,6 +191,15 @@
+ # BindFrom:
+ #   Interface for outgoing connections (for multihomed hosts)
+ #   (Code by Vladislav Bogdanov, slava@nsys.by)
++# LimitGroupSize:
++#   Limit the group size to the specified number of messages - this is
++#   useful if your upstream server has very long group retention (or
++#   never expires at all)
++# ConnectBackoff:
++#   Don't try to reconnect for specified amount of seconds after failed
++#   connection attempt
++# ConnectTimeout:
++#   Timeout connects after specified amount of seconds
+ # Options:
+ #   (not-)offline, semioffline ... retrieve nothing/everything/articles
+ #   (not-)setpostflag ... set postflag to n in the active database, if
+Index: NEWS
+===================================================================
+--- NEWS	(.../tags/1.2rc6)	(revision 12)
++++ NEWS	(.../trunk)	(revision 12)
+@@ -1,3 +1,12 @@
++Release 1.?:
++Christof Meerwald
++
++New functions:
++* IPv6 support
++
++* new ConnectTimeout, ConnectBackoff and LimitGroupSize options
++
++
+ Release 1.2:
+ Herbert Straub - 2004-09-28
+ New functions:

@@ -16,6 +16,9 @@ Start pages:
 - linuxhacker.at, older version of the section (2006 to 2008, at the
   lower-case path `/newscache/`):
   [`linuxhacker-2002-2008/newscache-old/index.html`](linuxhacker-2002-2008/newscache-old/index.html)
+- src.linuxhacker.at, Herbert Straub's download server, with the files the
+  linuxhacker.at pages link to (1.2rc6 tarball, patches, HTML man pages):
+  [`src.linuxhacker.at/index.html`](src.linuxhacker.at/index.html)
 
 The files were fetched on 2026-10-21.
 
@@ -79,9 +82,20 @@ paths:
 - `linuxhacker-2002-2008/portal_css/`, `themes/` and the images in
   `linuxhacker-2002-2008/` are the site-wide Plone/Drupal files the pages use
   (`portal_css/Plone Default/` is stored as `portal_css/Plone_Default/`).
+- `linuxhacker-2002-2008/linux/downloads/src/` is
+  `http://www.linuxhacker.at/linux/downloads/src/`: the 1.2rc6 patch and its
+  signature, linked from the older pages.
+- `src.linuxhacker.at/...` is `http://src.linuxhacker.at/...`, the download
+  server the pages link to: `NewsCache/` (the 1.2rc6 tarball and two
+  patches), `products/newscache/current/man/` (the 1.2rc6 man pages as HTML)
+  and `howtos/Libstdc++-porting-howto.html`. That howto was never captured;
+  the file is the copy from the 1.2rc6 tarball (`doc/` there and in this
+  repository), and its three relative links to other libstdc++ pages point to
+  gcc.gnu.org's copies in the Wayback Machine. The tarball has the same files
+  as tag `1.2rc6` in this repository.
 
 Folder index pages: the archive is also served as a website, so every folder
-without a captured `index.html` has one that was added for the archive (13
+without a captured `index.html` has one that was added for the archive (23
 pages, written on 2026-10-21). `index.html` in this folder is the landing
 page; the others list the folder's files and point to its start page, if it
 has one. They are not captures: each starts with the comment
@@ -116,11 +130,19 @@ in the list of captures below.
      the dead `www.linuxhacker.at`, are commented out
      (`<!-- offline copy: removed <script ...></script> -->`). No JavaScript
      was added; the pages work without it.
+   - Links to `src.linuxhacker.at` and `www.linuxhacker.at/linux/downloads/`
+     point to the local copies where there are some (see Layout). The rest
+     point to the Wayback Machine: the Doxygen API docs of 1.2rc4 and 1.2rc6
+     (about 500 generated files, not copied), the Debian RAID howto and the
+     `packages` listing.
+   - faqs.org is gone too: the links to RFC 977, 1036 and 2980 point to
+     `https://www.rfc-editor.org/rfc/rfcNNN.html`, the link to the faqs.org
+     home page to its Wayback copy.
    - The character encoding is kept as served: the TU Wien pages are
      ISO-8859-1 (as their `<meta>` tags say), the linuxhacker.at pages are
      UTF-8.
 
-Total size: about 1.9 MB.
+Total size: about 2.6 MB.
 
 ## Skipped
 
@@ -128,9 +150,11 @@ Total size: about 1.9 MB.
   `0.99.x` tarballs, `pstl-*.tar.gz` and `tcp_wrappers_7.6.tar.gz` in the TU
   Wien `download/` folder were ever captured (all 404 in the Wayback Machine);
   `download/addr.tgz` and `download/res.tgz` were captured but skipped
-  (`.tgz`). `NewsCache-1.2rc6.tar.gz`, the 1.2rc6 patch and the LDAP patch
-  were on `src.linuxhacker.at` and `/linux/downloads/`, outside the section;
-  the 1.2rc6 release is tag `1.2rc6` in this repository.
+  (`.tgz`). The 1.2rc6 tarball and patches from `src.linuxhacker.at` and
+  `/linux/downloads/` were added in a second pass (see Layout).
+- The Doxygen API docs on `src.linuxhacker.at` (`doxygen/NewsCache-1.2rc4/`
+  and `1.2rc6/`, about 500 files): generated from the source, which is in this
+  repository. The links point to the Wayback Machine.
 - TU Wien `download/doc/hicss32.ps`, `msthesis.ps`, `usenix99.ps`: identical
   to the `.ps.gz` files that are included (checked after gunzip), 1.8 MB
   uncompressed.
@@ -323,3 +347,21 @@ too:
 | [`themes/linuxhacker/images/icon.png`](linuxhacker-2002-2008/themes/linuxhacker/images/icon.png) | [2007-02-06](https://web.archive.org/web/20070206141427/http://www.linuxhacker.at/themes/linuxhacker/images/icon.png) |
 | [`themes/linuxhacker/images/logo.png`](linuxhacker-2002-2008/themes/linuxhacker/images/logo.png) | [2007-02-06](https://web.archive.org/web/20070206100126/http://www.linuxhacker.at/themes/linuxhacker/images/logo.png) |
 | [`user.gif`](linuxhacker-2002-2008/user.gif) | [2010-10-01](https://web.archive.org/web/20101001232503/http://www.linuxhacker.at/user.gif) |
+
+#### src.linuxhacker.at and linuxhacker.at downloads
+
+Fetched on 2026-10-21 in a second pass, the same way (latest status-200
+capture, raw `id_` form).
+
+| File | Capture |
+|---|---|
+| [`src.linuxhacker.at/NewsCache/NewsCache-1.2rc6.tar.gz`](src.linuxhacker.at/NewsCache/NewsCache-1.2rc6.tar.gz) | [2014-06-26](https://web.archive.org/web/20140626020905/http://src.linuxhacker.at/NewsCache/NewsCache-1.2rc6.tar.gz) |
+| [`src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-Christof.Meerwald-ipv6.patch`](src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-Christof.Meerwald-ipv6.patch) | [2015-09-06](https://web.archive.org/web/20150906164250/http://src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-Christof.Meerwald-ipv6.patch) |
+| [`src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-ldap-auth.patch.gz`](src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-ldap-auth.patch.gz) | [2015-09-06](https://web.archive.org/web/20150906163838/http://src.linuxhacker.at/NewsCache/NewsCache-1.2rc6-ldap-auth.patch.gz) |
+| [`src.linuxhacker.at/products/newscache/current/man/newscache.8.html`](src.linuxhacker.at/products/newscache/current/man/newscache.8.html) | [2015-09-06](https://web.archive.org/web/20150906234353/http://src.linuxhacker.at/products/newscache/current/man/newscache.8.html) |
+| [`src.linuxhacker.at/products/newscache/current/man/newscache.conf.5.html`](src.linuxhacker.at/products/newscache/current/man/newscache.conf.5.html) | [2009-11-10](https://web.archive.org/web/20091110153914/http://src.linuxhacker.at/products/newscache/current/man/newscache.conf.5.html) |
+| [`src.linuxhacker.at/products/newscache/current/man/newscacheclean.8.html`](src.linuxhacker.at/products/newscache/current/man/newscacheclean.8.html) | [2015-09-07](https://web.archive.org/web/20150907173517/http://src.linuxhacker.at/products/newscache/current/man/newscacheclean.8.html) |
+| [`src.linuxhacker.at/products/newscache/current/man/updatenews.8.html`](src.linuxhacker.at/products/newscache/current/man/updatenews.8.html) | [2015-09-07](https://web.archive.org/web/20150907175032/http://src.linuxhacker.at/products/newscache/current/man/updatenews.8.html) |
+| [`src.linuxhacker.at/howtos/Libstdc++-porting-howto.html`](src.linuxhacker.at/howtos/Libstdc++-porting-howto.html) | never captured; copy from the 1.2rc6 tarball |
+| [`linuxhacker-2002-2008/linux/downloads/src/NewsCache-1.2rc6-patch1.gz`](linuxhacker-2002-2008/linux/downloads/src/NewsCache-1.2rc6-patch1.gz) | [2005-12-23](https://web.archive.org/web/20051223040636/http://www.linuxhacker.at/linux/downloads/src/NewsCache-1.2rc6-patch1.gz) |
+| [`linuxhacker-2002-2008/linux/downloads/src/NewsCache-1.2rc6-patch1.gz.asc`](linuxhacker-2002-2008/linux/downloads/src/NewsCache-1.2rc6-patch1.gz.asc) | [2005-12-23](https://web.archive.org/web/20051223024238/http://www.linuxhacker.at/linux/downloads/src/NewsCache-1.2rc6-patch1.gz.asc) |

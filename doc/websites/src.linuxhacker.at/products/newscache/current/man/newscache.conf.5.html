@@ -1,0 +1,1249 @@
+<html>
+<head>
+<meta name="generator" content="groff -Thtml, see www.gnu.org">
+<meta name="Content-Style" content="text/css">
+<title>newscache.conf</title>
+</head>
+<body>
+
+<h1 align=center>newscache.conf</h1>
+<a href="#NAME">NAME</a><br>
+<a href="#SYNOPSIS">SYNOPSIS</a><br>
+<a href="#DESCRIPTION">DESCRIPTION</a><br>
+<a href="#EXAMPLES">EXAMPLES</a><br>
+<a href="#THE xdebug COMMAND">THE xdebug COMMAND</a><br>
+<a href="#FILES">FILES</a><br>
+<a href="#SEE ALSO">SEE ALSO</a><br>
+<a href="#AUTHORS">AUTHORS</a><br>
+<a href="#REPORTING BUGS">REPORTING BUGS</a><br>
+<a href="#COPYRIGHT">COPYRIGHT</a><br>
+
+<hr>
+<!-- Creator     : groff version 1.17.2 -->
+<!-- CreationDate: Fri Oct  1 20:44:29 2004 -->
+<a name="NAME"></a>
+<h2>NAME</h2>
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+newscache.conf</td></table>
+<a name="SYNOPSIS"></a>
+<h2>SYNOPSIS</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<b>/etc/newscache.conf</b></td></table>
+<a name="DESCRIPTION"></a>
+<h2>DESCRIPTION</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+The file <i>@SYSCONFDIR@/newscache.conf</i> defines all the
+<b>NewsCache 's</b> configuration options. It is also used
+for <b>updatenews(8)</b> ,which is responsible for
+submitting articles from the outgoing spool directory and
+prefetching newsgroups and <b>newscacheclean(8),</b> which
+cleans up the Cache.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+NewsCache is a free cache server for USENET News. NewsCache
+acts to news reading clients like a news server, except that
+it stores only those articles that have been requested by at
+least one client. NewsCache targets problems of the current
+News System like network bandwidth consumption or the IO
+load caused by news clients. NewsCache acts to the upstream
+news server like a news reader programm.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+It supports principles the following modes (for a detailed
+description read ServerSpec Configuration Options
+below):</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>cached</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+NewsCache store every retrieved article in his internal
+cache. If this article is retrieved by another news reader
+client, then NewsCache can get the article from his cache
+instead of retrieving this article again from the upstream
+newsserver.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>not-cached</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+NewsCache act as a &quot;proxy&quot; and does'nt store
+retrieved article in his local cache. This is usefull for
+combined multiple local newsserver
+configuration.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>offline</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+NewsCache does'nt connect to the upstream newsserver. Only
+the specified newsgroups are retrieved by
+<b>updatenews(8)</b> and stored in the cache. This is
+usefull in dialup configurations. The news reader clients
+can only access this newsgroups.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>semi-offline, cached</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The overview informations are loaded with
+<b>updatenews(8)</b> and the articles retrieved by
+NewsCache, if a news reader client request it. The article
+is stored in the internal cache.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="4%"></td><td width="96%">
+<b>General Configuration Options</b></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>ConfigVersion version</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Specifies the syntax version of the configuration file. This
+manual page describes version 3. This allows NewsCache to
+detect a configuration file of an older NewsCache version.
+If specified, it should be specified as the first
+configuration option.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>ServerType type</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+This may be either <i>standalone</i> for a standalone server
+or <i>inetd</i> if NewsCache is started from inetd. A
+standalone server has the advantage that the configuration
+file will be read once only, for the cost of an extra
+process running all the time. Usually, you use a standalone
+server, if NewsCache is frequently accessed. The default
+value is standalone.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>PidFile filename</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+On startup NewsCache will write its PID to the given file.
+This can then be used by system scripts to gracefully stop
+NewsCache by sending a SIGTERM to the parent process. No
+default value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Username username</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Change the user id to username as soon as NewsCache has
+bound to <i>CachePort</i>. No default value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Groupname groupname</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Change the group id to groupname as soon as NewsCache has
+bound to <i>CachePort</i>. No default value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Admin email-address</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The email address of this NewsCache's
+administrator.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>AccessList { AccessSpec AccessSpec ... }</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Client access configuration.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>NewsServerList { ServerSpec ServerSpec ...
+}</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Defines a list of news servers and the newsgroups to
+retrieve from which news server. For a detailed description
+of <i>ServerSpec</i> see the ServerSpec Configuration
+Options section below.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Timeouts active-db group-description</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Timeouts in seconds for the retrieval of the active database
+(first parameter) and the description of the newsgroups
+(second parameter). If a client requests &quot;list
+active&quot;, then newscache checks if the active database
+timeout is reached and first requests the active
+informations from the upstream servers before returning the
+data to the client. Note: if the ServerSpec section contains
+the Options offline or semioffline, then the data will be
+not downloaded from the upstream server. You need
+<b>updatenews(8)</b>. The default values are 3600 seconds
+for both parameter.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>ClientTimeout t</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Terminate the connection after t seconds inactivity. The
+default value is 1200 seconds.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>MaxConnections number</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Maximal number of simultanous connections. This Parameter
+works only in standalone mode. The default number is
+32.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>SpoolDirectory directory</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The directory, where the cached newsgroups and articles
+should be stored. The default value is
+/var/cache/newscache.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Spoolsize KBytes</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The maximum size of the spool area. This is controlled by
+the <b>newscacheclean</b>(8)<b>.</b> The default value is
+1048576 KBytes (1 GByte).</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>LogDirectory directory</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Directory, where all the log-files should go. No default
+value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>LogStyle
+[strict-inn][hostname][ip-address]</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+StrictINN style logging; log client's hostname and or
+IP-address.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>CachePort port</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Listen on port for incoming requests. Port may be a valid
+service-name (Ususally, listed in /etc/services) or a port
+number preceded by a #-sign. This directive is uneffective
+if NewsCache is started from inetd.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>Retries number</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Specifies the number of retries for connecting to the news
+server. If this limit is exceded NewsCache assumes that the
+news server is unreachable.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>PrefetchFile filename</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Specifies the filename. No default value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>NiceServer n</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Increment priority of the server process by n. See also
+<b>nice(1)</b>. The default value is 0.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>NiceClient n</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Increment priority of the client process by n. The client
+process communicates with the user program. See also
+<b>nice(1)</b>.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>NiceClean n</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Increment priority of the newscacheclean process by n. See
+also <b>nice(1)</b>. The newscacheclean process is a
+housekeeping process. See alco
+<b>newscacheclean(8)</b>.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<i>ListenTo specification</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The Address, where NewsCache is listening, if running in
+standalone mode. In a multihomed environment the address of
+one NIC can be specified. The default Port is nntp from
+/etc/services. For the port-number an entry fom
+/etc/services or a port-number can be
+specified.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="4%"></td><td width="96%">
+<b>AccessSpec Configuration Options</b></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre><i>Client</i> [fqdn-or-part | ip-address/netmask]
+{
+<i>     allow</i> read post debug none authentication
+<i>     List NGSpecification
+     Read</i> NGSpecification
+<i>     PostTo</i> NGSpecification
+<i>     Authentication</i> authenticationSpecification
+}
+
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+allow [read] [post] [debug] [none]
+[authentication]</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Allow read, post, debug for this Client. The default is
+none. If only authenticated users are allowed for this
+network, then authentication can be specified. See example
+&quot;Only authenticated users&quot;.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+List <i>NGSpecification</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Permits client access to the specified
+newsgroups.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Read <i>NGSpecification</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Allow reading specified newsgroups. Same format as
+List.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+PostTo <i>NGSpecification</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Allow posting to specified newsgroups. Same format as
+List.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+NGSpecification</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+is a comma seperated list of newsgroups, where the last part
+of newsgroup may be substituted by * standing for any
+string. Each newsgroup is retrieved from the news server
+with the longest match. Examples: * (all newsgroups), at.*
+(the whole at. hierarchy), *,!alt.binaries.* (all newsgroups
+without alt.binaries hierarchy).</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Authentication</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Type of authentication plus authenication specific options.
+Possible values are:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+none</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+no further authentication necessary</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+file:/path/to/file</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+formatdescription:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>          username:password:list:read:postto:allow
+</pre>The additional access specification are added to the normal List Read and PostTo Parameters (see above and the example section). The password field is a encrypted password (md5crypt of crypt) or plaintext (configured with --enable-plainpass). htpasswd from the apache project can create such a password. In the allow field can be additional permission specified (Example: authenticated user can be use the post command).</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+unix:list:read:postto:allow</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Use unix authentication (getpwnam or getspnam). The
+additional access specification are added to the normal List
+Read and PostTo Parameters and allow(see above and the
+example section). If only unix is specified, then all
+clients must step throuh the authentication. If further
+fields specified, then unauthenticated clients have the
+access specified with the parameter allow, List, ReadTo,
+PostTo and authenticated clients uses the arguments and
+modify the original parameters.<br>
+It is also possible to specifiy empty fields, example:
+unix:::*:debug. Which means, that the PostTo parameter is
+extended with *. What actual settings are used by NewsCache
+can be determined with the xdebug dump authorization
+command.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+pam:list:read:postto:allow</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Use pam authentication. For additional description of the
+fields see: <i>unix:list:read:postto:allow</i> The PAM
+Servicename can be specified with the configuration
+parameter <i>PAMServicename</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+pam+file:/path/to/file</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The authentication is handled over pam and the additional
+permission values are taken from the file. The recordformats
+in the file are valid:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>#this is a comment
+hugo:at.test:at.test:at.test:post
+@mygroup:de.*:de.*:de.*:post
+*:us.*:us.*::
+</pre>This mean, that after a succussfully authentication process, the user hugo can list at.test, read at.test, postto at.test and allow the use of post command. If the account is member of the group mygroup additionally allow list de.* read de.* and postto de.*, also allowing the use of the post command. * means, that all users can list us.* and read us.* newsgroups.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+PAMServicename</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+This parameter specifiy the name of the PAM Service. The
+default is newscache. You can use different PAM settings for
+each Client network. For further explanation of PAM see the
+System administrators PAM Guide. This Guide can be
+downloaded from
+http://www.kernel.org/pub/linux/libs/pam/pre/doc/</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="4%"></td><td width="96%">
+<b>ServerSpec Configuration Options</b></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<pre>
+<i>[Server | NoServer]</i> news.host Service
+{
+<i>     Read</i> GroupSpec
+<i>     PostTo</i> GroupSpec
+<i>     GroupTimeout</i> seconds
+<i>     BindFrom</i> address (FIXME)
+<i>     Retris</i> nr-of-retries
+<i>     User</i> username
+<i>     Password</i> password
+<i>     Options</i> flags
+<i>     Commands</i> commands
+}
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+to specify what newsgroups have to be retrived from which
+news server and which articles have to be submitted to which
+news server or <i>ServerSpec</i> may be:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+NoServer { Read <i>GroupSpec</i> PostTo <i>GroupSpec</i>
+}</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+to specify what newsgroup has to be retrieved by no news
+server and to which newsgroups no articles should be posted
+to. Or:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Server news.host Service</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<i>news.host</i> is the name of the news server and
+<i>Service</i> indicates the port, where the news server is
+listening for connections.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Read <i>NewsgroupList</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+The comma separated list specifiy the wildmat newsgroup
+specifications. Each element of the list will be fetched
+with the list active element. Example: Read at.*,de.* will
+send to the upstream newsserver the following two commands:
+list active at.* and list active de.*. For details see
+section 2.1.2 LIST ACTIVE [WILDMAT] of RFC2980. These
+parameter can help you saving bandwidth. <i>AccessSpec
+Configuration Options</i> . No default value.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+PostTo <i>NGSpecification</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+NewsCache post an article to the best matching upstream
+newsserver. If the article cannot be submitted immediately,
+it is kept for later transmission. See the example: Multiple
+Upstream NewsServer.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+GroupTimeout <i>seconds</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+specified how long the group information (for instance
+retrieved with the command GROUP at.linux) is valid (in
+seconds). Note: if the ServerSpec section contains the
+Options offline, then the data will be not downloaded from
+the upstream server. You need <b>updatenews(8)</b>. The
+default value is 600 seconds.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Options <i>flags</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Specifies a list of options that should be turned on or off.
+The default flags are: cached setpostflag. Valid flags
+are:</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre><i>     [not-]setpostflag
+     [not-]cached
+     [not-]offline
+     semioffline
+</i></pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+[not-]setpostflag</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="32%"></td><td width="68%">
+set postflag to n in the active database, if posting to the
+news server is not allowed. not-setpostflag, setpostflag
+indicates whether the postflag of newsgroups on servers
+without posting permission should be set to
+`n'.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+[not-]cached</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="32%"></td><td width="68%">
+not-cached, cached indicate, whether groups from this server
+should be cached or not.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+[not-]offline</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="32%"></td><td width="68%">
+NewsCache does'nt connect to the upstream newsserver. Only
+the specified newsgroups are retrieved by
+<b>updatenews(8)</b> and stored in the cache. This is
+usefull in dialup configurations. The news reader clients
+can only access this newsgroups.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+semioffline</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="32%"></td><td width="68%">
+The overview informations are loaded with
+<b>updatenews(8)</b> and the articles retrieved by
+NewsCache, if a news reader client request it. The article
+is stored in the internal cache.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Commands <i>commands</i></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+All commands are switched on by default and NewsCache tries
+itself to find out which of the commands are supported. In
+some situations it might be necessary to deactivate a
+command manually (eg. it is not implemented correctly by
+your news server). To switch off, prepend the command with
+not-support commands: listgroup, over</td></table>
+<a name="EXAMPLES"></a>
+<h2>EXAMPLES</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Reducing Load from a NewsServer - cached mode</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+ConfigVersion 5
+ListenTo DEFAULT
+AccessList {
+     Client 127.0.0.1/255.255.255.255 {
+          allow read post
+          # No xdebug command for unauthenticated
+          # clients.
+          List *
+          Read *
+          PostTo *
+          Authentication unix::::debug
+          # xdebug command for authenticated clients.
+          # the empty fields (:::) doesn't modify
+          # List, Read, PostTo parameters.
+     }
+     Default {
+          allow none
+     }
+}
+NewsServerList {
+     Server news.host nntp {
+          List at.*
+          Read at.*
+          PostTo at.*
+          GroupTimeout 1200
+          Options cached
+          Authentication unix:*:*:*
+          # Authenticated user see all groups
+     }
+}
+
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Local NewsGroups</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Configuration to transparently include local Newsgroups. The
+local Newsgroups are not cached.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+ConfigVersion 5
+ListenTo DEFAULT
+AccessList {
+     Client 127.0.0.1/255.255.255.255 {
+          allow read post debug
+          List *
+          Read *
+          PostTo *
+          Authentication none
+     }
+     Default {
+          allow none
+     }
+}
+NewsServerList {
+     Server upstream.newsserver nntp {
+          Read *
+          PostTo *
+          GroupTimeout 1200
+          Options cached
+     }
+     Server local.newsserver #120 {
+          Read *
+          PostTo *
+          GroupTimeout 1200
+          Options not-cached
+     }
+}
+
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Offline Mode</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Offline Mode for ppp dialup connections. The Newsgroup of
+interesst have to list in prefetch-file and retrieved with
+the updatenews program.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+ConfigVersion 5
+ListenTo DEFAULT
+AccessList {
+     Client 127.0.0.1/255.255.255.255 {
+          allow read post debug
+          List *
+          Read *
+          PostTo *
+          Authentication none
+     }
+     Default {
+          allow none
+     }
+}
+NewsServerList {
+     Server upstream.newsserver nntp {
+          Read *
+          PostTo *
+          GroupTimeout 1200
+          Options offline
+     }
+}
+
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Only Authenticated Users</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Only authenticated users are allowed. This example show how
+to setup.</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+ConfigVersion 5
+ListenTo DEFAULT
+AccessList {
+     Client 127.0.0.1/255.255.255.255 {
+          allow authentication
+          List !*
+          Read !*
+          PostTo !*
+          Authentication pam:*:*:*:read,post
+     }
+     Default {
+          allow none
+     }
+}
+NewsServerList {
+     Server upstream.newsserver nntp {
+          Read *
+          PostTo *
+          GroupTimeout 1200
+          Options cached
+     }
+}
+
+</pre></td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Multiple Upstream NewsServer</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+We are connected to the main upstream NewsServer f.q.d.n and
+various other NewsServer. The new Newsgroups after
+modifications of the NewsServerList are available after the
+Timeout ActiveDB Value. This can be forced with updatenews
+-a (see manual page updatenews).</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+ConfigVersion 5
+ListenTo DEFAULT
+AccessList {
+     Client 127.0.0.1/255.255.255.255 {
+          allow authentication
+          List *
+          Read *
+          PostTo *
+          Authentication none
+     }
+     Default {
+          allow none
+     }
+}
+NewsServerList {
+     Server f.q.d.n nntp {
+          Read *
+          PostTo *
+          GroupTimeout 1200
+          Options cached
+     }
+     NewsServerList {
+          Server news.redhat.com nntp {
+          Retries 3
+          Read gated.*
+          PostTo gated.*
+          GroupTimeout 1200
+          Options cached
+     }
+     Server nntp.perl.org nntp {
+          Retries 3
+          Read perl.*
+          PostTo perl.*
+          GroupTimeout 1200
+          Options cached
+     }
+     Server news.php.net nntp {
+          Retries 3
+          Read php.*
+          PostTo php.*
+          GroupTimeout 1200
+          Options cached
+     }
+}
+
+</pre></td></table>
+<a name="THE xdebug COMMAND"></a>
+<h2>THE xdebug COMMAND</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+telnet localhost 119 and the xdebug command</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+Note: in the configuration file the allow must contain the
+debug option. The following example show the a typical
+xdebug session.&quot;</td></table>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="21%"></td><td width="79%">
+<pre>
+telnet localhost 119
+Trying 127.0.0.1...
+Connected to faultier.
+Escape character is '^]'.
+200 NewsCache 1.2, accepting NNRP commands
+xdebug dump authorization
+xxx authorization data follows
+127.0.0.1/255.255.255.255{
+  access_flags=4 ( debug)
+  list=at.*
+  read=at.*
+  postto=at.*
+  authentication=unix:*:*:*:post,read
+
+}
+authinfo user myusername
+381 password please
+authinfo pass mypassword
+281 OK.
+xdebug dump authorization
+xxx authorization data follows
+127.0.0.1/255.255.255.255{
+  access_flags=7 ( read post debug)
+  list=at.*,*
+  read=at.*,*
+  postto=at.*,*
+  authentication=unix:*:*:*:post,read
+
+}
+quit
+205 Good bye
+Connection closed by foreign host.
+</pre></td></table>
+<a name="FILES"></a>
+<h2>FILES</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+@SYSCONFDIR@/newscache.conf<br>
+@SBINDIR@/newscache<br>
+@SBINDIR@/newscacheclean<br>
+@SBINDIR@/updatenews</td></table>
+<a name="SEE ALSO"></a>
+<h2>SEE ALSO</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+newscache(8), newscacheclean(8), updatenews(8)</td></table>
+<a name="AUTHORS"></a>
+<h2>AUTHORS</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+1997-2000 Thomas Gschwind
+&lt;tom@infosys.tuwien.ac.at&gt;<br>
+2001-2004 Herbert Straub
+&lt;h.straub@aon.at&gt;</td></table>
+<a name="REPORTING BUGS"></a>
+<h2>REPORTING BUGS</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+Report bugs to
+&lt;newscache@linuxhacker.org&gt;.</td></table>
+<a name="COPYRIGHT"></a>
+<h2>COPYRIGHT</h2>
+
+<table width="100%" border=0 rules="none" frame="void"
+       cols="2" cellspacing="0" cellpadding="0">
+<tr valign="top" align="left">
+<td width="10%"></td><td width="90%">
+<b>NewsCache</b> is released under the <b>GNU General Public
+License (GPL).</b> There is NO warranty; not even for
+MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE.</td></table>
+<hr>
+</body>
+</html>
