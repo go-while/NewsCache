@@ -81,6 +81,7 @@ CI, not yet by the systematic review.
 | Info manual without a dir entry, `newscache.conf(5)` without a whatis line | 0, 14 | lintian #25 | #25 |
 | Login examples in FEDORA.md and the container config didn't require a login (`allow read post` + `Authentication file:` makes it optional); wrong user-file format | 0, 3 | Debian packaging #25 | #27 |
 | Commands a login would allow answered `500 What?` before login, not `480`, so newsreaders never offered a login | 1, 3 | testing #27 | #28 |
+| `newscache -p` and `xdebug` printed `allow authentication` as a bare `allow`, which reads back as `allow none` | 6 | Debian packaging #25 | #31 |
 
 ## Open points
 
@@ -113,8 +114,6 @@ that it stays as it is.
 - **`setugid()` keeps root's supplementary groups** (area 5): no
   `setgroups()`, so `newscache` started by hand as root runs as `news` with
   group 0. Under systemd the list is empty.
-- **`newscache -p` prints `allow authentication` as `allow`** (area 6), which
-  read back is `allow none`.
 - **Auth-file lines need at least `user:hash:list`** (area 3); `user:hash`
   alone is refused.
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).

@@ -240,6 +240,9 @@ inline void AccessEntry::printAccessFlags (std::ostream *pOut) const
 	if (access_flags & af_debug) {
 		*pOut << " debug";
 	}
+	if (access_flags & af_authentication) {
+		*pOut << " authentication";
+	}
 }
 inline void Authentication::modifyField (unsigned int nr, const char *v)
 {

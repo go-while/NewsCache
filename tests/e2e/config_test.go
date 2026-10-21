@@ -154,6 +154,66 @@ func TestPrintAccessEntries(t *testing.T) {
 	}
 }
 
+// TestPrintAllowAuthentication: newscache -p prints "allow authentication".
+// It printed a bare "allow", which reads back as allow none, so a login-only
+// entry copied from the -p output let nobody in.
+func TestPrintAllowAuthentication(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = `AccessList {
+  Client 192.0.2.0/24 {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    Authentication file:/etc/newscache.users
+  }
+  Client 198.51.100.0/24 {
+    allow read authentication
+    List *
+    Read *
+    PostTo !*
+    Authentication file:/etc/newscache.users
+  }
+  Client 203.0.113.0/24 {
+    allow read post debug
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	list := accessListOf(t, string(out))
+	var got []string
+	for _, l := range strings.Split(list, "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "allow") {
+			got = append(got, l)
+		}
+	}
+	want := []string{"allow authentication", "allow read authentication", "allow read post debug", "allow none"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("allow lines in -p output:\n  got  %q\n  want %q", got, want)
+	}
+
+	// The printed list, read back as a config, prints the same again.
+	e.AccessList = list
+	e.writeConf()
+	out2, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p on its own output: %v\n%s", err, out2)
+	}
+	if list2 := accessListOf(t, string(out2)); list2 != list {
+		t.Errorf("-p output read back differs:\n%s\n--- vs ---\n%s", list, list2)
+	}
+}
+
 // TestAccessPrefixNeedsAddress: a /prefix after something that isn't an IP
 // address is a config error. It used to become a host name that never
 // matches, silently.
