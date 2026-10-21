@@ -20,6 +20,12 @@ Bug fixes:
   the user file, whose format (user:hash:list:read:postto:allow) FEDORA.md
   showed wrongly as user:password. The shipped configs were not affected:
   they let nobody in.
+* Before logging in, a client of an entry with Authentication got
+  "500 What?" for commands that only a login allows, e.g. every command
+  with "allow authentication", or POST with "allow read". Newsreaders wait
+  for 480 before they send AUTHINFO, so they couldn't log in. Such commands
+  now get "480 Authentication required". Unknown commands, and entries
+  without Authentication, still get 500.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
