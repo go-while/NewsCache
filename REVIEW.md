@@ -79,6 +79,7 @@ CI, not yet by the systematic review.
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
 | `debian/` didn't build (debhelper compat 2 rules, no autoreconf, `mandir=/user/...`) and had no config, news-owned spool or `ExecReload` | 14 | review | #25 |
 | Info manual without a dir entry, `newscache.conf(5)` without a whatis line | 0, 14 | lintian #25 | #25 |
+| Login examples in FEDORA.md and the container config didn't require a login (`allow read post` + `Authentication file:` makes it optional); wrong user-file format | 0, 3 | Debian packaging #25 | #27 |
 
 ## Open points
 
@@ -105,13 +106,10 @@ that it stays as it is.
 - **`newscache -p` prints upstream passwords** (area 6) in plain text
   (`Password secret`). Only the admin can run it, but its output is often
   pasted into bug reports.
-- **A login is optional with `Authentication file:`, `pam` and `pam+file`**
-  (area 3): with `allow read post`, clients that don't log in get that access
-  anyway. Only `allow authentication` with `List`, `Read` and `PostTo !*`
-  requires a login (then other commands answer `500 What?`, not `480`).
-  FEDORA.md, the commented example in `docker/newscache.conf` and the 1.3.21
-  NEWS say otherwise; the `Dockerfile` header still says private networks
-  are allowed. Found while testing #25.
+- **A login-only entry answers `500 What?`, not `480`** (areas 1, 3). With
+  `allow authentication`, the read commands are removed from the client's
+  command map, so before login they get `500`. Newsreaders that wait for a
+  `480` before sending AUTHINFO probably never offer a login.
 - **PAM and `Authentication unix` can't check local passwords** (area 3):
   sessions run as `news`, pam_unix's `unix_chkpwd` only checks the caller's
   own password, and `getspnam` needs root.

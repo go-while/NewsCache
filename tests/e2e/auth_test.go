@@ -13,9 +13,28 @@ import (
 // crypt() skip there; the others use md5Hash, which NewsCache checks itself.
 const secretHash = "$6$e2esalt$14AiApLt4fjJwCUoL7cnR2lk2Ud56tWQGtode.8FL5VjLppQrOdD3JEfiWos6RfNwB/lVvP23URi3Hjp4dxnx0"
 
-// authFileEnv returns an env whose inetd client must log in against an auth
-// file with the given lines.
+// authFileEnv returns an env whose inetd client may log in against an auth
+// file with the given lines. Its entry has "allow read post", so the login
+// is optional: it only adds the rights from the auth file.
 func authFileEnv(t *testing.T, lines ...string) *env {
+	return authEnv(t, `allow read post
+    List *
+    Read *
+    PostTo *`, lines...)
+}
+
+// loginOnlyEnv is like authFileEnv, but its entry allows nothing except the
+// login, so the client has no rights until it has logged in.
+func loginOnlyEnv(t *testing.T, lines ...string) *env {
+	return authEnv(t, `allow authentication
+    List !*
+    Read !*
+    PostTo !*`, lines...)
+}
+
+// authEnv returns an env whose inetd client gets the given allow/List/Read/
+// PostTo settings plus an auth file with the given lines.
+func authEnv(t *testing.T, rights string, lines ...string) *env {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
 	path := filepath.Join(e.Dir, "newscache.auth")
@@ -28,10 +47,7 @@ func authFileEnv(t *testing.T, lines ...string) *env {
 	}
 	e.AccessList = `AccessList {
   Client stdin {
-    allow read post
-    List *
-    Read *
-    PostTo *
+    ` + rights + `
     Authentication file:` + path + `
   }
   Default {
@@ -113,5 +129,43 @@ func TestAuthFileWrongPassword(t *testing.T) {
 	c.Cmd("AUTHINFO USER tester")
 	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
 		t.Fatalf("AUTHINFO PASS wrong: %q, want 502", line)
+	}
+}
+
+// TestLoginOnlyEntry: an entry with "allow authentication" and nothing
+// listed, as in FEDORA.md and the container config, lets a client that
+// hasn't logged in neither list nor read; after the login it gets the rights
+// from the auth file.
+func TestLoginOnlyEntry(t *testing.T) {
+	e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,post")
+	c := e.session()
+	for _, cmd := range []string{"LIST", "GROUP test.alpha", "ARTICLE 1"} {
+		if code, line := c.Cmd(cmd); code < 400 {
+			t.Fatalf("%s before login: %q, want an error", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after login: %q, want 211", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1 after login: %q, want 220", line)
+	}
+	c.ReadDotLines()
+}
+
+// TestAuthFileLoginOptional: with "allow read post" and an auth file, the
+// login is optional. A client that doesn't log in still reads. FEDORA.md
+// warns about this; the test keeps the behaviour from changing unnoticed.
+func TestAuthFileLoginOptional(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP without login: %q, want 211", line)
 	}
 }

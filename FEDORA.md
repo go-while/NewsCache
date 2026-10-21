@@ -169,11 +169,31 @@ before `Default` for each address or network (CIDR) that may read and post:
   }
 ```
 
-Or require a login: change `Default` to `allow read post` with
-`Authentication file:/etc/newscache.users` (lines `user:password`, see
-`newscache.conf(5)`), or `Authentication pam` with `--with-pam`. Every
-command except `AUTHINFO`, `HELP` and `QUIT` then answers `480` until the
-client has logged in.
+To let in anyone who logs in, replace `Default` with an entry that allows
+only the login itself (`allow authentication`, nothing listed) and give the
+rights in the user file:
+
+```
+  Default {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    Authentication file:/etc/newscache.users
+  }
+```
+
+Each line of `/etc/newscache.users` is `user:hash:list:read:postto:allow`,
+for example `alice:$6$...:*:*:*:read,post`; `openssl passwd -6` makes the
+hash. The file is read at login, after NewsCache has switched to its
+`Username` (news), so that user must be able to read it. Until a client has
+logged in, it can only use `AUTHINFO`, `HELP` and `QUIT`.
+
+Don't combine `allow read post` with `Authentication file:` if you want a
+login to be required: then the login is optional. Clients that don't log in
+get the entry's own rights, and a login only adds the rights from the user
+file. That is useful for "everyone on the LAN may read, users who log in may
+post too", not for keeping strangers out.
 
 Access-list notes:
 
