@@ -1,0 +1,52 @@
+Article Reinstatement Bug
+
+For people familiar with NNTP: This is also the reason why backfill
+causes problems for many news readers.
+
+Articles posted to a newsgroup are numbered sequentially in increasing
+order.  The active database (the list of newsgroups that can be
+requested using the LIST command) contains the low and high watermark
+of each newsgroup.  These watermarks represent the lowest and highest
+article number available in that newsgroup.  This mechanism can be
+used to deduce the number of available or unread articles in each
+newsgroup.
+
+    available_articles=high_watermark-low_watermark+1;
+    unread_articles=available_articles-read_articles_between_low_and_high
+
+Thus, the newsreader only needs to keep track of the numbers of the
+articles that have been read in each newsgroup.  These are typically
+stored in your ~/.newsrc file.
+
+Articles, however, may be deleted.  In this case the above estimation
+gets inaccurate.  Thus, many news readers mark deleted articles as
+read to get a better estimation of the number of (unread) articles in
+each newsgroup.  Unfortunately, articles may be reinstated (see the
+NNTP specification and the new NNTP draft specification), which
+fortunately happens infrequently. 
+
+However, assume that you read news after article 666 has been
+deleted. Now, your news reader marks article 666 as read. When the
+article gets reinstated (ie, it has been accidently deleted by the
+news server administrator), it is still marked as read and thus the
+article will be never offered to you as unread.
+
+How can this be a problem in combination with NewsCache?  Assume a
+user reads articles 7 and 42 while in online mode.  Afterwards,
+NewsCache is switched to offline mode and articles 8 to 41 can no
+longer be requested from the upstream news server and appear as if
+they were deleted.  Renumbering the articles on NewsCache is not
+possible.
+
+It is likely that the news reader has already requested the overview
+database (a list of the article number, the poster, the subject and
+other information of the articles available in the current newsgroup)
+before requesting articles 7 and 42.  The overview database is indexed
+by article numbers.  Thus, you need to set up the remapping before the
+user requests the overview database which is impossible since you do
+not know which articles the user will read beforehand.
+
+Thus, if you use NewsCache in offline mode in combination with a news
+reader that is affected by the "Article Reinstatement Bug", you should
+always retrieve all articles from the newsgroup you are interested in
+before going offline.

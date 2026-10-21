@@ -28,6 +28,11 @@ Other changes:
   debian/README.Debian.
 * The info manual has a dir entry, and newscache.conf(5) a whatis line.
 
+Other changes:
+* doc/websites/ holds an offline copy, from the Wayback Machine, of the
+  two original NewsCache websites (Thomas Gschwind, TU Wien; Herbert
+  Straub, linuxhacker.at).
+
 Release 1.3.21:
 Billy G. - 2026-10-20
 

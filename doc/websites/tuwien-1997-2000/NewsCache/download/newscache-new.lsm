@@ -1,0 +1,18 @@
+Begin3
+Title:          NewsCache
+Version:        0.99.14
+Entered-date:   14JAN98
+Description:    A free cache server for Usenet News. Reduces
+		the required network bandwidth and the IO load of the
+		news server. Additionally, it multiplexes between
+		different news servers and allows offline news reading.
+Keywords:       cache usenet news nntp multiplexing
+Author:         tom@infosys.tuwien.ac.at (Thomas Gschwind)
+Maintained-by:  tom@infosys.tuwien.ac.at (Thomas Gschwind)
+Primary-site:   http://www.infosys.tuwien.ac.at/NewsCache/
+Alternate-site: sunsite.unc.edu /pub/Linux/system/news/transport
+		400kB newscache-0.9.8.tar.gz
+Original-site:  http://www.infosys.tuwien.ac.at/NewsCache/
+Platforms:      Un*x
+Copying-policy: GPL
+End

@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Miscellaneous Classes</TITLE>
+<META NAME="description" CONTENT="Miscellaneous Classes">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="previous" HREF="node36.html">
+<LINK REL="up" HREF="node31.html">
+<LINK REL="next" HREF="node38.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html675"
+ HREF="node38.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html672"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html668"
+ HREF="node36.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html674"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html676"
+ HREF="node38.html">Evaluation</A>
+<B> Up:</B> <A NAME="tex2html673"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html669"
+ HREF="node36.html">News Database</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html677"
+ HREF="node37.html#SECTION001061000000000000000">
+Multiplexing List</A>
+<LI><A NAME="tex2html678"
+ HREF="node37.html#SECTION001062000000000000000">
+sstream</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001060000000000000000">
+Miscellaneous Classes</A>
+</H1>
+<P>
+For the implementation of the News Cache the following classes have
+been implemented in addition to those described in
+chapter&nbsp;<A HREF="node25.html#cha:design">5</A>. These classes are mostly classes used to
+provide the multiplexing functionality explained in
+section&nbsp;<A HREF="https://web.archive.org/web/20070812061116/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node18.html#sec:analyse_multi">4.3</A> or to provide better access to other
+resources used by the News Cache.
+<P><H2><A NAME="SECTION001061000000000000000">
+Multiplexing List</A>
+</H2>
+<P>
+The <EM>Multiplexing List (MPList)</EM>  is necessary for the News Cache's
+multiplexing functionality. It decides which news server to contact
+for which newsgroup.
+<P>
+The <EM>MPList</EM>  class is a list of <EM>MPListEntries</EM> . Each
+<EM>MPListEntry</EM>  stores which newsgroups should be used from which
+news server. Table&nbsp;<A HREF="node37.html#tab:MPList">6.8</A> shows a sample <EM>MPList</EM> .
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1122">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table 6.8:</STRONG>
+A sample <EM>MPList</EM> </CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>News Server</TD>
+<TD ALIGN="LEFT" NOWRAP>Newsgroups</TD>
+<TD ALIGN="LEFT">Description</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>news.tuwien.ac.at:nntp</TD>
+<TD ALIGN="LEFT" NOWRAP>*</TD>
+<TD ALIGN="LEFT">All newsgroups should be provided</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>news.wu-wien.ac.at:nntp</TD>
+<TD ALIGN="LEFT" NOWRAP>at.wu-wien.*</TD>
+<TD ALIGN="LEFT">The newsgroups of the
+``Wirtschaftsuniversit&#228;t Wien''</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP><code>.NoServer</code></TD>
+<TD ALIGN="LEFT" NOWRAP>alt.binaries.*,soc.*</TD>
+<TD ALIGN="LEFT">Newsgroups that should
+be censored</TD>
+</TR>
+</TABLE></DIV>
+<BR><H2><A NAME="SECTION001062000000000000000">
+sstream</A>
+</H2>
+<P>
+This class provides a socket stream. It allows to connect to a TCP
+service.  Data written to this stream will be sent to the service.
+Data sent by the service can be read from this stream.  It inherits
+the methods provided by fstream and provides the following additional
+methods.
+<P><DL>
+<DT><STRONG>connect(char *name, char *service)</STRONG>
+<DD>connects to <TT>service</TT>
+at host <TT>name</TT>. The <TT>service</TT> parameter can either be
+  a valid service name or a port number preceded by the <code>#</code> sign
+  (e.g., <code>#12000</code>).
+<DT><STRONG>is_connected()</STRONG>
+<DD>returns whether <EM>sstream</EM>  is connected to
+  a host. This method has the same semantics as the <TT>is_open</TT>
+  method.
+<DT><STRONG>disconnect()</STRONG>
+<DD>disconnects from the service.
+</DL><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html675"
+ HREF="node38.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html672"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html668"
+ HREF="node36.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html674"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html676"
+ HREF="node38.html">Evaluation</A>
+<B> Up:</B> <A NAME="tex2html673"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html669"
+ HREF="node36.html">News Database</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

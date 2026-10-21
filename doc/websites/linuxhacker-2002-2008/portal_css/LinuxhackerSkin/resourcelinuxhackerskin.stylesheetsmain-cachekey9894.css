@@ -1,0 +1,22 @@
+
+/* XXX ERROR -- could not find '++resource++linuxhackerskin.stylesheets/main.css'*/
+
+/* - tempcustom.css - */
+@media screen {
+/* http://www.linuxhacker.at/portal_css/tempcustom.css?original=1 */
+.fieldUploadFile {
+text-align: right;
+margin-right: 0.75em;
+display: block;
+}
+.tableFieldStatusReady {
+background-color: lime;
+}
+.tableFieldStatusInProgress {
+background-color: yellow;
+}
+.tableFieldStatusNeedWork {
+background-color: red;
+}
+}
+

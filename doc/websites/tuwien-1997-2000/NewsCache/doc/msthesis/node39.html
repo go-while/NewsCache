@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Access Patterns</TITLE>
+<META NAME="description" CONTENT="Access Patterns">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node40.html">
+<LINK REL="previous" HREF="node38.html">
+<LINK REL="up" HREF="node38.html">
+<LINK REL="next" HREF="node40.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html702"
+ HREF="node40.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html699"
+ HREF="node38.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html693"
+ HREF="node38.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html701"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html703"
+ HREF="node40.html">Tested News Readers</A>
+<B> Up:</B> <A NAME="tex2html700"
+ HREF="node38.html">Evaluation</A>
+<B> Previous:</B> <A NAME="tex2html694"
+ HREF="node38.html">Evaluation</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION001110000000000000000">
+Access Patterns</A>
+</H1>
+<A NAME="sec:eval_access">&#160;</A>
+The News Cache has been installed at Technische Universit&#228;t Wien and
+the whole campus had the possibility to test the News Cache.
+Unfortunately we had only a very slow machine (the Intel&nbsp;486 machine
+shown in section&nbsp;<A HREF="node41.html#sec:eval_perf">7.3</A> in environment 2) for the test of
+the News Cache. This may be the reason why the News Cache has only
+been used by few people. Additionally those people had rather different
+interests.  Hence we expect higher hit rates in situations where the
+users must use the News Cache.
+<P>
+<BR>
+  <DIV ALIGN="CENTER">
+<P>    <A NAME="1150">&#160;</A>
+<TABLE CELLPADDING=3 BORDER="1" ALIGN="CENTER">
+<CAPTION><STRONG>Table 7.1:</STRONG>
+Access statistics</CAPTION>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>&nbsp;</TD>
+<TD ALIGN="RIGHT" NOWRAP>Total</TD>
+<TD ALIGN="RIGHT" NOWRAP>OverviewDB</TD>
+<TD ALIGN="RIGHT" NOWRAP>Groups</TD>
+<TD ALIGN="RIGHT" NOWRAP>Articles</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>Requests</TD>
+<TD ALIGN="RIGHT" NOWRAP>14016</TD>
+<TD ALIGN="RIGHT" NOWRAP>947</TD>
+<TD ALIGN="RIGHT" NOWRAP>10950</TD>
+<TD ALIGN="RIGHT" NOWRAP>1392</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>Misses</TD>
+<TD ALIGN="RIGHT" NOWRAP>9221</TD>
+<TD ALIGN="RIGHT" NOWRAP>352</TD>
+<TD ALIGN="RIGHT" NOWRAP>7436</TD>
+<TD ALIGN="RIGHT" NOWRAP>1183</TD>
+</TR>
+<TR VALIGN="TOP"><TD ALIGN="LEFT" NOWRAP>Hits [<IMG WIDTH="18" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img41.gif"
+ ALT="$\%$">]</TD>
+<TD ALIGN="RIGHT" NOWRAP><IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img42.gif"
+ ALT="$34\%$"></TD>
+<TD ALIGN="RIGHT" NOWRAP><IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img43.gif"
+ ALT="$62\%$"></TD>
+<TD ALIGN="RIGHT" NOWRAP><IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img44.gif"
+ ALT="$32\%$"></TD>
+<TD ALIGN="RIGHT" NOWRAP><IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img45.gif"
+ ALT="$15\%$"></TD>
+</TR>
+</TABLE>
+        <A NAME="tab:eval_access">&#160;</A>  </DIV>
+<BR>
+<P>
+Table&nbsp;<A HREF="node39.html#tab:eval_access">7.1</A> shows the results of our test phase. With
+more accesses to the News Cache we expect to get higher hit rates,
+especially when people from similar departments access the News Cache.
+With a higher use of the News Cache we expect hit rates of
+approximately <IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img46.gif"
+ ALT="$65\%$">.<P>
+The users of the News Cache have been accessing 217 different
+newsgroups, where the top ten newsgroups make over <IMG WIDTH="37" HEIGHT="32" ALIGN="MIDDLE" BORDER="0"
+ SRC="img14.gif"
+ ALT="$50\%$"> of the total
+accesses. This proves that there is some locality in the references to
+newsgroups even if people with different interests access the News
+Cache.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html702"
+ HREF="node40.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html699"
+ HREF="node38.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html693"
+ HREF="node38.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html701"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html703"
+ HREF="node40.html">Tested News Readers</A>
+<B> Up:</B> <A NAME="tex2html700"
+ HREF="node38.html">Evaluation</A>
+<B> Previous:</B> <A NAME="tex2html694"
+ HREF="node38.html">Evaluation</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

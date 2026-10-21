@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Object Oriented Model</TITLE>
+<META NAME="description" CONTENT="Object Oriented Model">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node51.html">
+<LINK REL="previous" HREF="node49.html">
+<LINK REL="up" HREF="node49.html">
+<LINK REL="next" HREF="node51.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html833"
+ HREF="node51.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html830"
+ HREF="node49.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html824"
+ HREF="node49.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html832"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html834"
+ HREF="node51.html">Finite State Machine</A>
+<B> Up:</B> <A NAME="tex2html831"
+ HREF="node49.html">Notations</A>
+<B> Previous:</B> <A NAME="tex2html825"
+ HREF="node49.html">Notations</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS"><strong>Subsections</strong></A>
+<UL>
+<LI><A NAME="tex2html835"
+ HREF="node50.html#SECTION001511000000000000000">
+Example</A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<H1><A NAME="SECTION001510000000000000000">
+Object Oriented Model</A>
+</H1>
+<A NAME="sec:oo_notation">&#160;</A>
+The notation used for the object-oriented models has been taken from
+[<A
+ HREF="node68.html#OODesign&Analysis">Boo94</A>].  Figure&nbsp;<A HREF="node50.html#fig:oo_not">A.1</A> shows the symbols
+of the <EM>Booch Notation</EM>  used in this thesis.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:oo_not_cd">&#160;</A><A NAME="fig:oo_not_assoc">&#160;</A><A NAME="fig:oo_not_prop">&#160;</A><A NAME="fig:oo_not">&#160;</A><A NAME="1340">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure A.1:</STRONG>
+Notation for object-oriented models</CAPTION>
+<TR><TD></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+Classes are indicated using bubbles (Figure&nbsp;<A HREF="node50.html#fig:oo_not_cd">A.1(a)</A>). A
+name is required for each class. If the class icon should include
+attributes or operations they will be separated from the class name by
+a line.
+<P>
+The relations between classes will be indicated using association arcs
+(Figure&nbsp;<A HREF="node50.html#fig:oo_not_assoc">A.1(b)</A>). The following association types
+exist:
+<DL>
+<DT><STRONG>Association</STRONG>
+<DD>This type of arc indicates that two classes have a
+semantic connection to each other. Associations are often labeled
+  using nouns.
+<DT><STRONG>Inheritance</STRONG>
+<DD>This type of arc indicates the inheritance
+  relationship between two classes. Inheritance means that the
+  subclass inherits all the methods and attributes defined by its
+  superclass. The arrowhead of the arc points to the superclass.
+<DT><STRONG>Has</STRONG>
+<DD>This type of arc indicates a <EM>part of</EM>  relationship.
+  The end with the circle appears next to the class containing the
+  other class.
+<DT><STRONG>Using</STRONG>
+<DD>This type of arc indicates a client/supplier
+  relationship. The end with the circle appears next to the client
+  class.
+</DL>
+<P>
+The properties icons (Figure&nbsp;<A HREF="node50.html#fig:oo_not_prop">A.1(c)</A>) indicate special
+types of classes or associations.
+<P>
+The abstract property may be present within a class's diagram
+indicating an abstract class. Abstract classes cannot be instantiated.
+Abstract classes define only the interface for some of their methods.
+The implementation of those methods has to be supplied by a subclass.
+This is useful for the exploitation of polymorphism (see
+[<A
+ HREF="node68.html#OODesign&Analysis">Boo94</A>] for a detailed discussion).
+<P>
+The other properties shown in figure&nbsp;<A HREF="node50.html#fig:oo_not_prop">A.1(c)</A> indicate
+special types of associations. 
+<DL>
+<DT><STRONG>Friendship</STRONG>
+<DD>The friendship property may be applied to the
+supplier of a relation, denoting that the supplier has granted
+  extended access to the client. 
+<DT><STRONG>Static</STRONG>
+<DD>An association marked as static points to an instance
+  that is owned by the class and not by its individual members.
+<DT><STRONG>Virtual</STRONG>
+<DD>Indicates that a class's attributes and methods should
+  be inherited once only. This is necessary, when a class is inherited
+  twice through the use of multiple inheritance.
+</DL><H2><A NAME="SECTION001511000000000000000">
+Example</A>
+</H2>
+<P>
+The friend property will not be shown in this example. An explanation
+along with examples can be found in [<A
+ HREF="node68.html#OODesign&Analysis">Boo94</A>].
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:ex_oo">&#160;</A><A NAME="1358">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure A.2:</STRONG>
+Example for object-oriented notation</CAPTION>
+<TR><TD><IMG WIDTH="371" HEIGHT="259"
+ SRC="img51.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/ex_oo.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+Figure&nbsp;<A HREF="node50.html#fig:ex_oo">A.2</A> shows a class hierarchy for different transport
+vehicles. The base of all transport classes is the abstract class
+Transport. Thus, Transport declares only the methods that have to
+be implemented by its subclasses. This is indicated using the abstract
+property.
+<P>
+To count the number of transport vehicles instantiated the transport
+classes use a class variable for the counter. Whenever a transport
+class gets instantiated the counter is incremented and whenever a
+transport class is destroyed the counter is decremented. Hence all
+transport classes operate on the same Counter class. This is indicated
+by the static property.
+<P>
+The Car, Ship, and Amphibious Car classes inherit all methods and
+variables declared and defined by their base class. Since the Car and
+Ship classes are derived from the Transport class virtually, the
+Amphibious Car class inherits the methods and variables defined by
+Transport once only. Without virtual inheritance the Transport class
+would be allocated twice for the Amphibious Car class and hence the
+Counter class would be increased twice for Amphibious Car instances
+which is undesired in this situation.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html833"
+ HREF="node51.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html830"
+ HREF="node49.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html824"
+ HREF="node49.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html832"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html834"
+ HREF="node51.html">Finite State Machine</A>
+<B> Up:</B> <A NAME="tex2html831"
+ HREF="node49.html">Notations</A>
+<B> Previous:</B> <A NAME="tex2html825"
+ HREF="node49.html">Notations</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

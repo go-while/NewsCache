@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>No Title</TITLE>
+<META NAME="description" CONTENT="No Title">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<!--LINK REL="STYLESHEET" HREF="NewsCache.css"-->
+<LINK REL="next" HREF="node1.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html62"
+ HREF="node1.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif_gr.gif"> 
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif_gr.gif"> 
+<A NAME="tex2html61"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html63"
+ HREF="node1.html">Acknowledgements</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<DIV ALIGN="CENTER">
+<FONT SIZE="+3">DIPLOMARBEIT</FONT>
+<BR>
+<BR>
+<BR>
+<BR>
+<FONT SIZE="+3"><B>A Cache Server for News
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+</FONT></B>
+<BIG>
+ausgef&#252;hrt am
+<BR>
+Institut f&#252;r Informationssysteme
+<BR>
+Abteilung f&#252;r Verteilte Systeme
+<BR>
+der Technischen Universit&#228;t Wien
+<BR>
+<BR>
+<BR>
+unter Anleitung von
+<BR>
+o.&nbsp;Univ.-Prof.&nbsp;Dipl.-Ing.&nbsp;Dr.techn.&nbsp;Mehdi Jazayeri
+<BR>
+und
+<BR>
+Univ.-Ass.&nbsp;Dipl.-Ing.&nbsp;Manfred Hauswirth
+<BR>
+als verantwortlich mitwirkenden Universit&#228;tsassistenten
+<BR>
+<BR>
+<BR>
+durch
+<BR>
+<BR>
+<BR>
+<B>Thomas Gschwind</B>
+<BR>
+Laudongasse 28/14
+<BR>
+A-1080 Wien
+<BR>
+&#214;sterreich
+<BR>
+<BR>
+<BR>
+Matrikelnummer: 9225658
+<BR>
+<BR>
+<BR>
+<BR>
+</BIG></DIV>
+Wien, im April 1997
+
+<P><code> </code>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<BR>
+<P><BIG><I>Meiner Mutter</I></BIG>
+<P>
+<P><H3 CLASS="ABSTRACT">Zusammenfassung:</H3>
+<P CLASS="ABSTRACT">
+<DIV ALIGN="CENTER">
+<TABLE CELLPADDING=3>
+<TR VALIGN="TOP"><TH ALIGN="LEFT">Usenet News bietet ein weltweit offenes Diskussionsforum, das in
+unterschiedliche Gruppen unterteilt ist, in dem jeder Benutzer
+Artikel zur Verf&#252;gung stellen kann. Das Network News Transport
+Protocol (NNTP) wird dazu verwendet diese Gruppen und Artikel
+im Internet zu verteilen.
+<BR>
+Da die Anzahl der Benutzer st&#228;ndig ansteigt und NNTP seit seiner
+Erfindung nur wenig verbessert worden ist, st&#246;&#223;t es teilweise schon
+heute an seine Grenzen. In dieser Diplomarbeit werden wir diese
+Grenzen, sowie zwei Ans&#228;tze zur L&#246;sung dieser Situation
+demonstrieren.
+<BR>
+Eine L&#246;sungsm&#246;glichkeit besteht darin, NNTP selbst zu verbesern und
+zu erweitern. Allerdings w&#252;rde dies bedeuten, da&#223; viele existierende
+Programme f&#252;r das heutige News System erweitert oder
+umgeschrieben werden m&#252;&#223;ten.
+<BR>
+Ein anderer L&#246;sungsansatz besteht darin, die bereits verf&#252;gbaren
+Pufferungstechniken auch f&#252;r Usenet News verf&#252;gbar zu machen. In
+diesee Diplomarbeit werden wir diesen Ansatz behandeln.
+<BR>
+<BR>
+<B>Schlagworte:</B> Usenet News, NNTP, NNRP, Caching</TH>
+</TR>
+</TABLE></DIV>
+</P>
+<P>
+<P><H3 CLASS="ABSTRACT">Abstract:</H3>
+<P CLASS="ABSTRACT">
+<DIV ALIGN="CENTER">
+<TABLE CELLPADDING=3>
+<TR VALIGN="TOP"><TH ALIGN="LEFT">Usenet News is a worldwide open forum for discussion. It offers
+groups where users may submit articles.  These newsgroups and
+articles are distributed on the Internet using the ``Network News
+Transfer Protocol'' (NNTP).  
+<BR>
+Since the number of users has increased steadily and only few
+improvements have been applied to NNTP, NNTP begins to reach its
+limits.  We will explain these limits and will present two
+strategies to improve the situation.
+<BR>
+One strategy may be the extension of NNTP. However, this requires a
+modification of the currently existing news software.
+<BR>
+The other strategy is the exploitation of caching mechanisms for
+Usenet News. This is the topic we will concentrate on in the
+following diploma thesis. We will analyze which areas can profit by
+the use of a News Cache and will give a description of our News
+Cache implementation.
+<BR>
+<BR>
+<B>Keywords:</B> Usenet News, NNRP, NNTP, caching</TH>
+</TR>
+</TABLE></DIV>
+</P>
+<P>
+<P>
+<BR><HR>
+<!--Table of Child-Links-->
+<A NAME="CHILD_LINKS">&#160;</A>
+<UL>
+<LI><A NAME="tex2html64"
+ HREF="node1.html#SECTION00100000000000000000">
+Acknowledgements</A>
+<LI><A NAME="tex2html65"
+ HREF="node2.html#SECTION00200000000000000000">
+Contents</A>
+<LI><A NAME="tex2html66"
+ HREF="node3.html#SECTION00300000000000000000">
+List of Figures</A>
+<LI><A NAME="tex2html67"
+ HREF="node4.html#SECTION00400000000000000000">
+List of Tables</A>
+<LI><A NAME="tex2html68"
+ HREF="node5.html#SECTION00500000000000000000">
+Introduction</A>
+<LI><A NAME="tex2html69"
+ HREF="node6.html#SECTION00600000000000000000">
+Terminology and Basic Technologies</A>
+<LI><A NAME="tex2html70"
+ HREF="node10.html#SECTION00700000000000000000">
+Problem Domain</A>
+<LI><A NAME="tex2html71"
+ HREF="node15.html#SECTION00800000000000000000">
+Analysis and Requirements</A>
+<LI><A NAME="tex2html72"
+ HREF="node25.html#SECTION00900000000000000000">
+Design</A>
+<LI><A NAME="tex2html73"
+ HREF="node31.html#SECTION001000000000000000000">
+Implementation</A>
+<LI><A NAME="tex2html74"
+ HREF="node38.html#SECTION001100000000000000000">
+Evaluation</A>
+<LI><A NAME="tex2html75"
+ HREF="node42.html#SECTION001200000000000000000">
+Future Work</A>
+<LI><A NAME="tex2html76"
+ HREF="node46.html#SECTION001300000000000000000">
+Related Work</A>
+<LI><A NAME="tex2html77"
+ HREF="node48.html#SECTION001400000000000000000">
+Summary and Discussion</A>
+<LI><A NAME="tex2html78"
+ HREF="node49.html#SECTION001500000000000000000">
+Notations</A>
+<LI><A NAME="tex2html79"
+ HREF="node52.html#SECTION001600000000000000000">
+The Network News Reader and Transport
+Protocols (NNTP &amp; NNRP)</A>
+<LI><A NAME="tex2html80"
+ HREF="node56.html#SECTION001700000000000000000">
+Installation of the News Cache</A>
+<LI><A NAME="tex2html81"
+ HREF="node60.html#SECTION001800000000000000000">
+Operation of the News Cache</A>
+<LI><A NAME="tex2html82"
+ HREF="node68.html#SECTION001900000000000000000">
+References</A>
+<LI><A NAME="tex2html83"
+ HREF="node69.html#SECTION002000000000000000000">
+About this document ... </A>
+</UL>
+<!--End of Table of Child-Links-->
+<HR>
+<!--Navigation Panel-->
+<A NAME="tex2html62"
+ HREF="node1.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif_gr.gif"> 
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif_gr.gif"> 
+<A NAME="tex2html61"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html63"
+ HREF="node1.html">Acknowledgements</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

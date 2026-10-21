@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Server Architecture</TITLE>
+<META NAME="description" CONTENT="News Server Architecture">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node28.html">
+<LINK REL="previous" HREF="node26.html">
+<LINK REL="up" HREF="node25.html">
+<LINK REL="next" HREF="node28.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html545"
+ HREF="node28.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html542"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html536"
+ HREF="https://web.archive.org/web/20070820095050/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node26.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html544"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html546"
+ HREF="node28.html">News Cache Architecture</A>
+<B> Up:</B> <A NAME="tex2html543"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html537"
+ HREF="https://web.archive.org/web/20070820095050/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node26.html">Choice of Programming Language</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION00920000000000000000">
+News Server Architecture</A>
+</H1>
+<A NAME="sec:newsserver">&#160;</A>
+Before we will present the object-oriented design of the News Cache
+and its associated classes, we will explain the overall architecture
+of a news server.  This should help to give an easier understanding of
+the News Cache's architecture since the News Cache is based on a
+similar structure itself.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:eer_structure">&#160;</A><A NAME="fig:oo_structure">&#160;</A><A NAME="fig:structure">&#160;</A><A NAME="448">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.2:</STRONG>
+General structure of a news server</CAPTION>
+<TR><TD></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+Figure&nbsp;<A HREF="node27.html#fig:eer_structure">5.2(a)</A> shows the relationship between
+newsgroups and articles as EER diagram and suggest the use of a
+relational database as a simple approach. Newsgroups and articles are
+stored in the Newsgroup and the Article table, respectively. The
+relation between newsgroups and articles is stored in another table.
+<P>
+The database has to be able to maintain about 35000 newsgroups,
+2.5&nbsp;million articles and a table mapping the <code>m:n</code>-relationship
+between newsgroups and articles with approximately 3.5&nbsp;million
+entries.<A NAME="tex2html20"
+ HREF="https://web.archive.org/web/20070820095050/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/footnode.html#544"><SUP></SUP></A>
+<P>
+Since not everybody who wants to run a News Cache should be forced to
+buy such a powerful database, we have decided to design and implement
+our own database for the management of the newsgroups and articles.
+This database will partially be based on the filesystem. The design of
+this database will be shown in section&nbsp;<A HREF="node30.html#sec:design_database">5.5</A> and
+its implementation in section&nbsp;<A HREF="node36.html#sec:imp_database">6.5</A>.
+<P>
+Figure&nbsp;<A HREF="node27.html#fig:oo_structure">5.2(b)</A> shows the architecture of a news server
+using an object-oriented model. Connections to the news clients are
+handled by the NewsServer object, while the news database is handled
+by other objects.
+<P>
+The ActiveDB object is used to maintain the list of available
+newsgroups (Active Database) and the Newsgroup object is used for the
+maintenance of the currently selected newsgroup.  The Newsgroup object
+uses an OverviewDB object to manage a summary of available articles
+and an Article object for the maintenance of the currently selected
+article.  The relationships are indicated by the use of a <EM>has a</EM> 
+association arc. The user of another object is marked using a filled
+circle.
+<P>
+In the following we will describe the objects shown in
+Figure&nbsp;<A HREF="node27.html#fig:oo_structure">5.2(b)</A>.
+<DL>
+<DT><STRONG>NewsServer</STRONG>
+<DD>This object stores the current state of the news
+server and provides all functions necessary to retrieve articles and
+  newsgroups. The state includes the currently selected newsgroup and
+  the number of the currently selected article.  The functions include
+  retrieving the list of newsgroups, the overview database and the
+  articles stored on the news server, and others.
+<DT><STRONG>Newsgroup</STRONG>
+<DD>This object stores the articles and the overview
+  database of the current newsgroup. It provides methods to access
+  these informations.
+<DT><STRONG>Article</STRONG>
+<DD>Stores a Usenet News article. 
+<DT><STRONG>ActiveDB</STRONG>
+<DD>This object stores the newsgroups available on a news
+  server. For each newsgroup the type of the group (public, moderated,
+  read-only) and the number of the first and last articles are stored.
+  It provides methods to access these informations.
+<DT><STRONG>OverviewDB</STRONG>
+<DD>Stores a summary of articles available within a
+  newsgroup. It provides methods to access this information.
+</DL>
+<P>
+Figure&nbsp;<A HREF="node27.html#fig:nserver_state">5.3</A> shows the behavior of a news server as
+a finite state diagram.  In the news server's initial state no
+newsgroup is selected.  If a newsgroup is selected by the client, the
+successive <code>listgroup</code>, <code>xover</code> and <code>article</code> commands
+will work on the newly selected newsgroup.
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:nserver_state">&#160;</A><A NAME="464">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 5.3:</STRONG>
+State transition diagram for a news server</CAPTION>
+<TR><TD><IMG WIDTH="510" HEIGHT="144"
+ SRC="img21.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/nserver_state.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html545"
+ HREF="node28.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html542"
+ HREF="node25.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html536"
+ HREF="https://web.archive.org/web/20070820095050/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node26.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html544"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html546"
+ HREF="node28.html">News Cache Architecture</A>
+<B> Up:</B> <A NAME="tex2html543"
+ HREF="node25.html">Design</A>
+<B> Previous:</B> <A NAME="tex2html537"
+ HREF="https://web.archive.org/web/20070820095050/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node26.html">Choice of Programming Language</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>

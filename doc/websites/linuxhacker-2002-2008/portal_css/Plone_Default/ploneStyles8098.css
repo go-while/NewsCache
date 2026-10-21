@@ -1,0 +1,335 @@
+
+/* ----- ploneCustom.css ----- */
+@media all {
+/* http://www.linuxhacker.at/portal_css/ploneCustom.css?original=1 */
+/* */
+/* */
+/* */
+#portlet-navigation-tree .contenttype-cmf-document {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-document a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-document a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-event {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-event a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-event a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-favorite {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-favorite a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-favorite a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-file {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-file a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-file a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-folder {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-folder a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-folder a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-image {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-image a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-image a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-large-plone-folder {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-large-plone-folder a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-large-plone-folder a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-link {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-link a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-link a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-news-item {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-news-item a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-news-item a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-topic {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-cmf-topic a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-cmf-topic a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-discussion-item {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-discussion-item a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-discussion-item a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-plone-site {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-plone-site a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-plone-site a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-tempfolder {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-tempfolder a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-tempfolder a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atpathcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atpathcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atpathcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atbooleancriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atbooleancriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atbooleancriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-image {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-image a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-image a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-topic {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-topic a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-topic a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atselectioncriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atselectioncriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atselectioncriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-large-plone-folder {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-large-plone-folder a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-large-plone-folder a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-document {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-document a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-document a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsimplestringcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsimplestringcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atsimplestringcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atcurrentauthorcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atcurrentauthorcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atcurrentauthorcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atdatecriteria {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atdatecriteria a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atdatecriteria a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-favorite {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-favorite a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-favorite a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-event {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-event a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-event a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atreferencecriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atreferencecriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atreferencecriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsimpleintcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsimpleintcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atsimpleintcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atlistcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atlistcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atlistcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-folder {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-folder a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-folder a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-link {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-link a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-link a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-news-item {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-news-item a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-news-item a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-file {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-file a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-file a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atdaterangecriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atdaterangecriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atdaterangecriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsortcriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atsortcriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atsortcriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atportaltypecriterion {
+background-image: none;
+}
+#portlet-navigation-tree .contenttype-atportaltypecriterion a:hover {
+background-image: url(myico.png);
+}
+#portlet-navigation-tree .contenttype-atportaltypecriterion a.navTreeCurrentItem {
+background-image: none;
+}
+#portlet-navigation-tree .visualIconPadding {
+padding-left: 1px;
+}
+.fieldUploadFile {
+text-align: right;
+margin-right: 0.75em;
+display: block;
+}
+/* */
+/* */
+
+}
+

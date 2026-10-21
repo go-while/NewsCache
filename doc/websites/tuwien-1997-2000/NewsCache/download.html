@@ -1,0 +1,95 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML><HEAD>
+<META HTTP-EQUIV=Content-type CONTENT="text/html; charset=ISO-8859-1">
+<META NAME=Author CONTENT="Thomas Gschwind">
+<META NAME=Keywords CONTENT="NNTP NNRP high performance cache caching usenet news discussion forum">
+<META NAME=Description CONTENT="A cache server for Usenet News. Reduces the required network bandwidth for news distribution and the IO load of the upstream news server. Additionally, multiplexes between different news servers and allows offline news reading.">
+<TITLE>NewsCache</TITLE>
+</HEAD>
+<BODY>
+<h1 align="center">NewsCache</h1>
+
+<HR NOSHADE>
+<p><font color="#ff0000">Due to serious time constraints, I
+unfortunately have no longer time to work on NewsCache.  Thanks to 
+Herbert Straub <tt>&lt;h.straub at aon.at&gt;</tt>, however, further
+development has been picked up again and can be found                          
+<a href="http://members.aon.at/hstraub/linux/newscache/">here</a>.
+<HR NOSHADE>
+
+<table cellspacing=0 cellpadding=4>
+<tr><td valign="top" bgcolor="#A0C0C0"><!-- Navigation -->
+<p><font color="#000000" size="+1">General</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="general.html#usenet">Usenet News</a><br>
+<img SRC="dot.gif"><a href="general.html#problems">Problems</a><br>
+<img SRC="dot.gif"><a href="general.html#newscache">NewsCache, A Solution</a><br>
+<img SRC="dot.gif"><a href="general.html#acknowledgements">Acknowledgements</a></font>
+<p><font color="#000000" size="+1">NewsCache</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="newscache.html#what">What is NewsCache?</a><br>
+<img SRC="dot.gif"><a href="newscache.html#functionality">Functionality</a><br>
+<img SRC="dot.gif"><a href="newscache.html#compatibility">Compatibility</a></font>
+<p><font color="#000000" size="+1">Documentation</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="doc.html#installation">Installation</a><br>
+<img SRC="dot.gif"><a href="doc.html#usersmanual">User's Manual</a><br>
+<img SRC="dot.gif"><a href="doc.html#mailinglist">Mailing List</a><br>
+<img SRC="dot.gif"><a href="doc.html#publications">Publications</a></font>
+<p><font color="#000000" size="+1">PSTL</font><br><font color="#000000">
+<img SRC="dot.gif"><a href="pstl.html#overview">Overview</a><br>
+<img SRC="dot.gif"><a href="pstl.html#documentation">Documentation</a><br>
+<img SRC="dot.gif"><a href="pstl.html#download">Download</a></font>
+<br>&nbsp;
+<br>&nbsp;
+<br>&nbsp;
+<p><font color="#000000" size="+1">For Students</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Praktika">Praktika!</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="students.html#Dipl">Diplomarbeiten!</a></font>
+<p><font color="#F02020" size="+1">Download</font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#status">Status</a></font><br>
+<img SRC="dot.gif"><font color="#000000"><a href="download.html#download">Download</a></font><br></td>
+<td valign="top"><!-- Content -->
+
+<h2><a name="status">Status</a></h2>
+
+<p>Currently, NewsCache is in its beta testing phase.  Yes, there is
+still a problem that needs to be fixed (see below).  Unfortunately, I
+do not have as much time to work on NewsCache as I would like to have
+(any volunteers?).
+
+<p>The latest version is 0.99.19 and it includes the following fixes
+(Thanks to Herbert Straub <tt>&lt;herbert.straub</tt> at <tt>emb.magwien.gv.at&gt;</tt>
+for the fixes and the new release):
+
+<ul>
+<li>Minor compile fixes for some platforms (missing includes)
+<li>Post in cascaded NewsCache Configuration now working
+<li>list active wildmat fixed
+<li>Performance fixes for NewsCacheClean
+</ul>
+
+<p>If you have fixes/questions, please post them to the 
+<a href="mailto:newscache@infosys.tuwien.ac.at>newscache mailing list</a>.
+To be able to post to the mailing list, however, you need to be subscribed. 
+
+<p>The current version still may hang, if your news server closes the
+connection and the close packet gets lost.  The solution to fix this
+is to use timeouts when reading data from the server.  A fix for this
+is not that simple since the timeout handling has to be added somewhere
+in the C++ stream handling or by using raw C read/write operations.
+
+<h2><a name="download">Download</a></h2>
+
+<p>The latest Version is 0.99.19.  You can <A HREF=download/index.html>download
+NewsCache using HTTP</A>.  
+
+<p>When compiling NewsCache be aware to use a recent C++ compiler.
+<EM>gcc-2.7.2 does not work on any platform! I have even found bugs in
+the version for intel platforms.</EM> Currently, I a am using
+gcc-2.95.2.
+
+</td></tr></table>
+
+<HR NOSHADE>
+<P ALIGN="right"><font size="-1">© 1997-2000
+<A HREF="http://www.infosys.tuwien.ac.at/Staff/tom/">Thomas Gschwind</A></P>
+</BODY></HTML>
+

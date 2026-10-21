@@ -1,0 +1,3 @@
+# Archived web pages: keep the bytes as captured (no end-of-line
+# conversion) and leave them out of the repository language statistics.
+* -text linguist-documentation

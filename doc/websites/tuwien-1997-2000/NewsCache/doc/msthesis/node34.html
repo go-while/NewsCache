@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!--Converted with LaTeX2HTML 97.1 (release) (July 13th, 1997)
+ by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippman, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>News Cache Daemon</TITLE>
+<META NAME="description" CONTENT="News Cache Daemon">
+<META NAME="keywords" CONTENT="NewsCache">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso_8859_1">
+<LINK REL="STYLESHEET" HREF="NewsCache.css">
+<LINK REL="next" HREF="node35.html">
+<LINK REL="previous" HREF="node33.html">
+<LINK REL="up" HREF="node31.html">
+<LINK REL="next" HREF="node35.html">
+</HEAD>
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html636"
+ HREF="node35.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html633"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html627"
+ HREF="https://web.archive.org/web/20080612082837/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node33.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html635"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html637"
+ HREF="node35.html">News Server Class Library</A>
+<B> Up:</B> <A NAME="tex2html634"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html628"
+ HREF="https://web.archive.org/web/20080612082837/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node33.html">Programming Language</A>
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+<H1><A NAME="SECTION001030000000000000000">
+News Cache Daemon</A>
+</H1>
+<A NAME="sec:imp_ncache">&#160;</A>
+As explained in section&nbsp;<A HREF="node28.html#sec:arch_ncache">5.3</A>, the News Cache consists
+of several modules (Figure&nbsp;<A HREF="node34.html#fig:imp_ncached">6.1</A>).
+<P>
+<BR>
+<DIV ALIGN="CENTER"><A NAME="fig:imp_ncached">&#160;</A><A NAME="702">&#160;</A>
+<TABLE>
+<CAPTION><STRONG>Figure 6.1:</STRONG>
+The News Cache Daemon</CAPTION>
+<TR><TD><IMG WIDTH="232" HEIGHT="226"
+ SRC="img33.gif"
+ ALT="\begin{figure}
+ \begin{center}
+ \leavevmode
+ 
+\epsfig {file=eps/imp_ncache.eps}
+ \end{center}\end{figure}"></TD></TR>
+</TABLE>
+</DIV>
+<BR>
+<P>
+The Cache Daemon module interprets commands received from news
+clients.  The heart of this module is the dispatching function
+(<TT>nnrpd</TT>) that decides which function is responsible for what
+command. This decision is based on a jump table stored in the
+<TT>nnrp_commands</TT> variable. Since C++ does not support calling
+methods using jump tables (this is due to the implicit <TT>this</TT>
+parameter) we did not implement this module using its own class. The
+Cache Daemon module is only responsible for the NNRP protocol and the
+multiplexing between different news servers.
+<P>
+The News Cache uses the CacheServer module to maintain its news
+database and to retrieve newsgroups and articles from the news server
+(Figure&nbsp;<A HREF="node34.html#fig:imp_ncached">6.1</A>).  The news database itself is stored
+using the active, overview and article database.
+<P>
+The multiplexing between different news servers is performed using the
+<EM>MPList</EM>  class. Whenever a news group is selected by the client,
+the News Cache uses an <EM>MPList</EM>  to find the appropriate news
+server. The appropriate news server is selected using the
+<EM>CServer</EM> 's <TT>setserver</TT> method.
+<P>
+Since we have decided to use one process for each client, the News
+Cache either can be started from <TT>inetd</TT> or can run as
+standalone server.
+<P><HR>
+<!--Navigation Panel-->
+<A NAME="tex2html636"
+ HREF="node35.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next" SRC="next_motif.gif"></A> 
+<A NAME="tex2html633"
+ HREF="node31.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up" SRC="up_motif.gif"></A> 
+<A NAME="tex2html627"
+ HREF="https://web.archive.org/web/20080612082837/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node33.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous" SRC="previous_motif.gif"></A> 
+<A NAME="tex2html635"
+ HREF="node2.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents" SRC="contents_motif.gif"></A>  
+<BR>
+<B> Next:</B> <A NAME="tex2html637"
+ HREF="node35.html">News Server Class Library</A>
+<B> Up:</B> <A NAME="tex2html634"
+ HREF="node31.html">Implementation</A>
+<B> Previous:</B> <A NAME="tex2html628"
+ HREF="https://web.archive.org/web/20080612082837/http://www.infosys.tuwien.ac.at/NewsCache/doc/msthesis/node33.html">Programming Language</A>
+<!--End of Navigation Panel-->
+<ADDRESS>
+gschwind@infosys.tuwien.ac.at
+</ADDRESS>
+</BODY>
+</HTML>
