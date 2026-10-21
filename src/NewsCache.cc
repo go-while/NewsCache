@@ -1690,7 +1690,8 @@ int ns_xmotd(ClientData * clt, int argc, char *argv[])
  */
 int ns_xover(ClientData * clt, int argc, char *argv[])
 {
-	int i = 1, fst, lst;
+	int i = 1;
+	unsigned int fst, lst;
 	char *p;
 
 	if (clt->groupname[0] == '\0') {
@@ -1705,20 +1706,24 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 		fst = lst = clt->nbr;
 		break;
 	case 1:
+		// n, n- or n-m (RFC 3977); a range must start with a number
 		p = argv[i];
-		if (isdigit(*p))
-			fst = lst = strtol(argv[i], &p, 10);
+		if (!isdigit((unsigned char) *p))
+			goto ns_xover_syntax;
+		fst = lst = strtoul(p, &p, 10);
 		if ((*p) == '\0')
 			break;
 		if ((*p) == '-') {
 			lst = UINT_MAX;
 			p++;
-			if (isdigit(*p))
-				lst = strtol(p, &p, 10);
+			if (isdigit((unsigned char) *p))
+				lst = strtoul(p, &p, 10);
 			if ((*p) == '\0')
 				break;
 		}
+		// fall through
 	default:
+	      ns_xover_syntax:
 		(*clt->co) << "501 Syntax: xover [range]\r\n";
 		return -1;
 	}
@@ -1743,8 +1748,8 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 		clt->grp->printoverdb(*clt->co, fst, lst);
 		break;
 	case 2:
-		(*clt->
-		 co) << "221 " << p << "[" << fst << "-" << lst << "]\r\n";
+		(*clt->co) << "221 " << argv[1] << " header follows [" << fst
+			   << "-" << lst << "]\r\n";
 		clt->grp->printheaderdb(*clt->co, argv[1], fst, lst);
 		break;
 	}

@@ -12,6 +12,11 @@ Bug fixes:
   groups at all (LIST empty, GROUP 411 for every group), the database
   stayed locked and the rest of the list was left unread on the
   connection. Such lines are now logged and skipped.
+* XOVER and XHDR accepted a range that doesn't start with a number
+  ("XOVER -5", "XHDR subject -3") and used an uninitialized first article
+  number for it; such ranges now get 501. For an open range ("XOVER 3-")
+  the XHDR status line showed the last number as -1, and it showed no
+  header name; it now reads "221 subject header follows [3-4294967295]".
 * The login examples added in 1.3.21 (FEDORA.md and the commented entry in
   the container config) did not require a login: with "allow read post"
   and "Authentication file:", clients that don't log in still read and

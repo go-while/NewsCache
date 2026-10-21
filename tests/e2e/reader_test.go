@@ -122,6 +122,40 @@ func TestXover(t *testing.T) {
 	}
 }
 
+// TestXoverRange: a range must start with a number (RFC 3977 "n", "n-",
+// "n-m"). "XOVER -5" used an uninitialized first number. An open range
+// "n-" runs to the last article, for XOVER and XHDR.
+func TestXoverRange(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 5)
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	for _, cmd := range []string{"XOVER -5", "XOVER -", "XOVER x", "XOVER 1x", "XHDR subject -3"} {
+		if code, line := c.Cmd("%s", cmd); code != 501 {
+			if code/100 == 2 {
+				c.ReadDotLines()
+			}
+			t.Errorf("%s: %q, want 501", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("XOVER 3-"); code != 224 {
+		t.Fatalf("XOVER 3-: %q, want 224", line)
+	}
+	if ov := c.ReadDotLines(); len(ov) != 3 {
+		t.Errorf("XOVER 3-: %d lines, want 3: %q", len(ov), ov)
+	}
+	code, line := c.Cmd("XHDR subject 4-")
+	if code != 221 {
+		t.Fatalf("XHDR subject 4-: %q, want 221", line)
+	}
+	if strings.Contains(line, "--") {
+		t.Errorf("XHDR subject 4-: %q shows a negative last number", line)
+	}
+	if hd := c.ReadDotLines(); len(hd) != 2 {
+		t.Errorf("XHDR subject 4-: %d lines, want 2: %q", len(hd), hd)
+	}
+}
+
 func TestNoSuchArticle(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
