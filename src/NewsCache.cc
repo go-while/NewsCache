@@ -779,6 +779,12 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	     p(Logger::
 	       Debug) << "NewsCache selectgroup (" << group << ")\n");
 
+	// clt->groupname has room for MAXGROUPNAMELEN - 1 characters; longer
+	// names can't exist (GroupInfo refuses them), but don't rely on that
+	// before the strcpy below.
+	if (strlen(group) >= sizeof(clt->groupname))
+		return NULL;
+
 	try {
 		gi = clt->srvr->groupinfo(group);
 	} catch(const NSError & nse) {

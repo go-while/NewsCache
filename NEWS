@@ -7,6 +7,11 @@ Bug fixes:
   CNewsgroup: the file name was built as .art<index>d instead of
   .art<number>, and the overview update skipped every article after a range
   it had just fetched, so it never noticed the expired ones there.
+* One group name longer than 511 characters in the upstream server's
+  active list made NewsCache give up reading the list: clients saw no
+  groups at all (LIST empty, GROUP 411 for every group), the database
+  stayed locked and the rest of the list was left unread on the
+  connection. Such lines are now logged and skipped.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

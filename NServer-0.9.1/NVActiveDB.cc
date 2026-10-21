@@ -184,8 +184,19 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 			break;
 
 		if (!filter || matchgroup(filter, line.c_str()) > 0) {
-			// Add group
-			gd.set(line.c_str());
+			// Add group. Skip a line we can't parse (e.g. a group
+			// name longer than GroupInfo allows) instead of giving
+			// up: that left the rest of the list unread on the
+			// connection, the database locked and no groups at all.
+			try {
+				gd.set(line.c_str());
+			} catch (const Error &e) {
+				slog.p(Logger::Warning)
+				    << "active list: skipping a line ("
+				    << e._errtext << "): " << line.substr(0, 80)
+				    << (line.size() > 80 ? "..." : "") << "\n";
+				continue;
+			}
 			if (flags & F_STORE_READONLY)
 				gd.setflag('n');
 			sset(gd);
