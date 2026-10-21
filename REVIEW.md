@@ -77,6 +77,8 @@ CI, not yet by the systematic review.
 | Expired big articles: `.art` files never deleted (file name `.art<index>d`, and articles after a fetched block skipped) | 9 | compiler warning | #22 |
 | One upstream group name over 511 characters emptied the whole group list (`NVActiveDB::read` gave up) | 10 | review | #24 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
+| `debian/` didn't build (debhelper compat 2 rules, no autoreconf, `mandir=/user/...`) and had no config, news-owned spool or `ExecReload` | 14 | review | #25 |
+| Info manual without a dir entry, `newscache.conf(5)` without a whatis line | 0, 14 | lintian #25 | #25 |
 
 ## Open points
 
@@ -103,6 +105,23 @@ that it stays as it is.
 - **`newscache -p` prints upstream passwords** (area 6) in plain text
   (`Password secret`). Only the admin can run it, but its output is often
   pasted into bug reports.
+- **A login is optional with `Authentication file:`, `pam` and `pam+file`**
+  (area 3): with `allow read post`, clients that don't log in get that access
+  anyway. Only `allow authentication` with `List`, `Read` and `PostTo !*`
+  requires a login (then other commands answer `500 What?`, not `480`).
+  FEDORA.md, the commented example in `docker/newscache.conf` and the 1.3.21
+  NEWS say otherwise; the `Dockerfile` header still says private networks
+  are allowed. Found while testing #25.
+- **PAM and `Authentication unix` can't check local passwords** (area 3):
+  sessions run as `news`, pam_unix's `unix_chkpwd` only checks the caller's
+  own password, and `getspnam` needs root.
+- **`setugid()` keeps root's supplementary groups** (area 5): no
+  `setgroups()`, so `newscache` started by hand as root runs as `news` with
+  group 0. Under systemd the list is empty.
+- **`newscache -p` prints `allow authentication` as `allow`** (area 6), which
+  read back is `allow none`.
+- **Auth-file lines need at least `user:hash:list`** (area 3); `user:hash`
+  alone is refused.
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see

@@ -21,6 +21,12 @@ Other changes:
   they were not reachable from outside. The buffers for generated
   Message-IDs are sized from the host name limit. Together this removes
   the -Wformat-overflow and -Wformat-truncation warnings.
+* Debian packaging brought up to date for Debian 13 and Ubuntu 24.04:
+  "dpkg-buildpackage -us -uc -b" builds a newscache package with GnuTLS
+  and PAM that runs as user news under systemd, cleans the spool daily
+  with a timer and ships an /etc/newscache.conf that lets nobody in. See
+  debian/README.Debian.
+* The info manual has a dir entry, and newscache.conf(5) a whatis line.
 
 Release 1.3.21:
 Billy G. - 2026-10-20

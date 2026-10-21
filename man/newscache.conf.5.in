@@ -1,6 +1,6 @@
 .TH newscache.conf 5 "Jun 2004"
 .SH NAME
-newscache.conf
+newscache.conf \- configuration file for newscache(8)
 
 
 .SH SYNOPSIS
@@ -206,7 +206,7 @@ hugo:at.test:at.test:at.test:post
 .fi
 This mean, that after a succussfully authentication process, the user hugo can list at.test, read at.test, postto at.test and allow the use of post command. If the account is member of the group mygroup additionally allow list de.* read de.* and postto de.*, also allowing the use of the post command. * means, that all users can list us.* and read us.* newsgroups.
 
-.IP PAMServicename name-of-service
+.IP "PAMServicename name-of-service"
 This parameter specifiy the name of the PAM Service. The default is newscache. You can use different PAM settings for each Client network. For further explanation of PAM see the System administrators PAM Guide. This Guide can be downloaded from http://www.kernel.org/pub/linux/libs/pam/pre/doc/
 
 .SS ServerSpec Configuration Options

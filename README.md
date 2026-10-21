@@ -110,6 +110,11 @@ Tested on 2026-10-17:
 
 All builds produce compiler warnings, but no errors.
 
+On Debian 13 and Ubuntu 24.04, `sudo apt-get build-dep ./` and
+`dpkg-buildpackage -us -uc -b` build a `newscache` package (GnuTLS, PAM,
+systemd unit, spool cleanup timer, a config that lets nobody in); see
+[`debian/README.Debian`](debian/README.Debian).
+
 `make check` runs the unit tests and the end-to-end tests in
 [`tests/e2e`](tests/e2e) (Go, skipped when Go is not installed).
 
@@ -197,8 +202,10 @@ servers don't offer STARTTLS on 119.
   `newscache -n`.
 - **SysV init:** an init script is generated as `etc/NewsCache.init`.
 - **inetd:** use `newscache -i`.
-- **cron:** run `updatenews` and `newscacheclean` regularly, as in
-  [`debian/newscache.cron.daily`](debian/newscache.cron.daily).
+- **cron or a timer:** run `newscacheclean` regularly to keep the spool
+  below `SpoolSize`, for example daily with
+  [`debian/newscache.newscacheclean.timer`](debian/newscache.newscacheclean.timer),
+  and `updatenews` if you prefetch groups.
 
 More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt

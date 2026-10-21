@@ -1,0 +1,2 @@
+rm_conffile /etc/init.d/newscache 1.3.21-2~
+rm_conffile /etc/cron.daily/newscache 1.3.21-2~

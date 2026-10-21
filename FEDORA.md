@@ -203,8 +203,8 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-This is `debian/newscache.service` with an added `ExecReload`. The `-n` option
-keeps the daemon in the foreground for systemd. `KillMode=process` lets
+This is the Debian package's unit (`debian/newscache.service`). The `-n`
+option keeps the daemon in the foreground for systemd. `KillMode=process` lets
 running client sessions finish when the service stops.
 
 ```sh

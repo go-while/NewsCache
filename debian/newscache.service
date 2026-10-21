@@ -1,12 +1,16 @@
 [Unit]
-Description=NewsCache daemon
-After=remote-fs.target network.target
+Description=NewsCache caching news server
+Documentation=man:newscache(8) man:newscache.conf(5)
+After=network-online.target remote-fs.target
+Wants=network-online.target
 
 [Service]
-EnvironmentFile=-/etc/default/newscache
-StateDirectory=newscache
+# -n: stay in the foreground. newscache starts as root, binds the port and
+# switches to Username/Groupname from /etc/newscache.conf (news).
 ExecStart=/usr/sbin/newscache -n
+ExecReload=/bin/kill -HUP $MAINPID
 IgnoreSIGPIPE=false
+# Let running client sessions finish when the service stops.
 KillMode=process
 Restart=on-failure
 
