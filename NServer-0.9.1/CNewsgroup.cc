@@ -98,15 +98,21 @@ void CNewsgroup::sUpdateOverview(void)
 							l = i;
 					}
 					_RServer->overviewdb(this, f, l);
-					f = i;
+					// Go on with the next article, not past
+					// the fetched range: articles we have in
+					// between may have expired upstream and
+					// must still be removed below.
+					f++;
 				} else {
 					i = f - infof;
 					// We do have this article, but it has been deleted
 					if (*(mem_p + arrtab[i] + sizeof(long)) ==
 					    bigarticle) {
 						// Remove article from disk
-						sprintf(fn, "%s/.art%ud",
-							_SpoolDirectory, i);
+						// the file is named after the article
+						// number (see NVNewsgroup::setarticle)
+						snprintf(fn, sizeof(fn), "%s/.art%u",
+							 _SpoolDirectory, f);
 						unlink(fn);
 					}
 					nvfree(arrtab[i]);
@@ -230,8 +236,8 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 				if (*(mem_p + arrtab[i] + sizeof(long)) ==
 				    bigarticle) {
 					// Remove article from disk
-					sprintf(fn, "%s/.art%ud",
-						_SpoolDirectory, i);
+					snprintf(fn, sizeof(fn), "%s/.art%u",
+						 _SpoolDirectory, f);
 					unlink(fn);
 				}
 				nvfree(arrtab[i]);
