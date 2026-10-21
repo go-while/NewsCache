@@ -5,8 +5,8 @@
 #   docker logs -f newscache
 #
 # The default config (docker/newscache.conf) reads from
-# news.blueworldhosting.com over TLS and lets clients from private networks
-# read and post. Use your own config with
+# news.blueworldhosting.com over TLS and lets no client read or post until
+# you allow it. Use your own config with
 #   -v /path/to/newscache.conf:/etc/newscache.conf:ro
 # Purge the spool now and then with: docker exec newscache newscacheclean
 

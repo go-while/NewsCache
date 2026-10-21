@@ -12,6 +12,14 @@ Bug fixes:
   groups at all (LIST empty, GROUP 411 for every group), the database
   stayed locked and the rest of the list was left unread on the
   connection. Such lines are now logged and skipped.
+* The login examples added in 1.3.21 (FEDORA.md and the commented entry in
+  the container config) did not require a login: with "allow read post"
+  and "Authentication file:", clients that don't log in still read and
+  post, and a login only adds rights. The examples now use
+  "allow authentication" with "List/Read/PostTo !*" and give the rights in
+  the user file, whose format (user:hash:list:read:postto:allow) FEDORA.md
+  showed wrongly as user:password. The shipped configs were not affected:
+  they let nobody in.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

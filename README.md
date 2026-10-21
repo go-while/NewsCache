@@ -159,7 +159,8 @@ installed as `newscache.conf-dist` (source:
   `Authentication`. Nothing is allowed by default, not even localhost: the
   sample config and the container config only have `Default { allow none }`,
   so a client may only connect once a `Client` entry for its address or
-  network (CIDR) or an entry with a login allows it.
+  network (CIDR), or an entry that requires a login (`allow authentication`,
+  see [FEDORA.md](FEDORA.md#letting-clients-in)), allows it.
 - **`NewsServerList`:** one `Server host port { … }` entry per upstream server,
   with `Read`, `PostTo`, `GroupTimeout`, `User`/`Password`, `BindFrom`,
   `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `TLSCAFile`, `Options`
