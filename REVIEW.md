@@ -77,6 +77,7 @@ CI, not yet by the systematic review.
 | Expired big articles: `.art` files never deleted (file name `.art<index>d`, and articles after a fetched block skipped) | 9 | compiler warning | #22 |
 | One upstream group name over 511 characters emptied the whole group list (`NVActiveDB::read` gave up) | 10 | review | #24 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
+| Login examples in FEDORA.md and the container config didn't require a login (`allow read post` + `Authentication file:` makes it optional); wrong user-file format | 0, 3 | Debian packaging #25 | #27 |
 
 ## Open points
 
@@ -103,6 +104,18 @@ that it stays as it is.
 - **`newscache -p` prints upstream passwords** (area 6) in plain text
   (`Password secret`). Only the admin can run it, but its output is often
   pasted into bug reports.
+- **A login-only entry answers `500 What?`, not `480`** (areas 1, 3). With
+  `allow authentication`, the read commands are removed from the client's
+  command map, so before login they get `500`. Newsreaders that wait for a
+  `480` before sending AUTHINFO probably never offer a login.
+- **PAM/unix logins can't check local passwords** (area 3, unverified):
+  sessions run as `Username` (news), which can't read `/etc/shadow`.
+  Found while packaging (#25).
+- **`setugid()` doesn't call `setgroups()`** (area 5, unverified): started by
+  hand as root, the daemon keeps root's supplementary groups. Found while
+  packaging (#25).
+- **`newscache -p` prints `allow authentication` as `allow`** (area 6,
+  unverified), which reads back as allow none. Found while packaging (#25).
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see
