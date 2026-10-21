@@ -43,7 +43,9 @@ Other changes:
 * The info manual has a dir entry, and newscache.conf(5) a whatis line.
 * doc/websites/ holds an offline copy, from the Wayback Machine, of the
   two original NewsCache websites (Thomas Gschwind, TU Wien; Herbert
-  Straub, linuxhacker.at).
+  Straub, linuxhacker.at), the 1.2rc6 tarball, patches and man pages they
+  link to, and an index page in every folder so it can be served as a
+  website.
 
 Release 1.3.21:
 Billy G. - 2026-10-20
