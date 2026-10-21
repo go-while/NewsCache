@@ -215,7 +215,10 @@ void clean(const char *cpath)
 	struct dirent *f;
 	struct stat s;
 
-	sprintf(buf, "%s/.db", cpath);
+	if (snprintf(buf, sizeof(buf), "%s/.db", cpath) >= (int) sizeof(buf)) {
+		slog.p(Logger::Error) << "path too long, skipped: " << cpath << "\n";
+		return;
+	}
 	// Exception Directories
 	if (strcmp(buf, "./.artSpool") == 0)
 		return;
@@ -239,7 +242,12 @@ void clean(const char *cpath)
 			continue;
 		if (strcmp(f->d_name, "..") == 0)
 			continue;
-		sprintf(buf, "%s/%s", cpath, f->d_name);
+		if (snprintf(buf, sizeof(buf), "%s/%s", cpath, f->d_name) >=
+		    (int) sizeof(buf)) {
+			slog.p(Logger::Error) << "path too long, skipped: "
+				<< cpath << "/" << f->d_name << "\n";
+			continue;
+		}
 		if (stat(buf, &s) == 0) {
 			if (S_ISDIR(s.st_mode))
 				clean(buf);
@@ -292,7 +300,12 @@ void clean(const char *cpath)
 	string art;
 	int nr;
 	while ((f = readdir(d)) != NULL) {
-		sprintf(buf, "%s/%s", cpath, f->d_name);
+		if (snprintf(buf, sizeof(buf), "%s/%s", cpath, f->d_name) >=
+		    (int) sizeof(buf)) {
+			slog.p(Logger::Error) << "path too long, skipped: "
+				<< cpath << "/" << f->d_name << "\n";
+			continue;
+		}
 		if (stat(buf, &s) == 0) {
 			if (S_ISREG(s.st_mode) && dbatime != 0 &&
 			    strncmp(f->d_name, ".art", 4) == 0) {
@@ -361,7 +374,7 @@ int main(int argc, char **argv)
 
 	memset ((void *) &Stat, 0, sizeof (struct cache_statistic));
 
-	sprintf(conffile, "%s/newscache.conf", SYSCONFDIR);
+	snprintf(conffile, sizeof(conffile), "%s/newscache.conf", SYSCONFDIR);
 
 	cmnd = argv[0];
 	while (1) {
@@ -442,7 +455,7 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	sprintf (logfile, "%s/newscache_newscacheclean.log", Cfg.LogDirectory);
+	snprintf(logfile, sizeof(logfile), "%s/newscache_newscacheclean.log", Cfg.LogDirectory);
 	slog.open (logfile);
 #endif
 	slog.p(Logger::Info) << "cleaning spool directory\n";

@@ -2,6 +2,8 @@
 #define _NSutil_h_
 
 extern int mkpdir(const char *dirname, int mode);
+/* The spool directory of a group (dots become slashes), in a static
+ * buffer; NULL if the name doesn't fit. */
 extern const char *group2dir(const char *name);
 
 /**

@@ -46,10 +46,19 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	: Newsgroup(fmt, name), NVArray()
 	{
 		char fn[MAXPATHLEN];
-		sprintf(_SpoolDirectory, "%s/%s", spooldir,
-				group2dir(name));
+		const char *dir = group2dir(name);
+		// Leave room for "/.art" and the longest article number, so
+		// that every file name below the directory fits.
+		if (!dir || snprintf(_SpoolDirectory, sizeof(_SpoolDirectory),
+				     "%s/%s", spooldir, dir) >=
+		    (int) sizeof(_SpoolDirectory) - 32) {
+			slog.p(Logger::Error) << "spool path for group "
+				<< name << " is too long\n";
+			throw NoSuchGroupError("spool path too long",
+					       ERROR_LOCATION);
+		}
 		mkpdir(_SpoolDirectory, 0755);
-		sprintf(fn, "%s/.db", _SpoolDirectory);
+		snprintf(fn, sizeof(fn), "%s/.db", _SpoolDirectory);
 		NVArray::open(fn);
 	}
 
