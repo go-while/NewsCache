@@ -75,6 +75,7 @@ CI, not yet by the systematic review.
 | `newscache -p` and `xdebug` printed address entries as `Default`, without the address | 4 | testing #20 | #20 |
 | IPv6 Client entries silently became host names where getaddrinfo saw no IPv6 (`AI_ADDRCONFIG`); `name/prefix` silently never matched | 4 | CI #20 | #20 |
 | Expired big articles: `.art` files never deleted (file name `.art<index>d`, and articles after a fetched block skipped) | 9 | compiler warning | #22 |
+| One upstream group name over 511 characters emptied the whole group list (`NVActiveDB::read` gave up) | 10 | review | #24 |
 | Sample config documented `not-ssl`/`not-starttls`, which the parser doesn't know | 6 | testing #15 | #16 |
 
 ## Open points
@@ -82,9 +83,14 @@ CI, not yet by the systematic review.
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **Compiler warnings** (area 13 and others): about 95 with GCC 16, including
-  15 `-Wformat-overflow`, 9 `-Wstringop-overread` and 1 `-Wexceptions`, which
-  may point at real buffer or exception bugs.
+- **Compiler warnings** (area 13 and others): 78 with GCC 16 after #23
+  (94 before; the -Wformat-overflow/-truncation ones are gone), including
+  9 `-Wstringop-overread` in `NVActiveDB.cc`, 10 `-Waddress` in
+  `NVcontainer.cc`, 2 `-Wmaybe-uninitialized` and 1 `-Wexceptions`.
+- **Too long `SpoolDirectory` ends the program with an uncaught
+  `AssertionError`** (area 6): `LServer::init` refuses it correctly, but
+  the exception isn't caught, so newscache prints "terminate called after
+  throwing an instance of 'AssertionError'" instead of a config error.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
 - **No wildcards in the prefetch file** (area 12). `updatenews` reads group
