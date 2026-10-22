@@ -238,6 +238,14 @@ Bug fixes:
   files. A command that fails with any other unexpected error now gets a
   503 instead of ending the session (e.g. a stored article that doesn't
   parse; in inetd mode that aborted with SIGABRT).
+* CachePort never worked: the check of its first character was the wrong
+  way round since the IPv6 support of 2008, so "CachePort nntp" listened
+  on the service "ntp" read as a number and "CachePort #12000" passed the
+  "#" on, and the daemon couldn't start. It also took precedence over
+  ListenTo, which the documentation says it doesn't. It now takes a
+  service name, a number or #number, and is ignored (with a log line)
+  when ListenTo is set; newscache -p no longer adds a ListenTo line that
+  would hide it.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

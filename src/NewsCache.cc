@@ -3088,9 +3088,16 @@ void nntpd()
 	hints.ai_protocol = IPPROTO_TCP;
 
 	/* fill the sockaddr with the port we should listen too */
-	if (Cfg.CachePort[0] != '\0') {
-		// old variant
-		if (Cfg.CachePort[0] != '#') {
+	if (Cfg.CachePort[0] != '\0' && Cfg.ListenToSet) {
+		slog.p(Logger::Notice) << "CachePort " << Cfg.CachePort
+		    << " ignored: ListenTo is set\n";
+	}
+	if (Cfg.CachePort[0] != '\0' && !Cfg.ListenToSet) {
+		// the old way: all addresses (as ListenTo DEFAULT), on a
+		// service name or a #number. (The test was the wrong way
+		// round: "nntp" became the number "ntp", "#119" stayed
+		// "#119", so CachePort never worked.)
+		if (Cfg.CachePort[0] == '#') {
 			servname = Cfg.CachePort + 1;
 			hints.ai_flags |= AI_NUMERICSERV;
 		} else {
