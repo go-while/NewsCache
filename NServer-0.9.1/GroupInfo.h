@@ -88,10 +88,11 @@ class GroupInfo {
 	}
 
 	void set(const char *group, int fst, int lst, int n, char fl = 'y') {
-		strncpy(_name, group, sizeof(_name));
-		if (_name[sizeof(_name) - 1] != '\0')
+		size_t len = strlen(group);
+		if (len >= sizeof(_name))
 			throw Error("Name of newsgroup too long",
 				    ERROR_LOCATION);
+		memcpy(_name, group, len + 1);
 		setfln(fst, lst, n, fl);
 	}
 

@@ -53,13 +53,18 @@ void Logger::print()
 		syslog(_priority, "%s", buf);
 #else
 		time_t ts;
-		struct tm *t;
-		char tbuf[32];
+		struct tm tmbuf, *t;
+		// room for seven ints, so snprintf can't truncate
+		char tbuf[96];
 		time(&ts);
-		t = localtime(&ts);
-		snprintf(tbuf, sizeof(tbuf), "%d %04d/%02d/%02d %02d:%02d:%02d ",
-			_priority, 1900 + t->tm_year, t->tm_mon + 1,
-			t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+		t = localtime_r(&ts, &tmbuf);
+		if (t)
+			snprintf(tbuf, sizeof(tbuf),
+				 "%d %04d/%02d/%02d %02d:%02d:%02d ",
+				 _priority, 1900 + t->tm_year, t->tm_mon + 1,
+				 t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+		else
+			snprintf(tbuf, sizeof(tbuf), "%d ", _priority);
 		log << tbuf << buf << endl;
 #endif
 

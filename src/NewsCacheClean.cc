@@ -152,8 +152,9 @@ void remove_elements(long max_blocks, struct cache_statistic *pS)
 
 	for (begin=pvector.begin(), end=pvector.end();
 	     begin != end; begin++) {
-		(*begin)->Path.length();
-		if (strcmp((*begin)->Path.c_str() + (*begin)->Path.length() - 3, ".db") == 0) {
+		const string &path = (*begin)->Path;
+		if (path.length() >= 3 &&
+		    path.compare(path.length() - 3, 3, ".db") == 0) {
 			isDb = 1;
 			pS->stDbCnt++;
 			pS->stDbSize += (*begin)->blocks;
@@ -203,6 +204,19 @@ void remove_elements(long max_blocks, struct cache_statistic *pS)
 			      Error) << "Error unlink " << (*begin)->Path << "\n";
 		}
 	}
+}
+
+// The group's database in the spool directory cpath, or NULL if there is
+// none. Throws NoSuchGroupError if NVNewsgroup refuses the group.
+static NVNewsgroup *open_spool_group(OverviewFmt *fmt, const char *cpath,
+				     const char *ngname)
+{
+	string dbname = cpath;
+	dbname += "/.db";
+	struct stat s;
+	if (stat (dbname.c_str(), &s) != 0)
+		return NULL;
+	return new NVNewsgroup (fmt, (const char *) Cfg.SpoolDirectory, ngname);
 }
 
 void clean(const char *cpath)
@@ -276,18 +290,13 @@ void clean(const char *cpath)
 	int firstnr = 0;
 	int lastnr = 0;
 	try {
-		string dbname = cpath;
-		dbname += "/.db";
-		struct stat s;
-		if (stat (dbname.c_str(), &s) == 0) {
-			ng = new NVNewsgroup (fmt,
-				(const char *) Cfg.SpoolDirectory,
-				ngname.c_str());
-		} else {
+		// The inner try handles NoSuchGroupError, NC_CATCH_ALL the
+		// rest (its own NoSuchGroupError handler would never run here).
+		try {
+			ng = open_spool_group(fmt, cpath, ngname.c_str());
+		} catch (const NoSuchGroupError &e) {
 			ng = NULL;
 		}
-	} catch (const NoSuchGroupError &e) {
-		ng = NULL;
 	}
 	// FIXME: what we are doing with bad database files?
 	NC_CATCH_ALL ("Error, please report bug!");
@@ -363,7 +372,6 @@ int main(int argc, char **argv)
 	pid_t p;
 #endif
 	char conffile[MAXPATHLEN];
-	int opt_config = 0;
 	int c, aerr = 0;
 	struct cache_statistic Stat;
 	int nice;
@@ -413,7 +421,6 @@ int main(int argc, char **argv)
 
 			case 'c':
 				strcpy (conffile, optarg);
-				++opt_config;
 				break;
 
 			case 's':
@@ -455,7 +462,11 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	snprintf(logfile, sizeof(logfile), "%s/newscache_newscacheclean.log", Cfg.LogDirectory);
+	if (snprintf(logfile, sizeof(logfile), "%s/newscache_newscacheclean.log",
+		     Cfg.LogDirectory) >= (int) sizeof(logfile)) {
+		cerr << "LogDirectory is too long\n";
+		exit(1);
+	}
 	slog.open (logfile);
 #endif
 	slog.p(Logger::Info) << "cleaning spool directory\n";

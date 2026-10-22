@@ -84,16 +84,22 @@ CI, not yet by the systematic review.
 | `newscache -p` and `xdebug` printed `allow authentication` as a bare `allow`, which reads back as `allow none` | 6 | Debian packaging #25 | #31 |
 | Started as root, the programs kept root's supplementary groups (group 0), and with only a `Username` root's primary group (`setugid()` had no `initgroups`/`setgroups`) | 5 | Debian packaging #25 | #32 |
 | `!read`, `!post`, `!debug` in an auth allow field set every other right (`\|= ~flag`) instead of removing that one; `!post` granted debug | 3 | review #31 | #33 |
+| Compiler warnings (56 with GCC 16): dead NULL checks, catch by value, unused variables, a NULL path in the active DB's list walk, an uninitialized reply status, wait() status, signed/unsigned LimitGroupSize | 7, 9, 13 and others | compiler warnings | #34 |
 
 ## Open points
 
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **Compiler warnings** (area 13 and others): 78 with GCC 16 after #23
-  (94 before; the -Wformat-overflow/-truncation ones are gone), including
-  9 `-Wstringop-overread` in `NVActiveDB.cc`, 10 `-Waddress` in
-  `NVcontainer.cc`, 2 `-Wmaybe-uninitialized` and 1 `-Wexceptions`.
+- **autoconf/automake warnings** (area 14): 21 with Fedora 45's autotools,
+  e.g. `configure.in` should be `configure.ac`, obsolete macros
+  (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
+  instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
+  `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
+- **`-c` arguments are copied with `strcpy`** (areas 5, 11, 12):
+  `newscache`, `newscacheclean` and `updatenews` copy the config file name
+  from the command line into a `MAXPATHLEN` buffer with `strcpy`, so a
+  longer argument overflows it. Only whoever starts the program controls it.
 - **Too long `SpoolDirectory` ends the program with an uncaught
   `AssertionError`** (area 6): `LServer::init` refuses it correctly, but
   the exception isn't caught, so newscache prints "terminate called after

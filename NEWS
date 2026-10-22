@@ -67,6 +67,16 @@ Other changes:
   Straub, linuxhacker.at), the 1.2rc6 tarball, patches and man pages they
   link to, and an index page in every folder so it can be served as a
   website.
+* The compiler warnings are gone, apart from autoconf/automake ones and one
+  that the XOVER range fix removes (GCC 16 with Fedora's flags: 56 before).
+  Most were harmless (catch by value, unused variables, a never-NULL array
+  checked against NULL). A few fixes change behaviour in cases that
+  shouldn't happen: a corrupt active database with a broken record chain
+  no longer dereferences NULL, a failed read of an upstream reply no longer
+  checks an uninitialized status, updatenews no longer reads an undefined
+  exit status when wait() fails, LimitGroupSize ignores a group whose
+  last article number is below its first, and builds without syslog stop
+  with an error if LogDirectory is too long for the log file name.
 
 Release 1.3.21:
 Billy G. - 2026-10-20

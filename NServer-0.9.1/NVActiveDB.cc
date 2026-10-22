@@ -38,6 +38,8 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 
 	while (r) {
 		r = o2r(r->next);
+		if (!r)
+			break;	// lists are circular; 0 only in a corrupt file
 
 		// The first approach is the cleaner one since it uses 
 		// GroupInfo's setraw function. However, this involves 
@@ -105,6 +107,8 @@ int NVActiveDB::get(const char *group, GroupInfo * gi)
 
 	while (r) {
 		r = o2r(r->next);
+		if (!r)
+			break;	// lists are circular; 0 only in a corrupt file
 
 		// The first approach is the cleaner one since it uses 
 		// GroupInfo's setraw function. However, this involves 
@@ -140,6 +144,8 @@ int NVActiveDB::hasgroup(const char *group)
 
 	while (r) {
 		r = o2r(r->next);
+		if (!r)
+			break;	// lists are circular; 0 only in a corrupt file
 
 		// The first approach is the cleaner one since it uses 
 		// GroupInfo's setraw function. However, this involves 

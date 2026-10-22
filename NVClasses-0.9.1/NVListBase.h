@@ -26,11 +26,17 @@ class NVListBase:public NVcontainer {
 	struct Record {
 		unsigned long next;	/* 64 */
 		unsigned long szdata;	/* 64 */
-		// Data follows here
+		// Data follows here. A flexible array member (a GCC/Clang
+		// extension in C++) adds nothing to sizeof(Record), so the
+		// file layout is unchanged, and the compiler knows the data
+		// isn't a zero-size object.
+		char data[];
 		char *datap() {
-			return ((char *) this) + sizeof(Record);
+			return data;
 		}
 	};
+	static_assert(sizeof(Record) == 2 * sizeof(unsigned long),
+		      "Record is part of the spool file format");
 
 	Record *o2r(nvoff_t o) {
 		return (Record *) (o ? mem_p + o : NULL);

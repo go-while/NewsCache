@@ -1590,8 +1590,6 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	}
 	(*clt->co) << "231 list of new groups follows " << lt << "\r\n";
 	try {
-		NewsgroupFilter filter();
-
 		for_each(active->begin(),
 			 active->end(),
 			 active_filter_group_time <
@@ -2389,7 +2387,9 @@ void nntpd()
 				    strerror(errno) << "\n";
 			}
 			static const char too_many[] = "400 too many users\r\n";
-			write(clt_fd, too_many, sizeof(too_many) - 1);
+			if (write(clt_fd, too_many, sizeof(too_many) - 1) < 0) {
+				// refused anyway; nothing else to do
+			}
 			close(clt_fd);
 		} else {
 			// success
@@ -2587,7 +2587,7 @@ int main(int argc, char **argv)
 	time_t t;
 	pid_t p;
 #endif
-	int opt_config = 0, opt_inetd = 0, opt_debug = 0, opt_print_para = 0;
+	int opt_inetd = 0, opt_debug = 0, opt_print_para = 0;
 	int opt_nofork = 0, opt_config_options = 0;
 	int aerr = 0, c;
 
@@ -2637,7 +2637,6 @@ int main(int argc, char **argv)
 
 			case 'c':
 				strcpy (config_file, optarg);
-				++opt_config;
 				break;
 
 			case 'i':
@@ -2701,7 +2700,11 @@ int main(int argc, char **argv)
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);
 #else
-	snprintf(logfile, sizeof(logfile), "%s/newscache.log", Cfg.LogDirectory);
+	if (snprintf(logfile, sizeof(logfile), "%s/newscache.log",
+		     Cfg.LogDirectory) >= (int) sizeof(logfile)) {
+		cerr << "LogDirectory is too long\n";
+		exit(1);
+	}
 	slog.open (logfile);
 #endif
 
