@@ -85,6 +85,12 @@ Bug fixes:
   command line can be 1024 characters long: a client with read access
   could overflow it with a long header name and crash its session (or
   worse, where the stack isn't protected). The name is now a string.
+* An auth-file line with only user and password ("alice:$6$...") was
+  refused, so that user could never log in; at least the List field had
+  to follow. Such lines are valid now: fields missing at the end add
+  nothing, like empty ones, so the user keeps the rights of the Client
+  entry. The sample newscache.conf-dist also showed the file format
+  without its List and allow fields in one place.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

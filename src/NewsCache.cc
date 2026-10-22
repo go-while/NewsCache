@@ -544,11 +544,12 @@ int check_auth_file (ClientData *clt)
 	if (!authv)
 		return -1;
 
+	// user:hash is enough; missing list, read, postto and allow fields
+	// add nothing, like empty ones.
 	while (authv[authc])
 		authc++;
-	if (authc < 3)
+	if (authc < 2)
 		return -1;
-
 
 #ifdef PLAIN_TEXT_PASSWORDS
 	passf=strcmp(clt->auth_pass, authv[1]);
