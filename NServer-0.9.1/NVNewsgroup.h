@@ -118,7 +118,7 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 				 0, artnum_t l = ARTNUM_MAX);
 	virtual void printheaderdb(std::ostream & os, const char *header,
 				   artnum_t f = 0, artnum_t l =
-				   ARTNUM_MAX);
+				   ARTNUM_MAX, const char *pat = NULL);
 
 	virtual void printlistgroup(std::ostream & os);
 };

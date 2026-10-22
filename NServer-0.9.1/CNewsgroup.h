@@ -73,9 +73,9 @@ class CNewsgroup:public NVNewsgroup {
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,
 				   artnum_t f = 0, artnum_t l =
-				   ARTNUM_MAX) {
+				   ARTNUM_MAX, const char *pat = NULL) {
 		updateOverview();
-		NVNewsgroup::printheaderdb(os, header, f, l);
+		NVNewsgroup::printheaderdb(os, header, f, l, pat);
 	}
 
 	virtual void printlistgroup(std::ostream & os) {

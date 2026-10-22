@@ -443,19 +443,13 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 
 void NVNewsgroup::printheaderdb(ostream & os,
 				const char *header,
-				artnum_t f, artnum_t l)
+				artnum_t f, artnum_t l, const char *pat)
 {
-	char *data, xheader[512], *p;
-	string fld;
-	const char *q;
+	char *data;
+	string fld, xheader = headerfield(header);
 	size_t szdata;
 	unsigned long gf, i, gl;
 
-	p = xheader;
-	q = header;
-	while ((*p++ = *q++));
-	*(p - 1) = ':';
-	*p = '\0';
 	NVArray::lock(NVcontainer::ShrdLock);
 	NVArray::getsize(&gf, &gl);
 	if (f < gf)
@@ -464,39 +458,39 @@ void NVNewsgroup::printheaderdb(ostream & os,
 		l = gl;
 	for (i = f; i <= l; i++) {
 		NVArray::sget(i, &data, &szdata);
-		if (data) {
+		if (data && (*data == article || *data == bigarticle
+			     || *data == overview)) {
+			bool found = true;
 			if (*data == article) {
-				Article *art;
 				//FIX! This is inefficient!
 				//FIX! The article is copied and all the overview data is copied 
 				//FIX! again. We should allow Articles to use externally provided 
 				//FIX! memory (eg. memory from the NVNewsgroup).
 				// szdata ... Size of article including the trailing \0 plus
 				//            1char (= InformationTag of NVNewsgroup)
-				art =
-				    new Article(i, data + sizeof(char),
-						szdata - sizeof(char));
+				Article art(i, data + sizeof(char),
+					    szdata - sizeof(char));
 				try {
-					fld = art->getfield(xheader, 0);
-					os << i << " " << fld << "\r\n";
+					fld = art.getfield(xheader.c_str(), 0);
 				} catch(NoSuchFieldError & nfe) {
-					os << i << " (none)\r\n";
+					found = false;
 				}
-				delete art;
-			} else if (*data == bigarticle
-				   || *data == overview) {
+			} else {
 				const char *over = data + sizeof(char);
 				try {
 					fld =
 					    _OverviewFormat->getfield(over,
-								      xheader,
+								      xheader.c_str(),
 								      0);
-					os << i << " " << fld << "\r\n";
 				} catch(NoSuchFieldError & nfe) {
-					os << i << " (none)\r\n";
+					found = false;
 				}
 			}
-		}		/* if(data) */
+			if (found && headermatch(fld, pat))
+				os << i << " " << fld << "\r\n";
+			else if (!found && !pat)
+				os << i << " (none)\r\n";
+		}
 		if (i == l)
 			break;
 	}

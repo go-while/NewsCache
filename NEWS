@@ -1,5 +1,13 @@
 Unreleased:
 
+New functions:
+* XPAT (RFC 2980 2.9): "XPAT header range|<message-id> pattern" lists
+  the articles whose header matches the wildmat pattern, in the format of
+  XHDR. Like XHDR, it sees the overview fields of every article and all
+  headers of the articles in the spool; for other headers of articles
+  that are only in the overview, nothing matches. XPAT is in HELP and in
+  LIST EXTENSIONS ("pat").
+
 Bug fixes:
 * Articles bigger than about 15 KB, which NewsCache stores in their own
   .art file, were never deleted from the spool after they expired on the
@@ -73,6 +81,10 @@ Bug fixes:
   didn't make that article the current one, so NEXT, LAST and a following
   HEAD or BODY without a number went on from the previous article
   (RFC 3977 6.2.4).
+* XHDR copied the header name into a 512-byte buffer on the stack, but a
+  command line can be 1024 characters long: a client with read access
+  could overflow it with a long header name and crash its session (or
+  worse, where the stack isn't protected). The name is now a string.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
