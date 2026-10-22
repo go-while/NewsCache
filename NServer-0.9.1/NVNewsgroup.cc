@@ -117,7 +117,7 @@ int NVNewsgroup::getsync(artnum_t c, SyncEnt * e)
 	SyncHdr *h = synchdr();
 
 	if (h && h->first <= c && c - h->first < h->n) {
-		*e = ((SyncEnt *) (h + 1))[c - h->first];
+		*e = syncents(h)[c - h->first];
 		return 1;
 	}
 	e->time = e->through = 0;
@@ -134,7 +134,7 @@ void NVNewsgroup::setsync(artnum_t c, nvtime_t time, artnum_t through)
 		h = synchdr();
 	}
 	if (h && h->first <= c && c - h->first < h->n) {
-		SyncEnt *e = ((SyncEnt *) (h + 1)) + (c - h->first);
+		SyncEnt *e = &syncents(h)[c - h->first];
 		e->time = time;
 		e->through = through;
 	}
@@ -210,7 +210,7 @@ void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
 	for (k = 0; k < n; k++)
 		ents[k].time = ents[k].through = 0;
 	if ((h = synchdr()) != NULL) {
-		SyncEnt *e = (SyncEnt *) (h + 1);
+		SyncEnt *e = syncents(h);
 		for (k = 0; k < h->n; k++) {
 			uint64_t c = h->first + k;
 			if (first <= c && c - first < n)
@@ -231,7 +231,7 @@ void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
 	h->first = first;
 	h->n = n;
 	h->glast = glast;
-	memcpy(h + 1, &ents[0], n * sizeof(SyncEnt));
+	memcpy(syncents(h), &ents[0], n * sizeof(SyncEnt));
 }
 
 // Drops every record and synchronization entry, keeps the index range.
@@ -243,7 +243,7 @@ void NVNewsgroup::clearindex(void)
 		return;
 	freerange(arrfst, arrlst);
 	if ((h = synchdr()) != NULL)
-		memset(h + 1, 0, h->n * sizeof(SyncEnt));
+		memset(syncents(h), 0, h->n * sizeof(SyncEnt));
 }
 
 // Limits [f,l] to the group's article numbers; 0 if nothing is left.

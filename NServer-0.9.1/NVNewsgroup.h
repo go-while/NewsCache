@@ -67,6 +67,10 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 		uint64_t through;	// synchronized up to this number
 	};
 	SyncHdr *synchdr(void);
+	// The entries follow the header directly (h->n of them).
+	static SyncEnt *syncents(SyncHdr * h) {
+		return (SyncEnt *) ((char *) h + sizeof(SyncHdr));
+	}
 	int getsync(artnum_t c, SyncEnt * e);
 	void setsync(artnum_t c, nvtime_t time, artnum_t through);
 	artnum_t knownlast(void);
