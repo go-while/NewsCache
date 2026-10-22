@@ -15,6 +15,37 @@ import (
 // article. NewsCache used to send every message-ID request upstream.
 
 // upstreamByID counts the upstream requests for id (ARTICLE/HEAD/BODY/STAT <id>).
+// historyEnv returns an env with "History on" (it is off by default).
+func historyEnv(t *testing.T) *env {
+	e := newEnv(t)
+	e.Extra += "History on\n"
+	return e
+}
+
+// TestHistoryOffByDefault: without "History on" NewsCache behaves as
+// before: ARTICLE <message-id> goes to the upstream server, and the
+// spool gets no .history.
+func TestHistoryOffByDefault(t *testing.T) {
+	e := newEnv(t)
+	ids := e.addArticles("test.alpha", 1)
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	c.Cmd("ARTICLE 1")
+	c.ReadDotLines()
+	before := e.Upstream.Count("ARTICLE")
+	if code, line := c.Cmd("ARTICLE %s", ids[0]); code != 220 {
+		t.Fatalf("ARTICLE <id>: %q", line)
+	}
+	c.ReadDotLines()
+	if n := e.Upstream.Count("ARTICLE"); n != before+1 {
+		t.Errorf("upstream ARTICLE count %d -> %d, want +1 (forwarded)", before, n)
+	}
+	c.Cmd("QUIT")
+	if _, err := os.Stat(filepath.Join(e.Spool, ".history")); err == nil {
+		t.Errorf("spool has a .history without \"History on\"")
+	}
+}
+
 func upstreamByID(e *env, id string) int {
 	n := 0
 	for _, l := range e.Upstream.Lines() {
@@ -28,7 +59,7 @@ func upstreamByID(e *env, id string) int {
 // TestArticleByMessageIDFromSpool: after ARTICLE 1, the message-ID
 // commands find the article in the spool and don't ask upstream.
 func TestArticleByMessageIDFromSpool(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 2)
 	c := e.session()
 	c.Cmd("GROUP test.alpha")
@@ -76,7 +107,7 @@ func TestArticleByMessageIDFromSpool(t *testing.T) {
 // overview record is fetched by number (and stored) once; the second
 // request is served from the spool.
 func TestMessageIDOverviewOnly(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 3)
 	c := e.session()
 	c.Cmd("GROUP test.alpha")
@@ -109,7 +140,7 @@ func TestMessageIDOverviewOnly(t *testing.T) {
 // TestMessageIDCrosspost: an article crossposted to two groups and read
 // in one is found by message-ID while the other group is selected.
 func TestMessageIDCrosspost(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	e.addArticles("test.alpha", 1)
 	e.addArticles("test.beta", 1)
 	id := "<cross@upstream.test>"
@@ -149,7 +180,7 @@ func TestMessageIDCrosspost(t *testing.T) {
 // newscacheclean removed it), the history's entry is stale; the article
 // comes from upstream by message-ID, and newscacheclean prunes the entry.
 func TestMessageIDStaleEntry(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 1)
 	c := e.session()
 	c.Cmd("GROUP test.alpha")
@@ -183,7 +214,7 @@ func TestMessageIDStaleEntry(t *testing.T) {
 // TestMessageIDUpstreamDown: with the upstream gone, an article in the
 // spool is still served by message-ID.
 func TestMessageIDUpstreamDown(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 2)
 	c := e.session()
 	c.Cmd("GROUP test.alpha")
@@ -207,7 +238,7 @@ func TestMessageIDUpstreamDown(t *testing.T) {
 // TestMessageIDSpoolReadRights: an article in the spool is not served by
 // message-ID to a client whose Read list doesn't allow any of its groups.
 func TestMessageIDSpoolReadRights(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	e.addArticles("test.alpha", 1)
 	secret := e.addArticles("test.secret", 1)
 	c := e.session()
@@ -250,7 +281,7 @@ func TestMessageIDSpoolReadRights(t *testing.T) {
 // older version, or after .history was removed) gets its entries back as
 // clients read its articles.
 func TestMessageIDHistoryRefill(t *testing.T) {
-	e := newEnv(t)
+	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 1)
 	c := e.session()
 	c.Cmd("GROUP test.alpha")
@@ -274,5 +305,42 @@ func TestMessageIDHistoryRefill(t *testing.T) {
 	c2.ReadDotLines()
 	if n := e.Upstream.Count("ARTICLE"); n != before {
 		t.Errorf("upstream ARTICLE count %d -> %d, want the article from the spool", before, n)
+	}
+}
+
+// TestHistoryConfig: History takes on/off (yes/no), is off by default,
+// and newscache -p prints it.
+func TestHistoryConfig(t *testing.T) {
+	for _, c := range []struct {
+		extra, want string
+	}{
+		{"", "History off"},
+		{"History on", "History on"},
+		{"History yes", "History on"},
+		{"History off", "History off"},
+		{"History no", "History off"},
+		{"History maybe", ""},
+	} {
+		t.Run(c.extra, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = c.extra
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("newscache -p accepted %q:\n%s", c.extra, out)
+				}
+				if !strings.Contains(string(out), "History expects on or off") {
+					t.Errorf("%q: error %q", c.extra, strings.TrimSpace(string(out)))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains("\n"+string(out), "\n"+c.want+"\n") {
+				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
+			}
+		})
 	}
 }

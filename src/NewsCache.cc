@@ -2727,8 +2727,10 @@ void nnrpd(int fd)
 	// authentication!
 	set_client_command_table (clt);
 
-	// (after setugid: .history belongs to the news user)
-	History::setspooldir(Cfg.SpoolDirectory);
+	// (after setugid: .history belongs to the news user). Without
+	// "History on" every History call does nothing.
+	if (Cfg.HistoryEnabled)
+		History::setspooldir(Cfg.SpoolDirectory);
 	try {
 		clt.srvr = new CServer(Cfg.SpoolDirectory, &(Cfg.srvrs));
 		clt.srvr->setttl(Cfg.ttl_list, Cfg.ttl_desc);

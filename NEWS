@@ -20,8 +20,9 @@ New functions:
   message-ID it fetches the article, so every header is there (and
   :bytes). An article without the header gets a line with an empty value,
   and a range without articles 423.
-* Articles by message-ID from the spool. NewsCache keeps a history of the
-  articles in its spool (the directory .history in the spool, 16 files
+* Articles by message-ID from the spool, with the new option
+  "History on" (off by default: then NewsCache behaves as before). It
+  keeps a history of the articles in its spool (the directory .history in the spool, 16 files
   keyed by the MD5 hash of the Message-ID, like go-pugleaf's and INN's
   history), and ARTICLE, HEAD, BODY and STAT <message-id>, and the
   message-ID forms of XHDR, XPAT and HDR, serve an article from there. An

@@ -46,6 +46,7 @@ class Config {
 
 	int ClientTimeout;
 	int AuthFailureDelay;	// seconds, times the number of failed logins
+	int HistoryEnabled;	// History on: the message-ID history in the spool
 	int MaxConnections;
 	time_t ttl_list;
 	time_t ttl_desc;

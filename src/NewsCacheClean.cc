@@ -522,7 +522,8 @@ int main(int argc, char **argv)
 	}
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
-	History::setspooldir(Cfg.SpoolDirectory);
+	if (Cfg.HistoryEnabled)
+		History::setspooldir(Cfg.SpoolDirectory);
 	clean(".");
 	sort (pvector.begin(), pvector.end(), sort_entries);
 	if (p_flag) {

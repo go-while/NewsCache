@@ -445,7 +445,8 @@ int main(int argc, char **argv)
 	// news server
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
-	History::setspooldir(Cfg.SpoolDirectory);
+	if (Cfg.HistoryEnabled)
+		History::setspooldir(Cfg.SpoolDirectory);
 	update();
 	return 0;
 }

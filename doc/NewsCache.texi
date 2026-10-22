@@ -555,17 +555,25 @@ the space back, NewsCache fetches what clients ask for again.
 
 @cindex message-ID
 @cindex history
-NewsCache keeps a history of the articles in its spool: for each
-Message-ID, the groups that hold the article and its number there. With
-it, @code{ARTICLE}, @code{HEAD}, @code{BODY} and @code{STAT} with a
+@cdindex History
+With @code{History on}, NewsCache keeps a history of the articles in its
+spool: for each Message-ID, the groups that hold the article and its
+number there. It is off by default; then every message-ID request goes
+to the news server, as in earlier versions, and the spool gets no
+@file{.history}.
+
+@example
+History on
+@end example
+
+With the history, @code{ARTICLE}, @code{HEAD}, @code{BODY} and @code{STAT} with a
 message-ID, and the message-ID forms of @code{XHDR}, @code{XPAT} and
 @code{HDR}, serve an article from the spool. If the spool has only the
 article's overview record, the article is fetched by number and stored,
 so an article crossposted to several groups is fetched only once. In
 offline mode, or with the news server down, articles in the spool can be
 read by message-ID too. The @code{Read} list of the client applies as
-for articles from the news server. Up to version 1.3.21 every
-message-ID request went to the news server.
+for articles from the news server.
 
 The history is filled when overview records and articles are stored,
 and when an article is read from the spool (so a spool of an older
@@ -586,6 +594,9 @@ record holds the Message-ID and its locations,
 format. A damaged file, or one of another format, is renamed to
 @file{@var{n}.bad} and started anew. The history can be removed at any
 time while NewsCache is stopped; it is filled again as clients read.
+After @code{History off}, the files stay unused; remove the directory
+to get the space back. Turned on again later, stale entries do no harm,
+since every lookup checks them.
 
 @section Reducing the Load of a News Server
 

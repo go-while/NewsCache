@@ -306,6 +306,10 @@ ClientTimeout 600
 # the number of failed logins in the connection (default 15)
 # AuthFailureDelay 15
 
+# Serve ARTICLE <message-id> and the like from the spool when it has the
+# article, using a history in SpoolDirectory/.history (default off)
+# History on
+
 # Do not allow more than 16 simultaneous connections
 # This switch works only in standalone mode
 MaxConnections 16
