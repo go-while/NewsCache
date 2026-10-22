@@ -3,11 +3,44 @@
 
 using namespace std;
 
-// last number of the chunk that holds a
+// last number of the chunk that holds a (see chunk_last)
 static inline artnum_t chunk_end(artnum_t a)
 {
-	return a / OVERVIEW_CHUNK * OVERVIEW_CHUNK + OVERVIEW_CHUNK - 1;
+	return chunk_last(a);
 }
+
+/*
+ * NVArray::lock(ExclLock or ShrdLock) and the matching UnLock, also when
+ * the block is left by an exception.
+ */
+class GroupLock {
+	NVArray & _a;
+	bool _held;
+      public:
+	// take = false: no lock (for "only if the caller doesn't hold one")
+	GroupLock(NVArray & a, int how, bool take = true)
+	:_a(a), _held(false) {
+		if (take) {
+			_a.lock(how);
+			_held = true;
+		}
+	}
+	void release(void) {
+		if (_held) {
+			_held = false;
+			_a.lock(NVcontainer::UnLock);
+		}
+	}
+	~GroupLock() {
+		try {
+			release();
+		}
+		catch(...) {
+			// (a destructor must not throw; corrupt() may have
+			// taken the lock stack down already)
+		}
+	}
+};
 
 CNewsgroup::~CNewsgroup()
 {
@@ -68,16 +101,35 @@ void CNewsgroup::setsize(artnum_t f, artnum_t l)
 {
 	artnum_t kl;
 
+	if (l > ARTNUM_LIMIT)
+		l = ARTNUM_LIMIT;
 	NVArray::lock(NVcontainer::ExclLock);
-	// The cached numbers are the news server's numbers; when its last
-	// number goes down, the group was renumbered (the index may start
-	// above the news server's first number, that is normal now).
+	/*
+	 * The news server's last number went down: its newest articles went
+	 * (cancelled or expired), or this connection reached a server of a
+	 * farm that lags behind. NVNewsgroup::setsize drops the records above
+	 * l, as before the index window; the chunk of l counts as
+	 * synchronized up to l at most, so the numbers above are asked for
+	 * again when they come back. (Every cached article used to go: the
+	 * drop was taken for a renumbered group.) Only a last number below
+	 * every cached one empties the index; that covers a renumbering to
+	 * smaller numbers. A server renumbered into the cached range can't
+	 * be told apart from expiry by the numbers alone: remove the group's
+	 * spool directory after such a move (see the manual).
+	 */
 	kl = knownlast();
-	if (kl && l < kl) {
-		slog.p(Logger::Notice) << name()
-		    << ": the news server's last article number went down from "
-		    << kl << " to " << l << ", dropping the cached articles\n";
-		clearindex();
+	if (kl && l < kl && arrfst <= arrlst) {
+		if (l < arrfst) {
+			slog.p(Logger::Notice) << name()
+			    << ": the news server's last article number went "
+			    << "down from " << kl << " to " << l
+			    << ", below the cached articles: dropping them\n";
+		} else {
+			SyncEnt e;
+			artnum_t c = l / OVERVIEW_CHUNK;
+			if (getsync(c, &e) && e.through > l)
+				setsync(c, e.time, l);
+		}
 	}
 	NVNewsgroup::setsize(f, l);
 	if (l != knownlast())
@@ -418,44 +470,49 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 			    "out of memory, cannot allocate lstgrp\n";
 			return;
 		}
-		NVArray::lock(lockgrp ? NVcontainer::ExclLock :
-			      NVcontainer::ShrdLock);
+		// (the guards give the locks back also when an exception
+		// leaves the block: one left held kept the group locked for
+		// the rest of the prefetch)
+		GroupLock chunklock(*this, lockgrp ? NVcontainer::ExclLock :
+				    NVcontainer::ShrdLock);
 		try {
 			listgroup(lstgrp, a, b);
-			for (f = a; f <= b; f++) {
+			for (f = a;; f++) {
 				NVArray::sget(f, &data, &szdata);
 				if (!data) {
 					// both, we and the news server do not have
 					// the article
 					if (!lstgrp[f - a])
-						continue;
+						goto next;
 				} else if ((*data == article || *data == bigarticle)
 					   && lstgrp[f - a]) {
 					// both, we and the news server do have it
-					continue;
+					goto next;
 				}
-				if (!lockgrp) {
-					NVArray::lock(NVcontainer::ExclLock);
-					NVArray::sget(f, &data, &szdata);
-				}
-				if (lstgrp[f - a] && (!data || *data == overview)) {
-					if ((art = retrievearticle(f)) != NULL) {
-						setarticle(art);
-						delete art;
+				{
+					GroupLock artlock(*this, NVcontainer::ExclLock,
+							  !lockgrp);
+					if (!lockgrp)
+						NVArray::sget(f, &data, &szdata);
+					if (lstgrp[f - a] && (!data || *data == overview)) {
+						if ((art = retrievearticle(f)) != NULL) {
+							setarticle(art);
+							delete art;
+						}
+					} else if (!lstgrp[f - a] && data) {
+						// We do have this article, but it has been
+						// deleted
+						freerange(f, f);
 					}
-				} else if (!lstgrp[f - a] && data) {
-					// We do have this article, but it has been
-					// deleted
-					freerange(f, f);
 				}
-				if (!lockgrp)
-					NVArray::lock(NVcontainer::UnLock);
+			      next:
+				if (f == b)
+					break;
 			}
-			NVArray::lock(NVcontainer::ExclLock);
+			GroupLock synclock(*this, NVcontainer::ExclLock);
 			if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
 				setsync(a / OVERVIEW_CHUNK, nvtime(NULL), b);
 			setmtime(nvtime(NULL));
-			NVArray::lock(NVcontainer::UnLock);
 		}
 		catch(Error & e) {
 			slog.
@@ -469,7 +526,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 			    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		}
 		free(lstgrp);
-		NVArray::lock(NVcontainer::UnLock);
+		chunklock.release();
 		if (b >= l)
 			break;
 	}

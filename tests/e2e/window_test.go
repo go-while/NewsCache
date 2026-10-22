@@ -457,3 +457,102 @@ func TestOverviewNotCached(t *testing.T) {
 		t.Errorf("a not-cached group has a spool database")
 	}
 }
+
+// numberedStore returns a new store with the articles first..last of
+// bigGroup (message-IDs follow the numbers).
+func numberedStore(first, last int64) *fakeserver.Store {
+	st := fakeserver.NewStore()
+	st.AddGroup(bigGroup, "big article numbers")
+	for n := first; n <= last; n++ {
+		st.AddArticle(bigGroup, groupArticle(bigGroup, n, []string{fmt.Sprintf("body of article %d", n)}))
+	}
+	return st
+}
+
+// newUpstream replaces the upstream server by one with store st; with
+// GroupTimeout 0 the cached chunks are due again a second later.
+func newUpstream(t *testing.T, e *env, st *fakeserver.Store) {
+	e.Store = st
+	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: st})
+	time.Sleep(1100 * time.Millisecond)
+}
+
+// TestOverviewWindowLastDown: when the upstream's last number went down
+// (its newest article removed, or a server farm's frontend lagging
+// behind), the window cache took the group for renumbered and dropped
+// every cached article: they were all fetched again. Now only those above
+// the new last go, and they come back when the last number does. A last
+// number below every cached one still empties the group.
+func TestOverviewWindowLastDown(t *testing.T) {
+	e := newEnv(t)
+	e.Store = numberedStore(1, 5)
+	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: e.Store})
+	c := e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	wantNumbers(t, "XOVER 1-5", xover(t, c, 1, 5), 1, 2, 3, 4, 5)
+	for i := 1; i <= 5; i++ {
+		if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
+			t.Fatalf("ARTICLE %d: %q", i, line)
+		}
+		c.ReadDotLines()
+	}
+	c.Cmd("QUIT")
+
+	// last 5 -> 4: articles 1-4 stay in the spool
+	newUpstream(t, e, numberedStore(1, 4))
+	c = e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	wantNumbers(t, "XOVER after last 5 -> 4", xover(t, c, 1, 5), 1, 2, 3, 4)
+	for i := 1; i <= 4; i++ {
+		if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
+			t.Fatalf("ARTICLE %d after last 5 -> 4: %q", i, line)
+		}
+		c.ReadDotLines()
+	}
+	c.Cmd("QUIT")
+	if n := e.Upstream.Count("ARTICLE"); n != 0 {
+		t.Errorf("after the upstream's last went 5 -> 4, %d cached articles were fetched again", n)
+	}
+
+	// last 4 -> 5 again: article 5 is back
+	newUpstream(t, e, numberedStore(1, 5))
+	c = e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	wantNumbers(t, "XOVER after last 4 -> 5", xover(t, c, 1, 5), 1, 2, 3, 4, 5)
+	c.Cmd("QUIT")
+
+}
+
+// TestOverviewWindowRenumberedBelow: a last number below every cached
+// one (the group renumbered to smaller numbers) still empties the cache.
+func TestOverviewWindowRenumberedBelow(t *testing.T) {
+	e := newEnv(t)
+	e.Store = numberedStore(100, 104)
+	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: e.Store})
+	c := e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	wantNumbers(t, "XOVER 100-104", xover(t, c, 100, 104), 100, 101, 102, 103, 104)
+	c.Cmd("ARTICLE 100")
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+
+	st := fakeserver.NewStore()
+	st.AddGroup(bigGroup, "big article numbers")
+	for n := int64(1); n <= 2; n++ {
+		a := groupArticle(bigGroup, n, []string{"renumbered"})
+		a.MessageID = fmt.Sprintf("<renumbered.%d@upstream.test>", n)
+		st.AddArticle(bigGroup, a)
+	}
+	newUpstream(t, e, st)
+	c = e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	wantNumbers(t, "XOVER 1-104 after renumbering", xover(t, c, 1, 104), 1, 2)
+	code, line := c.Cmd("ARTICLE 1")
+	if code != 220 || !strings.Contains(line, "<renumbered.1@upstream.test>") {
+		t.Errorf("ARTICLE 1 after renumbering: %q, want the new article", line)
+	}
+	if code == 220 {
+		c.ReadDotLines()
+	}
+	c.Cmd("QUIT")
+}
