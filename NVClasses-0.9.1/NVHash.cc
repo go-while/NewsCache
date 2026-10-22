@@ -19,9 +19,24 @@ void NVHash::make_current()
 		hashtab = NULL;
 		hashsz = 0;
 	} else {
+		size_t bsz;
+		unsigned long n;
+
+		// the table's size, then its entries; all from the file
+		if (!valid_block(hdata, &bsz) || bsz < sizeof(unsigned long)) {
+			corrupt("bad hash table offset");
+			return;	// (only while opening: a new file)
+		}
+		n = *(unsigned long *) (mem_p + hdata);
+		if (n == 0 ||
+		    n > (bsz - sizeof(unsigned long)) / sizeof(nvoff_t) ||
+		    (want_hashsz && n != want_hashsz)) {
+			corrupt("bad hash table size");
+			return;
+		}
 		hashtab =
 		    (nvoff_t *) (mem_p + hdata + sizeof(unsigned long));
-		hashsz = *(unsigned long *) (mem_p + hdata);
+		hashsz = n;
 	}
 }
 
@@ -54,34 +69,42 @@ void NVHash::sprint(ostream & os)
 }
 
 NVHash::NVHash(const char *dbname, unsigned long hashsz, int flags)
-	: NVListBase()
+	: NVListBase(), hashtab(NULL), hashsz(0), want_hashsz(0)
 {
 	open(dbname, hashsz, flags);
 }
 
+void NVHash::create_table(unsigned long n)
+{
+	lock(ExclLock);
+	if (!hashtab) {
+		nvoff_t ht = nvalloc(sizeof(unsigned long) + n * sizeof(nvoff_t));
+		unsigned long i;
+
+		setdata(ht);
+		hashsz = (*(unsigned long *) (mem_p + ht)) = n;
+		hashtab = (nvoff_t *) (mem_p + ht + sizeof(unsigned long));
+		for (i = 0; i < hashsz; i++)
+			hashtab[i] = 0;
+	}
+	lock(UnLock);
+}
+
+// corrupt() started a new file: it needs its table
+void NVHash::reinit(void)
+{
+	hashtab = NULL;
+	hashsz = 0;
+	if (want_hashsz)
+		create_table(want_hashsz);
+}
+
 void NVHash::open(const char *dbname, unsigned long nhashsz, int flags)
 {
+	want_hashsz = nhashsz;
 	NVListBase::open(dbname, flags);
-	if (!hashtab) {
-		lock(ExclLock);
-		if (!hashtab) {
-			nvoff_t ht =
-			    nvalloc(sizeof(unsigned long) +
-				    nhashsz * sizeof(nvoff_t));
-			unsigned long i;
-			setdata(ht);
-
-			hashsz = (*(unsigned long *) (mem_p + ht)) =
-			    nhashsz;
-			hashtab =
-			    (nvoff_t *) (mem_p + ht +
-					 sizeof(unsigned long));
-
-			for (i = 0; i < hashsz; i++)
-				hashtab[i] = 0;
-		}
-		lock(UnLock);
-	}
+	if (!hashtab)
+		create_table(nhashsz);
 	// The hashsz and hashtab variables will be updated at the next
 	// make_current method-invocation
 }

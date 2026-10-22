@@ -41,6 +41,15 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 		bigarticle = 0x4
 	};
 
+	// A record is its type (overview, article, bigarticle), then text
+	// ending in its only NUL.
+	virtual bool valid_record(const char *data, size_t szdata) {
+		return szdata >= 2 && data[szdata - 1] == '\0' &&
+		    (data[0] == overview || data[0] == article ||
+		     data[0] == bigarticle) &&
+		    memchr(data + 1, '\0', szdata - 2) == NULL;
+	}
+
 	char _SpoolDirectory[MAXPATHLEN];
 
 	// The group's article numbers on the news server, from setsize.

@@ -87,23 +87,32 @@ void catchsignal(int num)
 
 void doprefetch(CServer * cs, const char *group)
 {
-	Newsgroup *grp;
-	try {
-		slog.p(Logger::Info) << "prefetching " << group << "\n";
-		grp = cs->getgroup(group);
-		if (opt_flags & F_PREFETCH_GROUP)
-			grp->
-			    prefetchGroup(opt_flags &
-					  F_PREFETCH_LOCKGROUP);
-		else if (opt_flags & F_PREFETCH_OVER)
-			grp->prefetchOverview();
-		cs->freegroup(grp);
+	// A corrupt database is moved aside and a new one started (see
+	// NVcontainer::corrupt): then the prefetch is tried again, once.
+	for (int attempt = 0; attempt < 2; attempt++) {
+		Newsgroup *grp = NULL;
+		try {
+			slog.p(Logger::Info) << "prefetching " << group << "\n";
+			grp = cs->getgroup(group);
+			if (opt_flags & F_PREFETCH_GROUP)
+				grp->
+				    prefetchGroup(opt_flags &
+						  F_PREFETCH_LOCKGROUP);
+			else if (opt_flags & F_PREFETCH_OVER)
+				grp->prefetchOverview();
+			cs->freegroup(grp);
+			return;
+		}
+		catch(const CorruptDBError & e) {
+			if (grp)
+				cs->freegroup(grp);
+			continue;
+		}
+		catch(...) {
+			break;
+		}
 	}
-	catch(...) {
-		slog.
-		    p(Logger::
-		      Error) << "prefetching " << group << " failed\n";
-	}
+	slog.p(Logger::Error) << "prefetching " << group << " failed\n";
 }
 
 int create_worker(CServer * cs, const char *group)

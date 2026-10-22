@@ -54,6 +54,10 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 */
 	void sset(GroupInfo & gi, int flags = 0);
 
+	// The group name in record r of a hash chain, checked: the record
+	// comes from the file, and the name must end within it.
+	const char *recname(Record * r);
+
   public:
 	NVActiveDB():NVHash()
 	{ }
@@ -163,6 +167,7 @@ class NVActiveDB_Iter:public _Iter < GroupInfo > {
 	unsigned long hash_val;
 	NVActiveDB::Record * pos;
 	NVActiveDB::Record * tail;
+	unsigned long steps;	// along the current chain
 
 	GroupInfo newsgroup;
 
@@ -175,6 +180,7 @@ class NVActiveDB_Iter:public _Iter < GroupInfo > {
 							 hashtab
 							 [hash_val]);
 				pos = active_database->o2r(tail->next);
+				steps = 0;
 				break;
 			}
 			hash_val++;
@@ -186,6 +192,7 @@ class NVActiveDB_Iter:public _Iter < GroupInfo > {
 		_type = 1;
 
 		pos = NULL;
+		steps = 0;
 		hash_val = begin ? 0 : active_database->hashsz;
 		_skip_nulls();
 	}
@@ -218,6 +225,7 @@ class NVActiveDB_Iter:public _Iter < GroupInfo > {
 			hash_val++;
 			_skip_nulls();
 		} else {
+			active_database->chain_step(&steps);
 			pos = active_database->o2r(pos->next);
 		}
 	}

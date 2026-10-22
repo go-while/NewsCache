@@ -38,8 +38,23 @@ class NVListBase:public NVcontainer {
 	static_assert(sizeof(Record) == 2 * sizeof(unsigned long),
 		      "Record is part of the spool file format");
 
+	// The record at offset o, checked: o and the record's size come
+	// from the file.
 	Record *o2r(nvoff_t o) {
-		return (Record *) (o ? mem_p + o : NULL);
+		size_t bsz;
+
+		if (!o)
+			return NULL;
+		if (!valid_block(o, &bsz) || bsz < sizeof(Record) ||
+		    ((Record *) (mem_p + o))->szdata > bsz - sizeof(Record))
+			corrupt("bad record in a chain");
+		return (Record *) (mem_p + o);
+	}
+	// Counts the steps along a record chain: one longer than the file
+	// has room for runs in a loop.
+	void chain_step(unsigned long *steps) {
+		if (++*steps > mem_sz / sizeof(Record))
+			corrupt("loop in a record chain");
 	}
 	nvoff_t r2o(Record * r) {
 		return r ? (char *) r - mem_p : 0;

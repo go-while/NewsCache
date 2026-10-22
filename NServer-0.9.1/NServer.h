@@ -536,6 +536,8 @@ class CServer
 
 	int group_valid();
 
+	Newsgroup *getgroup_once(const char *name);
+
 	/**
 	 * Filter the XRef header to only contain entries for groups
 	 * matching the specified server.

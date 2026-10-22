@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -21,11 +20,27 @@ void NVArray::make_current()
 		arrfst = 1;
 		arrlst = 0;
 	} else {
+		size_t bsz;
+		unsigned long f, l;
+
+		// The index block: first and last number, then one offset
+		// per number. All of it comes from the file.
+		if (!valid_block(adata, &bsz) ||
+		    bsz < 2 * sizeof(unsigned long)) {
+			corrupt("bad index offset");
+			return;	// (only while opening: a new file)
+		}
+		f = *(unsigned long *) (mem_p + adata);
+		l = *((unsigned long *) (mem_p + adata) + 1);
+		if (f <= l && l - f >= bsz / sizeof(nvoff_t) - 2) {
+			corrupt("index larger than its block");
+			return;
+		}
 		arrtab =
 		    (nvoff_t *) (mem_p + adata +
 				 2 * sizeof(unsigned long));
-		arrfst = *(unsigned long *) (mem_p + adata);
-		arrlst = *((unsigned long *) (mem_p + adata) + 1);
+		arrfst = f;
+		arrlst = l;
 	}
 }
 
@@ -110,8 +125,17 @@ int NVArray::shas_element(unsigned long i)
 void NVArray::sget(unsigned long i, char **data, size_t * szdata)
 {
 	if (arrfst <= i && i <= arrlst && arrtab[i = i - arrfst]) {
-		*szdata = *(unsigned long *) (mem_p + arrtab[i]);
-		*data = mem_p + arrtab[i] + sizeof(unsigned long);
+		nvoff_t o = arrtab[i];
+		size_t bsz;
+
+		// a record: its size, then its data
+		if (!valid_block(o, &bsz) || bsz < sizeof(unsigned long) ||
+		    *(unsigned long *) (mem_p + o) > bsz - sizeof(unsigned long))
+			corrupt("bad index entry");
+		*szdata = *(unsigned long *) (mem_p + o);
+		*data = mem_p + o + sizeof(unsigned long);
+		if (!valid_record(*data, *szdata))
+			corrupt("bad record");
 	} else {
 		*szdata = 0;
 		*data = NULL;
@@ -144,30 +168,34 @@ NVArray::NVArray(const char *dbname, int flags)
 	open(dbname, flags);
 }
 
-ASSERT(
-	nvoff_t NVArray::nvalloc(size_t rsz)
-	{
-       nvoff_t r = NVcontainer::nvalloc(rsz);
-       if (!arrtab) return r;
-       if ((const char *) (arrtab + (arrlst - arrfst)) <=
-	   mem_p + r) return r;
-       if (mem_p + (r + rsz) <= (const char *) arrtab) return r;
-       VERB(char buf[256];
-	    sprintf(buf, "allocated illegal memory block [%lu,%lu[\n", r,
-		    r + rsz); slog.p(Logger::Error) << buf);
-       kill(getpid(), SIGABRT); exit(100);}
+bool NVArray::overlaps_index(nvoff_t p, size_t sz)
+{
+	nvoff_t t = getdata();
+	size_t tsz;
 
-       void NVArray::nvfree(nvoff_t p) {
-       if (!arrtab) {
-       NVcontainer::nvfree(p); return;}
-       if ((const char *) (arrtab + (arrlst - arrfst)) <= mem_p + p) {
-       NVcontainer::nvfree(p); return;}
-       int psz = *(unsigned long *) (mem_p + (p - sizeof(unsigned long)));
-       if (mem_p + (p + psz) <= (const char *) arrtab) {
-       NVcontainer::nvfree(p); return;}
-       kill(getpid(), SIGABRT);
-    }
-)
+	if (!arrtab || !t || p == t || !valid_block(t, &tsz))
+		return false;
+	return p < t + tsz && t < p + sz;
+}
+
+// A corrupt free list could hand out, or take back, the index's own
+// memory. (This killed the process with SIGABRT.)
+nvoff_t NVArray::nvalloc(size_t rsz)
+{
+	nvoff_t r = NVcontainer::nvalloc(rsz);
+	if (overlaps_index(r, rsz))
+		corrupt("allocated a block inside the index");
+	return r;
+}
+
+void NVArray::nvfree(nvoff_t p)
+{
+	size_t sz;
+
+	if (valid_block(p, &sz) && overlaps_index(p, sz))
+		corrupt("freeing a block inside the index");
+	NVcontainer::nvfree(p);
+}
 
 void NVArray::open(const char *dbname, int flags)
 {

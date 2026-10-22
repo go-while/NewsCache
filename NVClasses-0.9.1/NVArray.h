@@ -29,14 +29,24 @@ class NVArray:public NVcontainer {
 	void sget(unsigned long i, char **data, size_t * szdata);
 	void sprint(std::ostream & os);
 
+	// Whether a record read from the file is well-formed; sget hands
+	// a bad one to corrupt(). Derived classes check their format.
+	virtual bool valid_record(const char *data, size_t szdata) {
+		return true;
+	}
+	// Whether the block [p,p+sz) overlaps the index's own block.
+	bool overlaps_index(nvoff_t p, size_t sz);
+
   public:
 	enum {
 		force = 0x1
 	};
-	NVArray():NVcontainer() {
+	NVArray():NVcontainer(), arrtab(NULL), arrfst(1), arrlst(0) {
 	} NVArray(const char *dbname, int flags = 0);
 
-	ASSERT(nvoff_t nvalloc(size_t rsz); void nvfree(nvoff_t p);)
+	// nvalloc and nvfree, checked against the index's block
+	nvoff_t nvalloc(size_t rsz);
+	void nvfree(nvoff_t p);
 
 	/**
 	 * Open an NVArray container

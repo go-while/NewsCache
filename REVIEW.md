@@ -106,28 +106,13 @@ CI, not yet by the systematic review.
 | `doc/Makefile.am`: `EXTRA_DIST =` without a backslash, so the notes in `doc/` (which README.md points to) and the RFC texts were never in the tarball; it named two drafts no longer in the tree | 0, 14 | review #51 | #53 |
 | CAPABILITIES listed READER, POST and AUTHINFO USER regardless of the client's rights and login, and no OVER or HDR; there was no HDR (RFC 3977) | 1, 2 | review #39 | #54 |
 | `XPAT header <message-id>` didn't check the Read list (#39 came before the check of #50); XHDR had no message-ID form | 2, 4 | review | #55 |
+| Damaged spool databases crashed NewsCache (SIGSEGV behind the header, SIGABRT on a short `.active64` before the greeting, newscacheclean SIGABRT via `NC_CATCH_ALL`, `NVArray` `kill(SIGABRT)`); now every offset is checked, the file moved to `.bad` and rebuilt from upstream. No local groups in the spool: everything is a cache (old note `doc/newscache-corrupt-db-files.txt`) | 9, 11, 13 | review | #57 |
 
 ## Open points
 
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **Corrupt spool databases** (areas 9, 11, 13). Herbert Straub's note
-  `doc/newscache-corrupt-db-files.txt` (2004) lists open items; checked
-  2026-10-22:
-  - A `.db` that fails NVcontainer's sanity checks is renamed to
-    `.db.bad` and an Error is thrown. newscacheclean catches it with
-    `NC_CATCH_ALL`, which logs and rethrows, so the run ends with SIGABRT
-    at that group (the next run gets past it, the file is renamed). Its
-    `NVNewsgroup *ng` is uninitialized on that path too.
-  - `NVArray::nvalloc`/`nvfree` kill the process with SIGABRT on an
-    "illegal memory block".
-  - For local newsgroups, renaming the database to `.bad` loses their
-    articles ("no solution", the note says).
-  - The rename itself is logged as an error now; the note's complaint
-    that it is only logged with `--enable-debug` no longer holds.
-  Needs a test with a damaged `.db` (and a damaged `.active64`) for
-  sessions, newscacheclean and updatenews.
 - **CodeQL**: 12 alerts were dismissed as false positives or test code on
   2026-10-19. Recheck them when their code is reviewed.
 

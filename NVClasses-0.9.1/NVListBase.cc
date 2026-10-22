@@ -12,7 +12,10 @@ void NVListBase::sprepend(nvoff_t proot, const char *data, size_t szdata)
 {
 	Record *tail;
 	Record *nr;
-	nr = o2r(nvalloc(szdata + sizeof(Record)));
+	// A new block: its record isn't filled in yet, so not o2r. (nvalloc
+	// may move the mapping: mem_p after it.)
+	nvoff_t no = nvalloc(szdata + sizeof(Record));
+	nr = (Record *) (mem_p + no);
 	tail = o2r(*(nvoff_t *) (mem_p + proot));
 
 	nr->szdata = szdata;
@@ -29,7 +32,10 @@ void NVListBase::sappend(nvoff_t proot, const char *data, size_t szdata)
 {
 	Record *tail;
 	Record *nr;
-	nr = o2r(nvalloc(szdata + sizeof(Record)));
+	// A new block: its record isn't filled in yet, so not o2r. (nvalloc
+	// may move the mapping: mem_p after it.)
+	nvoff_t no = nvalloc(szdata + sizeof(Record));
+	nr = (Record *) (mem_p + no);
 	tail = o2r(*(nvoff_t *) (mem_p + proot));
 
 	nr->szdata = szdata;
@@ -64,10 +70,12 @@ void NVListBase::sclear(nvoff_t proot)
 void NVListBase::sprint(nvoff_t proot, ostream & os)
 {
 	int i = 0;
+	unsigned long steps = 0;
 	Record *head = o2r(*(nvoff_t *) (mem_p + proot));
 	Record *r = head;
 
 	while (r) {
+		chain_step(&steps);
 		r = o2r(r->next);
 		os << i++ << ": " << r2o(r) << "(" << r->
 		    szdata << "): " << r->datap() << endl;

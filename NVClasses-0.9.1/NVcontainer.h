@@ -2,6 +2,7 @@
 #define _NVcontainer_h_
 
 #include <fcntl.h>
+#include <string>
 #include <sys/file.h>
 #include <sys/param.h>
 #include <unistd.h>
@@ -51,13 +52,27 @@ class NVcontainer {
 	};
 	int lck_stack[NVcontainer_LOCKSTACKSIZE];
 	int lck_stackp;
+	// Locks given up by corrupt(): the matching UnLock calls of the
+	// callers find an empty stack and must not fail.
+	int lck_orphans;
+	int in_open;		// open() is running (see corrupt())
+	int in_corrupt;
 
 	char mem_fn[MAXPATHLEN];
 	int mem_fd;
 	Header *mem_hdr;
 
+	// The free-list entry at offset o, checked: o comes from the file.
 	FreeList *o2fl(nvoff_t o) {
-		return (FreeList *) (o ? mem_p + o : NULL);
+		if (!o)
+			return NULL;
+		if (o < sizeof(Header) || o > mem_sz - sizeof(FreeList) ||
+		    o % sizeof(unsigned long))
+			corrupt("free list entry out of range");
+		FreeList *f = (FreeList *) (mem_p + o);
+		if (f->size > mem_sz - o)
+			corrupt("free list entry too big");
+		return f;
 	}
 	nvoff_t fl2o(FreeList * r) {
 		return r ? (char *) r - mem_p : 0;
@@ -73,10 +88,10 @@ class NVcontainer {
 
 	/*
 	 * The method make_current map the database file into shared memory.
-	 * It does some sanety checks. If a error occours then the database
-	 * file ist renamed and close with rename_to_bad_and_close. If the
-	 * database filesize is changed, then it is necessary to 
-	 * \throw Error and SystemError
+	 * It does some sanity checks; a file that fails them is handed to
+	 * corrupt(). If the database filesize is changed, then it is
+	 * necessary to call it again.
+	 * \throw Error, SystemError and CorruptDBError
 	 */
 	virtual void make_current(void);
 
@@ -94,6 +109,24 @@ class NVcontainer {
 
 	nvoff_t nvalloc(size_t rsz);
 	void nvfree(nvoff_t f);
+
+	/*
+	 * Whether p is the offset of an allocated block (as nvalloc returns
+	 * it) that lies within the file, and its usable size in *sz.
+	 * Offsets read from the file must pass this before they are used.
+	 */
+	bool valid_block(nvoff_t p, size_t * sz = NULL);
+
+	/*
+	 * The file failed a sanity check: logs it, moves it to name.bad and
+	 * starts a new, empty database under the old name (reinit() then
+	 * sets up the derived class's data). While open() runs, it returns
+	 * and the caller carries on with the new file; otherwise it throws
+	 * CorruptDBError.
+	 */
+	void corrupt(const std::string & why);
+	virtual void reinit(void) {
+	}
   public:
 	enum {
 		UnLock = F_UNLCK,
@@ -118,14 +151,6 @@ class NVcontainer {
 	 */
 	virtual void close(void);
 
-	/*
-	 * If th sanity check signals a bad state of the database file,
-	 * then the rename_to_bad_close methods tries to rename the database.
-	 * It append .bad to the current filename. 
-	 * \author Herbert Straub
-	 * \date 2004
-	 */
-	void rename_to_bad_and_close (void);
 
 	void setmtime(nvtime_t tm, int force = 0);
 	void getmtime(nvtime_t * tm);

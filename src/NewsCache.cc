@@ -2499,6 +2499,91 @@ void set_client_command_table (ClientData &clt)
 
 /* nnrpd(fd)
  */
+/*
+ * Passes the client's output on to its stream and remembers what the
+ * current reply has written so far: the command loop needs it when a
+ * command runs into a corrupt spool database.
+ */
+class ReplyTracker:public std::streambuf {
+	std::streambuf *dst;
+	void note(const char *p, std::streamsize n) {
+		for (std::streamsize i = 0; i < n && count + i < 3; i++) {
+			head[count + i] = p[i];
+			head[count + i + 1] = '\0';
+		}
+		if (n > 0)
+			last = p[n - 1];
+		count += n;
+	}
+      protected:
+	virtual int overflow(int c) {
+		if (c == EOF)
+			return 0;
+		char ch = (char) c;
+		if (dst->sputc(ch) == EOF)
+			return EOF;
+		note(&ch, 1);
+		return c;
+	}
+	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
+		std::streamsize w = dst->sputn(p, n);
+		if (w > 0)
+			note(p, w);
+		return w;
+	}
+	virtual int sync(void) {
+		return dst->pubsync();
+	}
+      public:
+	unsigned long count;	// characters since mark()
+	char head[4];		// the first three of them
+	char last;		// the last one
+	ReplyTracker(std::streambuf * d)
+	:dst(d), count(0), last('\n') {
+		head[0] = '\0';
+	}
+	void mark(void) {
+		count = 0;
+		head[0] = '\0';
+	}
+};
+
+// Whether the reply that begins with status (its first three
+// characters) to command cmd is a multi-line one.
+static bool multiline_reply(const char *status, const char *cmd)
+{
+	static const char *const codes[] = {
+		"100", "101", "215", "220", "221", "222", "224", "225",
+		"230", "231", "282", NULL
+	};
+	if (strcmp(status, "211") == 0)
+		return strcasecmp(cmd, "listgroup") == 0;
+	for (int i = 0; codes[i]; i++)
+		if (strcmp(status, codes[i]) == 0)
+			return true;
+	return false;
+}
+
+/*
+ * A command failed with an exception after the reply had written what
+ * tracker saw: finish the reply so that the client stays in step. With
+ * nothing written yet, the reply is a 503 with what.
+ */
+static void finish_reply(ostream & co, const ReplyTracker & tracker,
+			 const char *cmd, const char *what)
+{
+	if (tracker.count == 0) {
+		co << "503 " << what << "\r\n";
+	} else if (multiline_reply(tracker.head, cmd)) {
+		// a list had begun: end it
+		if (tracker.last != '\n')
+			co << "\r\n";
+		co << ".\r\n";
+	} else if (strcmp(tracker.head, "340") == 0) {
+		co << "441 posting failed\r\n";
+	}
+}
+
 void nnrpd(int fd)
 {
 	ClientData clt;
@@ -2682,6 +2767,11 @@ void nnrpd(int fd)
 	}
 #endif
 
+	// What each reply has written so far (see the command loop)
+	ReplyTracker tracker(clt.co->rdbuf());
+	ostream tracked(&tracker);
+	clt.co = &tracked;
+
 	// check whether the client is allowed access according to
 	// our own access configuration
 	clt.access_entry =
@@ -2838,7 +2928,44 @@ void nnrpd(int fd)
 			continue;
 		}
 
-		errc = cmdp->second->func(&clt, argc, argv);
+		for (int attempt = 0;; attempt++) {
+			tracker.mark();
+			try {
+				errc = cmdp->second->func(&clt, argc, argv);
+				break;
+			}
+			catch(const CorruptDBError & e) {
+				// NVcontainer has logged it, moved the file aside
+				// and started a new one. The current group may
+				// hold what is left of the old one: drop it.
+				if (clt.grp) {
+					clt.srvr->freegroup(clt.grp);
+					clt.grp = NULL;
+				}
+				errc = -1;
+				// nothing sent yet: once more, on the new
+				// database (it fills itself from upstream)
+				if (tracker.count == 0 && attempt == 0 &&
+				    strcasecmp(cmd, "post") != 0)
+					continue;
+				finish_reply(*clt.co, tracker, cmd,
+					     "spool database damaged, try again");
+				break;
+			}
+			catch(const Error & e) {
+				// Anything else a command didn't handle (e.g. a
+				// stored article that doesn't parse): the client
+				// gets an answer and the session goes on. (It
+				// ended the session, in inetd mode with SIGABRT.)
+				slog.p(Logger::Error) << clt.client_logname
+				    << " " << cmd << " failed: " << e._errtext
+				    << "\n";
+				errc = -1;
+				finish_reply(*clt.co, tracker, cmd,
+					     "internal error");
+				break;
+			}
+		}
 		if (!(Cfg.LogStyle & Config::LogINN)) {
 			if (errc < 0) {
 				if (strncasecmp(oreq, "authinfo", 8))
