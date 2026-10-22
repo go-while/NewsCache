@@ -2028,6 +2028,27 @@ void nnrpd(int fd)
 			sprintf(clt.client_name, "fd#%d", fd);
 			clt.client_logname = clt.client_name;
 		} else {
+			// An IPv4 client of the dual-stack socket (ListenTo DEFAULT)
+			// arrives as ::ffff:a.b.c.d; use its plain IPv4 address, so
+			// logs, NNTP-Posting-Host and libwrap see a.b.c.d.
+			if ((clt.sock.ss_family == AF_INET6) &&
+			    IN6_IS_ADDR_V4MAPPED(&((const struct sockaddr_in6 *) &clt.sock)->sin6_addr)) {
+				struct sockaddr_in6 in6;
+				struct sockaddr_in in4;
+
+				memcpy(&in6, &clt.sock, sizeof(in6));
+				memset(&in4, 0, sizeof(in4));
+				in4.sin_family = AF_INET;
+#ifdef SIN6_LEN
+				in4.sin_len = sizeof(in4);
+#endif
+				in4.sin_port = in6.sin6_port;
+				memcpy(&in4.sin_addr, &in6.sin6_addr.s6_addr[12], 4);
+				memset(&clt.sock, 0, sizeof(clt.sock));
+				memcpy(&clt.sock, &in4, sizeof(in4));
+				clt.socklen = sizeof(in4);
+			}
+
 			// get the name of the client and store it in clt.client_name.
 			// if the client does not have a name, use the ip-address instead
 			// store it in nntp_posting_host as used by libnserver
@@ -2327,6 +2348,55 @@ void nnrpd(int fd)
 	delete clt.srvr;
 }
 
+/*
+ * Creates a socket bound to addr, or returns -1. With dualstack (the IPv6
+ * wildcard address of ListenTo DEFAULT), the socket accepts IPv4
+ * connections too, as IPv4-mapped addresses.
+ */
+static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
+{
+	int sock = socket(addr->ai_family, SOCK_STREAM, 0);
+	if (sock < 0) {
+		slog.p(dualstack ? Logger::Notice : Logger::Error)
+		    << "socket failed: " << strerror(errno) << "\n";
+		return -1;
+	}
+
+	int one = 1;
+	if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+		       (char *) &one, sizeof(int)) < 0) {
+		slog.p(Logger::Error) << "setsockopt failed: " <<
+		    strerror(errno) << "\n";
+	}
+
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
+		       (char *) &one, sizeof(int)) < 0) {
+		slog.p(Logger::Error) << "setsockopt failed: " <<
+		    strerror(errno) << "\n";
+	}
+
+	if (dualstack) {
+#ifdef IPV6_V6ONLY
+		int zero = 0;
+		if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY,
+			       (char *) &zero, sizeof(zero)) < 0) {
+			slog.p(Logger::Notice) << "IPv6 socket can't accept "
+			    "IPv4 connections: " << strerror(errno) << "\n";
+			close(sock);
+			return -1;
+		}
+#endif
+	}
+
+	if (bind(sock, addr->ai_addr, addr->ai_addrlen) < 0) {
+		slog.p(dualstack ? Logger::Notice : Logger::Error)
+		    << "can't bind socket: " << strerror(errno) << "\n";
+		close(sock);
+		return -1;
+	}
+	return sock;
+}
+
 void nntpd()
 {
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
@@ -2411,6 +2481,11 @@ void nntpd()
 		}
 	}
 
+	/* The wildcard address (ListenTo DEFAULT, CachePort) is there even
+	 * where the host has no global IPv6 address yet. */
+	if (nodename == NULL)
+		hints.ai_flags &= ~AI_ADDRCONFIG;
+
 	struct addrinfo *res;
 	if (getaddrinfo(nodename, servname, &hints, &res)) {
 		slog.
@@ -2421,46 +2496,28 @@ void nntpd()
 		exit(1);
 	}
 
+	/* For the wildcard address, one IPv6 socket takes IPv4 and IPv6
+	 * clients; without IPv6, it falls back to the IPv4 address. Other
+	 * addresses are tried in the order getaddrinfo returns them. */
 	int sock = -1;
-	struct addrinfo *addr = res;
-	while ((sock < 0) && (addr != NULL)) {
-		if ((sock = socket(addr->ai_addr->sa_family,
-				   SOCK_STREAM, 0)) < 0) {
-			slog.
-			    p(Logger::
-			      Error) << "socket failed: " <<
-			    strerror(errno) << "\n";
-			exit(1);
+	struct addrinfo *addr;
+	if (nodename == NULL) {
+		for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
+			if (addr->ai_family == AF_INET6)
+				sock = bind_listen_socket(addr, true);
 		}
-
-		int one = 1;
-		if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
-			       (char *) &one, sizeof(int)) < 0) {
-			slog.
-			    p(Logger::
-			      Error) << "setsockopt failed: " <<
-			    strerror(errno) << "\n";
-		}
-
-		if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
-			       (char *) &one, sizeof(int)) < 0) {
-			slog.
-			    p(Logger::
-			      Error) << "setsockopt failed: " <<
-			    strerror(errno) << "\n";
-		}
-
-		if (bind(sock, addr->ai_addr, addr->ai_addrlen) < 0) {
-			slog.
-			  p(Logger::
-			    Error) << "can't bind socket: " << strerror(errno) <<
-			  "\n";
-			exit(1);
-		}
-
-		addr = addr->ai_next;
-	}			/* end create socket and set some socket options */
+	}
+	for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
+		if ((nodename == NULL) && (addr->ai_family == AF_INET6))
+			continue;
+		sock = bind_listen_socket(addr, false);
+	}
 	freeaddrinfo(res);
+	if (sock < 0) {
+		slog.p(Logger::Error) << cmnd << ": can't listen on "
+		    << Cfg.ListenTo << "\n";
+		exit(1);
+	}
 
 	{			/* store pid in Cfg.PidFile */
 		ofstream pid(Cfg.PidFile);

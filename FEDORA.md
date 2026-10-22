@@ -318,8 +318,6 @@ The test systems had no SELinux enforcement, so SELinux was not tested.
 
 ## Known issues
 
-- `ListenTo DEFAULT` listens on IPv4 only (`0.0.0.0:119`), on all three
-  releases.
 - `/run/newscache.pid` is not removed when the daemon stops.
 - The compiler warnings include `-Wformat-overflow` (15),
   `-Wstringop-overread` (9) and `-Wexceptions` (1). They haven't been checked

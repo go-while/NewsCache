@@ -130,6 +130,13 @@ Bug fixes:
   ("SpoolDirectory too long"), reported at startup by newscache,
   newscacheclean and updatenews (exit status 2), and the check no longer
   depends on --enable-assertions.
+* "ListenTo DEFAULT" listened on IPv4 only: the daemon took the first
+  wildcard address getaddrinfo returned, which is 0.0.0.0 on Linux, so
+  IPv6 clients could not connect. DEFAULT (and "DEFAULT:port") now listens
+  on one IPv6 socket that accepts IPv4 clients too, and falls back to IPv4
+  where the host has no IPv6. IPv4 clients are still logged, matched
+  against Client entries and named in NNTP-Posting-Host by their plain
+  IPv4 address. To listen on IPv4 only, use "ListenTo 0.0.0.0".
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

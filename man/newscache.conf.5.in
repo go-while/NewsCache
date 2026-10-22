@@ -160,6 +160,12 @@ In a multihomed environment the address of one NIC can be
 specified. The default Port is nntp from /etc/services. For
 the port-number an entry fom /etc/services or a port-number
 can be specified. 
+.B DEFAULT
+(or
+.BR DEFAULT:port )
+listens on all IPv4 and IPv6 addresses, with one IPv6 socket
+that accepts IPv4 clients too; on a host without IPv6, on all
+IPv4 addresses. Use 0.0.0.0 to listen on IPv4 only.
 .SS AccessSpec Configuration Options
 .IP
 .nf

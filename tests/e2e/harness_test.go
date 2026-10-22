@@ -51,6 +51,7 @@ type env struct {
 	Upstream *fakeserver.Server
 	Store    *fakeserver.Store
 	Listen   string // 127.0.0.1:port for standalone mode
+	ListenTo string // ListenTo value if not Listen, e.g. "DEFAULT:port"
 
 	// Settings written into newscache.conf; change before Start*.
 	MaxConnections int
@@ -192,7 +193,7 @@ func (e *env) writeConf() {
 		e.t.Fatal(err)
 	}
 	data := map[string]any{
-		"Listen":         e.Listen,
+		"Listen":         firstNonEmpty(e.ListenTo, e.Listen),
 		"Dir":            e.Dir,
 		"User":           u.Username,
 		"Group":          g.Name,

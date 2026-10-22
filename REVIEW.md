@@ -97,6 +97,7 @@ CI, not yet by the systematic review.
 | No wildcards in the prefetch file (old `TODO`); `!` lines were ignored and empty or `#` lines asked the upstream for a group of that name | 12 | old TODO | #44 |
 | `-c` arguments longer than `MAXPATHLEN` overflowed the config file name buffer (`strcpy`) in `newscache`, `newscacheclean` and `updatenews` | 5, 11, 12 | review | #45 |
 | A too long `SpoolDirectory` passed the config check and ended every session with an uncaught `AssertionError` | 6 | review | #46 |
+| `ListenTo DEFAULT` listened on IPv4 only (the first wildcard address, `0.0.0.0` on Linux) | 5 | Fedora packaging | #47 |
 
 ## Open points
 
@@ -108,7 +109,6 @@ that it stays as it is.
   (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
   instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
   `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
-- **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
