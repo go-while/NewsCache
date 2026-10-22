@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -189,4 +191,112 @@ func checkPidFile(t *testing.T, fn string, pid int) {
 	if got := strings.TrimSpace(string(b)); got != fmt.Sprint(pid) {
 		t.Fatalf("pid file holds %q, want %d", got, pid)
 	}
+}
+
+// freePort returns a free TCP port on 127.0.0.1.
+func freePort(t *testing.T) string {
+	t.Helper()
+	_, port, err := net.SplitHostPort(freeAddr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+// serviceName returns a service name from /etc/services whose TCP port is
+// free on 127.0.0.1 (and above 1024), and that port; "" if there is none.
+func serviceName(t *testing.T) (string, string) {
+	b, err := os.ReadFile("/etc/services")
+	if err != nil {
+		return "", ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || strings.HasPrefix(f[0], "#") || !strings.HasSuffix(f[1], "/tcp") {
+			continue
+		}
+		port := strings.TrimSuffix(f[1], "/tcp")
+		if n, err := strconv.Atoi(port); err != nil || n <= 1024 || n >= 65536 {
+			continue
+		}
+		if p, err := net.LookupPort("tcp", f[0]); err != nil || strconv.Itoa(p) != port {
+			continue
+		}
+		l, err := net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			continue
+		}
+		l.Close()
+		return f[0], port
+	}
+	return "", ""
+}
+
+// TestCachePort: CachePort (without ListenTo) never worked. The test of
+// its first character was the wrong way round: a service name lost its
+// first letter and was read as a number ("nntp" -> "ntp"), and "#12000"
+// was passed on with the "#". It also took precedence over ListenTo,
+// which the documentation says it doesn't.
+func TestCachePort(t *testing.T) {
+	check := func(t *testing.T, e *env) {
+		t.Helper()
+		e.addArticles("test.alpha", 1)
+		e.standalone() // waits until e.Listen accepts
+		c := e.dial()
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP: %q", line)
+		}
+		c.Cmd("QUIT")
+	}
+
+	t.Run("#number", func(t *testing.T) {
+		e := newEnv(t)
+		port := freePort(t)
+		e.Listen = "127.0.0.1:" + port
+		e.NoListenTo = true
+		e.Extra = "CachePort #" + port
+		check(t, e)
+	})
+
+	t.Run("number", func(t *testing.T) {
+		e := newEnv(t)
+		port := freePort(t)
+		e.Listen = "127.0.0.1:" + port
+		e.NoListenTo = true
+		e.Extra = "CachePort " + port
+		check(t, e)
+	})
+
+	t.Run("service name", func(t *testing.T) {
+		name, port := serviceName(t)
+		if name == "" {
+			t.Skip("no free service port above 1024 in /etc/services")
+		}
+		e := newEnv(t)
+		e.Listen = "127.0.0.1:" + port
+		e.NoListenTo = true
+		e.Extra = "CachePort " + name
+		check(t, e)
+	})
+
+	t.Run("ListenTo wins", func(t *testing.T) {
+		e := newEnv(t)
+		e.Extra = "CachePort #" + freePort(t) // ignored
+		check(t, e)
+	})
+
+	t.Run("-p", func(t *testing.T) {
+		e := newEnv(t)
+		e.NoListenTo = true
+		e.Extra = "CachePort #12000"
+		e.writeConf()
+		out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+		if err != nil {
+			t.Fatalf("newscache -p: %v\n%s", err, out)
+		}
+		// read back, a ListenTo line would make CachePort ignored
+		if strings.Contains(string(out), "\nListenTo ") || !strings.Contains(string(out), "\nCachePort #12000\n") {
+			t.Errorf("newscache -p with only CachePort:\n%s", out)
+		}
+	})
 }

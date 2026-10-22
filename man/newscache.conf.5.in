@@ -129,9 +129,11 @@ Directory, where all the log-files should go. No default value.
 StrictINN style logging; log client's hostname and or IP-address.
 .TP
 .I "CachePort port"
-Listen on port for incoming requests. Port may be a valid service-name
-(Ususally, listed in /etc/services) or a port number preceded by a #-sign.
-This directive is uneffective if NewsCache is started from inetd.
+Listen on port, on all addresses, for incoming requests. Port may be a
+service name (usually listed in /etc/services) or a port number, optionally
+preceded by a #-sign. Ignored if ListenTo is set; "ListenTo DEFAULT:port"
+does the same and is the better choice. This directive is ineffective if
+NewsCache is started from inetd.
 .TP
 .I "Retries number"
 Specifies the number of retries for connecting to the news server.

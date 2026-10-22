@@ -107,6 +107,7 @@ CI, not yet by the systematic review.
 | CAPABILITIES listed READER, POST and AUTHINFO USER regardless of the client's rights and login, and no OVER or HDR; there was no HDR (RFC 3977) | 1, 2 | review #39 | #54 |
 | `XPAT header <message-id>` didn't check the Read list (#39 came before the check of #50); XHDR had no message-ID form | 2, 4 | review | #55 |
 | Damaged spool databases crashed NewsCache (SIGSEGV behind the header, SIGABRT on a short `.active64` before the greeting, newscacheclean SIGABRT via `NC_CATCH_ALL`, `NVArray` `kill(SIGABRT)`); now every offset is checked, the file moved to `.bad` and rebuilt from upstream. No local groups in the spool: everything is a cache (old note `doc/newscache-corrupt-db-files.txt`) | 9, 11, 13 | review | #57 |
+| `CachePort` never worked (first-character test inverted since 2008: `nntp` → number "ntp", `#12000` kept its `#`) and overrode `ListenTo` against the docs; `-p` printed a `ListenTo` that hid it | 5, 6 | wiki #58 | #59 |
 
 ## Open points
 

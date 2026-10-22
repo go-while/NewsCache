@@ -42,16 +42,17 @@ func binPath(t *testing.T) string {
 
 // env is one NewsCache instance with its own spool, config and upstream.
 type env struct {
-	t        *testing.T
-	Bin      string
-	Dir      string // temp dir holding everything
-	Conf     string // path of newscache.conf
-	Spool    string
-	LogDir   string
-	Upstream *fakeserver.Server
-	Store    *fakeserver.Store
-	Listen   string // 127.0.0.1:port for standalone mode
-	ListenTo string // ListenTo value if not Listen, e.g. "DEFAULT:port"
+	t          *testing.T
+	Bin        string
+	Dir        string // temp dir holding everything
+	Conf       string // path of newscache.conf
+	Spool      string
+	LogDir     string
+	Upstream   *fakeserver.Server
+	Store      *fakeserver.Store
+	Listen     string // 127.0.0.1:port for standalone mode
+	ListenTo   string // ListenTo value if not Listen, e.g. "DEFAULT:port"
+	NoListenTo bool   // write no ListenTo line (for CachePort)
 
 	// Settings written into newscache.conf; change before Start*.
 	MaxConnections int
@@ -152,7 +153,8 @@ ConfigVersion 5
 ServerType standalone
 Hostname newscache.test
 Admin test@newscache.test
-ListenTo {{.Listen}}
+{{if .Listen}}ListenTo {{.Listen}}
+{{end -}}
 PidFile {{.Dir}}/newscache.pid
 Username {{.User}}
 Groupname {{.Group}}
@@ -181,6 +183,14 @@ NewsServerList {
 {{.Extra}}
 `))
 
+// listenTo is the ListenTo value of the config, "" for none.
+func listenTo(e *env) string {
+	if e.NoListenTo {
+		return ""
+	}
+	return firstNonEmpty(e.ListenTo, e.Listen)
+}
+
 // writeConf writes newscache.conf from the current settings.
 func (e *env) writeConf() {
 	e.t.Helper()
@@ -193,7 +203,7 @@ func (e *env) writeConf() {
 		e.t.Fatal(err)
 	}
 	data := map[string]any{
-		"Listen":         firstNonEmpty(e.ListenTo, e.Listen),
+		"Listen":         listenTo(e),
 		"Dir":            e.Dir,
 		"User":           u.Username,
 		"Group":          g.Name,

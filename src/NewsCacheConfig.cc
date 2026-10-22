@@ -58,6 +58,7 @@ void Config::init(void)
 	snprintf(Hostname, sizeof(Hostname), "%s", fqdn ? fqdn : "localhost");
 	CachePort[0] = '\0';
 	strcpy (ListenTo, "DEFAULT");
+	ListenToSet = 0;
 
 	LogDirectory[0] = '\0';
 	LogStyle = LogName + LogAddr;
@@ -123,8 +124,11 @@ void Config::read(const char *fn)
 			    else
 			HANDLESTRGARG(CachePort)
 			    else
-			HANDLESTRGARG(ListenTo)
-			    else
+		if (tok == "ListenTo") {
+			a1 = lex.getToken();
+			STRNCPY(ListenTo, a1);
+			ListenToSet = 1;
+		} else
 			HANDLESTRGARG(Admin)
 			    else
 			HANDLESTRGARG(PidFile)
@@ -232,7 +236,9 @@ void Config::printParameters (ostream *pOut)
 	if (CachePort[0] != '\0') {
 		*pOut << "CachePort " << CachePort << endl;
 	}
-	*pOut << "ListenTo " << ListenTo << endl;
+	// (read back, a ListenTo line would make CachePort ignored)
+	if (ListenToSet || CachePort[0] == '\0')
+		*pOut << "ListenTo " << ListenTo << endl;
 	if (LogDirectory[0] != '\0') {
 		*pOut << "LogDirectory " << LogDirectory << endl;
 	}

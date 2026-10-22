@@ -30,6 +30,7 @@ class Config {
 	char Hostname[FQDN_BUFSIZE];
 	char CachePort[256];
 	char ListenTo[MAXHOSTNAMELEN];
+	int ListenToSet;	// ListenTo is in the file (then CachePort is ignored)
 
 
 	enum {
