@@ -243,6 +243,14 @@ class RServer:virtual public NServer {
 	GroupInfo _CurrentGroup;
 
 	sockstream *_pServerStream;
+	int _authenticating;	// in authenticate(): no second login on a 480
+
+	/**
+	* Logs in with the server's User and Password (AUTHINFO USER/PASS).
+	* \throw ResponseError If the login is refused; the connection is
+	* 	closed then.
+	*/
+	void authenticate();
 
 	/**
 	* One OVER (or XOVER) request for [fst,lst]: stores the records in
@@ -255,6 +263,7 @@ class RServer:virtual public NServer {
 		_ServerList = NULL;
 		_CurrentServer = NULL;
 		_pServerStream = NULL;
+		_authenticating = 0;
 	}
 	void init(MPList * serverlist);
 

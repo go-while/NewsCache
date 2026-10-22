@@ -363,22 +363,8 @@ void RServer::connect()
 		}
 #endif
 
-		if (_CurrentServer->user[0]) {
-			snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
-				 _CurrentServer->user.c_str());
-			resp = issue(buf, NULL);
-			if (resp[0] == '3') {
-				snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
-					 _CurrentServer->passwd.c_str());
-				resp = issue(buf, NULL);
-			}
-			if (resp[0] != '2') {
-				string c("_authenticate_"), e("[23]..");
-				delete _pServerStream;
-				_pServerStream = NULL;
-				throw ResponseError(c, e, resp);
-			}
-		}
+		if (_CurrentServer->user[0])
+			authenticate();
 
 		if (_CurrentServer->
 		    nntpflags & MPListEntry::F_LIST_OVERVIEW_FMT) {
@@ -426,11 +412,41 @@ void RServer::disconnect()
 	}
 }
 
+void RServer::authenticate()
+{
+	char buf[1024];
+	string resp;
+
+	_authenticating = 1;
+	try {
+		snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
+			 _CurrentServer->user.c_str());
+		resp = issue(buf, NULL);
+		if (resp[0] == '3') {
+			snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
+				 _CurrentServer->passwd.c_str());
+			resp = issue(buf, NULL);
+		}
+	}
+	catch(...) {
+		_authenticating = 0;
+		throw;
+	}
+	_authenticating = 0;
+	if (resp[0] != '2') {
+		string c("_authenticate_"), e("[23]..");
+		delete _pServerStream;
+		_pServerStream = NULL;
+		throw ResponseError(c, e, resp);
+	}
+}
+
 string RServer::issue(const char *command, const char *expresp)
 {
 	string req, resp;
 	int rs;
 	int i = _CurrentServer->retries + 1;
+	int relogin = 0;
 
 	req = "issue ";
 	req.append(command, strlen(command) - 2);
@@ -474,18 +490,18 @@ string RServer::issue(const char *command, const char *expresp)
 			    p(Logger::
 			      Warning) <<
 			    "RServer::issue: server closed connection---reconnecting\n";
-		}
-		/*
-		   else if(strncmp(resp.c_str(),"480",3)==0) {
-		   slog.p(Logger::Warning) << "server requests authentication\n";
-		   req="authinfo user ";
-		   req.append(_CurrentServer->Username);
-		   slog.p(Logger::Debug) << req.c_str();
-		   req.append("\r\n");
-		   _ServerStream << req;
-		   rs=nlreadline(_ServerStream,resp,0);
-		   } */
-		else {
+		} else if (NNTP_ISCODE(resp.c_str(), "480") && !relogin
+			   && !_authenticating && _CurrentServer->user[0]) {
+			// The server asks for the login again in the middle
+			// of a session (a login that timed out): log in and
+			// send the command once more.
+			relogin = 1;
+			slog.p(Logger::Notice) << "news server "
+			    << _CurrentServer->hostname
+			    << " asks for the login again\n";
+			authenticate();
+			continue;
+		} else {
 			break;
 		}
 
