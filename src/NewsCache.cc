@@ -1005,18 +1005,31 @@ static Newsgroup *open_group(ClientData * clt, const string & group,
  * overview record. Locations whose record is gone or holds another
  * article are dropped from the history. Returns 0 if the spool has none.
  */
+// Orders history locations: the client's current group, then groups the
+// client may read, then the others.
+struct LocationOrder {
+	ClientData *clt;
+	LocationOrder(ClientData * c):clt(c) {
+	}
+	int rank(const History::Location & l) const {
+		if (l.group == clt->groupname)
+			return 0;
+		return clt->access_entry->read.matches(l.group.c_str()) > 0 ? 1 : 2;
+	}
+	bool operator() (const History::Location & a,
+			 const History::Location & b) const {
+		return rank(a) < rank(b);
+	}
+};
+
 static int spool_locate(ClientData * clt, const char *id, string & group,
 			artnum_t & nbr, string & over)
 {
 	vector < History::Location > locs;
 	if (History::lookup(id, locs) <= 0)
 		return 0;
-	for (size_t i = 1; i < locs.size(); i++) {
-		if (locs[i].group == clt->groupname) {
-			std::swap(locs[0], locs[i]);
-			break;
-		}
-	}
+	// the current group first, then the groups the client may read
+	std::stable_sort(locs.begin(), locs.end(), LocationOrder(clt));
 	OverviewFmt *of = clt->srvr->overviewfmt();
 	for (size_t i = 0; i < locs.size(); i++) {
 		Newsgroup *g = NULL;
@@ -1065,6 +1078,12 @@ static int spool_article(ClientData * clt, const char *id, Article & a)
 	try {
 		g = open_group(clt, group, &own);
 		NVNewsgroup *nvg = dynamic_cast < NVNewsgroup * >(g);
+		// Don't fetch by number into a group the client may not read
+		// (the article goes upstream by message-ID then; may_read_article
+		// decides). An article the spool already has is served.
+		if (nvg && clt->access_entry->read.matches(group.c_str()) <= 0 &&
+		    !nvg->spooled(nbr))
+			nvg = NULL;
 		if (nvg)
 			p = nvg->NVNewsgroup::getarticle(nbr);
 		if (p) {
@@ -1388,20 +1407,16 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 	}
 	// stat by id?
 	if (argv[1][0] == '<') {
-		// The spool's overview record is enough when its Xref tells
-		// whether the client may read the article.
+		// The spool's overview record is enough when its Xref names a
+		// group the client may read (Xref's groups are among the
+		// article's Newsgroups). Otherwise decide as ARTICLE does, from
+		// the Newsgroups header: Xref may list fewer groups.
 		string group, over;
 		artnum_t nbr;
-		if (spool_locate(clt, argv[1], group, nbr, over)) {
-			int r = may_read_xref(clt, over);
-			if (r > 0) {
-				(*clt->co) << "223 0 " << argv[1] << " status\r\n";
-				return 0;
-			}
-			if (r == 0) {
-				access_denied(clt);
-				return -1;
-			}
+		if (spool_locate(clt, argv[1], group, nbr, over) &&
+		    may_read_xref(clt, over) > 0) {
+			(*clt->co) << "223 0 " << argv[1] << " status\r\n";
+			return 0;
 		}
 		Article a;
 		if (fetch_readable(clt, argv[1], a) < 0)

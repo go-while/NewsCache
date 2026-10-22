@@ -25,7 +25,7 @@ using namespace std;
  * Bucket 0 of every shard also holds the format record: 16 zero bytes,
  * an empty message-id, and HISTORY_MAGIC.
  */
-#define HISTORY_MAGIC "NewsCache history 1: md5 routing 16x256"
+#define HISTORY_MAGIC "NewsCache history 2: md5 routing 16x65536"
 
 namespace {
 
@@ -39,6 +39,14 @@ class Shard:public NVHash {
 	bool usable;
 
 	Shard():NVHash(), pid(0), usable(false) {
+	}
+
+	// Moves the file aside the way NVcontainer does for any damaged
+	// database: under a lock on the directory, and only if it is still
+	// the file this process has open (another process may have moved it
+	// already and started a new one, which must stay).
+	void move_aside(const char *why) {
+		corrupt(string("history shard ") + why);
 	}
 
 	using NVHash::lock;
@@ -180,18 +188,30 @@ int batch_depth = 0;
 vector < Op > batch;
 
 /*
- * Moves a damaged shard aside and starts it empty.
+ * After damage History found itself (Corrupt): moves the shard aside and
+ * starts it empty (see move_aside: a shard another process has replaced
+ * already is left alone). After an Error from the container (it has
+ * handled a damaged file itself, or can't open one), it only closes the
+ * shard: moving it aside again would move the new, sound file. Either
+ * way the next use opens the file anew and checks its format record.
  */
-void reset_shard(Shard & s, const char *why)
+void reset_shard(Shard & s, const char *why, bool damaged)
 {
-	slog.p(Logger::Error) << "history: " << s.path << " " << why
-	    << ", moved to " << s.path << ".bad and started anew\n";
+	if (damaged) {
+		try {
+			s.move_aside(why);
+		}
+		catch(...) {
+		}
+	} else {
+		slog.p(Logger::Notice) << "history: " << s.path << " " << why
+		    << ", reopening\n";
+	}
 	try {
 		s.close();
 	}
 	catch(...) {
 	}
-	rename(s.path.c_str(), (s.path + ".bad").c_str());
 	s.pid = 0;
 	s.usable = false;
 }
@@ -224,7 +244,7 @@ Shard *shard(int n)
 			return &s;
 		}
 		catch(Corrupt &) {
-			reset_shard(s, "is damaged or of another format");
+			reset_shard(s, "is damaged or of another format", true);
 		}
 		catch(Error & e) {
 			// make_current renames a damaged file to .bad itself
@@ -363,14 +383,16 @@ void apply_all(int n, const vector < const Op *>&ops)
 		s->lock(NVcontainer::UnLock);
 	}
 	catch(Corrupt &) {
-		reset_shard(*s, "is damaged");
+		reset_shard(*s, "is damaged", true);
 	}
 	catch(Error & e) {
 		slog.p(Logger::Error) << "history: " << s->path << ": "
 		    << e._errtext << "\n";
-		reset_shard(*s, "failed");
+		reset_shard(*s, "failed", false);
 	}
 }
+
+void flush(void);
 
 void queue_op(bool add, const char *msgid, const char *group, artnum_t nbr)
 {
@@ -383,8 +405,8 @@ void queue_op(bool add, const char *msgid, const char *group, artnum_t nbr)
 	op.group = group;
 	op.nbr = nbr;
 	batch.push_back(op);
-	if (batch_depth == 0)
-		History::commit();
+	if (batch_depth == 0 || batch.size() >= History::FLUSH_OPS)
+		flush();
 }
 
 struct PruneCtx {
@@ -417,7 +439,8 @@ void History::route(const char *msgid, unsigned char dg[16], int *shard,
 	md5digest(msgid, dg);
 	// hex digit 0 -> shard, hex digits 1 and 2 -> bucket
 	*shard = dg[0] >> 4;
-	*bucket = ((dg[0] & 0xf) << 4) | (dg[1] >> 4);
+	// hex digits 1 to 4 -> bucket
+	*bucket = ((dg[0] & 0xf) << 12) | (dg[1] << 4) | (dg[2] >> 4);
 }
 
 void History::setspooldir(const char *spooldir)
@@ -470,22 +493,32 @@ void History::commit(void)
 {
 	if (batch_depth > 0 && --batch_depth > 0)
 		return;
+	flush();
+}
+
+namespace {
+
+// Applies the queued adds and removes, with one lock per shard.
+void flush(void)
+{
 	if (batch.empty())
 		return;
 	vector < Op > ops;
 	ops.swap(batch);
-	vector < const Op *>per[SHARDS];
+	vector < const Op *>per[History::SHARDS];
 	for (size_t i = 0; i < ops.size(); i++) {
 		unsigned char dg[16];
 		int sh, b;
-		route(ops[i].msgid.c_str(), dg, &sh, &b);
+		History::route(ops[i].msgid.c_str(), dg, &sh, &b);
 		per[sh].push_back(&ops[i]);
 	}
-	for (int n = 0; n < SHARDS; n++) {
+	for (int n = 0; n < History::SHARDS; n++) {
 		if (!per[n].empty())
 			apply_all(n, per[n]);
 	}
 }
+
+}				// namespace
 
 int History::lookup(const char *msgid, vector < Location > &locs)
 {
@@ -512,13 +545,13 @@ int History::lookup(const char *msgid, vector < Location > &locs)
 		s->lock(NVcontainer::UnLock);
 	}
 	catch(Corrupt &) {
-		reset_shard(*s, "is damaged");
+		reset_shard(*s, "is damaged", true);
 		locs.clear();
 	}
 	catch(Error & e) {
 		slog.p(Logger::Error) << "history: " << s->path << ": "
 		    << e._errtext << "\n";
-		reset_shard(*s, "failed");
+		reset_shard(*s, "failed", false);
 		locs.clear();
 	}
 	return locs.size();
@@ -549,8 +582,12 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 			}
 			s->lock(NVcontainer::UnLock);
 		}
+		catch(Corrupt &) {
+			reset_shard(*s, "is damaged", true);
+			continue;
+		}
 		catch(...) {
-			reset_shard(*s, "is damaged");
+			reset_shard(*s, "failed", false);
 			continue;
 		}
 		vector < Op > &ops = ctx.ops;

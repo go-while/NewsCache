@@ -586,7 +586,10 @@ article's overview record, the article is fetched by number and stored,
 so an article crossposted to several groups is fetched only once. In
 offline mode, or with the news server down, articles in the spool can be
 read by message-ID too. The @code{Read} list of the client applies as
-for articles from the news server.
+for articles from the news server: the article must be in a group of its
+@samp{Newsgroups} header the client may read, and an article is not
+fetched by number into a group the client may not read (it is fetched by
+message-ID then).
 
 The history is filled when overview records and articles are stored,
 and when an article is read from the spool (so a spool of an older
@@ -599,17 +602,24 @@ drops the entry if not; the history can't serve a wrong article.
 
 It lives in @file{.history} in the spool directory, in 16 files
 @file{0} to @file{f}. The key is the MD5 hash of the Message-ID in hex:
-its first digit picks the file, the next two one of the file's 256
-buckets (as in go-pugleaf's history; INN's history works similarly). A
-record holds the Message-ID and its locations,
+its first digit picks the file, the next four one of the file's 65536
+buckets (go-pugleaf's history has 16 x 256 indexed tables; INN's history
+works similarly). A record holds the Message-ID and its locations,
 @samp{group:number,group:number}. Each file is a database like a group's
 @file{.db}, with its own lock, and carries a record that marks the
-format. A damaged file, or one of another format, is renamed to
-@file{@var{n}.bad} and started anew. The history can be removed at any
-time while NewsCache is stopped; it is filled again as clients read.
-After @code{History off}, the files stay unused; remove the directory
-to get the space back. Turned on again later, stale entries do no harm,
-since every lookup checks them.
+format (@samp{NewsCache history 2}). Its bucket table takes 512 KB; a
+record about 100 bytes, so 10 million entries take about 1 GB. A
+damaged file, or one of another format (such as the first one, with 256
+buckets), is renamed to @file{@var{n}.bad} and started anew. The history
+can be removed at any time while NewsCache is stopped; it is filled
+again as clients read.
+
+@cdindex SpoolSize
+The history counts toward @code{SpoolSize}. Its files never shrink, so
+@command{newscacheclean} removes them when the history alone takes more
+than half of @code{SpoolSize}, and with @code{History off} (they are
+unused then); @file{.history/*.bad} files go too. Turned on again later,
+stale entries do no harm, since every lookup checks them.
 
 @section Reducing the Load of a News Server
 

@@ -109,7 +109,7 @@ Terminate the connection after t seconds inactivity. The default value is 1200 s
 After a failed login (AUTHINFO PASS), wait this many seconds before answering, multiplied by the number of failed logins in the connection (15, 30 and 45 with the default; after the third failure the connection is closed). This slows down password guessing. The default is 15 seconds; 0 answers at once, the maximum is 3600.
 .TP
 .I "History on|off"
-With on, keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The default is off: every message-ID request goes to the news server.
+With on, keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
 .TP
 .I "MaxConnections number"
 Maximal number of simultanous connections. This Parameter works only in standalone mode. The default number is 32.

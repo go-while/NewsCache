@@ -13,9 +13,13 @@
  * fetch a crossposted article only once. Modelled on go-pugleaf's
  * history (and INN's): the key is md5(message-id) in hex; its first hex
  * digit picks one of 16 shard files <spool>/.history/0 ... f, the next
- * two one of the 256 buckets of that file. A record is the message-ID
- * and its locations, "group:number,group:number,...", a group at most
- * once. The routing is part of the file format and can't change.
+ * four one of the 65536 buckets of that file (go-pugleaf has 16 x 256
+ * indexed SQLite tables; our buckets are plain chains, so they need to
+ * be many: about 10 records per chain at 10^7 entries). A record is the
+ * message-ID and its locations, "group:number,group:number,...", a group
+ * at most once. The routing is part of the file format ("NewsCache
+ * history 2"); a shard of another format is moved aside and started anew.
+ * A shard's bucket table takes 512 KB.
  *
  * Each shard is an NVHash (with the container's file locks, so session
  * processes contend per shard) holding, in bucket 0, a record that marks
@@ -29,7 +33,10 @@
  */
 class History {
   public:
-	enum { SHARDS = 16, BUCKETS = 256 };
+	enum { SHARDS = 16, BUCKETS = 65536 };
+	// Pending adds and removes are applied when this many are queued,
+	// also inside begin() ... commit(), to bound the memory.
+	enum { FLUSH_OPS = 10000 };
 
 	struct Location {
 		std::string group;
@@ -69,7 +76,7 @@ class History {
 	static long prune(bool (*keep) (const std::string & group, void *arg),
 			  void *arg);
 
-	// md5 of msgid, the shard (0..15) and the bucket (0..255).
+	// md5 of msgid, the shard (0..15) and the bucket (0..65535).
 	static void route(const char *msgid, unsigned char digest[16],
 			  int *shard, int *bucket);
 };

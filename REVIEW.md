@@ -111,6 +111,7 @@ CI, not yet by the systematic review.
 | Docs and messages found while writing the wiki: the manual's "Access Control" knew only libwrap, the sample login example made the login optional, README.Debian's auth-file format, newscache(8) without `-n`, DATE's 501 text, a NEWS paragraph under the wrong entry | 0, 2, 3, 14 | wiki #58 | #60 |
 | #52 window cache: a drop of the upstream's last number emptied the whole cached group (taken for renumbering); chunk arithmetic wrapped near 2^64 (a session could loop); prefetchGroup kept a group lock after an exception; NEWS overstated downgrades | 9, 10 | review #52 | #61 |
 | Damaged databases (#57 follow-up): `open()` ran the sanity checks without a lock and took a sound file another process was writing for damaged, moving it aside with their updates; two processes moving the same file could orphan the new one; a failed new file left a lock on the stack and the old mapping in use (SIGSEGV) | 9 | review #57 | #62 |
+| History (#56, review): 256 buckets per shard made adds and lookups walk chains that grow with the history (10^7 entries: ~1.8 s of shard locks per 10 000-record chunk); now 65536 (format "history 2"). Also: removes of a whole range queued in memory, `.history` not counted in SpoolSize, STAT <id> decided from Xref but ARTICLE <id> from Newsgroups, a lookup fetched by number into a group the client may not read, and two processes resetting the same damaged shard could move the other one's fresh file aside | 2, 9, 11 | review #56 | #63 |
 
 ## Open points
 
