@@ -233,6 +233,15 @@ Other changes:
   answers a failed login, multiplied by the number of failed logins in the
   connection. The default stays 15 (15, 30, 45 seconds); 0 answers at
   once, the maximum is 3600. It was fixed at 15 seconds.
+* configure.in is now configure.ac and the manual doc/NewsCache.texi
+  (was doc/NewsCache.texinfo), and the obsolete autoconf and automake
+  macros are replaced, so autogen (autoreconf) and configure run without
+  warnings (21 with autoconf 2.73 and automake 1.18 before). The version
+  is set in AC_INIT now. PACKAGE and VERSION, the tarball name and the
+  configure options are unchanged; config.h also defines PACKAGE_NAME,
+  PACKAGE_VERSION and the like now, and configure --help names the issue
+  tracker. Autoconf 2.69 or later is needed. Packagers who patch
+  configure.in or refer to NewsCache.texinfo need to follow the renames.
 
 Release 1.3.21:
 Billy G. - 2026-10-20

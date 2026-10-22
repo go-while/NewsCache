@@ -1,11 +1,17 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(configure.in)
+dnl The version: set it here for a release (see NEWS and debian/changelog).
+dnl The fourth argument keeps PACKAGE (greeting, syslog name, tarball) as
+dnl "NewsCache"; by default autoconf would lower-case it.
+AC_INIT([NewsCache], [1.3.21], [https://github.com/go-while/NewsCache/issues],
+	[NewsCache], [https://github.com/go-while/NewsCache])
+AC_PREREQ([2.69])
+AC_CONFIG_SRCDIR([src/NewsCache.cc])
 
 dnl Specify a header configuration file
-AM_CONFIG_HEADER(config.h)
+AC_CONFIG_HEADERS([config.h])
 
 dnl Initialize automake stuff
-AM_INIT_AUTOMAKE(NewsCache, 1.3.21)
+AM_INIT_AUTOMAKE
 
 AC_DEFUN([AC_PROG_CXX_EXCEPTIONS],[])
 
@@ -112,7 +118,7 @@ dnl Checks for programs.
 dnl ****************************************************************
 
 AC_PROG_CC
-AC_LANG_CPLUSPLUS
+AC_LANG([C++])
 AC_PROG_CXX
 
 AC_PROG_RANLIB
@@ -173,9 +179,8 @@ dnl ****************************************************************
 dnl Checks for header files.
 dnl ****************************************************************
 
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS(crypt.h fcntl.h limits.h shadow.h sys/file.h syslog.h unistd.h tcpd.h sstream getopt.h)
+AC_CHECK_HEADERS(crypt.h fcntl.h limits.h shadow.h sys/file.h sys/time.h syslog.h unistd.h tcpd.h sstream getopt.h)
 if eval "test x${with_pam+set} = xset"; then
 	 AC_CHECK_HEADERS(security/pam_appl.h)
 	 if test $ac_cv_header_security_pam_appl_h = no; then
@@ -186,7 +191,6 @@ dnl Checks for typedefs, structures, and compiler characteristics.
 dnl AC_C_CONST -- we don't use c
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
-AC_HEADER_TIME
 AC_STRUCT_TM
 AC_STRUCT_TIMEZONE
 
@@ -213,15 +217,15 @@ dnl AC_CHECK_LIB(wrap, hosts_ctl)
 AC_MSG_CHECKING([for hosts_ctl in -lwrap])
 ac_save_LIBS="$LIBS"
 LIBS="-lwrap $LIBS"
-AC_TRY_LINK([#include <tcpd.h>
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <tcpd.h>
 extern "C" int hosts_ctl(char *daemon, char *client_name, char *client_addr, char *client_user);
-int allow_severity; int deny_severity;], [hosts_ctl(0,0,0,0);],
-AC_MSG_RESULT([yes])
+int allow_severity; int deny_severity;]], [[hosts_ctl(0,0,0,0);]])],
+[AC_MSG_RESULT([yes])
 AC_DEFINE(HAVE_LIBWRAP, [1], [have libwrap])
-ac_cv_lib_wrap_hosts_ctl=yes,
-LIBS="$ac_save_LIBS"
+ac_cv_lib_wrap_hosts_ctl=yes],
+[LIBS="$ac_save_LIBS"
 AC_MSG_RESULT([no])
-ac_cv_lib_wrap_hosts_ctl=no)
+ac_cv_lib_wrap_hosts_ctl=no])
 
 AC_SUBST(CXXFLAGS)
 
@@ -232,18 +236,17 @@ dnl Checks for library functions.
 dnl ****************************************************************
 
 AC_FUNC_MMAP
-AC_TYPE_SIGNAL
 AC_CHECK_FUNCS(gethostname gettimeofday mkdir select setpriority socket strerror strstr strtol syslog sigaction)
 
 AC_MSG_CHECKING([argument 3 of accept])
-AC_TRY_COMPILE([#include<sys/types.h>
-#include<sys/socket.h>],[struct sockaddr addr;
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include<sys/types.h>
+#include<sys/socket.h>]], [[struct sockaddr addr;
 unsigned int s=-1, socklen=sizeof(struct sockaddr);
-accept(s,&addr,&socklen);],
-AC_MSG_RESULT([unsigned int*])
-ac_cv_accept_arg3_int=yes,
-AC_MSG_RESULT([size_t*])
-ac_cv_accept_arg3_int=no)
+accept(s,&addr,&socklen);]])],
+[AC_MSG_RESULT([unsigned int*])
+ac_cv_accept_arg3_int=yes],
+[AC_MSG_RESULT([size_t*])
+ac_cv_accept_arg3_int=no])
 if eval "test x$ac_cv_accept_arg3_int = xyes"; then
   AC_DEFINE(SOCKLEN_TYPE, [unsigned int], [socklen type])
 fi
@@ -299,16 +302,17 @@ dnl Generate output files
 dnl ****************************************************************
 
 dnl Makefiles
-AC_OUTPUT([
+AC_CONFIG_FILES([
 		Makefile
-		md5lib/Makefile 
-		NVClasses-0.9.1/Makefile 
-		NServer-0.9.1/Makefile 
-		NServer-0.9.1/checks/Makefile 
-		src/Makefile 
-		man/Makefile 
-		doc/Makefile 
-		etc/Makefile 
-		etc/NewsCache.init 
-		test/Makefile 
+		md5lib/Makefile
+		NVClasses-0.9.1/Makefile
+		NServer-0.9.1/Makefile
+		NServer-0.9.1/checks/Makefile
+		src/Makefile
+		man/Makefile
+		doc/Makefile
+		etc/Makefile
+		etc/NewsCache.init
+		test/Makefile
 	  ])
+AC_OUTPUT

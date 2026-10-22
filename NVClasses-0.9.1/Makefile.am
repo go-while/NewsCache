@@ -1,8 +1,5 @@
 ## Process this file with automake to produce Makefile.in
 
-## Global options
-INCLUDES=
-
 ## Libraries
 noinst_LIBRARIES = libnvcontainer.a
 

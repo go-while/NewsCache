@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in
 
 ## Global options
-INCLUDES=-I@top_srcdir@/NVClasses-0.9.1
+AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1
 
 ## Libraries
 noinst_LIBRARIES = libnserver.a

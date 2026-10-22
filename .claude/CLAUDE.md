@@ -35,7 +35,7 @@ says the same.
 - Releases are tagged on `main` with plain version numbers, starting with
   `1.3.17` (annotated tag, no `v` prefix). The maintainer is
   Billy G. <newscache-maintainer@pugleaf.net>.
-- For a release, set the version in `configure.in` (`AM_INIT_AUTOMAKE`), add a
+- For a release, set the version in `configure.ac` (`AC_INIT`), add a
   `debian/changelog` entry and a NEWS section, on a branch with a pull request.
   After it is merged, tag the merge commit on `main` (tags aren't blocked by
   the pull-request rule) and push the tag.

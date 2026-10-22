@@ -24,7 +24,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/param.h>
-#ifdef TIME_WITH_SYS_TIME
+#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 #include <fcntl.h>
