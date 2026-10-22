@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -123,5 +124,69 @@ func TestListenDefaultIPv6(t *testing.T) {
 		if !strings.Contains(string(b), "[127.0.0.1]") {
 			t.Errorf("no [127.0.0.1] in the log:\n%s", b)
 		}
+	}
+}
+
+// TestPidFile: the daemon writes its pid to PidFile and removes the file
+// when it stops on SIGTERM; the file stayed behind with the old pid. A
+// session process ending must not remove it.
+func TestPidFile(t *testing.T) {
+	t.Run("removed", func(t *testing.T) {
+		e := newEnv(t)
+		p := e.standalone()
+		pidFile := filepath.Join(e.Dir, "newscache.pid")
+		checkPidFile(t, pidFile, p.Pid())
+		c := e.dial()
+		c.Cmd("QUIT")
+		c.Close()
+		time.Sleep(300 * time.Millisecond)
+		checkPidFile(t, pidFile, p.Pid())
+		if err := p.Signal(syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.Wait(); err != nil {
+			t.Errorf("exit after SIGTERM: %v", err)
+		}
+		if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
+			t.Errorf("pid file still there after SIGTERM (stat: %v)", err)
+		}
+	})
+	// The daemon switches to Username after writing the file; where the
+	// directory isn't writable for that user, the file is emptied.
+	t.Run("emptied", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root can remove files from any directory")
+		}
+		e := newEnv(t)
+		run := filepath.Join(e.Dir, "run")
+		if err := os.Mkdir(run, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		pidFile := filepath.Join(run, "newscache.pid")
+		e.Extra = "PidFile " + pidFile
+		p := e.standalone()
+		checkPidFile(t, pidFile, p.Pid())
+		if err := os.Chmod(run, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(run, 0o755) })
+		if err := p.Signal(syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		p.Wait()
+		if b, err := os.ReadFile(pidFile); err != nil || len(b) != 0 {
+			t.Errorf("pid file in a read-only directory after SIGTERM: %q, %v; want an empty file", b, err)
+		}
+	})
+}
+
+func checkPidFile(t *testing.T, fn string, pid int) {
+	t.Helper()
+	b, err := os.ReadFile(fn)
+	if err != nil {
+		t.Fatalf("pid file: %v", err)
+	}
+	if got := strings.TrimSpace(string(b)); got != fmt.Sprint(pid) {
+		t.Fatalf("pid file holds %q, want %d", got, pid)
 	}
 }
