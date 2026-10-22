@@ -30,6 +30,13 @@ Bug fixes:
   bare "allow" (and "allow read authentication" as "allow read"). Read
   back as a config, a bare "allow" is allow none, so a login-only entry
   copied from the -p output let nobody in.
+* Started as root (by hand, from inetd or from cron), newscache,
+  newscacheclean and updatenews switched to Username and Groupname but
+  kept root's supplementary groups, group 0 among them; with only a
+  Username, also root's primary group. They now set the supplementary
+  groups to the user's (initgroups) and, without a Groupname, use the
+  user's primary group. A service that systemd starts as root has no
+  supplementary groups, so there only the Username-only case was affected.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
