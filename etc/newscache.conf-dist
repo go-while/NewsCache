@@ -338,5 +338,7 @@ LogStyle hostname ip-address
 ################################################################
 # Each newsgroup listed in this file will be prefetched, 
 # whenever one of its articles is read by a user or whenever 
-# updatenews is executed.
+# updatenews is executed. One group per line; a line may also be a
+# wildmat pattern (de.*) or !pattern to leave groups out. Lines
+# starting with # are skipped.
 PrefetchFile /home/services/newscache/etc/prefetch

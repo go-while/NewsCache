@@ -128,7 +128,15 @@ If this limit is exceded NewsCache assumes that the news server is
 unreachable. 
 .TP
 .I "PrefetchFile filename"
-Specifies the filename. No default value.
+Specifies the file that lists the newsgroups updatenews prefetches, one
+per line. A line may also be a wildmat pattern
+.RI ( de.* ", " comp.lang.[cg]o )
+that selects the matching groups of the active database, or
+.B !
+followed by a pattern or group name, which leaves the matching groups out.
+Empty lines and lines starting with # are skipped. See
+.BR updatenews (8).
+No default value.
 .TP
 .I "NiceServer n"
 Increment priority of the server process by n. See also

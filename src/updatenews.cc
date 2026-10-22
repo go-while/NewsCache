@@ -31,7 +31,9 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
+#include <algorithm>
 #include <iostream>
+#include <set>
 #include <vector>
 
 #include "Debug.h"
@@ -39,6 +41,7 @@
 #include "NServer.h"
 #include "Logger.h"
 #include "setugid.h"
+#include "wildmat.h"
 
 using namespace std;
 
@@ -124,30 +127,90 @@ int create_worker(CServer * cs, const char *group)
 	}
 }
 
-void readgroups(const char *fn, vector < string > &groups)
+// Is this prefetch-file line a wildmat pattern rather than a group name?
+static bool is_pattern(const string & line)
+{
+	return line.find_first_of("*?[\\") != string::npos;
+}
+
+/*
+ * Reads the prefetch file. Each line is one of
+ *   group.name     prefetch this group;
+ *   pattern        a wildmat pattern (*, ?, [...]): prefetch every group
+ *                  of the active database that matches it;
+ *   !pattern       don't prefetch the groups that match it (a group name
+ *                  works too), wherever they come from in the file.
+ * Empty lines and lines starting with # are skipped. Each group is
+ * prefetched once, in the order of the file; the groups of one pattern
+ * in alphabetical order.
+ */
+void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 {
 	ifstream ifs(fn);
-	string group;
+	string line;
+	vector < string > want, skip;
 
 	if (!ifs.good()) {
 		return;
 	}
 
 	for (; Xsignal < 0;) {
-		nlreadline(ifs, group, 0);
+		nlreadline(ifs, line, 0);
 		if (ifs.eof())
 			break;
-		if (group[0] == '!')
-			continue;
 		if (ifs.bad()) {
 			slog.
 			    p(Logger::Error) << "cannot read from " << Cfg.
-			    PrefetchFile;
+			    PrefetchFile << "\n";
 			break;
 		}
-		groups.push_back(group);
+		string::size_type b = line.find_first_not_of(" \t\r\n");
+		if (b == string::npos || line[b] == '#')
+			continue;
+		line = line.substr(b, line.find_last_not_of(" \t\r\n") + 1 - b);
+		if (line[0] == '!') {
+			if (line.size() > 1)
+				skip.push_back(line.substr(1));
+		} else {
+			want.push_back(line);
+		}
 	}
 	ifs.close();
+
+	vector < string > all;	// the active database's groups, sorted
+	bool have_all = false;
+	set < string > seen;
+	for (vector < string >::iterator w = want.begin(); w != want.end();
+	     ++w) {
+		vector < string > cand;
+		if (!is_pattern(*w)) {
+			cand.push_back(*w);
+		} else {
+			if (!have_all) {
+				for (Iter < GroupInfo > i = active->begin(), e =
+				     active->end(); i != e; ++i)
+					all.push_back(i->name());
+				sort(all.begin(), all.end());
+				have_all = true;
+			}
+			for (vector < string >::iterator g = all.begin();
+			     g != all.end(); ++g)
+				if (wildmat(g->c_str(), w->c_str()))
+					cand.push_back(*g);
+			if (cand.empty())
+				slog.p(Logger::Notice) << "prefetch pattern " << *w
+				    << " matches no group\n";
+		}
+		for (vector < string >::iterator c = cand.begin();
+		     c != cand.end(); ++c) {
+			bool skipped = false;
+			for (vector < string >::iterator k = skip.begin();
+			     k != skip.end() && !skipped; ++k)
+				skipped = wildmat(c->c_str(), k->c_str());
+			if (!skipped && seen.insert(*c).second)
+				groups.push_back(*c);
+		}
+	}
 }
 
 void update(void)
@@ -164,7 +227,7 @@ void update(void)
 		cs.invalidateActiveDB ();
 	};
 	slog.p(Logger::Info) << "prefetching active database\n";
-	cs.active();
+	ActiveDB *active = cs.active();
 
 	if (!(opt_flags & (F_PREFETCH_GROUP | F_PREFETCH_OVER)))
 		return;
@@ -172,7 +235,7 @@ void update(void)
 	// read groups to prefetch
 	vector < string > groups;
 	vector < string >::iterator begin, end;
-	readgroups(Cfg.PrefetchFile, groups);
+	readgroups(Cfg.PrefetchFile, active, groups);
 
 	for (begin = groups.begin(), end = groups.end();
 	     begin != end && Xsignal < 0; ++begin) {

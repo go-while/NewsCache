@@ -36,6 +36,33 @@ Always  lock  the newsgroup while prefetching it. This improves the performance 
 .B \-w, \-\-workers #
 Use # workers for prefetching. Each worker is assigned its own newsgroup to prefetch.
 
+.SH PREFETCH FILE
+Each line of the PrefetchFile is one of:
+.TP
+.I group.name
+Prefetch this newsgroup.
+.TP
+.I pattern
+A wildmat pattern with
+.BR * ", " ? " or " [...] :
+prefetch every group of the active database that matches it, in
+alphabetical order.
+.TP
+.BI ! pattern
+Don't prefetch the groups that match the pattern (or the group name),
+wherever they come from in the file.
+.PP
+Empty lines and lines starting with # are skipped. Each group is
+prefetched once, in the order of the file. Example:
+.PP
+.nf
+# all of de.*, but not the binaries
+de.*
+!de.alt.binaries.*
+comp.lang.[cg]o
+at.test
+.fi
+
 .SH FILES
 @SYSCONFDIR@/newscache.conf
 .br
