@@ -342,3 +342,41 @@ func TestClientPipelining(t *testing.T) {
 	expect(111)
 	c.Cmd("QUIT")
 }
+
+// TestUpstreamOverRangeCap: providers that return at most so many
+// overview records per OVER, whatever the range. NewsCache asked for a
+// run of up to a whole chunk and took the rest of the range for articles
+// without a record: XOVER 1-25 showed 10 articles. It now asks again
+// after the last record it got. Also for an upstream without LISTGROUP
+// ranges and for a not-cached server, which fetch their records the
+// same way.
+func TestUpstreamOverRangeCap(t *testing.T) {
+	for _, tc := range []struct {
+		name, options string
+		so            fakeserver.StoreOptions
+	}{
+		{"cached", "", fakeserver.StoreOptions{MaxOverRange: 10}},
+		{"no-listgroup", "", fakeserver.StoreOptions{MaxOverRange: 10, ListgroupRange: "reject"}},
+		{"not-cached", "not-cached", fakeserver.StoreOptions{MaxOverRange: 10}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerOptions = tc.options
+			e.Store.AddGroup(bigGroup, "capped")
+			var all []int64
+			for n := int64(1); n <= 25; n++ {
+				e.Store.AddArticle(bigGroup, groupArticle(bigGroup, n, []string{"body"}))
+				all = append(all, n)
+			}
+			upstreamWith(t, e, fakeserver.Options{StoreOpts: tc.so})
+			c := e.session()
+			c.Cmd("GROUP %s", bigGroup)
+			expectXover(t, c, 1, 25, all...)
+			expectXover(t, c, 20, 25, 20, 21, 22, 23, 24, 25)
+			c.Cmd("QUIT")
+			if n := e.Upstream.Count("OVER"); n > 4 {
+				t.Errorf("%d OVER requests for 25 records, 10 per reply", n)
+			}
+		})
+	}
+}

@@ -168,7 +168,7 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 		sprintover(os, nbr);
 		NVArray::lock(NVcontainer::UnLock);
 	}
-	virtual void readoverdb(std::istream & is);
+	virtual artnum_t readoverdb(std::istream & is);
 	virtual void printoverdb(std::ostream & os, artnum_t f =
 				 0, artnum_t l = ARTNUM_MAX);
 	virtual void printheaderdb(std::ostream & os, const char *header,

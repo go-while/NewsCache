@@ -108,15 +108,18 @@ class RNewsgroup:public Newsgroup {
 		}
 	}
 
-	virtual void readoverdb(std::istream & is) {
+	virtual artnum_t readoverdb(std::istream & is) {
 		VERB(slog.
 		     p(Logger::Debug) << "RNewsgroup::readoverdb(&is)\n");
 		std::string line1, line2;
+		artnum_t n, high = 0;
 
 		for (;;) {
 			nlreadline(is, line1, 0);
 			if (line1 == "." || is.eof())
 				break;
+			if ((n = leading_artnum(line1.c_str())) > high)
+				high = n;
 			if (_OverviewFormat->dotrans) {
 				// Convert Record
 				_OverviewFormat->convert(line1, line2);
@@ -125,6 +128,7 @@ class RNewsgroup:public Newsgroup {
 				setover(line1);
 			}
 		}
+		return high;
 	}
 
 	virtual void printoverdb(std::ostream & os, artnum_t f =

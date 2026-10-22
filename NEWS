@@ -268,6 +268,14 @@ Bug fixes:
   would hide it.
 * DATE with an argument answered "501 Syntax: group Newsgroup"; it now
   gives DATE's own syntax.
+* An upstream server that returns at most so many overview records per
+  OVER, whatever the range asked for, cut groups short: NewsCache asks
+  for a run of up to 10000 numbers, took everything after the last record
+  it got for articles without a record, and clients saw only the first
+  part of the range (until the next sync, which went the same way). It
+  now asks again after the last record received until the range is done.
+  A server that returns whole ranges costs at most one more request
+  (answered 423), when a range ends in numbers without articles.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
