@@ -359,7 +359,12 @@ int main(int argc, char **argv)
 				break;
 
 			case 'c':
-				strcpy (conffile, optarg);
+				if (snprintf(conffile, sizeof(conffile), "%s", optarg) >=
+				    (int) sizeof(conffile)) {
+					cerr << cmnd << ": configuration file name is too long (at most "
+					     << sizeof(conffile) - 1 << " characters)\n";
+					exit(1);
+				}
 				break;
 
 			default:
