@@ -497,15 +497,31 @@ int check_auth_unix (ClientData *clt)
 	    || !(pw->pw_passwd[0]))
 		return -1;
 	pass = pw->pw_passwd;
-#ifdef SHADOW_PASSWORD
 	if ((pass[0] == 'x') && (pass[1] == '\0')) {
+#ifdef SHADOW_PASSWORD
 		struct spwd *spw = NULL;
+		errno = 0;
 		spw = getspnam(pw->pw_name);
-		if (!(spw) || !(spw->sp_namp) || !(spw->sp_pwdp))
+		if (!(spw) || !(spw->sp_namp) || !(spw->sp_pwdp)) {
+			// Sessions run as Username (news), and only root may
+			// read /etc/shadow; say so instead of failing silently.
+			if (errno == EACCES || geteuid() != 0)
+				slog.p(Logger::Error)
+				    << "Authentication unix: cannot read the shadow password of "
+				    << clt->auth_user << ": only root may read /etc/shadow, and"
+				    " NewsCache runs as uid " << (unsigned long) geteuid()
+				    << ". Use Authentication file: instead\n";
 			return -1;
+		}
 		pass = spw->sp_pwdp;
-	}
+#else
+		slog.p(Logger::Error)
+		    << "Authentication unix: " << clt->auth_user
+		    << " has a shadow password, and NewsCache was built without"
+		    " shadow password support\n";
+		return -1;
 #endif
+	}
 	if (auto_cryptcheck(clt->auth_pass, pass))
 		return -1;
 
@@ -609,6 +625,15 @@ int check_pam_user_pass (ClientData *clt)
 			<< retval << "\n";
 	}
 	if (retval != PAM_SUCCESS) {
+		// pam_unix can't tell a wrong password from one it may not
+		// check: as a user other than root, its helper unix_chkpwd only
+		// checks that user's own password.
+		slog.p(Logger::Notice) << "PAM service "
+		    << clt->access_entry->PAMServicename << " refused "
+		    << clt->auth_user << ": " << pam_strerror(clt->pamh, retval)
+		    << (geteuid() != 0 ? " (NewsCache doesn't run as root, so"
+			" pam_unix can't check local passwords of other users)" : "")
+		    << "\n";
 		pam_end(clt->pamh, retval);
 		return -1;
 	}

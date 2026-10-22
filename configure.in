@@ -276,7 +276,7 @@ if eval "test x$with_shadow = xyes"; then
     echo "--without-shadow option."
     exit 1
   fi
-elif eval "test x$with_shadow = xyes -a x$ac_cv_header_shadow_h = xyes"; then
+elif eval "test x$with_shadow = xauto -a x$ac_cv_header_shadow_h = xyes"; then
   AC_DEFINE(SHADOW_PASSWORD, [1], [shadow passwords])
   with_shadow=yes
 fi

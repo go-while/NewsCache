@@ -287,6 +287,15 @@ sudo systemctl enable --now newscacheclean.timer
 With `--with-pam`, `Authentication pam` uses the PAM service `newscache`,
 or the one set with `PAMServicename`. (`Authentication unix` doesn't use PAM;
 it checks `/etc/passwd` and `/etc/shadow` directly.)
+
+NewsCache checks passwords after it has switched to its `Username` (news),
+and only root may read `/etc/shadow`. So `Authentication unix` can't check
+local accounts (the log says "cannot read the shadow password"), and
+neither can `pam_unix`, which is what `password-auth` uses for them: run as
+news, its helper `unix_chkpwd` only checks news's own password. For logins,
+use `Authentication file:` (see above), or PAM modules that work without
+root, such as `pam_sss` (SSSD, LDAP, FreeIPA) or `pam_pwdfile`.
+
 Fedora's package uses this `/etc/pam.d/newscache` (not tested with this
 tree):
 
