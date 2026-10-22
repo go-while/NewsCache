@@ -420,6 +420,17 @@ class RServer:virtual public NServer {
 						   artnum_t f, artnum_t l);
 
 	/**
+	* Copies the news server's article numbers of gname in [f,l] to
+	* os, one per line, as they arrive (LISTGROUP gname f-l, or
+	* LISTGROUP gname for the whole group).
+	* \throw ResponseError If the news server doesn't answer 211; nothing
+	* 	has been written then.
+	* \throw SystemError If the connection to the news server fails.
+	*/
+	void printlistgroup(const char *gname, std::ostream & os,
+			    artnum_t f, artnum_t l, int whole);
+
+	/**
 	* Return the overviewdatabase of the newsgroup >ng<.  This function
 	* should not be called by the user. Instead it should be called via
 	* a Newsgroup object.

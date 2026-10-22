@@ -4,6 +4,9 @@
 #include<stdio.h>
 #include<utime.h>
 #include<unistd.h>
+#include<string.h>
+
+#include<vector>
 
 #include"Logger.h"
 #include"Error.h"
@@ -87,73 +90,288 @@ void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 	}
 }
 
+#define SYNC_MAGIC 0x31434e5953434e4eULL	/* "NNCSYNC1" */
+
+static inline artnum_t chunk_start(artnum_t i)
+{
+	return i / OVERVIEW_CHUNK * OVERVIEW_CHUNK;
+}
+
+NVNewsgroup::SyncHdr *NVNewsgroup::synchdr(void)
+{
+	size_t sz;
+	SyncHdr *h = (SyncHdr *) sextra(&sz);
+
+	if (!h || sz < sizeof(SyncHdr) || h->magic != SYNC_MAGIC ||
+	    h->chunk != OVERVIEW_CHUNK || h->first != arrfst / OVERVIEW_CHUNK ||
+	    h->n != arrlst / OVERVIEW_CHUNK - arrfst / OVERVIEW_CHUNK + 1 ||
+	    sz < sizeof(SyncHdr) + h->n * sizeof(SyncEnt))
+		return NULL;
+	return h;
+}
+
+// The synchronization entry of chunk c (numbers c*OVERVIEW_CHUNK...);
+// returns 0 and a zero entry if there is none.
+int NVNewsgroup::getsync(artnum_t c, SyncEnt * e)
+{
+	SyncHdr *h = synchdr();
+
+	if (h && h->first <= c && c - h->first < h->n) {
+		*e = ((SyncEnt *) (h + 1))[c - h->first];
+		return 1;
+	}
+	e->time = e->through = 0;
+	return 0;
+}
+
+void NVNewsgroup::setsync(artnum_t c, nvtime_t time, artnum_t through)
+{
+	SyncHdr *h = synchdr();
+
+	if (!h && arrfst <= arrlst) {
+		// an index of an older version: add the entries
+		resize_index(arrfst, arrlst);
+		h = synchdr();
+	}
+	if (h && h->first <= c && c - h->first < h->n) {
+		SyncEnt *e = ((SyncEnt *) (h + 1)) + (c - h->first);
+		e->time = time;
+		e->through = through;
+	}
+}
+
+// The news server's last article number when the index was last
+// updated (older versions: the end of the index), 0 if unknown.
+artnum_t NVNewsgroup::knownlast(void)
+{
+	SyncHdr *h = synchdr();
+
+	if (h && h->glast)
+		return h->glast;
+	return arrfst <= arrlst ? arrlst : 0;
+}
+
+void NVNewsgroup::setknownlast(artnum_t l)
+{
+	SyncHdr *h = synchdr();
+
+	if (!h) {
+		if (arrfst > arrlst)
+			return;
+		resize_index(arrfst, arrlst);
+		if (!(h = synchdr()))
+			return;
+	}
+	h->glast = l;
+}
+
+// Frees the records of [f,l] in the index, and the .art files of big
+// articles. Needs the exclusive lock.
+void NVNewsgroup::freerange(unsigned long f, unsigned long l)
+{
+	char fn[MAXPATHLEN];
+	unsigned long i;
+
+	if (arrfst > arrlst)
+		return;
+	if (f < arrfst)
+		f = arrfst;
+	if (l > arrlst)
+		l = arrlst;
+	for (i = f; i <= l; i++) {
+		nvoff_t *slot = &arrtab[i - arrfst];
+		if (*slot) {
+			if (*(mem_p + *slot + sizeof(long)) == bigarticle) {
+				artfile(fn, sizeof(fn), i);
+				unlink(fn);
+			}
+			nvfree(*slot);
+			*slot = 0;
+		}
+		if (i == l)
+			break;
+	}
+}
+
+// Sets the index to [f,l] (f <= l): drops the records outside, keeps
+// the ones inside and the synchronization entries of their chunks.
+// Needs the exclusive lock.
+void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
+{
+	VERB(slog.p(Logger::Debug) << "NVNewsgroup::resize_index(" << f
+	     << "," << l << ")\n");
+	uint64_t first = f / OVERVIEW_CHUNK;
+	uint64_t n = l / OVERVIEW_CHUNK - first + 1, k;
+	artnum_t glast = knownlast();
+	std::vector < SyncEnt > ents(n);
+	SyncHdr *h;
+	size_t sz;
+
+	for (k = 0; k < n; k++)
+		ents[k].time = ents[k].through = 0;
+	if ((h = synchdr()) != NULL) {
+		SyncEnt *e = (SyncEnt *) (h + 1);
+		for (k = 0; k < h->n; k++) {
+			uint64_t c = h->first + k;
+			if (first <= c && c - first < n)
+				ents[c - first] = e[k];
+		}
+	}
+	if (arrfst <= arrlst) {
+		if (arrfst < f)
+			freerange(arrfst, f - 1);
+		if (l < arrlst)
+			freerange(l + 1, arrlst);
+	}
+	// (the memory may move, h is invalid from here)
+	NVArray::ssetsize(f, l, sizeof(SyncHdr) + n * sizeof(SyncEnt));
+	h = (SyncHdr *) sextra(&sz);
+	h->magic = SYNC_MAGIC;
+	h->chunk = OVERVIEW_CHUNK;
+	h->first = first;
+	h->n = n;
+	h->glast = glast;
+	memcpy(h + 1, &ents[0], n * sizeof(SyncEnt));
+}
+
+// Drops every record and synchronization entry, keeps the index range.
+void NVNewsgroup::clearindex(void)
+{
+	SyncHdr *h;
+
+	if (arrfst > arrlst)
+		return;
+	freerange(arrfst, arrlst);
+	if ((h = synchdr()) != NULL)
+		memset(h + 1, 0, h->n * sizeof(SyncEnt));
+}
+
+// Limits [f,l] to the group's article numbers; 0 if nothing is left.
+int NVNewsgroup::clamp(artnum_t * f, artnum_t * l)
+{
+	artnum_t gf, gl;
+
+	getsize(&gf, &gl);
+	if (*f < gf)
+		*f = gf;
+	if (*f == 0)
+		*f = 1;
+	if (*l > gl)
+		*l = gl;
+	return *f <= *l;
+}
+
+/*
+ * Makes the index cover as much of [f,l] (already clamped) as it may:
+ * at most MAX_INDEX_SPAN numbers, the newest ones. Returns the first
+ * covered number (everything from there to l is covered), or 0 if no
+ * part is: numbers below the index that are far from it are served
+ * from the news server without caching, rather than growing the index
+ * across a large gap.
+ */
+artnum_t NVNewsgroup::cover(artnum_t f, artnum_t l)
+{
+	artnum_t want = f, gf = _ghave ? _gfirst : 0, r;
+	unsigned long lo, hi;
+
+#if ULONG_MAX < 0xffffffffffffffffULL
+	// The spool's index holds unsigned longs, 32 bits here.
+	if (l > ULONG_MAX)
+		return 0;
+#endif
+	if (l - f + 1 > MAX_INDEX_SPAN)
+		want = l - MAX_INDEX_SPAN + 1;
+
+	NVArray::lock(NVcontainer::ExclLock);
+	if (arrfst > arrlst || arrlst < gf || (_ghave && arrfst > _glast)) {
+		// no index yet, or none with anything of the group in it
+		lo = chunk_start(want);
+		hi = l;
+	} else {
+		artnum_t span = arrlst - arrfst + 1, gap, need;
+
+		lo = arrfst;
+		hi = arrlst;
+		if (l > hi) {
+			gap = want > hi ? want - hi - 1 : 0;
+			need = l - want + 1;
+			if (gap > span && gap > need && gap > OVERVIEW_CHUNK) {
+				// new articles far above the cached ones: start
+				// over with the new ones, the old ones go
+				lo = chunk_start(want);
+			}
+			hi = l;
+		}
+		if (want < lo) {
+			gap = l < lo ? lo - l - 1 : 0;
+			need = l - want + 1;
+			if (gap > span && gap > need && gap > OVERVIEW_CHUNK) {
+				// far below the cached part: not cached
+				NVArray::lock(NVcontainer::UnLock);
+				return 0;
+			}
+			// grow downwards by at least the current size, so that
+			// reading backwards doesn't copy the index each time
+			artnum_t nlo = want;
+			span = hi - lo + 1;
+			if (lo > span && lo - span < nlo)
+				nlo = lo - span;
+			lo = chunk_start(nlo);
+		}
+	}
+	if (lo < gf)
+		lo = gf;
+	if (hi - lo + 1 > MAX_INDEX_SPAN)
+		lo = chunk_start(hi - MAX_INDEX_SPAN + OVERVIEW_CHUNK);
+	if (lo != arrfst || hi != arrlst || !synchdr())
+		resize_index(lo, hi);
+	r = 0;
+	if (arrfst <= l && l <= arrlst)
+		r = f < arrfst ? arrfst : f;
+	NVArray::lock(NVcontainer::UnLock);
+	return r;
+}
+
+/*
+ * The group's range on the news server is [f,l]. Records below f are
+ * dropped (expired), and above l (renumbered). The index doesn't grow
+ * here; cover does that when a client asks for articles.
+ */
 void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 {
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "NVNewsgroup::setsize(" << f << "," << l <<
 	     ")\n");
-	char fn[MAXPATHLEN];
-	long n1, n2, i;
+	unsigned long lo, hi;
 
-#if ULONG_MAX < 0xffffffffffffffffULL
-	// The spool's index (NVArray) holds unsigned longs, 32 bits here.
-	// Keep the old size; newer articles of this group aren't cached.
-	if (f > ULONG_MAX || l > ULONG_MAX) {
-		slog.p(Logger::Error) << name() << ": article numbers above "
-			<< ULONG_MAX << " need a 64-bit system, not cached\n";
-		return;
-	}
-#endif
+	_gfirst = f;
+	_glast = l;
+	_ghave = 1;
 
-	lock(NVcontainer::ShrdLock);
-	if (f != arrfst || l != arrlst) {
-		lock(NVcontainer::ExclLock);
-		if (arrfst <= arrlst) {
-			// free all those elements from arrfst -> f
-			i = 0;
-			n1 = f - arrfst;
-			n2 = arrlst - arrfst + 1;
-			if (n2 < n1)
-				n1 = n2;
-			while ((long) i < n1) {
-				if (arrtab[i]) {
-					if (*
-					    (mem_p + arrtab[i] +
-					     sizeof(long)) == bigarticle) {
-						// Remove article from disk
-						artfile(fn, sizeof(fn), arrfst + i);
-						unlink(fn);
-					}
-					nvfree(arrtab[i]);
-				}
-				i++;
+	NVArray::lock(NVcontainer::ExclLock);
+	if (arrfst <= arrlst) {
+		lo = arrfst;
+		hi = arrlst;
+		if (f > lo)
+			lo = f > ULONG_MAX ? ULONG_MAX : f;
+		if (l < hi)
+			hi = l;
+		if (lo > hi || f > l) {
+			// nothing of the group in the index any more
+			clearindex();
+		} else {
+			if (hi - lo + 1 > MAX_INDEX_SPAN) {
+				// an index of an older version, which covered
+				// the whole group: keep the newest part
+				lo = chunk_start(hi - MAX_INDEX_SPAN +
+						 OVERVIEW_CHUNK);
 			}
-
-			// free all those elements from l -> arrlst
-			i = l - arrfst + 1;
-			if (i < 0)
-				i = 0;
-			n1 = arrlst - arrfst + 1;
-			while ((long) i < n1) {
-				if (arrtab[i]) {
-					if (*
-					    (mem_p + arrtab[i] +
-					     sizeof(long)) == bigarticle) {
-						// Remove article from disk
-						artfile(fn, sizeof(fn), arrfst + i);
-						unlink(fn);
-					}
-					nvfree(arrtab[i]);
-				}
-				i++;
-			}
+			if (lo != arrfst || hi != arrlst)
+				resize_index(lo, hi);
 		}
-		// resize array
-		NVArray::ssetsize(f, l);
-		lock(NVcontainer::UnLock);
 	}
-	lock(NVcontainer::UnLock);
+	NVArray::lock(NVcontainer::UnLock);
 }
 
 Article *NVNewsgroup::getarticle(artnum_t nbr)
@@ -497,17 +715,23 @@ void NVNewsgroup::printheaderdb(ostream & os,
 	NVArray::lock(NVcontainer::UnLock);
 }
 
-void NVNewsgroup::printlistgroup(ostream & os)
+void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 {
 	VERB(slog.
-	     p(Logger::Debug) << "NVNewsgroup::printlistgroup(&os)\n");
+	     p(Logger::Debug) << "NVNewsgroup::printlistgroup(&os," << f
+	     << "," << l << ")\n");
 
-	unsigned long i;
+	artnum_t i;
 	lock(NVcontainer::ShrdLock);
-	for (i = arrfst; i <= arrlst; i++) {
+	if (f < arrfst)
+		f = arrfst;
+	if (l > arrlst)
+		l = arrlst;
+	// i == l ends the loop, so l == ARTNUM_MAX can't wrap around
+	for (i = f; i <= l; i++) {
 		if (shas_element(i))
 			os << i << "\r\n";
-		if (i == arrlst)
+		if (i == l)
 			break;
 	}
 	lock(NVcontainer::UnLock);

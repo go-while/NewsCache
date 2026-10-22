@@ -793,11 +793,16 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 
 	selectgroup(gname);
 	if (_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP) {
-		resp = issue("listgroup\r\n", NULL);
+		// Only the numbers in [f,l] (RFC 3977 range), not the whole
+		// group: a binary group has billions of numbers.
+		char buf[MAXGROUPNAMELEN + 64];
+		snprintf(buf, sizeof(buf), "listgroup %s %llu-%llu\r\n", gname,
+			 (unsigned long long) f, (unsigned long long) l);
+		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (!NNTP_ISCODE(p, "211")) {
 			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
-			string c("listgroup\r\n"), e("211");
+			string c(buf), e("211");
 			throw ResponseError(c, e, resp);
 		}
 
@@ -817,6 +822,43 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		for (i = f; i <= l; i++) {
 			lstgrp[i - f] = 1;
 		}
+	}
+}
+
+void RServer::printlistgroup(const char *gname, ostream & os,
+			     artnum_t f, artnum_t l, int whole)
+{
+	VERB(slog.p(Logger::Debug) << "RServer::printlistgroup(" << gname
+	     << "," << f << "-" << l << ")\n");
+	char buf[MAXGROUPNAMELEN + 64];
+	string resp, line;
+	artnum_t i;
+
+	selectgroup(gname);
+	if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
+		throw ResponseError("listgroup", "211", "not supported");
+	if (whole)
+		snprintf(buf, sizeof(buf), "listgroup %s\r\n", gname);
+	else
+		snprintf(buf, sizeof(buf), "listgroup %s %llu-%llu\r\n", gname,
+			 (unsigned long long) f, (unsigned long long) l);
+	resp = issue(buf, NULL);
+	if (!NNTP_ISCODE(resp.c_str(), "211")) {
+		string c(buf), e("211");
+		throw ResponseError(c, e, resp);
+	}
+	for (;;) {
+		nlreadline(*_pServerStream, line);
+		if (line == ".\r\n")
+			break;
+		if (!_pServerStream->good())
+			throw SystemError("error while reading from server",
+					  errno, ERROR_LOCATION);
+		// read to the end even when the client has gone, the
+		// connection to the news server stays in use
+		i = leading_artnum(line.data());
+		if (i && f <= i && i <= l && os.good())
+			os << i << "\r\n";
 	}
 }
 
@@ -871,8 +913,11 @@ void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
 			throw NoSuchGroupError("no such group",
 					       ERROR_LOCATION);
 		}
-		if (NNTP_ISCODE(p, "420"))
-			throw ResponseError(buf, "224", resp);
+		// No articles in the range: 423 (RFC 3977), 420 (RFC 2980).
+		// NewsCache asks for ranges that may be empty, this is no
+		// reason to try XOVER instead of OVER, or to give up.
+		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
+			return;
 		if (fmt[0] == 'o')
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else

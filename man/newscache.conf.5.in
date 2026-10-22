@@ -279,7 +279,7 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 .IP "GroupTimeout \fIseconds\fR"
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
-The default value is 600 seconds.
+The default value is 600 seconds. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
 .IP "TLSCAFile \fIfile\fR"
 A PEM file with the CA certificates to verify this server's TLS certificate against, for servers with a private CA. Without it, NewsCache uses the system's trust store.
 .IP "BindFrom \fIaddress\fR"

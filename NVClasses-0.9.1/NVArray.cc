@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 
 using namespace std;
 
@@ -36,8 +37,34 @@ void NVArray::sclear(void)
 		return;
 	n = arrlst - arrfst + 1;
 	for (i = 0; i < n; i++)
-		if (arrtab[i])
+		if (arrtab[i]) {
 			nvfree(arrtab[i]);
+			// (left set, a later ssetsize copied the freed blocks)
+			arrtab[i] = 0;
+		}
+}
+
+/*
+ * The bytes after the table in the table's memory block: the extra
+ * bytes of ssetsize, plus whatever the allocator rounded up. NULL if
+ * there is no table.
+ */
+char *NVArray::sextra(size_t *sz)
+{
+	nvoff_t adata = getdata();
+	size_t blk, used;
+
+	*sz = 0;
+	if (adata == 0 || arrfst > arrlst)
+		return NULL;
+	// nvalloc stores the block size (header included) just before it
+	blk = *(unsigned long *) (mem_p + adata - sizeof(unsigned long)) -
+	    sizeof(unsigned long);
+	used = (arrlst - arrfst + 1 + 2) * sizeof(unsigned long);
+	if (blk <= used)
+		return NULL;
+	*sz = blk - used;
+	return mem_p + adata + used;
 }
 
 void NVArray::sset(unsigned long i, const char *data, size_t szdata)
@@ -147,13 +174,16 @@ void NVArray::open(const char *dbname, int flags)
 	NVcontainer::open(dbname, flags);
 }
 
-void NVArray::ssetsize(unsigned long fst, unsigned long lst)
+void NVArray::ssetsize(unsigned long fst, unsigned long lst, size_t extra)
 {
 	nvoff_t *ndata;
 	nvoff_t p, q;
 	unsigned long i, n;
 
-	p = nvalloc((lst - fst + 1 + 2) * sizeof(unsigned long));
+	p = nvalloc((lst - fst + 1 + 2) * sizeof(unsigned long) + extra);
+	if (extra)
+		memset(mem_p + p + (lst - fst + 1 + 2) * sizeof(unsigned long),
+		       0, extra);
 	q = getdata();
 	ndata = (nvoff_t *) (mem_p + p);
 	ndata[0] = fst;

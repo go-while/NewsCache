@@ -202,6 +202,9 @@ combination with NewsCache. Tested news servers are: INN, Microsoft's
 News server, AMU News under VMS. In fact NewsCache should work with
 every News Server that supports the @code{list}, @code{group},
 @code{listgroup}, @code{[x]over}, @code{article} commands.
+@code{listgroup} is sent with a range (@code{listgroup group 1-500},
+RFC 3977); if the server refuses it, NewsCache does without
+@code{listgroup}, as with @code{Commands not-listgroup}.
 
 @c *** 
 @c *** General Options
@@ -469,7 +472,9 @@ newsgroups will be sent to that news server.
 @item GroupTimeout
 @cdindex GroupTimeout
 after that amount of seconds the newsgroup's active database is
-requested anew.
+requested anew, and the overview records of a part of the group that a
+client reads again are compared with the news server anew (see
+@ref{Large Newsgroups}).
 @item User
 @cdindex User
 @cindex authentication
@@ -491,7 +496,10 @@ Wait the specfied amount of seconds before trying to reconnect to an
 upstream server again after a refused connection attempt.
 @item LimitGroupSize
 @cdindex LimitGroupSize
-Limits the maximum size of a group.
+Limits the maximum size of a group: clients see only the newest
+articles, that many article numbers. 0 (the default) means no limit.
+NewsCache doesn't need it for large groups any more (see @ref{Large
+Newsgroups}).
 @item Options
 @cdindex Options
 gives one or more of the following options: @code{not-offline}---contact
@@ -512,6 +520,35 @@ such a news server, you might want to specify @code{not-over} here.
 The configuration of the news server(s) depends on your application
 domain. The following sections present and discuss different
 NewsCache-configurations.
+
+@anchor{Large Newsgroups}
+@section Large Newsgroups
+
+@cindex large newsgroups
+@cindex binary newsgroups
+NewsCache asks its news server only for the article numbers a client
+asks for, in steps of 10000 numbers: a client that reads the newest 500
+headers of a group makes NewsCache fetch the overview records of the
+10000 numbers around them (@code{LISTGROUP group first-last}, RFC 3977,
+and @code{OVER} or @code{XOVER} for the records it doesn't have yet),
+not the whole group. Each such step is compared with the news server
+again only after the server's @code{GroupTimeout}; within that time only
+newer articles are fetched. Articles the news server no longer lists
+are removed from the spool then. (Up to version 1.3.21, the first
+@code{XOVER} on a group fetched the list of the whole group, and the
+spool kept an index with 8 bytes for every article number from the
+group's first to its last: 57 GB for a binary group with numbers from
+60000000000 to 67486767815.)
+
+The spool's index of a group covers at most the newest 10000000
+article numbers that clients have read (80 MB). Articles further back
+are still served, but passed through from the news server without
+being cached. @code{LISTGROUP} passes the news server's list on as it
+arrives.
+
+The group database (@file{.db}) never shrinks. A spool written by an
+older version may hold a large one; remove the group's directory to get
+the space back, NewsCache fetches what clients ask for again.
 
 @section Reducing the Load of a News Server
 
