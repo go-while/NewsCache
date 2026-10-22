@@ -7,7 +7,6 @@ New functions:
   headers of the articles in the spool; for other headers of articles
   that are only in the overview, nothing matches. XPAT is in HELP and in
   LIST EXTENSIONS ("pat").
-New functions:
 * The prefetch file of updatenews takes wildmat patterns: a line like
   "de.*" or "comp.lang.[cg]o" prefetches every matching group of the
   active list, and a line "!pattern" (or "!group") leaves the matching
@@ -15,7 +14,6 @@ New functions:
   as before, even for groups the active list doesn't have. Empty lines and
   lines starting with # are skipped, and each group is prefetched once.
   A line starting with ! used to be ignored; it now excludes.
-
 
 Bug fixes:
 * Articles bigger than about 15 KB, which NewsCache stores in their own
@@ -242,6 +240,11 @@ Other changes:
   PACKAGE_VERSION and the like now, and configure --help names the issue
   tracker. Autoconf 2.69 or later is needed. Packagers who patch
   configure.in or refer to NewsCache.texinfo need to follow the renames.
+* The release tarball has the notes in doc/ again (newscache-pam.txt,
+  newscache-stunnel-ssl.txt, ...), which README.md points to, and the NNTP
+  specifications there. doc/Makefile.am had no backslash after
+  "EXTRA_DIST =", so its list was ignored, and it named two drafts that
+  were no longer in the tree.
 
 Release 1.3.21:
 Billy G. - 2026-10-20
