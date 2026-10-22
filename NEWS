@@ -283,6 +283,14 @@ Bug fixes:
   until the session ended; other commands failed with the 480. NewsCache
   logged in only when it connected. It now logs in again (with the
   server's User and Password) and sends the command once more.
+* The password of the upstream news server was written to the log:
+  every command to the server is logged at level info ("RServer::issue:
+  issue ..."), "authinfo pass <password>" too. With syslog that is the
+  news facility, which Debian's default rsyslog also writes to
+  /var/log/syslog (readable by group adm), and the systemd journal; with
+  --without-syslog, newscache.log. AUTHINFO to the server is now logged
+  without its arguments, as the client's AUTHINFO already was. Check old
+  logs, and change the password if they were readable by others.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
