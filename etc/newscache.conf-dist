@@ -120,12 +120,16 @@ Admin tom@infosys.tuwien.ac.at
 #       a client may only read or post if a Client entry for its address or
 #       network (CIDR), or an entry with Authentication (login), allows it.
 #       Inetd mode (newscache -i) needs an entry for the client "stdin".
-#       Login example: anyone may connect, but must log in first:
+#       Login example: anyone may connect, but must log in first. The
+#       entry allows only the login itself; the rights come from the user
+#       file (user:hash:list:read:postto:allow, e.g. alice:$6$...:*:*:*:read,post).
+#       With "allow read post" instead, the login would be optional and
+#       clients that don't log in could read and post too.
 #         Default {
-#           allow read post
-#           List *
-#           Read *
-#           PostTo *
+#           allow authentication
+#           List !*
+#           Read !*
+#           PostTo !*
 #           Authentication file:/etc/newscache.users
 #         }
 #

@@ -1428,7 +1428,7 @@ int ns_date(ClientData * clt, int argc, char *argv[])
 	char buf[256];
 
 	if (argc != 1) {
-		(*clt->co) << "501 Syntax: group Newsgroup\r\n";
+		(*clt->co) << "501 Syntax: date\r\n";
 		return -1;
 	}
 	time(&conv);

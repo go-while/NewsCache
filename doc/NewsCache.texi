@@ -856,12 +856,56 @@ comp.ai.alife 0000010191 0000010141 y
 @chapter Access Control 
 
 @cindex access control
-Access Control is implemented using libwrap (the same mechanism as used
-by @code{tcpd}). However, NewsCache has to be compiled with libwrap
-(This is done automatically, if it is found on your system). libwrap
-allows to sepcify hosts that are allowed or denied from accessing
-NewsCache in @code{/etc/hosts.allow} or @code{/etc/hosts.deny}. The
-service name is @code{NewsCache}. 
+@cdindex AccessList
+Which clients may connect, and what they may do, is set in the
+@code{AccessList} of the configuration file. Nothing is allowed by
+default: a client gets @samp{502 You have no permission to talk} unless
+an entry allows it. Each @code{Client} entry names an address, a
+network (@samp{192.0.2.0/24}, @samp{2001:db8::/32}), a host or domain
+name, or @samp{stdin} for @code{newscache -i}; the @code{Default} entry
+applies to every other client. NewsCache uses the most specific entry
+that matches.
+
+An entry gives rights (@code{allow read post debug}, or
+@code{allow authentication} for a login only), the groups the client
+sees (@code{List}), reads (@code{Read}) and posts to (@code{PostTo}),
+and how a client logs in (@code{Authentication none},
+@code{file:@var{path}}, @code{unix}, @code{pam} or @code{pam+file}).
+A login adds the rights and groups of the user's line to those of the
+entry.
+
+@example
+AccessList @{
+  Client 192.0.2.0/24 @{
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  @}
+  Default @{
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    Authentication file:/etc/newscache.users
+  @}
+@}
+@end example
+
+Here the local network may read and post without a login; everybody
+else must log in first and gets the rights of the line in
+@file{/etc/newscache.users} (@samp{user:hash:list:read:postto:allow}).
+The full syntax is in @code{newscache.conf(5)}, section ``AccessSpec
+Configuration Options'', and the annotated sample configuration
+@file{newscache.conf-dist}.
+
+@cindex libwrap
+In addition, if NewsCache was compiled with libwrap (the same mechanism
+as used by @code{tcpd}; this is done automatically if it is found on
+your system), hosts can be allowed or denied in
+@code{/etc/hosts.allow} or @code{/etc/hosts.deny}. The service name is
+@code{NewsCache}.
 
 If users from @code{news.tuwien.ac.at} and the domain
 @code{bad.guy.com} should be blocked from accessing NewsCache, the

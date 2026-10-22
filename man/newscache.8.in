@@ -44,12 +44,18 @@ Show version of program.
 Print what newscache thinks is the fully qualified domain name.
 .TP
 .B \-c \-\-configuration config-file
+Read config-file instead of
+.IR @SYSCONFDIR@/newscache.conf .
 .TP
 .B \-i \-\-inetd
 newscache is used with inetd and read from stdin.
 .TP
 .B \-d \-\-debug
-Do not detach.
+Do not detach: stay in the foreground (the same as \-n).
+.TP
+.B \-n \-\-no\-fork
+Do not fork into the background, as for systemd (Type=simple) or a
+container; the same as \-d.
 .TP
 .B \-p \-\-print-parameter
 Print current parameter settings. Upstream server passwords are not shown;

@@ -22,8 +22,9 @@ New functions:
   and a range without articles 423.
 * Articles by message-ID from the spool, with the new option
   "History on" (off by default: then NewsCache behaves as before). It
-  keeps a history of the articles in its spool (the directory .history in the spool, 16 files
-  keyed by the MD5 hash of the Message-ID, like go-pugleaf's and INN's
+  keeps a history of the articles in its spool (the directory .history in
+  the spool, 16 files keyed by the MD5 hash of the Message-ID, like
+  go-pugleaf's and INN's
   history), and ARTICLE, HEAD, BODY and STAT <message-id>, and the
   message-ID forms of XHDR, XPAT and HDR, serve an article from there. An
   article the spool knows only from its overview record is fetched by
@@ -97,6 +98,8 @@ Bug fixes:
   deleted.
   A number with trailing characters ("ARTICLE 12x") or one that doesn't
   fit in 64 bits now gets 501; atoi read the leading digits or overflowed.
+  On 32-bit systems the spool can't index numbers above 4294967295; such
+  articles are passed through from the upstream server without caching.
 * STAT with the number of an article that doesn't exist (a gap in the
   group, or past its last article) answered "223 <number>  status",
   without a Message-ID, instead of 423. And a successful STAT <number>
@@ -185,10 +188,9 @@ Bug fixes:
 * The PostTo check split the Newsgroups header wrongly: with three or more
   groups a name was checked with the following ones appended, which
   matched only if PostTo listed the same groups in the same order, and
-  the space after a comma was kept, so such posts were refused. A refused group now gets 441 once the client is logged in
-  (or can't log in), not 480.
-  On 32-bit systems the spool can't index numbers above 4294967295; such
-  articles are passed through from the upstream server without caching.
+  the space after a comma was kept, so such posts were refused. A refused
+  group now gets 441 once the client is logged in (or can't log in), not
+  480.
 * The first XOVER (or XHDR, LISTGROUP, STAT, NEXT, LAST) on a group made
   NewsCache synchronize the whole group, whatever range the client asked
   for: a LISTGROUP of the whole group from the upstream server, the
@@ -246,6 +248,8 @@ Bug fixes:
   service name, a number or #number, and is ignored (with a log line)
   when ListenTo is set; newscache -p no longer adds a ListenTo line that
   would hide it.
+* DATE with an argument answered "501 Syntax: group Newsgroup"; it now
+  gives DATE's own syntax.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
@@ -298,6 +302,14 @@ Other changes:
   specifications there. doc/Makefile.am had no backslash after
   "EXTRA_DIST =", so its list was ignored, and it named two drafts that
   were no longer in the tree.
+* Documentation: the manual's chapter "Access Control" described only
+  libwrap; it now explains the AccessList (nothing is allowed by default,
+  Client and Default entries, rights, groups, logins) with an example.
+  The login example in newscache.conf-dist made the login optional
+  ("allow read post"); it now uses "allow authentication" with the rights
+  in the user file, as FEDORA.md does. debian/README.Debian still said an
+  auth-file line needs the list field. newscache(8) lacked -n and what -c
+  does.
 
 Release 1.3.21:
 Billy G. - 2026-10-20
