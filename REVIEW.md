@@ -105,6 +105,7 @@ CI, not yet by the systematic review.
 | autoconf/automake warnings (21 with Fedora 45): `configure.in` instead of `configure.ac`, obsolete macros, `INCLUDES`, two-argument `AM_INIT_AUTOMAKE`, `.texinfo` suffix | 14 | build | #51 |
 | `doc/Makefile.am`: `EXTRA_DIST =` without a backslash, so the notes in `doc/` (which README.md points to) and the RFC texts were never in the tarball; it named two drafts no longer in the tree | 0, 14 | review #51 | #53 |
 | CAPABILITIES listed READER, POST and AUTHINFO USER regardless of the client's rights and login, and no OVER or HDR; there was no HDR (RFC 3977) | 1, 2 | review #39 | #54 |
+| `XPAT header <message-id>` didn't check the Read list (#39 came before the check of #50); XHDR had no message-ID form | 2, 4 | review | #55 |
 
 ## Open points
 

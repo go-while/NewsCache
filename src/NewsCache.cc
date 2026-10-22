@@ -225,7 +225,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	,
 	{"xdebug", "help", ns_xdebug}
 	,
-	{"xhdr", "header [range]", ns_xover}
+	{"xhdr", "header [range|<id>]", ns_xover}
 	,
 	{"xover", "[range]", ns_xover}
 	,
@@ -977,6 +977,36 @@ static int may_read_article(ClientData * clt, const Article & a)
 	for (std::vector<std::string>::size_type i = 0; i < groups.size(); i++)
 		if (clt->access_entry->read.matches(groups[i].c_str()) > 0)
 			return 1;
+	return 0;
+}
+
+/*
+ * Fetches the article with message-ID id for XHDR, XPAT and HDR, and
+ * checks that the client may read it. Returns 0, or -1 after an error
+ * reply (430, the news server's error, 503, or 480/502).
+ */
+static int fetch_readable(ClientData * clt, const char *id, Article & a)
+{
+	try {
+		clt->srvr->article(id, &a);
+	}
+	catch(const NoSuchArticleError & nsae) {
+		(*clt->co) << "430 no such article id found\r\n";
+		return -1;
+	}
+	catch(const ResponseError & e) {
+		(*clt->co) << e._got << "\r\n";
+		return -1;
+	}
+	catch(const Error & e) {
+		(*clt->co) << "503 operation failed\r\n";
+		e.print();
+		return -1;
+	}
+	if (!may_read_article(clt, a)) {
+		access_denied(clt);
+		return -1;
+	}
 	return 0;
 }
 
@@ -2025,12 +2055,33 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 	int i = 1;
 	artnum_t fst, lst;
 
+	if (strcmp(argv[0], "xhdr") == 0) {
+		i = 2;
+		if (argc < 2) {
+			(*clt->co) << "501 Syntax: xhdr header [range|<id>]\r\n";
+			return -1;
+		}
+		// XHDR header <message-id> (RFC 2980 2.6): needs no group
+		if (argc == 3 && argv[2][0] == '<') {
+			Article a;
+			if (fetch_readable(clt, argv[2], a) < 0)
+				return -1;
+			string val;
+			try {
+				val = a.getfield(Newsgroup::headerfield(argv[1]).
+						 c_str(), 0);
+			}
+			catch(const NoSuchFieldError & nsfe) {
+				val = "(none)";
+			}
+			(*clt->co) << "221 " << argv[1] << " header follows\r\n"
+			    << argv[2] << " " << val << "\r\n.\r\n";
+			return 0;
+		}
+	}
 	if (clt->groupname[0] == '\0') {
 		(*clt->co) << "412 No newsgroup currently selected\r\n";
 		return -1;
-	}
-	if (strcmp(argv[0], "xhdr") == 0) {
-		i = 2;
 	}
 	switch (argc - i) {
 	case 0:
@@ -2087,22 +2138,9 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 
 	if (argv[2][0] == '<') {
 		Article a;
-		try {
-			clt->srvr->article(argv[2], &a);
-		}
-		catch(const NoSuchArticleError & nsae) {
-			(*clt->co) << "430 no such article id found\r\n";
+		// (this didn't check the Read list: any article's header)
+		if (fetch_readable(clt, argv[2], a) < 0)
 			return -1;
-		}
-		catch(const ResponseError & e) {
-			(*clt->co) << e._got << "\r\n";
-			return -1;
-		}
-		catch(const Error & e) {
-			(*clt->co) << "503 operation failed\r\n";
-			e.print();
-			return -1;
-		}
 		(*clt->co) << "221 " << argv[1] << " matches follow\r\n";
 		try {
 			string fld =
@@ -2190,26 +2228,8 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 	if (argc == 3 && argv[2][0] == '<') {
 		Article a;
 		string val;
-		try {
-			clt->srvr->article(argv[2], &a);
-		}
-		catch(const NoSuchArticleError & nsae) {
-			(*clt->co) << "430 no such article id found\r\n";
+		if (fetch_readable(clt, argv[2], a) < 0)
 			return -1;
-		}
-		catch(const ResponseError & e) {
-			(*clt->co) << e._got << "\r\n";
-			return -1;
-		}
-		catch(const Error & e) {
-			(*clt->co) << "503 operation failed\r\n";
-			e.print();
-			return -1;
-		}
-		if (!may_read_article(clt, a)) {
-			access_denied(clt);
-			return -1;
-		}
 		if (strcasecmp(argv[1], ":bytes") == 0) {
 			val = a.getfield("bytes:");
 		} else if (argv[1][0] == ':') {
