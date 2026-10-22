@@ -372,7 +372,7 @@ void apply_all(int n, const vector < const Op *>&ops)
 	}
 }
 
-void queue(bool add, const char *msgid, const char *group, artnum_t nbr)
+void queue_op(bool add, const char *msgid, const char *group, artnum_t nbr)
 {
 	if (spool.empty() || !msgid || !group || !valid_msgid(msgid) ||
 	    !valid_group(group))
@@ -440,7 +440,7 @@ bool History::enabled(void)
 
 void History::add(const char *msgid, const char *group, artnum_t nbr)
 {
-	queue(true, msgid, group, nbr);
+	queue_op(true, msgid, group, nbr);
 }
 
 void History::note(const char *msgid, const char *group, artnum_t nbr)
@@ -458,7 +458,7 @@ void History::note(const char *msgid, const char *group, artnum_t nbr)
 
 void History::remove(const char *msgid, const char *group)
 {
-	queue(false, msgid, group, 0);
+	queue_op(false, msgid, group, 0);
 }
 
 void History::begin(void)
