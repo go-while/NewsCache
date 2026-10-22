@@ -119,7 +119,6 @@ yet; see "Letting clients in" below:
 ConfigVersion 5
 ServerType standalone
 ListenTo DEFAULT
-PidFile /run/newscache.pid
 Username news
 Groupname news
 Admin root@localhost
@@ -318,7 +317,6 @@ The test systems had no SELinux enforcement, so SELinux was not tested.
 
 ## Known issues
 
-- `/run/newscache.pid` is not removed when the daemon stops.
 - The compiler warnings include `-Wformat-overflow` (15),
   `-Wstringop-overread` (9) and `-Wexceptions` (1). They haven't been checked
   yet.

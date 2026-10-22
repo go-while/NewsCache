@@ -137,6 +137,15 @@ Bug fixes:
   where the host has no IPv6. IPv4 clients are still logged, matched
   against Client entries and named in NNTP-Posting-Host by their plain
   IPv4 address. To listen on IPv4 only, use "ListenTo 0.0.0.0".
+* The pid file (PidFile) was never removed: after the daemon stopped, it
+  still held the old pid. newscache now removes it when it stops on
+  SIGTERM or SIGINT, if it still holds its own pid. The file is written as
+  root, before the switch to Username, so removing it needs a directory
+  that Username can write to (e.g. /run/newscache owned by news); in /run
+  itself the file is emptied instead. The configs for systemd (Debian
+  package, FEDORA.md) and the container no longer set a PidFile, since the
+  service manager knows the pid; without PidFile no file is written and
+  nothing is logged (it used to warn "cannot open pid file").
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

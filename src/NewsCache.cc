@@ -47,6 +47,8 @@
 #endif
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <time.h>
 #include <limits.h>
 
@@ -320,6 +322,73 @@ bool reReadConfig;
 
 sig_atomic_t Xsignal;
 int nntp_connections;
+
+/* The pid file this daemon wrote, kept open so it can be emptied when the
+ * daemon can't remove it any more (see remove_pid_file). */
+static char pid_file[MAXPATHLEN];
+static int pid_file_fd = -1;
+
+/*
+ * Writes our pid to Cfg.PidFile, unless PidFile is empty. Runs before
+ * setugid, so a root-only directory such as /run works.
+ */
+static void write_pid_file(void)
+{
+	char buf[32];
+	int len;
+
+	if (Cfg.PidFile[0] == '\0')
+		return;
+	pid_file_fd = open(Cfg.PidFile, O_RDWR | O_CREAT | O_TRUNC, 0644);
+	len = snprintf(buf, sizeof(buf), "%ld\n", (long) getpid());
+	if (pid_file_fd < 0 || write(pid_file_fd, buf, len) != len) {
+		slog.p(Logger::Warning) << "cannot write pid file "
+		    << Cfg.PidFile << ": " << strerror(errno) << "\n";
+		if (pid_file_fd >= 0)
+			close(pid_file_fd);
+		pid_file_fd = -1;
+		return;
+	}
+	fcntl(pid_file_fd, F_SETFD, FD_CLOEXEC);
+	snprintf(pid_file, sizeof(pid_file), "%s", Cfg.PidFile);
+}
+
+/*
+ * Removes the pid file when the daemon stops, if it is still ours (same
+ * file, our pid). After setugid, removing it needs a directory writable for
+ * Username; where that fails (PidFile /run/newscache.pid), the file is
+ * emptied, so no stale pid stays in it.
+ */
+static void remove_pid_file(void)
+{
+	struct stat fst, pst;
+	char buf[32], own[32];
+	ssize_t n;
+
+	if (pid_file_fd < 0)
+		return;
+	snprintf(own, sizeof(own), "%ld\n", (long) getpid());
+	n = pread(pid_file_fd, buf, sizeof(buf) - 1, 0);
+	if (n < 0)
+		n = 0;
+	buf[n] = '\0';
+	if (fstat(pid_file_fd, &fst) == 0 && stat(pid_file, &pst) == 0 &&
+	    fst.st_dev == pst.st_dev && fst.st_ino == pst.st_ino &&
+	    strcmp(buf, own) == 0) {
+		if (unlink(pid_file) < 0) {
+			int err = errno;
+			if (ftruncate(pid_file_fd, 0) == 0)
+				slog.p(Logger::Notice) << "emptied pid file "
+				    << pid_file << ", cannot remove it: "
+				    << strerror(err) << "\n";
+			else
+				slog.p(Logger::Warning) << "cannot remove pid file "
+				    << pid_file << ": " << strerror(err) << "\n";
+		}
+	}
+	close(pid_file_fd);
+	pid_file_fd = -1;
+}
 
 enum {
 	AUTH_REQUIRED,
@@ -2519,14 +2588,7 @@ void nntpd()
 		exit(1);
 	}
 
-	{			/* store pid in Cfg.PidFile */
-		ofstream pid(Cfg.PidFile);
-		pid << getpid() << endl;
-		if (!pid.good()) {
-			slog.
-			    p(Logger::Warning) << "cannot open pid file\n";
-		}
-	}
+	write_pid_file();
 
 	setugid(Cfg.Username, Cfg.Groupname);
 	listen(sock, 4);
@@ -2559,6 +2621,9 @@ void nntpd()
 			clt_fd = accept(sock, NULL, NULL);
 			if (Xsignal != -1) {
 				close(sock);
+				remove_pid_file();
+				slog.p(Logger::Notice) << "NewsCache Server Stop "
+				    "(signal " << (int) Xsignal << ")\n";
 				exit(0);
 			}
 		} while (errno == EINTR);
@@ -2588,6 +2653,10 @@ void nntpd()
 			if (clt_pid == 0) {
 				// child
 				close(sock);
+				if (pid_file_fd >= 0) {
+					close(pid_file_fd);
+					pid_file_fd = -1;
+				}
 
 				try {
 					nnrpd(clt_fd);

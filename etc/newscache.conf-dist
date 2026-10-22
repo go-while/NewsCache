@@ -15,7 +15,9 @@ ConfigVersion 5
 ServerType standalone
 
 # If you are running in standalone mode, you should specify the
-# location of the pid file.
+# location of the pid file (not needed under systemd). NewsCache
+# removes it when it stops; for that, its directory must be writable
+# for Username, otherwise the file is only emptied.
 PidFile /var/run/newscache.pid
 
 # The Address, where NewsCache is listening, if running in

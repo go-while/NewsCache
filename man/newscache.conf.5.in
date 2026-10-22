@@ -65,7 +65,15 @@ NewsCache is frequently accessed. The default value is standalone.
 .I "PidFile filename"
 On startup NewsCache will write its PID to the given file. This can
 then be used by system scripts to gracefully stop NewsCache by sending
-a SIGTERM to the parent process. No default value.
+a SIGTERM to the parent process. No default value: without PidFile,
+no pid file is written. NewsCache writes the file before it switches
+to
+.IR Username ,
+and removes it when it stops (SIGTERM, SIGINT); for that, the
+directory must be writable for
+.IR Username ,
+for example /run/newscache owned by news. Where it isn't, as in /run,
+the file is only emptied. Under systemd no pid file is needed.
 .TP
 .I "Username username"
 Change the user id to username as soon as NewsCache has bound to
