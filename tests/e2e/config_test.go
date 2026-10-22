@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -356,4 +357,63 @@ func truncate(s string, n int) string {
 		return s[:n] + "..."
 	}
 	return s
+}
+
+// TestSpoolDirectoryTooLong: a SpoolDirectory that leaves no room for the
+// longest group name (MAXPATHLEN - 512 - 16 characters) is a config error.
+// It used to pass the config check and end each session with an uncaught
+// AssertionError ("terminate called after throwing an instance of
+// 'AssertionError'").
+func TestSpoolDirectoryTooLong(t *testing.T) {
+	maxPath := 1024 // macOS, FreeBSD
+	if runtime.GOOS == "linux" {
+		maxPath = 4096
+	}
+	limit := maxPath - 512 - 16
+
+	t.Run("at the limit", func(t *testing.T) {
+		e := newEnv(t)
+		e.Spool = dirOfLength(t, e.Dir, limit)
+		ids := e.addArticles("misc.test", 1)
+		c := e.session()
+		if code, line := c.Cmd("GROUP misc.test"); code != 211 {
+			t.Fatalf("GROUP with a %d-character SpoolDirectory: %q", limit, line)
+		}
+		if code, line := c.Cmd("STAT 1"); code != 223 || !strings.Contains(line, ids[0]) {
+			t.Errorf("STAT 1: %q", line)
+		}
+	})
+	t.Run("one more", func(t *testing.T) {
+		e := newEnv(t)
+		e.Spool = dirOfLength(t, e.Dir, limit+1)
+		e.writeConf()
+		out, err := exec.Command(e.Bin, "-c", e.Conf, "-i").CombinedOutput()
+		ee, ok := err.(*exec.ExitError)
+		if !ok || ee.ExitCode() != 2 || !strings.Contains(string(out), "SpoolDirectory too long") {
+			t.Errorf("SpoolDirectory of %d characters: %v, output %q; want exit status 2 and \"SpoolDirectory too long\"",
+				limit+1, err, out)
+		}
+	})
+}
+
+// dirOfLength creates a directory under base whose path is exactly n
+// characters long.
+func dirOfLength(t *testing.T, base string, n int) string {
+	t.Helper()
+	p := base
+	for rem := n - len(base); rem > 0; {
+		k := min(rem, 201)
+		if rem-k == 1 {
+			k--
+		}
+		p += "/" + strings.Repeat("s", k-1)
+		rem -= k
+	}
+	if len(p) != n {
+		t.Fatalf("dirOfLength: base %q is too long for %d", base, n)
+	}
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
