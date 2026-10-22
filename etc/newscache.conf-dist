@@ -294,6 +294,10 @@ NewsServerList {
 # Disconnect idle client connections after 10 minutes
 ClientTimeout 600
 
+# After a failed login, wait this many seconds before answering, times
+# the number of failed logins in the connection (default 15)
+# AuthFailureDelay 15
+
 # Do not allow more than 16 simultaneous connections
 # This switch works only in standalone mode
 MaxConnections 16

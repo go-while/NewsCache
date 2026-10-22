@@ -372,7 +372,7 @@ class ClientData {
 		: client_logname(""),
 		  grp(NULL), nbr(0),
 		  access_entry(NULL), auth_state(AUTH_OK), auth_failures(0),
-		  auth_max_failures(3), auth_failure_sleep_time(15),
+		  auth_max_failures(3), auth_failure_sleep_time(Cfg.AuthFailureDelay),
 		  stat_groups(0), stat_artingrp(0), stat_articles(0)
 	{
 		auth_user[0] = auth_pass[0] = '\0';

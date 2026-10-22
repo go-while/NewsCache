@@ -311,6 +311,18 @@ Timeouts 300 86400
 ClientTimeout 900
 @end example
 
+@cdindex AuthFailureDelay
+After a failed login (@code{AUTHINFO PASS} with a wrong user name or
+password), NewsCache waits before it answers: @code{AuthFailureDelay}
+seconds after the first failure, twice that after the second, and so on
+within the same connection; after the third failure it closes the
+connection. This slows down password guessing. The default is 15
+seconds; 0 answers at once, the maximum is 3600.
+
+@example
+AuthFailureDelay 5
+@end example
+
 @cdindex SpoolDirectory
 @cdindex SpoolSize
 @cdindex NewsCacheClean

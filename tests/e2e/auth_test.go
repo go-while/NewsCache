@@ -138,20 +138,39 @@ func TestAuthFileCryptHash(t *testing.T) {
 	}
 }
 
-// TestAuthFileWrongPassword: a wrong password is refused. NewsCache waits
-// 15 s per failed attempt before it answers, so this test is slow.
+// TestAuthFileWrongPassword: a wrong password is refused. AuthFailureDelay 0
+// skips the delay before the answer (15 s by default).
 func TestAuthFileWrongPassword(t *testing.T) {
-	if testing.Short() {
-		t.Skip("waits 15 s for the auth failure delay")
-	}
-	t.Parallel()
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
 	c := e.session()
-	c.Deadline = 30 * time.Second
 	c.Cmd("AUTHINFO USER tester")
 	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
 		t.Fatalf("AUTHINFO PASS wrong: %q, want 502", line)
 	}
+}
+
+// TestAuthFailureDelay: after a failed login NewsCache waits AuthFailureDelay
+// seconds times the number of failures before it answers; a later correct
+// password still logs in. The delay was a fixed 15 seconds.
+func TestAuthFailureDelay(t *testing.T) {
+	t.Parallel()
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 1"
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	for n := 1; n <= 2; n++ {
+		c.Cmd("AUTHINFO USER tester")
+		start := time.Now()
+		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
+			t.Fatalf("failure %d: AUTHINFO PASS wrong: %q, want 502", n, line)
+		}
+		want := time.Duration(n) * time.Second
+		if d := time.Since(start); d < want || d > want+5*time.Second {
+			t.Errorf("failure %d: answered after %v, want about %v", n, d.Round(time.Millisecond), want)
+		}
+	}
+	login(t, c)
 }
 
 // TestLoginOnlyEntry: an entry with "allow authentication" and nothing

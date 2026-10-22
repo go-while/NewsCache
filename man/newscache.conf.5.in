@@ -97,6 +97,9 @@ The default values are 3600 seconds for both parameter.
 .I "ClientTimeout t"
 Terminate the connection after t seconds inactivity. The default value is 1200 seconds.
 .TP
+.I "AuthFailureDelay seconds"
+After a failed login (AUTHINFO PASS), wait this many seconds before answering, multiplied by the number of failed logins in the connection (15, 30 and 45 with the default; after the third failure the connection is closed). This slows down password guessing. The default is 15 seconds; 0 answers at once, the maximum is 3600.
+.TP
 .I "MaxConnections number"
 Maximal number of simultanous connections. This Parameter works only in standalone mode. The default number is 32.
 .TP
