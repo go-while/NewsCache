@@ -112,6 +112,22 @@ CI, not yet by the systematic review.
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
+- **Corrupt spool databases** (areas 9, 11, 13). Herbert Straub's note
+  `doc/newscache-corrupt-db-files.txt` (2004) lists open items; checked
+  2026-10-22:
+  - A `.db` that fails NVcontainer's sanity checks is renamed to
+    `.db.bad` and an Error is thrown. newscacheclean catches it with
+    `NC_CATCH_ALL`, which logs and rethrows, so the run ends with SIGABRT
+    at that group (the next run gets past it, the file is renamed). Its
+    `NVNewsgroup *ng` is uninitialized on that path too.
+  - `NVArray::nvalloc`/`nvfree` kill the process with SIGABRT on an
+    "illegal memory block".
+  - For local newsgroups, renaming the database to `.bad` loses their
+    articles ("no solution", the note says).
+  - The rename itself is logged as an error now; the note's complaint
+    that it is only logged with `--enable-debug` no longer holds.
+  Needs a test with a damaged `.db` (and a damaged `.active64`) for
+  sessions, newscacheclean and updatenews.
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see
   `TestArticleByMessageIDGoesUpstream`.
