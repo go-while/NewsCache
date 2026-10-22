@@ -93,6 +93,7 @@ CI, not yet by the systematic review.
 | An auth-file line with only `user:hash` was refused; at least `user:hash:list` was needed | 3 | review | #40 |
 | The auth failure delay was fixed at 15 seconds; now `AuthFailureDelay` | 3 | review | #41 |
 | `Authentication unix` never read `/etc/shadow` (configure's `--with-shadow=auto` default never defined `SHADOW_PASSWORD`); unix and PAM/pam_unix logins can't check local passwords as `news` and failed silently: now logged and documented, sessions keep running as `news` | 3, 14 | review | #42 |
+| `newscache -p` and `xdebug dump configuration` printed upstream passwords in plain text | 6 | review | #43 |
 
 ## Open points
 
@@ -119,9 +120,6 @@ that it stays as it is.
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
   OverviewFmt.h" (area 8).
-- **`newscache -p` prints upstream passwords** (area 6) in plain text
-  (`Password secret`). Only the admin can run it, but its output is often
-  pasted into bug reports.
 - **The spool index has a slot for every article number in a group's
   range** (area 9): 8 bytes per number from first to last, so a binary
   group with long retention needs gigabytes unless `LimitGroupSize` is set.

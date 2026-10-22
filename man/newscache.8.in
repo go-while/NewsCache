@@ -52,7 +52,9 @@ newscache is used with inetd and read from stdin.
 Do not detach.
 .TP
 .B \-p \-\-print-parameter
-Print current parameter settings.
+Print current parameter settings. Upstream server passwords are not shown;
+each one is replaced by the comment
+.IR "# Password set, not shown" .
 .TP
 .B \-o \-\-configuration-options
 Print all options specified in the configure phase.

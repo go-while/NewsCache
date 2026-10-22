@@ -464,6 +464,8 @@ option to specify the username that should be used.
 @cindex authentication
 If authentication is required by the upstream news server, use this
 option to specify the password for the above mentioned username.
+@code{newscache -p} and @code{xdebug dump configuration} don't show
+it; they print the comment @samp{# Password set, not shown} instead.
 @item ConnectTimeout
 @cdindex ConnectTimeout
 Limit the timeout for connections to upstream servers.

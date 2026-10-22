@@ -271,3 +271,57 @@ func TestAuthFailureDelayConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestPrintHidesPassword: newscache -p and "XDEBUG dump configuration"
+// printed the upstream server's Password in plain text. -p output is
+// pasted into bug reports, and XDEBUG sends it over the network. They now
+// print a comment instead, so the output read back as a config has no
+// password rather than a wrong one.
+func TestPrintHidesPassword(t *testing.T) {
+	const secret = "s3cret-upstream-pw"
+	e := newEnv(t)
+	e.ServerLines = "    User tester\n    Password " + secret
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client 127.0.0.0/8 {\n    allow read post\n", "Client 127.0.0.0/8 {\n    allow read post debug\n", 1)
+	e.writeConf()
+
+	check := func(what, out string) {
+		t.Helper()
+		if strings.Contains(out, secret) {
+			t.Errorf("%s shows the password:\n%s", what, out)
+		}
+		if !strings.Contains(out, "User tester") {
+			t.Errorf("%s lacks the User line:\n%s", what, out)
+		}
+		if !strings.Contains(out, "# Password set, not shown") {
+			t.Errorf("%s lacks the hidden-password comment:\n%s", what, out)
+		}
+	}
+
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	check("newscache -p", string(out))
+
+	e.standalone()
+	c := e.dialLenient()
+	if err := c.Send("XDEBUG dump configuration\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	var dump []string
+	for {
+		l, err := c.ReadLine()
+		if err != nil {
+			t.Fatalf("XDEBUG dump configuration: %v after %q", err, dump)
+		}
+		if l == "." {
+			break
+		}
+		dump = append(dump, l)
+	}
+	if len(dump) == 0 || !strings.HasPrefix(dump[0], "xxx configuration") {
+		t.Fatalf("XDEBUG dump configuration: %q", dump)
+	}
+	check("XDEBUG dump configuration", strings.Join(dump, "\n"))
+}
