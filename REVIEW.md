@@ -86,6 +86,7 @@ CI, not yet by the systematic review.
 | `!read`, `!post`, `!debug` in an auth allow field set every other right (`\|= ~flag`) instead of removing that one; `!post` granted debug | 3 | review #31 | #33 |
 | Compiler warnings (56 with GCC 16): dead NULL checks, catch by value, unused variables, a NULL path in the active DB's list walk, an uninitialized reply status, wait() status, signed/unsigned LimitGroupSize | 7, 9, 13 and others | compiler warnings | #34 |
 | `XOVER`/`XHDR` with a range not starting with a number used an uninitialized first number; XHDR's 221 line showed `-1` and no header name | 2 | compiler warning #34 | #35 |
+| Article numbers above 2^31 cut to 32 bits (`int`/`unsigned int`, `atoi`, `%d`) in the GROUP reply, OVER/ARTICLE requests, overview records, client commands and `newscacheclean`; binary groups are above 6*10^10 | 2, 7, 8, 9, 10, 11 | review #35 | #36 |
 
 ## Open points
 
@@ -123,6 +124,13 @@ that it stays as it is.
 - **Auth-file lines need at least `user:hash:list`** (area 3); `user:hash`
   alone is refused.
 - **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
+- **`STAT n` for a missing article answers `223 n  status`** (area 2),
+  with no Message-ID, instead of `423`. The old German comment in
+  `ns_stat` already notes it.
+- **The spool index has a slot for every article number in a group's
+  range** (area 9): 8 bytes per number from first to last, so a binary
+  group with long retention needs gigabytes unless `LimitGroupSize` is set.
+  A default limit, or a sparse index, is a decision still to make.
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see
   `TestArticleByMessageIDGoesUpstream`.

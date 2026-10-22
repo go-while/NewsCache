@@ -16,7 +16,8 @@ Bug fixes:
   ("XOVER -5", "XHDR subject -3") and used an uninitialized first article
   number for it; such ranges now get 501. For an open range ("XOVER 3-")
   the XHDR status line showed the last number as -1, and it showed no
-  header name; it now reads "221 subject header follows [3-4294967295]".
+  header name; it now reads
+  "221 subject header follows [3-18446744073709551615]".
 * The login examples added in 1.3.21 (FEDORA.md and the commented entry in
   the container config) did not require a login: with "allow read post"
   and "Authentication file:", clients that don't log in still read and
@@ -48,6 +49,24 @@ Bug fixes:
   logged-in user debug (XDEBUG, which shows the configuration), and "!post"
   didn't take away the post right of the Client entry. They now remove only
   the named right.
+* Article numbers above 2^31 were cut down to 32 bits. RFC 3977 stops at
+  2^31-1, but the big binary providers passed that long ago (alt.binaries
+  groups are above 6*10^10). The numbers went wrong in the upstream
+  server's GROUP reply, in OVER and ARTICLE requests to it, in the
+  overview records of the spool, in ARTICLE/HEAD/BODY/STAT/XOVER/XHDR and
+  in newscacheclean, so such groups showed wrong numbers or an empty
+  XOVER. Article numbers are 64-bit now.
+  The active database is now the file .active64. An existing .active is
+  converted once at the first start (each group keeps its creation time,
+  which NEWGROUPS reports) and renamed to .active.v1, which can then be
+  deleted.
+  A number with trailing characters ("ARTICLE 12x") or one that doesn't
+  fit in 64 bits now gets 501; atoi read the leading digits or overflowed.
+  On 32-bit systems the spool can't index numbers above 4294967295; groups
+  with such numbers are not cached there.
+  Note that a group's spool index has an 8-byte slot for every number from
+  its first to its last article. For binary groups with long retention,
+  set LimitGroupSize.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

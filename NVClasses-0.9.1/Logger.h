@@ -107,6 +107,10 @@ class Logger {
 	friend Logger & operator<<(Logger & l, char ch);
 	friend Logger & operator<<(Logger & l, unsigned int i);
 	friend Logger & operator<<(Logger & l, int i);
+	friend Logger & operator<<(Logger & l, unsigned long i);
+	friend Logger & operator<<(Logger & l, long i);
+	friend Logger & operator<<(Logger & l, unsigned long long i);
+	friend Logger & operator<<(Logger & l, long long i);
 };
 
 #endif

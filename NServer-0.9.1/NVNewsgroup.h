@@ -30,7 +30,7 @@
  */
 class NVNewsgroup:public Newsgroup, protected NVArray {
   protected:
-	void sprintover(std::ostream & os, unsigned int nbr);
+	void sprintover(std::ostream & os, artnum_t nbr);
 
 	enum {
 		hasarticle = 0x1,
@@ -43,8 +43,9 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 
 	// fn = <group's spool directory>/.art<nbr>. The constructor leaves
 	// room for it, so the exception can't happen in practice.
-	void artfile(char *fn, size_t size, unsigned long nbr) const {
-		if (snprintf(fn, size, "%s/.art%lu", _SpoolDirectory, nbr) >=
+	void artfile(char *fn, size_t size, artnum_t nbr) const {
+		if (snprintf(fn, size, "%s/.art%llu", _SpoolDirectory,
+			     (unsigned long long) nbr) >=
 		    (int) size)
 			throw NSError("article file name too long",
 				      ERROR_LOCATION);
@@ -77,45 +78,47 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 #ifdef ENABLE_ASSERTIONS
 	virtual void testdb(void);
 #endif
-	virtual void getsize(unsigned int *f, unsigned int *l) {
+	virtual void getsize(artnum_t *f, artnum_t *l) {
 		*f = arrfst;
 		*l = arrlst;
 	}
-	virtual void setsize(unsigned int f, unsigned int l);
-	virtual unsigned int firstnbr() {
+	virtual void setsize(artnum_t f, artnum_t l);
+	virtual artnum_t firstnbr() {
 		return arrfst;
 	}
-	virtual unsigned int lastnbr() {
+	virtual artnum_t lastnbr() {
 		return arrlst;
 	}
-	virtual int hasrecord(unsigned int i) {
-		return NVArray::has_element(i);
+	virtual int hasrecord(artnum_t i) {
+		// The spool's index is an unsigned long (32 bits on 32-bit
+		// systems); setsize refuses numbers above that.
+		return i <= ULONG_MAX && NVArray::has_element(i);
 	}
 
-	virtual Article *getarticle(unsigned int nbr);
+	virtual Article *getarticle(artnum_t nbr);
 	virtual void freearticle(Article * artp) {
 		delete artp;
 	}
 	virtual void setarticle(Article * art);
-	virtual void printarticle(std::ostream & os, unsigned int nbr);
+	virtual void printarticle(std::ostream & os, artnum_t nbr);
 	virtual void prefetchGroup(int lockgrp = 1) {
 	}
 	virtual void prefetchOverview(void) {
 	}
 
-	virtual const char *getover(unsigned int nbr);
+	virtual const char *getover(artnum_t nbr);
 	virtual void setover(const std::string & over);
-	virtual void printover(std::ostream & os, unsigned int nbr) {
+	virtual void printover(std::ostream & os, artnum_t nbr) {
 		NVArray::lock(NVcontainer::ShrdLock);
 		sprintover(os, nbr);
 		NVArray::lock(NVcontainer::UnLock);
 	}
 	virtual void readoverdb(std::istream & is);
-	virtual void printoverdb(std::ostream & os, unsigned int f =
-				 0, unsigned int l = UINT_MAX);
+	virtual void printoverdb(std::ostream & os, artnum_t f =
+				 0, artnum_t l = ARTNUM_MAX);
 	virtual void printheaderdb(std::ostream & os, const char *header,
-				   unsigned int f = 0, unsigned int l =
-				   UINT_MAX);
+				   artnum_t f = 0, artnum_t l =
+				   ARTNUM_MAX);
 
 	virtual void printlistgroup(std::ostream & os);
 };

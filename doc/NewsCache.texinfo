@@ -857,7 +857,8 @@ that match the newsgroup descriptions of the Server directives.
 @item Why does the list command return more than the configured newsgroups?
 Whenever you change the set of newsgroups to be retrieved from the news
 server(s), you should remove the active database. Simply type rm
-/path/to/news/spool/.active. This is not done automatically.
+/path/to/news/spool/.active64 (.active before version 1.3.22). This is
+not done automatically.
 @item I do not get any logging messages?
 NewsCache uses either syslog or log files (depending on the compile time
 configuration). For syslog, you should include a line similar to:

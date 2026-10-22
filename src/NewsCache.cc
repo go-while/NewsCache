@@ -343,7 +343,7 @@ class ClientData {
 	CServer *srvr;
 	char groupname[MAXGROUPNAMELEN];
 	Newsgroup *grp;
-	int nbr;
+	artnum_t nbr;		// current article, 0 = none
 
 	AccessEntry *access_entry;
 	char auth_user[512];
@@ -366,7 +366,7 @@ class ClientData {
 
 	ClientData()
 		: client_logname(""),
-		  grp(NULL), nbr(-1),
+		  grp(NULL), nbr(0),
 		  access_entry(NULL), auth_state(AUTH_OK), auth_failures(0),
 		  auth_max_failures(3), auth_failure_sleep_time(15),
 		  stat_groups(0), stat_artingrp(0), stat_articles(0)
@@ -797,7 +797,7 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	if (gi->first() <= gi->last())
 		clt->nbr = gi->first();
 	else
-		clt->nbr = -1;
+		clt->nbr = 0;
 	if (strcmp(clt->groupname, group) != 0) {
 		if (clt->grp)
 			clt->srvr->freegroup(clt->grp);
@@ -819,7 +819,7 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	return gi;
 }
 
-void nsh_particle(ClientData * clt, char *cmnd, int nbr, Article * a)
+void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 {
 	string aid = a->getfield("Message-ID:");
 
@@ -939,14 +939,17 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 
-		if (argc == 1 && clt->nbr < 0) {
+		if (argc == 1 && clt->nbr == 0) {
 			(*clt->
 			 co) <<
 		      "420 no current article has been selected\r\n";
 			return -1;
 		}
 
-		int nbr = (argc == 2) ? atoi(argv[1]) : clt->nbr;
+		artnum_t nbr = clt->nbr;
+		const char *end;
+		if (argc == 2 && (!parse_artnum(argv[1], &nbr, &end) || *end))
+			goto ns_article_error;
 
 		ASSERT2(clt->grp->testdb());
 		Article *a;
@@ -1044,14 +1047,17 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 
-		if (argc == 1 && clt->nbr < 0) {
+		if (argc == 1 && clt->nbr == 0) {
 			(*clt->
 			 co) <<
 		      "420 no current article has been selected\r\n";
 			return -1;
 		}
 
-		int nbr = (argc == 2) ? atoi(argv[1]) : clt->nbr;
+		artnum_t nbr = clt->nbr;
+		const char *end;
+		if (argc == 2 && (!parse_artnum(argv[1], &nbr, &end) || *end))
+			goto ns_stat_error;
 
 		ASSERT2(clt->grp->testdb());
 		OverviewFmt *of = clt->srvr->overviewfmt();
@@ -1201,7 +1207,7 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "412 No newsgroup currently selected\r\n";
 		return -1;
 	}
-	if (clt->nbr < 0) {
+	if (clt->nbr == 0) {
 		(*clt->
 		 co) << "420 no current article has been selected\r\n";
 		return -1;
@@ -1219,7 +1225,7 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 
-	unsigned int f, i = clt->nbr, l;
+	artnum_t f, i = clt->nbr, l;
 	const char *o;
 	string aid;
 	OverviewFmt *ofmt = clt->srvr->overviewfmt();
@@ -1227,12 +1233,13 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 	switch (argv[0][0]) {
 	case 'l':
 		for (;;) {
-			i--;
-			if (i < f) {
+			// check before counting down: i - 1 wraps around at 0
+			if (i <= f) {
 				(*clt->
 				 co) << "422 No previous to retrieve\r\n";
 				return -1;
 			}
+			i--;
 			o = clt->grp->getover(i);
 			if (o[0]) {
 				aid = ofmt->getfield(o, "Message-ID:", 0);
@@ -1242,12 +1249,12 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 		break;
 	case 'n':
 		for (;;) {
-			++i;
-			if (i > l) {
+			if (i >= l) {
 				(*clt->
 				 co) << "421 No next to retrieve\r\n";
 				return -1;
 			}
+			++i;
 			o = clt->grp->getover(i);
 			if (o[0]) {
 				aid = ofmt->getfield(o, "Message-ID:", 0);
@@ -1691,8 +1698,8 @@ int ns_xmotd(ClientData * clt, int argc, char *argv[])
 int ns_xover(ClientData * clt, int argc, char *argv[])
 {
 	int i = 1;
-	unsigned int fst, lst;
-	char *p;
+	artnum_t fst, lst;
+	const char *p;
 
 	if (clt->groupname[0] == '\0') {
 		(*clt->co) << "412 No newsgroup currently selected\r\n";
@@ -1707,17 +1714,17 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 		break;
 	case 1:
 		// n, n- or n-m (RFC 3977); a range must start with a number
-		p = argv[i];
-		if (!isdigit((unsigned char) *p))
+		if (!parse_artnum(argv[i], &fst, &p))
 			goto ns_xover_syntax;
-		fst = lst = strtoul(p, &p, 10);
+		lst = fst;
 		if ((*p) == '\0')
 			break;
 		if ((*p) == '-') {
-			lst = UINT_MAX;
+			lst = ARTNUM_MAX;
 			p++;
-			if (isdigit((unsigned char) *p))
-				lst = strtoul(p, &p, 10);
+			if (isdigit((unsigned char) *p) &&
+			    !parse_artnum(p, &lst, &p))
+				goto ns_xover_syntax;
 			if ((*p) == '\0')
 				break;
 		}

@@ -19,6 +19,7 @@
 
 #include "config.h"
 #include "Debug.h"
+#include "artnum.h"
 #include "OverviewFmt.h"
 
 // A NNTP-command must not exceed 512 characters including the
@@ -31,7 +32,7 @@ class Newsgroup {
   protected:
 	char _NewsgroupName[MAXGROUPNAMELEN + 1];
 	OverviewFmt *_OverviewFormat;
-	virtual Article *retrievearticle(unsigned int nbr) {
+	virtual Article *retrievearticle(artnum_t nbr) {
 		return NULL;
       }
 
@@ -62,31 +63,31 @@ class Newsgroup {
 	const char *name(void) {
 		return _NewsgroupName;
 	}
-	virtual void getsize(unsigned int *f, unsigned int *l) = 0;
-	virtual void setsize(unsigned int f, unsigned int l) = 0;
-	virtual unsigned int firstnbr() = 0;
-	virtual unsigned int lastnbr() = 0;
-	virtual int hasrecord(unsigned int i) = 0;
+	virtual void getsize(artnum_t *f, artnum_t *l) = 0;
+	virtual void setsize(artnum_t f, artnum_t l) = 0;
+	virtual artnum_t firstnbr() = 0;
+	virtual artnum_t lastnbr() = 0;
+	virtual int hasrecord(artnum_t i) = 0;
 //   virtual void hasrecords(unsigned int *rlist)=0;
 
-	virtual Article *getarticle(unsigned int nbr) = 0;
+	virtual Article *getarticle(artnum_t nbr) = 0;
 	virtual void freearticle(Article * artp) = 0;
 	virtual void setarticle(Article * art) = 0;
-	virtual void printarticle(std::ostream & os, unsigned int nbr) = 0;
+	virtual void printarticle(std::ostream & os, artnum_t nbr) = 0;
 	virtual void prefetchGroup(int lockgrp = 1) = 0;
 	virtual void prefetchOverview(void) = 0;
 
-	virtual const char *getover(unsigned int nbr) = 0;
+	virtual const char *getover(artnum_t nbr) = 0;
 	virtual void setover(const std::string & over) = 0;
-	virtual void printover(std::ostream & os, unsigned int nbr) {
+	virtual void printover(std::ostream & os, artnum_t nbr) {
 		const char *o = getover(nbr);
 		if (o)
 			os << o << "\r\n";
 	}
 	virtual void readoverdb(std::istream & is) = 0;
-	virtual void printoverdb(std::ostream & os, unsigned int f =
-				 0, unsigned int l = UINT_MAX) {
-		unsigned int i, ol;
+	virtual void printoverdb(std::ostream & os, artnum_t f =
+				 0, artnum_t l = ARTNUM_MAX) {
+		artnum_t i, ol;
 		const char *o;
 		getsize(&i, &ol);
 		if (f > i)
@@ -100,8 +101,8 @@ class Newsgroup {
 	}
 	virtual void printheaderdb(std::ostream & os,
 							   const char *header,
-							   unsigned int f = 0, unsigned int l =
-							   UINT_MAX) = 0;
+							   artnum_t f = 0, artnum_t l =
+							   ARTNUM_MAX) = 0;
 	virtual void printlistgroup(std::ostream & os) = 0;
 };
 
@@ -109,7 +110,7 @@ class Newsgroup {
 class NewsgroupIter {
   protected:
 	Newsgroup * _ng;
-	unsigned int i;
+	artnum_t i;
 	int lck;
 
   public:
@@ -129,7 +130,7 @@ class NewsgroupIter {
 	void next() {
 		i--;
 	}
-	void set(unsigned int j) {
+	void set(artnum_t j) {
 		i = j;
 	}
 

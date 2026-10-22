@@ -185,6 +185,35 @@ Logger & operator<<(Logger & l, int i)
 	return l.write(s);
 }
 
+// For article numbers (artnum_t is one of the unsigned ones) and sizes
+Logger & operator<<(Logger & l, unsigned long i)
+{
+	char s[32];
+	snprintf(s, sizeof(s), "%lu", i);
+	return l.write(s);
+}
+
+Logger & operator<<(Logger & l, long i)
+{
+	char s[32];
+	snprintf(s, sizeof(s), "%ld", i);
+	return l.write(s);
+}
+
+Logger & operator<<(Logger & l, unsigned long long i)
+{
+	char s[32];
+	snprintf(s, sizeof(s), "%llu", i);
+	return l.write(s);
+}
+
+Logger & operator<<(Logger & l, long long i)
+{
+	char s[32];
+	snprintf(s, sizeof(s), "%lld", i);
+	return l.write(s);
+}
+
 /*
  * Local Variables:
  * mode: c++

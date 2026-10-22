@@ -212,7 +212,8 @@ class OverviewFmt {
 		std::string fld;
 		int i;
 
-		 sprintf(buf, "%d", article.getnbr());
+		 snprintf(buf, sizeof(buf), "%llu",
+			  (unsigned long long) article.getnbr());
 		 recout = buf;
 		for (i = 0; i < _osz; i++) {
 			recout += '\t';

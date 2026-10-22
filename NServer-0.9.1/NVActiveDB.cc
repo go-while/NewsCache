@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <stdio.h>
+#include <string.h>
+
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -211,6 +214,94 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 	time(&now);
 	setmtime(now);
 	lock(NVcontainer::UnLock);
+}
+
+namespace {
+// A GroupInfo as NewsCache 1.3.21 and older stored it (file .active).
+struct GroupInfoV1 {
+	nvtime_t ctime;
+	nvtime_t mtime;
+	unsigned int fst, lst, n;
+	char flag;
+	char name[512];
+};
+}
+
+int NVActiveDB::convert_v1(const char *oldname, const char *newname)
+{
+	struct stat st;
+	int groups = 0;
+	string tmpname = string(newname) + ".tmp";
+	string v1name = string(oldname) + ".v1";
+
+	if (stat(newname, &st) == 0 || stat(oldname, &st) != 0)
+		return 0;
+
+	try {
+		NVHash old(oldname, NVActiveDB_HASHSIZE);
+
+		// Processes that start at the same time wait here; the
+		// first one converts, the others find newname.
+		old.lock(NVcontainer::ExclLock);
+		try {
+			if (stat(newname, &st) != 0) {
+				nvtime_t mtime;
+				unlink(tmpname.c_str());
+				NVActiveDB db(tmpname.c_str());
+				db.lock(NVcontainer::ExclLock);
+				{
+					NVHashIter it(old);
+					const char *buf;
+					unsigned int sz;
+					for (it.first(); it.valid(); it.next()) {
+						GroupInfoV1 v;
+						GroupInfo gi;
+
+						memset(&v, 0, sizeof(v));
+						it.data(&buf, &sz);
+						memcpy(&v, buf, sz < sizeof(v) ? sz : sizeof(v));
+						v.name[sizeof(v.name) - 1] = '\0';
+						if (!v.name[0])
+							continue;
+						gi.set(v.name, v.fst, v.lst, v.n,
+						       v.flag ? v.flag : 'y');
+						gi.setctime(v.ctime);
+						gi.setmtime(v.mtime);
+						db.add(gi);
+						groups++;
+					}
+				}
+				old.getmtime(&mtime);
+				db.setmtime(mtime, 1);
+				db.lock(NVcontainer::UnLock);
+				db.close();
+				if (rename(tmpname.c_str(), newname) < 0)
+					throw SystemError("cannot rename the converted active database",
+							  errno, ERROR_LOCATION);
+				// Out of the way, or deleting newname (see the
+				// FAQ) would bring the old groups back.
+				if (rename(oldname, v1name.c_str()) < 0)
+					slog.p(Logger::Warning) << "cannot rename "
+						<< oldname << " to " << v1name << "\n";
+				slog.p(Logger::Notice) << "converted " << groups
+					<< " groups from " << oldname << " to "
+					<< newname << "\n";
+			}
+		}
+		catch(...) {
+			old.lock(NVcontainer::UnLock);
+			throw;
+		}
+		old.lock(NVcontainer::UnLock);
+	}
+	catch(const Error & e) {
+		slog.p(Logger::Error) << "cannot convert " << oldname
+			<< " to " << newname << " (" << e._errtext
+			<< "), starting with an empty active database\n";
+		unlink(tmpname.c_str());
+		return -1;
+	}
+	return groups;
 }
 
 void NVActiveDB::write(ostream & os,

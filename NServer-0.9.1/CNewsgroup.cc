@@ -1,6 +1,6 @@
 #include "CNewsgroup.h"
 
-void CNewsgroup::listgroup(char *lstgrp, unsigned int f, unsigned int l)
+void CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 {
 	try {
 		_RServer->listgroup(_NewsgroupName, lstgrp, f, l);
@@ -22,11 +22,10 @@ void CNewsgroup::listgroup(char *lstgrp, unsigned int f, unsigned int l)
 	}
 }
 
-void CNewsgroup::sUpdateGroupInfo(unsigned int *infofp,
-								  unsigned int *infolp)
+void CNewsgroup::sUpdateGroupInfo(artnum_t *infofp, artnum_t *infolp)
 {
 	GroupInfo *info;
-	unsigned int f, l, infof, infol;
+	artnum_t f, l, infof, infol;
 
 	try {
 		info = _RServer->groupinfo(_NewsgroupName);
@@ -60,7 +59,7 @@ void CNewsgroup::sUpdateGroupInfo(unsigned int *infofp,
 
 void CNewsgroup::sUpdateOverview(void)
 {
-	unsigned int f, l, i, infof, infol;
+	artnum_t f, l, i, infof, infol;
 	char *lstgrp;
 	char fn[MAXPATHLEN];
 	time_t now;
@@ -120,16 +119,18 @@ void CNewsgroup::sUpdateOverview(void)
 				}
 			}
 		} else {
-			f = infol;
-			while ((f >= infof) && !NVArray::shas_element(f)) {
+			// f = one past the newest article we have, or infof.
+			// (Counting down to infof - 1 wrapped around when
+			// infof was 0, and the loop never ended.)
+			f = infol + 1;
+			while (f > infof && !NVArray::shas_element(f - 1)) {
 				f--;
 			}
 
 			/* do we have at least one new article? */
-			if (f < infol)
-			{
-				_RServer->overviewdb(this, f + 1, infol);
-                        }
+			if (f <= infol) {
+				_RServer->overviewdb(this, f, infol);
+			}
 		}
 
 		time(&now);
@@ -148,7 +149,7 @@ void CNewsgroup::sUpdateOverview(void)
 	free(lstgrp);
 }
 
-Article *CNewsgroup::retrievearticle(unsigned int nbr)
+Article *CNewsgroup::retrievearticle(artnum_t nbr)
 {
 	Article *a;
 	try {
@@ -167,7 +168,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 	time_t now;
 	char *data;
 	size_t szdata;
-	unsigned int f, infof, infol;
+	artnum_t f, infof, infol;
 	char *lstgrp;
 	char fn[MAXPATHLEN];
 	Article *art = NULL;
@@ -229,7 +230,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 				continue;
 			}
 			if (!lstgrp[f - infof] && data) {
-				int i = f - infof;
+				unsigned long i = f - infof;
 				// We do have this article, but it has been deleted
 				if (*(mem_p + arrtab[i] + sizeof(long)) ==
 				    bigarticle) {

@@ -49,7 +49,7 @@ void NVNewsgroup::testdb(void)
 }
 #endif
 
-void NVNewsgroup::sprintover(ostream & os, unsigned int nbr)
+void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 {
 	char *data;
 	size_t szdata;
@@ -87,7 +87,7 @@ void NVNewsgroup::sprintover(ostream & os, unsigned int nbr)
 	}
 }
 
-void NVNewsgroup::setsize(unsigned int f, unsigned int l)
+void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 {
 	VERB(slog.
 	     p(Logger::
@@ -95,6 +95,16 @@ void NVNewsgroup::setsize(unsigned int f, unsigned int l)
 	     ")\n");
 	char fn[MAXPATHLEN];
 	long n1, n2, i;
+
+#if ULONG_MAX < 0xffffffffffffffffULL
+	// The spool's index (NVArray) holds unsigned longs, 32 bits here.
+	// Keep the old size; newer articles of this group aren't cached.
+	if (f > ULONG_MAX || l > ULONG_MAX) {
+		slog.p(Logger::Error) << name() << ": article numbers above "
+			<< ULONG_MAX << " need a 64-bit system, not cached\n";
+		return;
+	}
+#endif
 
 	lock(NVcontainer::ShrdLock);
 	if (f != arrfst || l != arrlst) {
@@ -146,7 +156,7 @@ void NVNewsgroup::setsize(unsigned int f, unsigned int l)
 	lock(NVcontainer::UnLock);
 }
 
-Article *NVNewsgroup::getarticle(unsigned int nbr)
+Article *NVNewsgroup::getarticle(artnum_t nbr)
 {
 	VERB(slog.
 	     p(Logger::
@@ -198,11 +208,10 @@ Article *NVNewsgroup::getarticle(unsigned int nbr)
 void NVNewsgroup::setarticle(Article * art)
 {
 	unsigned long f, l;
-	unsigned int nbr;
+	artnum_t nbr;
 
-	VERB(char buf[1024];
-	     sprintf(buf, "NVNewsgroup::setarticle(*art(nbr=%d))\n",
-		     art->getnbr()); slog.p(Logger::Debug) << buf);
+	VERB(slog.p(Logger::Debug) << "NVNewsgroup::setarticle(*art(nbr="
+	     << art->getnbr() << "))\n");
 	ASSERT2(testdb());
 
 	nbr = art->getnbr();
@@ -273,7 +282,7 @@ void NVNewsgroup::setarticle(Article * art)
 	ASSERT2(testdb());
 }
 
-void NVNewsgroup::printarticle(ostream & os, unsigned int nbr)
+void NVNewsgroup::printarticle(ostream & os, artnum_t nbr)
 {
 	char *data;
 	size_t szdata;
@@ -310,7 +319,7 @@ void NVNewsgroup::printarticle(ostream & os, unsigned int nbr)
 
 //FIX! Possibly, we should throw an exception, if the overview record
 //FIX! cannot be found.
-const char *NVNewsgroup::getover(unsigned int nbr)
+const char *NVNewsgroup::getover(artnum_t nbr)
 {
 	//  VERB(slog.p(Logger::Debug) << "NVNewsgroup::getover(over)\n"); 
 
@@ -357,9 +366,10 @@ void NVNewsgroup::setover(const string & over)
 {
 	//  VERB(slog.p(Logger::Notice) << "NVNewsgroup::setover(over)\n"); 
 
-	unsigned long f, l, nbr;
+	unsigned long f, l;
+	artnum_t nbr;
 
-	nbr = atoi((const char *) over.c_str());
+	nbr = leading_artnum(over.c_str());
 	NVArray::lock(NVcontainer::ExclLock);
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
@@ -412,24 +422,28 @@ void NVNewsgroup::readoverdb(istream & is)
 	lock(NVcontainer::UnLock);
 }
 
-void NVNewsgroup::printoverdb(ostream & os, unsigned int f, unsigned int l)
+void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::printoverdb(os,"
 	     << f << "," << l << ")\n");
-	unsigned int i;
+	artnum_t i;
 	lock(NVcontainer::ShrdLock);
 	if (f < arrfst)
 		f = arrfst;
 	if (arrlst < l)
 		l = arrlst;
-	for (i = f; i <= l; i++)
+	// i == l ends the loop, so l == ARTNUM_MAX can't wrap around
+	for (i = f; i <= l; i++) {
 		sprintover(os, i);
+		if (i == l)
+			break;
+	}
 	lock(NVcontainer::UnLock);
 }
 
 void NVNewsgroup::printheaderdb(ostream & os,
 				const char *header,
-				unsigned int f, unsigned int l)
+				artnum_t f, artnum_t l)
 {
 	char *data, xheader[512], *p;
 	string fld;
@@ -483,6 +497,8 @@ void NVNewsgroup::printheaderdb(ostream & os,
 				}
 			}
 		}		/* if(data) */
+		if (i == l)
+			break;
 	}
 	NVArray::lock(NVcontainer::UnLock);
 }
@@ -492,11 +508,13 @@ void NVNewsgroup::printlistgroup(ostream & os)
 	VERB(slog.
 	     p(Logger::Debug) << "NVNewsgroup::printlistgroup(&os)\n");
 
-	unsigned int i;
+	unsigned long i;
 	lock(NVcontainer::ShrdLock);
 	for (i = arrfst; i <= arrlst; i++) {
 		if (shas_element(i))
 			os << i << "\r\n";
+		if (i == arrlst)
+			break;
 	}
 	lock(NVcontainer::UnLock);
 }
