@@ -148,6 +148,9 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	}
 
 	virtual Article *getarticle(artnum_t nbr);
+	// Whether the spool holds article nbr itself (not just its overview
+	// record), so getarticle needs no news server.
+	bool spooled(artnum_t nbr);
 	virtual void freearticle(Article * artp) {
 		delete artp;
 	}

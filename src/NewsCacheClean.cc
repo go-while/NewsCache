@@ -114,6 +114,7 @@ struct cache_statistic {
 };
 
 long _blocks = 0;
+long _history_blocks = 0;	// of them, the history's shard files
 
 static void print_statistic(ostream &out, struct cache_statistic *pS);
 void remove_elements(long max_blocks, struct cache_statistic *pS);
@@ -208,6 +209,68 @@ void remove_elements(long max_blocks, struct cache_statistic *pS)
 	}
 }
 
+/*
+ * The history's files (<spool>/.history): their blocks count toward
+ * SpoolSize. Shards moved aside as damaged (*.bad) go into the purge
+ * table, to be removed first; the shards themselves are not purged one
+ * by one (see clean_history).
+ */
+static void scan_history(void)
+{
+	DIR *d = opendir("./.history");
+	struct dirent *f;
+	struct stat s;
+	char buf[MAXPATHLEN];
+
+	if (!d)
+		return;
+	while ((f = readdir(d)) != NULL) {
+		if (f->d_name[0] == '.')
+			continue;
+		snprintf(buf, sizeof(buf), "./.history/%s", f->d_name);
+		if (stat(buf, &s) != 0 || !S_ISREG(s.st_mode))
+			continue;
+		size_t nl = strlen(f->d_name);
+		if (nl > 4 && strcmp(f->d_name + nl - 4, ".bad") == 0) {
+			pvector.push_back(new Entry(buf, 0, s.st_blocks));
+		} else {
+			_history_blocks += s.st_blocks;
+		}
+		_blocks += s.st_blocks;
+	}
+	closedir(d);
+}
+
+/*
+ * Removes the history's shard files when History is off (they are
+ * unused then), or when the history alone takes more than half of
+ * SpoolSize (max_blocks): its files never shrink, and it is only a cache
+ * of what the spool holds, filled again as clients read.
+ */
+static bool clean_history(long max_blocks)
+{
+	const char *why;
+
+	if (_history_blocks == 0)
+		return false;
+	if (!Cfg.HistoryEnabled)
+		why = "History is off";
+	else if (_history_blocks > max_blocks / 2)
+		why = "it takes more than half of SpoolSize";
+	else
+		return false;
+	char buf[32];
+	for (int n = 0; n < History::SHARDS; n++) {
+		snprintf(buf, sizeof(buf), "./.history/%x", n);
+		unlink(buf);
+	}
+	slog.p(Logger::Notice) << "history: removed ("
+	    << (unsigned long) (_history_blocks / 2) << "K), " << why << "\n";
+	_blocks -= _history_blocks;
+	_history_blocks = 0;
+	return true;
+}
+
 // For History::prune: whether the group still has a database in the
 // spool (the current directory); arg caches the answers.
 static bool group_has_db(const string & group, void *arg)
@@ -255,8 +318,10 @@ void clean(const char *cpath)
 		return;
 	if (strcmp(buf, "./.badArticles") == 0)
 		return;
-	if (strcmp(buf, "./.history/.db") == 0)
+	if (strcmp(buf, "./.history/.db") == 0) {
+		scan_history();
 		return;
+	}
 	if (stat(buf, &s) == 0) {
 		dbatime = MAX(s.st_atime, s.st_mtime);
 		pvector.push_back( new Entry (buf, dbatime, s.st_blocks) );
@@ -546,13 +611,16 @@ int main(int argc, char **argv)
 		cout << "---------------- Purge table ----------------" << endl;
 	}
 	if (!try_flag) {
+		bool hist_removed = clean_history(Cfg.SpoolSize * 2);
 		remove_elements(Cfg.SpoolSize * 2, &Stat);
 		// the history's entries of groups whose database is gone
-		map < string, bool > dbs;
-		long n = History::prune(group_has_db, &dbs);
-		if (n > 0)
-			slog.p(Logger::Info) << "history: " << n
-			    << " entries of removed groups dropped\n";
+		if (!hist_removed) {
+			map < string, bool > dbs;
+			long n = History::prune(group_has_db, &dbs);
+			if (n > 0)
+				slog.p(Logger::Info) << "history: " << n
+				    << " entries of removed groups dropped\n";
+		}
 	}
 	if (stat) {
 		print_statistic(cout, &Stat);

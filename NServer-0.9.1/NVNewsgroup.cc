@@ -409,6 +409,36 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 	NVArray::lock(NVcontainer::UnLock);
 }
 
+bool NVNewsgroup::spooled(artnum_t nbr)
+{
+	char *data;
+	size_t szdata;
+	unsigned long f, l;
+	bool r = false;
+
+	NVArray::lock(NVcontainer::ShrdLock);
+	try {
+		NVArray::getsize(&f, &l);
+		if (nbr >= f && nbr <= l) {
+			NVArray::sget(nbr, &data, &szdata);
+			if (data && *data == article) {
+				r = true;
+			} else if (data && *data == bigarticle) {
+				char fn[MAXPATHLEN];
+				struct stat st;
+				artfile(fn, sizeof(fn), nbr);
+				r = stat(fn, &st) == 0;
+			}
+		}
+	}
+	catch(...) {
+		NVArray::lock(NVcontainer::UnLock);
+		throw;
+	}
+	NVArray::lock(NVcontainer::UnLock);
+	return r;
+}
+
 Article *NVNewsgroup::getarticle(artnum_t nbr)
 {
 	VERB(slog.

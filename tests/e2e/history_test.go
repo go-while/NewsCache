@@ -1,10 +1,12 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
@@ -343,4 +345,160 @@ func TestHistoryConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMessageIDXrefSubset: an article crossposted to a group the client
+// may read (test.alpha) and one it may not (test.secret), which the
+// upstream carries only in test.secret, so Xref names only test.secret.
+// STAT <id> decided from Xref (502) while ARTICLE <id> decided from
+// Newsgroups (220); both now follow Newsgroups. And the overview-only
+// record in test.secret was fetched by number into that group, which the
+// client may not read; now the article is fetched by message-ID.
+func TestMessageIDXrefSubset(t *testing.T) {
+	e := historyEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Store.AddGroup("test.secret", "secret")
+	const id = "<cross.xref@upstream.test>"
+	e.Store.AddArticle("test.secret", fakeserver.Article{
+		Number:    1,
+		MessageID: id,
+		Headers: []string{
+			"From: poster@upstream.test",
+			"Subject: crossposted, carried in test.secret only",
+			"Newsgroups: test.alpha,test.secret",
+		},
+		Body: []string{"crossposted body"},
+	})
+	// a client that may read everything puts the overview into the spool
+	c := e.session()
+	c.Cmd("GROUP test.secret")
+	if code, line := c.Cmd("XOVER 1-1"); code != 224 {
+		t.Fatalf("XOVER: %q", line)
+	}
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read test.alpha
+    PostTo test.alpha
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	before := len(e.Upstream.Lines())
+	c2 := e.session()
+	if code, line := c2.Cmd("STAT %s", id); code != 223 {
+		t.Errorf("STAT %s: %q, want 223 (Newsgroups names test.alpha)", id, line)
+	}
+	if code, line := c2.Cmd("ARTICLE %s", id); code != 220 {
+		t.Errorf("ARTICLE %s: %q, want 220", id, line)
+	} else if lines := c2.ReadDotLines(); !containsLine(lines, "crossposted body") {
+		t.Errorf("ARTICLE %s: %q", id, lines)
+	}
+	c2.Cmd("QUIT")
+	for _, l := range e.Upstream.Lines()[before:] {
+		if strings.EqualFold(l, "ARTICLE 1") {
+			t.Errorf("upstream got %q: fetched into a group the client may not read", l)
+		}
+	}
+}
+
+// historyFiles returns the history's shard files in the spool.
+func historyFiles(t *testing.T, e *env) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(e.Spool, ".history", "[0-9a-f]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// historyKB is the disk space of the history's shard files in KB, counted
+// like newscacheclean does (st_blocks). It can be far below the files'
+// sizes: the tables are mostly zeros, which some file systems (ZFS with
+// compression, as on the FreeBSD runner) don't store.
+func historyKB(t *testing.T, e *env) int64 {
+	t.Helper()
+	var blocks int64
+	for _, f := range historyFiles(t, e) {
+		var st syscall.Stat_t
+		if err := syscall.Stat(f, &st); err != nil {
+			t.Fatal(err)
+		}
+		blocks += int64(st.Blocks)
+	}
+	return blocks / 2
+}
+
+// TestHistorySpoolSize: newscacheclean didn't count the history in
+// SpoolSize, and its files never shrink. It now counts them, removes the
+// history when it alone takes more than half of SpoolSize (it is only a
+// cache of the spool), and removes a leftover history after History off.
+func TestHistorySpoolSize(t *testing.T) {
+	clean := func(t *testing.T, e *env) {
+		t.Helper()
+		bin := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+		if _, err := os.Stat(bin); err != nil {
+			t.Skipf("newscacheclean not found next to %s", e.Bin)
+		}
+		e.writeConf()
+		if out, err := exec.Command(bin, "-c", e.Conf).CombinedOutput(); err != nil {
+			t.Fatalf("newscacheclean: %v\n%s", err, out)
+		}
+	}
+	fill := func(t *testing.T, e *env) {
+		t.Helper()
+		e.addArticles("test.alpha", 64) // spread over the 16 shards
+		c := e.session()
+		c.Cmd("GROUP test.alpha")
+		if code, line := c.Cmd("XOVER 1-64"); code != 224 {
+			t.Fatalf("XOVER: %q", line)
+		}
+		c.ReadDotLines()
+		c.Cmd("QUIT")
+		if n := len(historyFiles(t, e)); n < 8 {
+			t.Fatalf("%d history files after XOVER, want most of 16", n)
+		}
+	}
+
+	t.Run("within SpoolSize", func(t *testing.T) {
+		e := historyEnv(t)
+		fill(t, e)
+		n := len(historyFiles(t, e))
+		clean(t, e)
+		if m := len(historyFiles(t, e)); m != n {
+			t.Errorf("history files %d -> %d, want kept", n, m)
+		}
+	})
+
+	t.Run("more than half of SpoolSize", func(t *testing.T) {
+		e := historyEnv(t)
+		fill(t, e)
+		// SpoolSize at the history's own size: it then takes more
+		// than half of it, on any file system
+		kb := historyKB(t, e)
+		if kb < 1 {
+			kb = 1
+		}
+		e.Extra += fmt.Sprintf("SpoolSize %d\n", kb)
+		clean(t, e)
+		if m := historyFiles(t, e); len(m) != 0 {
+			t.Errorf("history files kept: %q", m)
+		}
+	})
+
+	t.Run("History off", func(t *testing.T) {
+		e := historyEnv(t)
+		fill(t, e)
+		e.Extra = strings.Replace(e.Extra, "History on\n", "", 1)
+		clean(t, e)
+		if m := historyFiles(t, e); len(m) != 0 {
+			t.Errorf("history files kept after History off: %q", m)
+		}
+	})
 }
