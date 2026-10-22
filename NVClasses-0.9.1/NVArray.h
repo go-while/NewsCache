@@ -19,6 +19,11 @@ class NVArray:public NVcontainer {
 	void make_current(void);
 	nvoff_t *arrtab;
 	unsigned long arrfst, arrlst;
+	void forget(void) {
+		arrtab = NULL;
+		arrfst = 1;
+		arrlst = 0;
+	}
 
 	void sclear(void);
 	char *sextra(size_t *sz);

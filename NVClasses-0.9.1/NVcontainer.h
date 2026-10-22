@@ -57,6 +57,9 @@ class NVcontainer {
 	int lck_orphans;
 	int in_open;		// open() is running (see corrupt())
 	int in_corrupt;
+	// The file corrupt() moved aside but couldn't replace (no file
+	// descriptor, no space): lock() tries to open it again.
+	char lost_fn[MAXPATHLEN];
 
 	char mem_fn[MAXPATHLEN];
 	int mem_fd;
@@ -99,7 +102,7 @@ class NVcontainer {
 	 * Check if the the the file size is equal the memory mapped size.
 	 */
 	virtual int is_current(void) {
-		return mem_sz == mem_hdr->size;
+		return mem_hdr && mem_sz == mem_hdr->size;
 	}
 	virtual size_t resize(size_t nsz);
 
@@ -126,6 +129,12 @@ class NVcontainer {
 	 */
 	void corrupt(const std::string & why);
 	virtual void reinit(void) {
+	}
+	/*
+	 * corrupt() has unmapped the file: drop every pointer into it, so
+	 * nothing uses the old mapping if no new file can be opened.
+	 */
+	virtual void forget(void) {
 	}
   public:
 	enum {

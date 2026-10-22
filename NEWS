@@ -257,6 +257,14 @@ Bug fixes:
   would hide it.
 * DATE with an argument answered "501 Syntax: group Newsgroup"; it now
   gives DATE's own syntax.
+  Processes that run into the same damaged file at once move it aside
+  only once (under a lock on its directory) and all go on with the same
+  new file; one could move another's new file aside, and the updates
+  made there were lost. Opening a database checks it under a lock, so a
+  sound file that another process is writing to is no longer taken for
+  damaged. If no new file can be started (no file descriptor left, no
+  space), the database answers errors until it can, instead of using
+  the old mapping (a crash).
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
