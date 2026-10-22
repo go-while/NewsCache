@@ -227,14 +227,26 @@ struct GroupInfoV1 {
 };
 }
 
+// Whether fn can be opened, i.e. exists for us.
+static bool can_open(const char *fn)
+{
+	int fd = ::open(fn, O_RDONLY);
+	if (fd < 0)
+		return false;
+	::close(fd);
+	return true;
+}
+
 int NVActiveDB::convert_v1(const char *oldname, const char *newname)
 {
-	struct stat st;
 	int groups = 0;
 	string tmpname = string(newname) + ".tmp";
 	string v1name = string(oldname) + ".v1";
 
-	if (stat(newname, &st) == 0 || stat(oldname, &st) != 0)
+	// The spool belongs to the news user, and every NewsCache process
+	// comes through here before it opens newname, so the names can only
+	// change under the lock on oldname below.
+	if (can_open(newname) || !can_open(oldname))
 		return 0;
 
 	try {
@@ -244,7 +256,7 @@ int NVActiveDB::convert_v1(const char *oldname, const char *newname)
 		// first one converts, the others find newname.
 		old.lock(NVcontainer::ExclLock);
 		try {
-			if (stat(newname, &st) != 0) {
+			if (!can_open(newname)) {
 				nvtime_t mtime;
 				unlink(tmpname.c_str());
 				NVActiveDB db(tmpname.c_str());
