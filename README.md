@@ -123,7 +123,7 @@ systemd unit, spool cleanup timer, a config that lets nobody in); see
 older).
 
 - `texinfo` is required. Without `makeinfo`, `make` stops at the manual
-  (`doc/NewsCache.texinfo`), even though the programs themselves have already
+  (`doc/NewsCache.texi`), even though the programs themselves have already
   been built.
 - Socket++ is **no longer** required. NewsCache now ships its own socket
   stream (`NServer-0.9.1/sockstream.*`).
@@ -214,7 +214,7 @@ servers don't offer STARTTLS on 119.
 
 More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
-database files. The user manual is `doc/NewsCache.texinfo`.
+database files. The user manual is `doc/NewsCache.texi`.
 
 ### In a container (Docker or Podman)
 

@@ -39,7 +39,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/socket.h>
-#ifdef TIME_WITH_SYS_TIME
+#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 #ifdef HAVE_SETPRIORITY

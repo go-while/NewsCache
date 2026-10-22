@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in
-info_TEXINFOS = NewsCache.texinfo
+info_TEXINFOS = NewsCache.texi
 
 EXTRA_DIST =
 	draft-ietf-nntpext-base-04.txt \

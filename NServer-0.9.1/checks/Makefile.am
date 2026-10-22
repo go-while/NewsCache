@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in
 
 ## Global options
-INCLUDES=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/NServer-0.9.1
+AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/NServer-0.9.1
 
 ## libraries used by the tests
 LDADD=../libnserver.a @LDADD@ ../../NVClasses-0.9.1/libnvcontainer.a
