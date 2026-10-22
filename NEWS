@@ -23,9 +23,6 @@ New functions:
 * Articles by message-ID from the spool, with the new option
   "History on" (off by default: then NewsCache behaves as before). It
   keeps a history of the articles in its spool (the directory .history in
-  the spool, 16 files keyed by the MD5 hash of the Message-ID, like
-  go-pugleaf's and INN's
-  keeps a history of the articles in its spool (the directory .history in
   the spool: 16 files of 65536 buckets, keyed by the MD5 hash of the
   Message-ID, like go-pugleaf's and INN's history), and ARTICLE, HEAD,
   BODY and STAT <message-id>, and the message-ID forms of XHDR, XPAT and
@@ -253,6 +250,14 @@ Bug fixes:
   files. A command that fails with any other unexpected error now gets a
   503 instead of ending the session (e.g. a stored article that doesn't
   parse; in inetd mode that aborted with SIGABRT).
+  Processes that run into the same damaged file at once move it aside
+  only once (under a lock on its directory) and all go on with the same
+  new file; one could move another's new file aside, and the updates
+  made there were lost. Opening a database checks it under a lock, so a
+  sound file that another process is writing to is no longer taken for
+  damaged. If no new file can be started (no file descriptor left, no
+  space), the database answers errors until it can, instead of using
+  the old mapping (a crash).
 * CachePort never worked: the check of its first character was the wrong
   way round since the IPv6 support of 2008, so "CachePort nntp" listened
   on the service "ntp" read as a number and "CachePort #12000" passed the
@@ -263,14 +268,6 @@ Bug fixes:
   would hide it.
 * DATE with an argument answered "501 Syntax: group Newsgroup"; it now
   gives DATE's own syntax.
-  Processes that run into the same damaged file at once move it aside
-  only once (under a lock on its directory) and all go on with the same
-  new file; one could move another's new file aside, and the updates
-  made there were lost. Opening a database checks it under a lock, so a
-  sound file that another process is writing to is no longer taken for
-  damaged. If no new file can be started (no file descriptor left, no
-  space), the database answers errors until it can, instead of using
-  the old mapping (a crash).
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
