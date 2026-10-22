@@ -419,3 +419,83 @@ func TestPostMessageIDLongHostname(t *testing.T) {
 		t.Errorf("generated Message-ID %q (%d characters), want <...@%s>", mid, len(mid), host[:20]+"...")
 	}
 }
+
+// TestXpat: XPAT header range|<message-id> pattern (RFC 2980 2.9) gives
+// the XHDR lines whose value matches the wildmat pattern; more than one
+// pattern argument form one pattern, joined with spaces.
+func TestXpat(t *testing.T) {
+	e := newEnv(t)
+	ids := e.addArticles("test.alpha", 3)
+	c := e.session()
+	if code, line := c.Cmd("XPAT subject 1-3 *"); code != 412 {
+		t.Errorf("XPAT without a group: %q, want 412", line)
+	}
+	c.Cmd("GROUP test.alpha")
+	for _, tc := range []struct {
+		cmd  string
+		want []string
+	}{
+		{"XPAT subject 1-3 *2*", []string{"2 article 2 in test.alpha"}},
+		{"XPAT Subject 2- article*", []string{"2 article 2 in test.alpha", "3 article 3 in test.alpha"}},
+		{"XPAT subject 1-3 article 3 in test.alpha", []string{"3 article 3 in test.alpha"}},
+		{"XPAT subject 1-3 *[13]*", []string{"1 article 1 in test.alpha", "3 article 3 in test.alpha"}},
+		{"XPAT subject 1-3 *nomatch*", nil},
+		{"XPAT from 1 *@upstream.test", []string{"1 poster@upstream.test"}},
+		{"XPAT no-such-header 1-3 *", nil},
+		{"XPAT subject " + ids[1] + " *2*", []string{ids[1] + " article 2 in test.alpha"}},
+		{"XPAT subject " + ids[1] + " *3*", nil},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != 221 {
+			t.Errorf("%s: %q, want 221", tc.cmd, line)
+			continue
+		}
+		if got := c.ReadDotLines(); strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%s: %q, want %q", tc.cmd, got, tc.want)
+		}
+	}
+	for cmd, want := range map[string]int{
+		"XPAT subject <missing@upstream.test> *": 430,
+		"XPAT subject 1-3":                       501,
+		"XPAT subject x *":                       501,
+		"XPAT subject -3 *":                      501,
+	} {
+		if code, line := c.Cmd("%s", cmd); code != want {
+			if code == 221 {
+				c.ReadDotLines()
+			}
+			t.Errorf("%s: %q, want %d", cmd, line, want)
+		}
+	}
+	if code, _ := c.Cmd("HELP"); code == 100 {
+		if !containsPrefix(c.ReadDotLines(), "  xpat ") {
+			t.Errorf("HELP doesn't list xpat")
+		}
+	}
+	if code, line := c.Cmd("LIST EXTENSIONS"); code != 202 {
+		t.Errorf("LIST EXTENSIONS: %q", line)
+	} else if !containsLine(c.ReadDotLines(), " pat") {
+		t.Errorf("LIST EXTENSIONS doesn't list pat")
+	}
+}
+
+// TestXhdrLongHeaderName: XHDR copied the header name into a 512-byte
+// stack buffer, but a command line can have 1024 characters, so a longer
+// name overflowed it and killed the session.
+func TestXhdrLongHeaderName(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	long := strings.Repeat("x", 1000)
+	for _, cmd := range []string{"XHDR " + long + " 1-2", "XPAT " + long + " 1-2 *"} {
+		code, line, err := c.TryCmd("%s", cmd)
+		if err != nil || code != 221 {
+			t.Fatalf("%.20s...: %d %q %v, want 221", cmd, code, line, err)
+		}
+		c.ReadDotLines()
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after XHDR with a long header name: %q", line)
+	}
+}

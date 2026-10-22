@@ -127,36 +127,24 @@ class RNewsgroup:public Newsgroup {
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,
 				   artnum_t f = 0, artnum_t l =
-				   ARTNUM_MAX) {
-		char xheader[512], *p;
-		const char *q;
-		std::string fld;
-
-		p = xheader;
-		q = header;
-		while ((*p++ = *q++));
-		*(p - 1) = ':';
-		*p = '\0';
-
+				   ARTNUM_MAX, const char *pat = NULL) {
+		std::string xheader = headerfield(header), fld;
 		iterator begin = _OverviewDB.lower_bound(f), end =
 		    _OverviewDB.end();
 
-		while (begin != end) {
+		for (; begin != end && begin->first <= l; ++begin) {
 			artnum_t i = begin->first;
-			if (l < i)
-				break;
-
 			try {
-				fld =
-				    _OverviewFormat->
-				    getfield(_OverviewDB[i].c_str(),
-					     xheader, 0);
-				os << i << " " << fld << "\r\n";
+				fld = _OverviewFormat->getfield(begin->second.c_str(),
+								xheader.c_str(), 0);
 			}
 			catch(NoSuchFieldError & nsfe) {
-				os << i << " (none)\r\n";
+				if (!pat)
+					os << i << " (none)\r\n";
+				continue;
 			}
-			++begin;
+			if (headermatch(fld, pat))
+				os << i << " " << fld << "\r\n";
 		}
 	}
 

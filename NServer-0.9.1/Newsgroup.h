@@ -21,6 +21,7 @@
 #include "Debug.h"
 #include "artnum.h"
 #include "OverviewFmt.h"
+#include "wildmat.h"
 
 // A NNTP-command must not exceed 512 characters including the
 // trailing \r\n. 512 chars is a good approx for the max length
@@ -99,10 +100,23 @@ class Newsgroup {
 				os << o << "\r\n";
 		}
 	}
+	/*
+	 * Prints "number value" for the header in articles f to l (XHDR).
+	 * With pat (XPAT), only the lines whose value matches the wildmat
+	 * pat; articles without the header are left out then.
+	 */
 	virtual void printheaderdb(std::ostream & os,
 							   const char *header,
 							   artnum_t f = 0, artnum_t l =
-							   ARTNUM_MAX) = 0;
+							   ARTNUM_MAX, const char *pat = NULL) = 0;
+
+	// "Subject" -> "Subject:", the form getfield expects
+	static std::string headerfield(const char *header) {
+		return std::string(header) + ':';
+	}
+	static bool headermatch(const std::string & value, const char *pat) {
+		return !pat || wildmat(value.c_str(), pat);
+	}
 	virtual void printlistgroup(std::ostream & os) = 0;
 };
 

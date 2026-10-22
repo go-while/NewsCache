@@ -170,6 +170,7 @@ int ns_post(ClientData * clt, int argc, char *argv[]);
 int ns_quit(ClientData * clt, int argc, char *argv[]);
 int ns_xmotd(ClientData * clt, int argc, char *argv[]);
 int ns_xover(ClientData * clt, int argc, char *argv[]);
+int ns_xpat(ClientData * clt, int argc, char *argv[]);
 int ns_xdebug(ClientData * clt, int argc, char *argv[]);
 int ns_capabilities(ClientData * clt, int argc, char *argv[]);
 
@@ -221,6 +222,8 @@ static nnrp_command_t all_nnrp_commands[] = {
 	{"xhdr", "header [range]", ns_xover}
 	,
 	{"xover", "[range]", ns_xover}
+	,
+	{"xpat", "header range|<id> pattern [pattern ...]", ns_xpat}
 	,
 	{"capabilities", "", ns_capabilities}
 	,
@@ -293,6 +296,7 @@ void NNRPCommandMap::disableRead (void)
 	erase("over");
 	erase("xhdr");
 	erase("xover");
+	erase("xpat");
 	erase("list");
 	erase("mode");
 	erase("newgroups");
@@ -1391,6 +1395,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				(*clt->
 				 co) << "202 extensions supported\r\n";
 				(*clt->co) << " over\r\n";
+				(*clt->co) << " pat\r\n";
 				(*clt->co) << " authinfo user\r\n";
 				(*clt->co) << ".\r\n";
 				return 0;
@@ -1697,45 +1702,34 @@ int ns_xmotd(ClientData * clt, int argc, char *argv[])
  * 430 no such article
  * 502 no permission
  */
-int ns_xover(ClientData * clt, int argc, char *argv[])
+/*
+ * Reads an article range: n, n- or n-m (RFC 3977); a range must start
+ * with a number. Returns 0 for a syntax error.
+ */
+static int parse_range(const char *s, artnum_t * fst, artnum_t * lst)
 {
-	int i = 1;
-	artnum_t fst, lst;
 	const char *p;
 
-	if (clt->groupname[0] == '\0') {
-		(*clt->co) << "412 No newsgroup currently selected\r\n";
-		return -1;
-	}
-	if (strcmp(argv[0], "xhdr") == 0) {
-		i = 2;
-	}
-	switch (argc - i) {
-	case 0:
-		fst = lst = clt->nbr;
-		break;
-	case 1:
-		// n, n- or n-m (RFC 3977); a range must start with a number
-		if (!parse_artnum(argv[i], &fst, &p))
-			goto ns_xover_syntax;
-		lst = fst;
-		if ((*p) == '\0')
-			break;
-		if ((*p) == '-') {
-			lst = ARTNUM_MAX;
-			p++;
-			if (isdigit((unsigned char) *p) &&
-			    !parse_artnum(p, &lst, &p))
-				goto ns_xover_syntax;
-			if ((*p) == '\0')
-				break;
-		}
-		// fall through
-	default:
-	      ns_xover_syntax:
-		(*clt->co) << "501 Syntax: xover [range]\r\n";
-		return -1;
-	}
+	if (!parse_artnum(s, fst, &p))
+		return 0;
+	*lst = *fst;
+	if (*p == '\0')
+		return 1;
+	if (*p != '-')
+		return 0;
+	*lst = ARTNUM_MAX;
+	p++;
+	if (isdigit((unsigned char) *p) && !parse_artnum(p, lst, &p))
+		return 0;
+	return *p == '\0';
+}
+
+/*
+ * Selects the client's current group for XOVER/XHDR/XPAT. Returns 0, or
+ * -1 after an error reply.
+ */
+static int current_group(ClientData * clt)
+{
 	try {
 		if (!clt->grp)
 			clt->grp = clt->srvr->getgroup(clt->groupname);
@@ -1749,8 +1743,37 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "412 operation failed\r\n";
 		return -1;
 	}
-
 	ASSERT2(clt->grp->testdb());
+	return 0;
+}
+
+int ns_xover(ClientData * clt, int argc, char *argv[])
+{
+	int i = 1;
+	artnum_t fst, lst;
+
+	if (clt->groupname[0] == '\0') {
+		(*clt->co) << "412 No newsgroup currently selected\r\n";
+		return -1;
+	}
+	if (strcmp(argv[0], "xhdr") == 0) {
+		i = 2;
+	}
+	switch (argc - i) {
+	case 0:
+		fst = lst = clt->nbr;
+		break;
+	case 1:
+		if (parse_range(argv[i], &fst, &lst))
+			break;
+		// fall through
+	default:
+		(*clt->co) << "501 Syntax: xover [range]\r\n";
+		return -1;
+	}
+	if (current_group(clt) < 0)
+		return -1;
+
 	switch (i) {
 	case 1:
 		(*clt->co) << "224 Overview information follows\r\n";
@@ -1762,6 +1785,78 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 		clt->grp->printheaderdb(*clt->co, argv[1], fst, lst);
 		break;
 	}
+	(*clt->co) << ".\r\n";
+	return 0;
+}
+
+/*
+ * XPAT header range|<message-id> pattern [pattern ...] (RFC 2980 2.9):
+ * the lines of XHDR whose header value matches the wildmat pattern;
+ * more than one pattern argument are joined with spaces into one. Like
+ * XHDR, it sees the overview fields, and every header of the articles
+ * in the spool.
+ */
+int ns_xpat(ClientData * clt, int argc, char *argv[])
+{
+	artnum_t fst, lst;
+	string pat;
+
+	if (argc < 4) {
+		(*clt->co) <<
+		    "501 Syntax: xpat header range|<id> pattern [pattern ...]\r\n";
+		return -1;
+	}
+	for (int i = 3; i < argc; i++) {
+		if (i > 3)
+			pat += ' ';
+		pat += argv[i];
+	}
+
+	if (argv[2][0] == '<') {
+		Article a;
+		try {
+			clt->srvr->article(argv[2], &a);
+		}
+		catch(const NoSuchArticleError & nsae) {
+			(*clt->co) << "430 no such article id found\r\n";
+			return -1;
+		}
+		catch(const ResponseError & e) {
+			(*clt->co) << e._got << "\r\n";
+			return -1;
+		}
+		catch(const Error & e) {
+			(*clt->co) << "503 operation failed\r\n";
+			e.print();
+			return -1;
+		}
+		(*clt->co) << "221 " << argv[1] << " matches follow\r\n";
+		try {
+			string fld =
+			    a.getfield(Newsgroup::headerfield(argv[1]).c_str(), 0);
+			if (Newsgroup::headermatch(fld, pat.c_str()))
+				(*clt->co) << argv[2] << " " << fld << "\r\n";
+		}
+		catch(const NoSuchFieldError & nsfe) {
+		}
+		(*clt->co) << ".\r\n";
+		return 0;
+	}
+
+	if (clt->groupname[0] == '\0') {
+		(*clt->co) << "412 No newsgroup currently selected\r\n";
+		return -1;
+	}
+	if (!parse_range(argv[2], &fst, &lst)) {
+		(*clt->co) <<
+		    "501 Syntax: xpat header range|<id> pattern [pattern ...]\r\n";
+		return -1;
+	}
+	if (current_group(clt) < 0)
+		return -1;
+	(*clt->co) << "221 " << argv[1] << " matches follow [" << fst
+		   << "-" << lst << "]\r\n";
+	clt->grp->printheaderdb(*clt->co, argv[1], fst, lst, pat.c_str());
 	(*clt->co) << ".\r\n";
 	return 0;
 }

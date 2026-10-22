@@ -88,6 +88,8 @@ CI, not yet by the systematic review.
 | `XOVER`/`XHDR` with a range not starting with a number used an uninitialized first number; XHDR's 221 line showed `-1` and no header name | 2 | compiler warning #34 | #35 |
 | Article numbers above 2^31 cut to 32 bits (`int`/`unsigned int`, `atoi`, `%d`) in the GROUP reply, OVER/ARTICLE requests, overview records, client commands and `newscacheclean`; binary groups are above 6*10^10 | 2, 7, 8, 9, 10, 11 | review #35 | #36 |
 | `STAT n` for a missing article answered `223 n  status` (no Message-ID) instead of `423`, and `STAT n` didn't set the current article | 2 | review | #38 |
+| `XHDR` copied the header name into a 512-byte stack buffer; a command line has up to 1024 characters | 2, 10 | review | #39 |
+| No `XPAT` (old `TODO`): added, with the headers XHDR sees | 2 | old `TODO` | #39 |
 
 ## Open points
 
@@ -111,8 +113,6 @@ that it stays as it is.
 - **The pid file isn't removed** when the daemon stops (area 5).
 - **No wildcards in the prefetch file** (area 12). `updatenews` reads group
   names literally; the old `TODO` asked for wildcards.
-- **No full PAT/XPAT** (area 2). Only `XHDR` exists; the old `TODO` asked for
-  a full implementation for all headers.
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
   OverviewFmt.h" (area 8).
