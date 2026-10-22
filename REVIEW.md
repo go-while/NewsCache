@@ -95,6 +95,7 @@ CI, not yet by the systematic review.
 | `Authentication unix` never read `/etc/shadow` (configure's `--with-shadow=auto` default never defined `SHADOW_PASSWORD`); unix and PAM/pam_unix logins can't check local passwords as `news` and failed silently: now logged and documented, sessions keep running as `news` | 3, 14 | review | #42 |
 | `newscache -p` and `xdebug dump configuration` printed upstream passwords in plain text | 6 | review | #43 |
 | No wildcards in the prefetch file (old `TODO`); `!` lines were ignored and empty or `#` lines asked the upstream for a group of that name | 12 | old TODO | #44 |
+| `-c` arguments longer than `MAXPATHLEN` overflowed the config file name buffer (`strcpy`) in `newscache`, `newscacheclean` and `updatenews` | 5, 11, 12 | review | #45 |
 
 ## Open points
 
@@ -106,10 +107,6 @@ that it stays as it is.
   (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
   instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
   `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
-- **`-c` arguments are copied with `strcpy`** (areas 5, 11, 12):
-  `newscache`, `newscacheclean` and `updatenews` copy the config file name
-  from the command line into a `MAXPATHLEN` buffer with `strcpy`, so a
-  longer argument overflows it. Only whoever starts the program controls it.
 - **Too long `SpoolDirectory` ends the program with an uncaught
   `AssertionError`** (area 6): `LServer::init` refuses it correctly, but
   the exception isn't caught, so newscache prints "terminate called after

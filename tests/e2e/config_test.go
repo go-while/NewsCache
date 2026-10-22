@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -324,4 +325,35 @@ func TestPrintHidesPassword(t *testing.T) {
 		t.Fatalf("XDEBUG dump configuration: %q", dump)
 	}
 	check("XDEBUG dump configuration", strings.Join(dump, "\n"))
+}
+
+// TestConfigArgTooLong: a -c argument longer than the file name buffer
+// (MAXPATHLEN) is refused. The programs copied it with strcpy and wrote past
+// the end of the buffer.
+func TestConfigArgTooLong(t *testing.T) {
+	bin := binPath(t)
+	long := "/" + strings.Repeat("d/", 4000) + "newscache.conf"
+	for _, prog := range []string{"newscache", "newscacheclean", "updatenews"} {
+		t.Run(prog, func(t *testing.T) {
+			p := filepath.Join(filepath.Dir(bin), prog)
+			if prog == "newscache" {
+				p = bin
+			} else if _, err := os.Stat(p); err != nil {
+				t.Skipf("%s not found next to %s", prog, bin)
+			}
+			out, err := exec.Command(p, "-c", long).CombinedOutput()
+			ee, ok := err.(*exec.ExitError)
+			if !ok || ee.ExitCode() != 1 || !strings.Contains(string(out), "configuration file name is too long") {
+				t.Errorf("%s -c <%d characters>: %v, output %q; want exit status 1 and \"configuration file name is too long\"",
+					prog, len(long), err, truncate(string(out), 300))
+			}
+		})
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
 }

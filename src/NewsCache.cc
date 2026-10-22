@@ -2771,7 +2771,12 @@ int main(int argc, char **argv)
 				break;
 
 			case 'c':
-				strcpy (config_file, optarg);
+				if (snprintf(config_file, sizeof(config_file), "%s", optarg) >=
+				    (int) sizeof(config_file)) {
+					cerr << cmnd << ": configuration file name is too long (at most "
+					     << sizeof(config_file) - 1 << " characters)\n";
+					exit(1);
+				}
 				break;
 
 			case 'i':

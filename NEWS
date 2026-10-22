@@ -118,6 +118,11 @@ Bug fixes:
   print "# Password set, not shown" instead. Read back as a config, that
   line is a comment, so the upstream login fails (the server answers
   AUTHINFO PASS with an error) until the password is put back.
+* newscache, newscacheclean and updatenews copied the -c argument (the
+  config file name) with strcpy into a buffer of MAXPATHLEN (4096)
+  characters, so a longer argument wrote past its end. Such an argument is
+  now refused with "configuration file name is too long" and exit status 1.
+  Only whoever starts the programs controls the argument.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
