@@ -1,0 +1,232 @@
+package e2e
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/go-while/nntp-testkit/fakeserver"
+)
+
+// Read rights for groups and for articles fetched by message-ID. The
+// client may read test.alpha, but not test.secret.
+
+// readEnv returns an env whose inetd client may read only test.alpha. With
+// authLines, its entry also takes a login against an auth file with them.
+func readEnv(t *testing.T, authLines ...string) (*env, []string, []string) {
+	e := newEnv(t)
+	alpha := e.addArticles("test.alpha", 2)
+	secret := e.addArticles("test.secret", 2)
+	auth := "none"
+	if len(authLines) > 0 {
+		path := filepath.Join(e.Dir, "newscache.auth")
+		if err := os.WriteFile(path, []byte(strings.Join(authLines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		auth = "file:" + path
+	}
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read test.alpha
+    PostTo test.alpha
+    Authentication ` + auth + `
+  }
+  Default {
+    allow none
+  }
+}`
+	return e, alpha, secret
+}
+
+// TestListgroupDeniedDoesNotSelect: LISTGROUP for a group the client may
+// not read was refused, but only after it had made the group the current
+// one, and XOVER, XHDR, ARTICLE n, ... read the current group without
+// checking again: "LISTGROUP test.secret" then "XOVER 1-2" showed it.
+func TestListgroupDeniedDoesNotSelect(t *testing.T) {
+	e, _, _ := readEnv(t)
+	c := e.session()
+	if code, line := c.Cmd("LISTGROUP test.secret"); code != 502 {
+		if code == 211 {
+			c.ReadDotLines()
+		}
+		t.Errorf("LISTGROUP test.secret: %q, want 502", line)
+	}
+	if code, line := c.Cmd("XOVER 1-2"); code != 412 {
+		if code == 224 {
+			t.Errorf("XOVER after a refused LISTGROUP shows the group: %q", c.ReadDotLines())
+		} else {
+			t.Errorf("XOVER after a refused LISTGROUP: %q, want 412", line)
+		}
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 412 {
+		if code == 220 {
+			c.ReadDotLines()
+		}
+		t.Errorf("ARTICLE 1 after a refused LISTGROUP: %q, want 412", line)
+	}
+
+	// With a group selected, a refused LISTGROUP keeps it.
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP test.alpha: %q", line)
+	}
+	if code, line := c.Cmd("LISTGROUP test.secret"); code != 502 {
+		if code == 211 {
+			c.ReadDotLines()
+		}
+		t.Errorf("LISTGROUP test.secret: %q, want 502", line)
+	}
+	if code, line := c.Cmd("XOVER 1-2"); code != 224 {
+		t.Fatalf("XOVER: %q", line)
+	}
+	for _, l := range c.ReadDotLines() {
+		if !strings.Contains(l, "in test.alpha") {
+			t.Errorf("XOVER after a refused LISTGROUP: %q, want test.alpha's", l)
+		}
+	}
+}
+
+// TestGroupDenied502: without a way to log in, a group the client may not
+// read gets 502 (RFC 4643: 480 only when a login could help).
+func TestGroupDenied502(t *testing.T) {
+	e, _, _ := readEnv(t)
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.secret"); code != 502 {
+		t.Errorf("GROUP test.secret: %q, want 502", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha: %q, want 211", line)
+	}
+}
+
+// TestArticleByMessageIDReadRights: ARTICLE, HEAD, BODY and STAT with a
+// message-ID didn't check the Read list at all, so a client that may read
+// only some groups got any article whose message-ID it knew.
+func TestArticleByMessageIDReadRights(t *testing.T) {
+	e, alpha, secret := readEnv(t)
+	// crossposted to a group the client may read: allowed
+	e.Store.AddArticle("test.secret", fakeserver.Article{
+		Number:    3,
+		MessageID: "<cross@upstream.test>",
+		Headers: []string{
+			"From: poster@upstream.test",
+			"Subject: crossposted",
+			"Newsgroups: test.secret, test.alpha",
+		},
+		Body: []string{"crossposted body"},
+	})
+	c := e.session()
+	for _, cmd := range []string{"ARTICLE", "HEAD", "BODY", "STAT"} {
+		code, line := c.Cmd("%s %s", cmd, secret[0])
+		if code >= 220 && code <= 222 {
+			c.ReadDotLines()
+		}
+		if code != 502 {
+			t.Errorf("%s %s: %q, want 502", cmd, secret[0], line)
+		}
+	}
+	for _, id := range []string{alpha[0], "<cross@upstream.test>"} {
+		code, line := c.Cmd("ARTICLE %s", id)
+		if code != 220 {
+			t.Errorf("ARTICLE %s: %q, want 220", id, line)
+			continue
+		}
+		c.ReadDotLines()
+	}
+	if code, line := c.Cmd("STAT %s", alpha[1]); code != 223 {
+		t.Errorf("STAT %s: %q, want 223", alpha[1], line)
+	}
+}
+
+// TestReadDeniedLogin: while a login could give the right, the answer is
+// 480; a login that does gives access, one that doesn't gets 502.
+func TestReadDeniedLogin(t *testing.T) {
+	e, _, secret := readEnv(t,
+		"tester:"+md5Hash+":*:test.secret:test.alpha:read",
+		"other:"+md5Hash+":*:test.alpha:test.alpha:read")
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.secret"); code != 480 {
+		t.Errorf("GROUP test.secret before login: %q, want 480", line)
+	}
+	if code, line := c.Cmd("ARTICLE %s", secret[0]); code != 480 {
+		if code == 220 {
+			c.ReadDotLines()
+		}
+		t.Errorf("ARTICLE %s before login: %q, want 480", secret[0], line)
+	}
+	login(t, c)
+	if code, line := c.Cmd("GROUP test.secret"); code != 211 {
+		t.Errorf("GROUP test.secret after login: %q, want 211", line)
+	}
+	if code, line := c.Cmd("ARTICLE %s", secret[0]); code != 220 {
+		t.Errorf("ARTICLE %s after login: %q, want 220", secret[0], line)
+	} else {
+		c.ReadDotLines()
+	}
+
+	c2 := e.session()
+	if code, line := c2.Cmd("AUTHINFO USER other"); code != 381 {
+		t.Fatalf("AUTHINFO USER other: %q", line)
+	}
+	if code, line := c2.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q", line)
+	}
+	if code, line := c2.Cmd("GROUP test.secret"); code != 502 {
+		t.Errorf("GROUP test.secret after a login without the right: %q, want 502", line)
+	}
+}
+
+// TestPostNewsgroupsList: the PostTo check split the Newsgroups header
+// wrongly. It took the end of a name as a length, so with three or more
+// groups a name was checked with the following ones appended (which
+// matched only if PostTo listed them in the same order), and it kept the
+// space after a comma.
+func TestPostNewsgroupsList(t *testing.T) {
+	e := newEnv(t)
+	for _, g := range []string{"test.alpha", "test.beta", "test.gamma", "test.secret"} {
+		e.addArticles(g, 1)
+	}
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo test.gamma,test.beta,test.alpha
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	post := func(n int, groups string) (int, string) {
+		c := e.session()
+		defer c.Cmd("QUIT")
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send(fmt.Sprintf("Newsgroups: %s\r\nFrom: client@newscache.test\r\n"+
+			"Subject: list %d\r\nMessage-ID: <list%d@newscache.test>\r\n\r\nhello\r\n.\r\n", groups, n, n)); err != nil {
+			t.Fatal(err)
+		}
+		code, line, err := c.ReadStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, line
+	}
+	if code, line := post(1, "test.alpha,test.beta,test.gamma"); code != 240 {
+		t.Errorf("post to three allowed groups: %q, want 240", line)
+	}
+	if code, line := post(2, "test.alpha, test.beta"); code != 240 {
+		t.Errorf("post with a space after the comma: %q, want 240", line)
+	}
+	if code, line := post(3, "test.alpha,test.secret"); code != 441 {
+		t.Errorf("post to a group not in PostTo: %q, want 441", line)
+	}
+	if n := len(e.Store.Posted()); n != 2 {
+		t.Errorf("upstream got %d posted articles, want 2", n)
+	}
+}

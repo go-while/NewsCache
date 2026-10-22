@@ -268,6 +268,7 @@ func (e *env) addArticlesXref(group string, n int, xref bool) []string {
 		h := []string{
 			"From: poster@upstream.test",
 			fmt.Sprintf("Subject: article %d in %s", i, group),
+			"Newsgroups: " + group,
 		}
 		if xref {
 			h = append(h, fmt.Sprintf("Xref: upstream.test %s:%d", group, i))

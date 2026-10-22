@@ -157,6 +157,23 @@ Bug fixes:
   "Lines:"), so with such a server the Bytes and Lines fields of XOVER
   were empty. And a field the upstream sends with its name (e.g.
   "Subject:full") lost the name but kept the colon (": text").
+* LISTGROUP with a group the client may not read (Read in its Client
+  entry) answered 480, but only after it had made that group the current
+  one; XOVER, XHDR, ARTICLE <number> and the other commands for the
+  current group then read it, so "LISTGROUP secret.group" followed by
+  "XOVER" showed the group. LISTGROUP now checks first.
+* ARTICLE, HEAD, BODY and STAT with a message-ID didn't check the Read
+  list at all: a client that may read only some groups got any article
+  whose message-ID it knew. The article must now be in at least one group
+  the client may read (its Newsgroups header).
+* A group or article the client may not read got 480 even when no login
+  could help (no Authentication in its entry, or already logged in). It
+  now gets 502, as RFC 4643 says; 480 stays for clients that can log in.
+* The PostTo check split the Newsgroups header wrongly: with three or more
+  groups a name was checked with the following ones appended, which
+  matched only if PostTo listed the same groups in the same order, and
+  the space after a comma was kept, so such posts were refused. A refused group now gets 441 once the client is logged in
+  (or can't log in), not 480.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
