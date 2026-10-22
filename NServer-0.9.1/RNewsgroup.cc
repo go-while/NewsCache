@@ -1,6 +1,6 @@
 #include "RNewsgroup.h"
 
-void RNewsgroup::setsize(unsigned int f, unsigned int l)
+void RNewsgroup::setsize(artnum_t f, artnum_t l)
 {
 	if (f < _first || l < _last) {
 		slog.p(Logger::Notice) << "watermark(s) decreased?!?\n";
@@ -14,7 +14,7 @@ void RNewsgroup::setsize(unsigned int f, unsigned int l)
 					  _OverviewDB.lower_bound(f));
 		}
 		if (_last < l) {
-			int old_last = _last;
+			artnum_t old_last = _last;
 			_first = f;
 			_last = l;
 			_RemoteServer->overviewdb(this, old_last + 1, l);
@@ -22,7 +22,7 @@ void RNewsgroup::setsize(unsigned int f, unsigned int l)
 	}
 }
 
-void RNewsgroup::printarticle(std::ostream & os, unsigned int nbr)
+void RNewsgroup::printarticle(std::ostream & os, artnum_t nbr)
 {
 	try {
 		Article article;

@@ -536,6 +536,14 @@ void RServer::setserver(MPListEntry * server)
 	_CurrentServer = server;
 }
 
+// Reads the next number of a "211 count first last group" reply.
+static int next_artnum(const char **p, artnum_t *n)
+{
+	while (**p == ' ' || **p == '\t')
+		(*p)++;
+	return parse_artnum(*p, n, p);
+}
+
 void RServer::selectgroup(const char *name, int force)
 {
 	VERB(slog.
@@ -551,8 +559,8 @@ void RServer::selectgroup(const char *name, int force)
 		return;
 
 	char buf[MAXPATHLEN];
-	const char *ep, *p;
-	int nbr, fst, lst;
+	const char *p;
+	artnum_t nbr, fst, lst;
 	MPListEntry *mpe;
 	string resp;
 
@@ -575,11 +583,10 @@ void RServer::selectgroup(const char *name, int force)
 	}
 
 	p += 3;
-	nbr = strtol(p, (char **) &p, 10);
-	fst = strtol(p, (char **) &p, 10);
-	lst = strtol(p, (char **) &ep, 10);
-
-	if (ep == resp) {
+	// (This compared the end pointer with the reply string, which is
+	// never equal, so a reply without numbers gave 0 0 0.)
+	if (!next_artnum(&p, &nbr) || !next_artnum(&p, &fst) ||
+	    !next_artnum(&p, &lst)) {
 		//THROW!?! _Response_should_be_
 		// 211 $n $f $l $g selected
 		// $n Nbr. of articles in group
@@ -604,7 +611,7 @@ void RServer::selectgroup(const char *name, int force)
 
 		if (mpe->limitgroupsize) {
 			if (lst >= fst &&
-			    (unsigned int) (lst - fst + 1) > mpe->limitgroupsize) {
+			    lst - fst + 1 > mpe->limitgroupsize) {
 				fst = lst - mpe->limitgroupsize + 1;
 				nbr = mpe->limitgroupsize;
 			}
@@ -777,13 +784,13 @@ Newsgroup *RServer::getgroup(const char *name)
 }
 
 void RServer::listgroup(const char *gname, char *lstgrp,
-			unsigned int f, unsigned int l)
+			artnum_t f, artnum_t l)
 {
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "RServer::listgroup(" << gname << ",...)\n");
 	const char *p;
-	unsigned int i;
+	artnum_t i;
 	string resp, line;
 
 	selectgroup(gname);
@@ -804,7 +811,7 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 				throw
 					SystemError("error while reading from server",
 						    errno, ERROR_LOCATION);
-			i = atoi(line.data());
+			i = leading_artnum(line.data());
 			if (f <= i && i <= l)
 				lstgrp[i - f] = 1;
 		}
@@ -815,8 +822,8 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 	}
 }
 
-void RServer::overviewdb(Newsgroup * ng, unsigned int fst,
-			 unsigned int lst)
+void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
+			 artnum_t lst)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::overviewdb(*ng,"
 	     << fst << "-" << lst << ")\n");
@@ -830,12 +837,12 @@ void RServer::overviewdb(Newsgroup * ng, unsigned int fst,
 	char buf[513];
 	string resp;
 	const char *p;
-	const char *fmt = "over %d-%d\r\n";
+	const char *fmt = "over %llu-%llu\r\n";
 
 	selectgroup(ng->name());
 	for (;;) {
 		if (!(_CurrentServer->nntpflags & MPListEntry::F_OVER))
-			fmt = "xover %d-%d\r\n";
+			fmt = "xover %llu-%llu\r\n";
 		if (!(_CurrentServer->nntpflags & MPListEntry::F_XOVER)) {
 			slog.
 			    p(Logger::
@@ -847,7 +854,8 @@ void RServer::overviewdb(Newsgroup * ng, unsigned int fst,
 			     ERROR_LOCATION);
 		}
 
-		snprintf(buf, sizeof(buf), fmt, fst, lst);
+		snprintf(buf, sizeof(buf), fmt, (unsigned long long) fst,
+			 (unsigned long long) lst);
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
@@ -874,7 +882,7 @@ void RServer::overviewdb(Newsgroup * ng, unsigned int fst,
 	}
 }
 
-void RServer::article(const char *gname, unsigned int nbr, Article * art)
+void RServer::article(const char *gname, artnum_t nbr, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::article(" << nbr << ")\n");
 	char buf[513];
@@ -883,7 +891,8 @@ void RServer::article(const char *gname, unsigned int nbr, Article * art)
 
 	selectgroup(gname);
 
-	snprintf(buf, sizeof(buf), "article %u\r\n", nbr);
+	snprintf(buf, sizeof(buf), "article %llu\r\n",
+		 (unsigned long long) nbr);
 	resp = issue(buf, NULL);
 	p = resp.c_str();
 	if (strncmp(p, "220", 3) != 0) {
@@ -912,7 +921,7 @@ void RServer::article(const char *id, Article * art)
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			art->read(*_pServerStream);
-			art->setnbr(-1);
+			art->setnbr(0);
 			return;
 		}
 		// 412 cannot happen since we specified the article id
@@ -939,7 +948,7 @@ void RServer::article(const char *id, Article * art)
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			art->read(*_pServerStream);
-			art->setnbr(-1);
+			art->setnbr(0);
 			return;
 		}
 		if (strncmp(p, "430", 3) != 0) {
@@ -1247,7 +1256,12 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 		_OverviewFormat = new OverviewFmt;
 	}
 	if (!_ActiveDB) {
-		snprintf(buf, sizeof(buf), "%s/.active", spooldir);
+		// .active64 since 1.3.22 (64-bit article numbers), .active
+		// before; an old .active is converted once.
+		char old[MAXPATHLEN];
+		snprintf(old, sizeof(old), "%s/.active", spooldir);
+		snprintf(buf, sizeof(buf), "%s/.active64", spooldir);
+		NVActiveDB::convert_v1(old, buf);
 		_ActiveDB = _NVActiveDB = new NVActiveDB(buf);
 	}
 
@@ -1561,7 +1575,7 @@ void CServer::postspooled(void)
 }
 
 void CServer::listgroup(const char *gname, char *lstgrp,
-			unsigned int f, unsigned int l)
+			artnum_t f, artnum_t l)
 {
 	VERB(slog.
 	     p(Logger::
@@ -1587,8 +1601,8 @@ void CServer::listgroup(const char *gname, char *lstgrp,
 	RServer::listgroup(gname, lstgrp, f, l);
 }
 
-void CServer::overviewdb(Newsgroup * ng, unsigned int fst,
-			 unsigned int lst)
+void CServer::overviewdb(Newsgroup * ng, artnum_t fst,
+			 artnum_t lst)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::overviewdb(*ng,"
 	     << fst << "-" << lst << ")\n");
@@ -1614,7 +1628,7 @@ void CServer::overviewdb(Newsgroup * ng, unsigned int fst,
  *   NoSuchArticleError ... if the requested article does not exist
  *   NSError ... if in offline mode
  */
-void CServer::article(const char *gname, unsigned int nbr, Article * art)
+void CServer::article(const char *gname, artnum_t nbr, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::article(" << nbr << ")\n");
 	MPListEntry *mpe;
@@ -1645,7 +1659,7 @@ void CServer::article(const char *id, Article * art)
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			art->read(*_pServerStream);
-			art->setnbr(-1);
+			art->setnbr(0);
 			filter_xref(art, gname ? _CurrentServer : NULL, gname);
 			return;
 		}
@@ -1673,7 +1687,7 @@ void CServer::article(const char *id, Article * art)
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			art->read(*_pServerStream);
-			art->setnbr(-1);
+			art->setnbr(0);
 			filter_xref(art, NULL);
 			return;
 		}

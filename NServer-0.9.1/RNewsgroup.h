@@ -30,10 +30,10 @@
  * \bug Documentation is missing.
  */
 class RNewsgroup:public Newsgroup {
-	typedef std::map < unsigned int, std::string >::iterator iterator;
+	typedef std::map < artnum_t, std::string >::iterator iterator;
 
-	std::map < unsigned int, std::string > _OverviewDB;
-	unsigned int _first, _last;
+	std::map < artnum_t, std::string > _OverviewDB;
+	artnum_t _first, _last;
 
 	// News stuff
 	RServer *_RemoteServer;
@@ -49,29 +49,29 @@ class RNewsgroup:public Newsgroup {
 	~RNewsgroup()
 	{ }
 
-	virtual void getsize(unsigned int *f, unsigned int *l) {
+	virtual void getsize(artnum_t *f, artnum_t *l) {
 		*f = _first;
 		*l = _last;
 	}
 
-	virtual void setsize(unsigned int f, unsigned int l);
+	virtual void setsize(artnum_t f, artnum_t l);
 
 	virtual void prefetchGroup(int lockgrp = 1) {
 	}
 	virtual void prefetchOverview(void) {
 	}
 
-	virtual unsigned int firstnbr() {
+	virtual artnum_t firstnbr() {
 		return _first;
 	}
-	virtual unsigned int lastnbr() {
+	virtual artnum_t lastnbr() {
 		return _last;
 	}
-	virtual int hasrecord(unsigned int i) {
+	virtual int hasrecord(artnum_t i) {
 		return (_OverviewDB.find(i) != _OverviewDB.end());
 	}
 
-	virtual Article *getarticle(unsigned int nbr) {
+	virtual Article *getarticle(artnum_t nbr) {
 		try {
 			Article *a = new Article;
 			_RemoteServer->article(_NewsgroupName, nbr, a);
@@ -87,9 +87,9 @@ class RNewsgroup:public Newsgroup {
 	}
 	virtual void setarticle(Article * art) {
 	}
-	virtual void printarticle(std::ostream & os, unsigned int nbr);
+	virtual void printarticle(std::ostream & os, artnum_t nbr);
 
-	virtual const char *getover(unsigned int nbr) {
+	virtual const char *getover(artnum_t nbr) {
 		iterator over = _OverviewDB.find(nbr);
 		if (over != _OverviewDB.end())
 			return over->second.c_str();
@@ -98,7 +98,7 @@ class RNewsgroup:public Newsgroup {
 	}
 
 	virtual void setover(const std::string & over) {
-		unsigned int i = atoi(over.c_str());
+		artnum_t i = leading_artnum(over.c_str());
 
 		if (_first <= i && i <= _last) {
 			_OverviewDB[i] = over;
@@ -126,8 +126,8 @@ class RNewsgroup:public Newsgroup {
 
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,
-				   unsigned int f = 0, unsigned int l =
-				   UINT_MAX) {
+				   artnum_t f = 0, artnum_t l =
+				   ARTNUM_MAX) {
 		char xheader[512], *p;
 		const char *q;
 		std::string fld;
@@ -142,7 +142,7 @@ class RNewsgroup:public Newsgroup {
 		    _OverviewDB.end();
 
 		while (begin != end) {
-			unsigned int i = begin->first;
+			artnum_t i = begin->first;
 			if (l < i)
 				break;
 

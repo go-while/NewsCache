@@ -287,8 +287,8 @@ void clean(const char *cpath)
 	}
 	NVNewsgroup *ng;
 	OverviewFmt *fmt = new OverviewFmt ();
-	int firstnr = 0;
-	int lastnr = 0;
+	artnum_t firstnr = 0;
+	artnum_t lastnr = 0;
 	try {
 		// The inner try handles NoSuchGroupError, NC_CATCH_ALL the
 		// rest (its own NoSuchGroupError handler would never run here).
@@ -306,8 +306,8 @@ void clean(const char *cpath)
 		delete ng;
 	}
 	delete fmt;
-	string art;
-	int nr;
+	artnum_t nr;
+	const char *end;
 	while ((f = readdir(d)) != NULL) {
 		if (snprintf(buf, sizeof(buf), "%s/%s", cpath, f->d_name) >=
 		    (int) sizeof(buf)) {
@@ -321,11 +321,9 @@ void clean(const char *cpath)
 				time_t at = MAX(s.st_atime, s.st_mtime);
 				if (dbatime <= at)
 					at = dbatime;
-				art = f->d_name;
-				art.replace (0,4, "");
-				if (sscanf (art.c_str(), "%d", &nr) != 1) {
+				if (!parse_artnum(f->d_name + 4, &nr, &end) || *end) {
 					slog.p(Logger::Error) << "error "
-						<< "parsing " << f->d_name;
+						<< "parsing " << f->d_name << "\n";
 				} else if (ng == NULL || nr < firstnr || nr > lastnr) {
 					at = 0;
 				}

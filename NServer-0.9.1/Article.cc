@@ -45,6 +45,7 @@ void InvalidArticleError::print(void) const
 }
 
 Article::Article()
+	: _nbr(0)
 {
 }
 
@@ -52,12 +53,12 @@ Article::Article(Article * a)
 	: _nbr(a->getnbr()), _text(a->GetText()), _ctext(_text.c_str())
 { }
 
-Article::Article(int artnbr)
+Article::Article(artnum_t artnbr)
 {
 	setnbr(artnbr);
 }
 
-Article::Article(int artnbr, const char *text, int textlen)
+Article::Article(artnum_t artnbr, const char *text, int textlen)
 {
 	setnbr(artnbr);
 	_text.assign(text, textlen);
@@ -76,7 +77,7 @@ void Article::read(std::istream & is)
 	_ctext = _text.c_str();
 }
 
-void Article::setnbr(int nbr)
+void Article::setnbr(artnum_t nbr)
 {
 	_nbr = nbr;
 }
@@ -94,7 +95,7 @@ void Article::settext(const std::string & text)
 	_ctext = _text.c_str();
 }
 
-int Article::getnbr(void) const
+artnum_t Article::getnbr(void) const
 {
 	return _nbr;
 }

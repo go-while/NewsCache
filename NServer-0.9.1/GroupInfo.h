@@ -2,7 +2,9 @@
 #define _GroupInfo_h_
 
 #include <iostream>
+#include <stddef.h>
 
+#include "artnum.h"
 #include "NSError.h"
 #include "NVcontainer.h"
 
@@ -10,12 +12,17 @@
  * \class GroupInfo
  * \author Thomas Gschwind
  *
+ * Stored as is (getraw/setraw) in the active database, so the members
+ * are part of its file format: name last, with no padding before it. The
+ * article numbers were unsigned int up to 1.3.21 (file .active); since
+ * then they are 64-bit (file .active64, see NVActiveDB::convert_v1).
+ *
  * \bug Documentation is missing.
  */
 class GroupInfo {
 	nvtime_t _ctime;
 	nvtime_t _mtime;
-	unsigned int _fst, _lst, _n;
+	artnum_t _fst, _lst, _n;
 	char _flag;
 	char _name[512];
 
@@ -46,6 +53,10 @@ class GroupInfo {
 	}
 
 	void getraw(const char **buf, unsigned int *bufsz) {
+		static_assert(offsetof(GroupInfo, _name) ==
+			      sizeof(_ctime) + sizeof(_mtime) + sizeof(_fst) +
+			      sizeof(_lst) + sizeof(_n) + sizeof(_flag),
+			      "GroupInfo is stored as is in the active database");
 		*buf = (const char *) this;
 		*bufsz = sizeof(_ctime) + sizeof(_mtime) +
 		    sizeof(_fst) + sizeof(_lst) + sizeof(_n) +
@@ -66,9 +77,14 @@ class GroupInfo {
 				    ERROR_LOCATION);
 		*q = '\0';
 
-		_lst = strtol(p, (char **) &e, 10);
-		_fst = strtol(e, (char **) &p, 10);
-		if (e == p)
+		while (isspace((unsigned char) *p))
+			p++;
+		if (!parse_artnum(p, &_lst, &e))
+			throw NSError("gd not in form name int int flag",
+				      ERROR_LOCATION);
+		while (isspace((unsigned char) *e))
+			e++;
+		if (!parse_artnum(e, &_fst, &p))
 			throw NSError("gd not in form name int int flag",
 				      ERROR_LOCATION);
 
@@ -87,7 +103,8 @@ class GroupInfo {
 		nvtime(&_mtime);
 	}
 
-	void set(const char *group, int fst, int lst, int n, char fl = 'y') {
+	void set(const char *group, artnum_t fst, artnum_t lst, artnum_t n,
+		 char fl = 'y') {
 		size_t len = strlen(group);
 		if (len >= sizeof(_name))
 			throw Error("Name of newsgroup too long",
@@ -96,7 +113,8 @@ class GroupInfo {
 		setfln(fst, lst, n, fl);
 	}
 
-	void setfln(int first, int last, int n, char fl = 'y') {
+	void setfln(artnum_t first, artnum_t last, artnum_t n,
+		    char fl = 'y') {
 		nvtime_t tm;
 		_fst = first;
 		_lst = last;
@@ -113,6 +131,9 @@ class GroupInfo {
 	void setctime(nvtime_t ctime) {
 		_ctime = ctime;
 	}
+	void setmtime(nvtime_t mtime) {
+		_mtime = mtime;
+	}
 
 	nvtime_t ctime() const {
 		return _ctime;
@@ -123,13 +144,13 @@ class GroupInfo {
 	const char *name() const {
 		return _name;
 	}
-	unsigned int first() const {
+	artnum_t first() const {
 		return _fst;
 	}
-	unsigned int last() const {
+	artnum_t last() const {
 		return _lst;
 	}
-	unsigned int n() const {
+	artnum_t n() const {
 		return _n;
 	}
 	char flags() const {

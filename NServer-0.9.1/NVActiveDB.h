@@ -58,9 +58,20 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	NVActiveDB():NVHash()
 	{ }
 
-	NVActiveDB(char *dbname)
+	NVActiveDB(const char *dbname)
 		: NVHash(dbname, NVActiveDB_HASHSIZE)
 	{ }
+
+	/**
+	 * Converts the active database of NewsCache 1.3.21 and older
+	 * (32-bit article numbers) in oldname to newname and renames
+	 * oldname to oldname.v1. Does nothing if newname exists or
+	 * oldname doesn't. Each group keeps its creation time, which
+	 * NEWGROUPS reports.
+	 * \return the number of groups converted, or -1 on an error (the
+	 * 	new database then starts empty and is filled from upstream)
+	 */
+	static int convert_v1(const char *oldname, const char *newname);
 
 	int lock(int command, int block = Block) {
 		return NVHash::lock(command, block);

@@ -15,7 +15,7 @@ class CNewsgroup:public NVNewsgroup {
 	nvtime_t _TTLGroup;
 	RServer *_RServer;
 
-	void sUpdateGroupInfo(unsigned int *infof, unsigned int *infol);
+	void sUpdateGroupInfo(artnum_t *infof, artnum_t *infol);
 	void sUpdateOverview(void);
 
 	void updateOverview(void) {
@@ -29,8 +29,8 @@ class CNewsgroup:public NVNewsgroup {
 		 sUpdateOverview();
 		 NVArray::lock(NVcontainer::UnLock);
 	}
-	void listgroup(char *lstgrp, unsigned int f, unsigned int l);
-	virtual Article *retrievearticle(unsigned int nbr);
+	void listgroup(char *lstgrp, artnum_t f, artnum_t l);
+	virtual Article *retrievearticle(artnum_t nbr);
 
   public:
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
@@ -45,7 +45,7 @@ class CNewsgroup:public NVNewsgroup {
 		_TTLGroup = grp;
 	}
 
-	virtual void setsize(unsigned int f, unsigned int l) {
+	virtual void setsize(artnum_t f, artnum_t l) {
 		lock(NVcontainer::ShrdLock);
 		if (f != arrfst || l != arrlst) {
 			NVNewsgroup::setsize(f, l);
@@ -65,15 +65,15 @@ class CNewsgroup:public NVNewsgroup {
 		NVArray::lock(NVcontainer::UnLock);
 	}
 
-	virtual const char *getover(unsigned int nbr) {
+	virtual const char *getover(artnum_t nbr) {
 		updateOverview();
 		return NVNewsgroup::getover(nbr);
 	}
 
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,
-				   unsigned int f = 0, unsigned int l =
-				   UINT_MAX) {
+				   artnum_t f = 0, artnum_t l =
+				   ARTNUM_MAX) {
 		updateOverview();
 		NVNewsgroup::printheaderdb(os, header, f, l);
 	}
@@ -83,13 +83,13 @@ class CNewsgroup:public NVNewsgroup {
 		NVNewsgroup::printlistgroup(os);
 	}
 
-	virtual void printover(std::ostream & os, unsigned int nbr) {
+	virtual void printover(std::ostream & os, artnum_t nbr) {
 		updateOverview();
 		NVNewsgroup::printover(os, nbr);
 	}
 
-	virtual void printoverdb(std::ostream & os, unsigned int f =
-				 0, unsigned int l = UINT_MAX) {
+	virtual void printoverdb(std::ostream & os, artnum_t f =
+				 0, artnum_t l = ARTNUM_MAX) {
 		updateOverview();
 		NVNewsgroup::printoverdb(os, f, l);
 	}

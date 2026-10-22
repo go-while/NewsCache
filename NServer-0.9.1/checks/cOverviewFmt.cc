@@ -79,7 +79,7 @@ int checkConvertArtOver(const char *artfn)
 	nlreadline(is, orec2, 0);
 	is.close();
 
-	art.setnbr(atoi(orec2.c_str()));
+	art.setnbr(leading_artnum(orec2.c_str()));
 	o.convert(art, orec1);
 
 	if (strcmp(orec1.c_str(), orec2.c_str())) {

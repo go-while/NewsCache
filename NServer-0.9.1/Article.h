@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "artnum.h"
 #include "NSError.h"
 #include "Debug.h"
 #include "readline.h"
@@ -44,7 +45,7 @@ class Article {
 	const char *find_field(const char *ifld) const;
 
   protected:
-	int _nbr;
+	artnum_t _nbr;	// 0 for an article fetched by Message-ID
 	std::string _text;
 	const char *_ctext;
 
@@ -56,19 +57,19 @@ class Article {
 
 	Article();
 	Article(Article * a);
-	Article(int artnbr);
-	Article(int artnbr, const char *text, int textlen = 0);
+	explicit Article(artnum_t artnbr);
+	Article(artnum_t artnbr, const char *text, int textlen = 0);
 	~Article();
 
 	void read(std::istream & is);
 
-	void setnbr(int nbr);
+	void setnbr(artnum_t nbr);
 	
 	void clear(void);
 	
 	void settext(const std::string & text);
 
-	int getnbr(void) const;
+	artnum_t getnbr(void) const;
 	
 	/* Return Text string
 	 */

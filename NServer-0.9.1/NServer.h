@@ -413,7 +413,7 @@ class RServer:virtual public NServer {
 	* 	code.
 	*/
 	virtual void listgroup(const char *gname, char *lstgrp,
-						   unsigned int f, unsigned int l);
+						   artnum_t f, artnum_t l);
 
 	/**
 	* Return the overviewdatabase of the newsgroup >ng<.  This function
@@ -431,8 +431,8 @@ class RServer:virtual public NServer {
 	* \throw NotAllowedError If retrieving the overviewdb is prohibited.
 	* \throw NSError If news server does not implement over and xover.
 	*/
-	virtual void overviewdb(Newsgroup * ng, unsigned int fst,
-							unsigned int lst);
+	virtual void overviewdb(Newsgroup * ng, artnum_t fst,
+							artnum_t lst);
 
 	/**
 	* Return a given article of a given newsgroup
@@ -456,7 +456,7 @@ class RServer:virtual public NServer {
 	* \bug Description and Code (Parameters) not synchronized.
 	* \todo Synchronize Description and Code (Parameters).
 	*/
-	virtual void article(const char *gname, unsigned int nb,
+	virtual void article(const char *gname, artnum_t nb,
 						 Article * artr);
 
 	/**
@@ -650,7 +650,7 @@ class CServer
 	* \todo Synchronize Description and Code (Parameters).
 	*/
 	virtual void listgroup(const char *gname, char *lstgrp,
-						   unsigned int f, unsigned int l);
+						   artnum_t f, artnum_t l);
 
 	/**
 	* Return the overviewdatabase of the newsgroup >ng<.  This function
@@ -665,8 +665,8 @@ class CServer
 	* \bug Description and Code (throw) not synchronized.
 	* \todo Synchronize Description and Code (throw).
 	*/
-	virtual void overviewdb(Newsgroup * ng, unsigned int fst,
-							unsigned int lst);
+	virtual void overviewdb(Newsgroup * ng, artnum_t fst,
+							artnum_t lst);
 
 	/**
 	* Return a given article of a given newsgroup.
@@ -683,7 +683,7 @@ class CServer
 	* \bug Description and Code (return) not synchronized.
 	* \todo Synchronize Description and Code (return).
 	*/
-	virtual void article(const char *gname, unsigned int nbr,
+	virtual void article(const char *gname, artnum_t nbr,
 						 Article * art);
 
 	/**
