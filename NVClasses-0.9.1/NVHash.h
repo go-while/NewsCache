@@ -19,6 +19,10 @@ class NVHash:public NVListBase {
 	void make_current(void);
 	nvoff_t *hashtab;
 	unsigned long hashsz;
+	unsigned long want_hashsz;	// the size open() was given
+
+	void create_table(unsigned long n);
+	void reinit(void);
 
 	int sis_empty(void);
 	void sclear(void);
@@ -26,7 +30,7 @@ class NVHash:public NVListBase {
 	void sprint(std::ostream & os);
 
   public:
-	NVHash():NVListBase()
+	NVHash():NVListBase(), hashtab(NULL), hashsz(0), want_hashsz(0)
 	{ }
 
 	NVHash(const char *dbname, unsigned long hashsz = 97, int flags = 0);
@@ -67,6 +71,7 @@ class NVHashIter {
 	NVHash::Record * pos;
 	NVHash::Record * curtail;
 	unsigned long curhashval;
+	unsigned long steps;	// along the current chain
 
   public:
 	NVHashIter() {
@@ -102,6 +107,7 @@ class NVHashIter {
 			if (ht->hashtab[curhashval]) {
 				curtail = ht->o2r(ht->hashtab[curhashval]);
 				pos = ht->o2r(curtail->next);
+				steps = 0;
 				break;
 			}
 			curhashval++;
@@ -123,11 +129,13 @@ class NVHashIter {
 							    [curhashval]);
 						pos =
 						    ht->o2r(curtail->next);
+						steps = 0;
 						break;
 					}
 					curhashval++;
 				}
 			} else {
+				ht->chain_step(&steps);
 				pos = ht->o2r(pos->next);
 			}
 		}

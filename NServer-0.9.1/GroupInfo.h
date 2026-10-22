@@ -49,7 +49,15 @@ class GroupInfo {
 		    sizeof(_flag) + sizeof(_name))
 			throw Error("GroupInfo(24230): setraw buf too big",
 				    ERROR_LOCATION);
-		memcpy(this, buf, bufsz);
+		// a record from the file: the name must end in _name
+		memset((void *) this, 0, sizeof(*this));
+		memcpy((void *) this, buf, bufsz);
+		_name[sizeof(_name) - 1] = '\0';
+	}
+
+	// Where the name starts in the raw form (getraw/setraw).
+	static size_t rawnameoffset(void) {
+		return offsetof(GroupInfo, _name);
 	}
 
 	void getraw(const char **buf, unsigned int *bufsz) {

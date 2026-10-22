@@ -169,6 +169,22 @@ class AssertionError:public Error {
 	}
 };
 
+/**
+ * \class CorruptDBError
+ *
+ * A database file of the spool failed a sanity check while it was in
+ * use. NVcontainer has moved the file aside (to name.bad) and started a
+ * new, empty one under the old name; the operation that ran into it was
+ * given up. The caller can retry it on the new file.
+ */
+class CorruptDBError:public Error {
+      public:
+	std::string _dbname;
+	CorruptDBError(const std::string & dbname, const std::string & txt)
+	:Error("corrupt database " + dbname + ": " + txt), _dbname(dbname) {
+	}
+};
+
 #endif
 
 /*

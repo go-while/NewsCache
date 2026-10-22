@@ -102,16 +102,23 @@ nvtime_t nvtime(nvtime_t * nvt)
 NVcontainer::NVcontainer()
 {
 	lck_stackp = NVcontainer_LOCKSTACKSIZE;
+	lck_orphans = in_open = in_corrupt = 0;
 	mem_fn[0] = '\0';
 	mem_fd = -1;
 	mem_p = NULL;
+	mem_sz = 0;
 	mem_hdr = (Header *) mem_p;
 }
 
 NVcontainer::NVcontainer(const char *dbname, int flags)
 {
 	lck_stackp = NVcontainer_LOCKSTACKSIZE;
+	lck_orphans = in_open = in_corrupt = 0;
+	mem_fn[0] = '\0';
 	mem_fd = -1;
+	mem_p = NULL;
+	mem_sz = 0;
+	mem_hdr = (Header *) mem_p;
 	open(dbname, flags);
 }
 
@@ -128,6 +135,7 @@ void NVcontainer::make_current()
 		if (is_current())
 			return;
 		munmap(mem_p, mem_sz);
+		mem_p = NULL;
 	}
 
 	if (fstat(mem_fd, &st) < 0) {
@@ -142,11 +150,10 @@ void NVcontainer::make_current()
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::make_current(): info-record shrunk;"
-		   << " mem_fn: " << mem_fn
-		   << " st.st_size: " << (unsigned long int) st.st_size
-		   << " sizeof(Header): " << (unsigned long int) sizeof(Header);
-		throw Error(sb.rdbuf()->str(), ERROR_LOCATION);
+		sb << "file shorter than its header ("
+		   << (unsigned long int) st.st_size << " bytes)";
+		corrupt(sb.str());
+		return;
 	}
 
 	mem_sz = st.st_size;
@@ -166,12 +173,10 @@ void NVcontainer::make_current()
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::make_current(): wrong header size"
-		   << " mem_fn: " << mem_fn
-		   << " mem_hdr->hlen: " << (unsigned long int) mem_hdr->hlen
-		   << " sizeof(Header): " << (unsigned long int) sizeof(Header);
-		rename_to_bad_and_close(); // close manipulate the member structure !!
-		throw Error(sb.rdbuf()->str(), ERROR_LOCATION);
+		sb << "wrong header size " << (unsigned long int) mem_hdr->hlen
+		   << ", not " << (unsigned long int) sizeof(Header);
+		corrupt(sb.str());
+		return;
 	}
 	if (mem_hdr->version != 2) {
 #ifdef HAVE_SSTREAM
@@ -179,11 +184,37 @@ void NVcontainer::make_current()
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::make_current(): wrong header version"
-		   << " mem_fn: " << mem_fn
-		   << " mem_hdr->version: " << (unsigned long int) mem_hdr->version;
-		rename_to_bad_and_close(); // close manipulate the member structure !!
-		throw Error(sb.rdbuf()->str(), ERROR_LOCATION);
+		sb << "wrong header version " << (unsigned long int) mem_hdr->version;
+		corrupt(sb.str());
+		return;
+	}
+	// The file must be as long as the header says (a shorter one is
+	// cut off: accessing the rest would end with SIGBUS), and the free
+	// list and the user data must lie within it.
+	if (mem_hdr->size > mem_sz) {
+#ifdef HAVE_SSTREAM
+		stringstream sb;
+#else
+		strstream sb;
+#endif
+		sb << "file cut off: " << (unsigned long int) mem_sz
+		   << " bytes, the header says " << (unsigned long int) mem_hdr->size;
+		corrupt(sb.str());
+		return;
+	}
+	{
+		nvoff_t fl = mem_hdr->freelist;
+		if (fl < sizeof(Header) || fl > mem_sz - sizeof(FreeList) ||
+		    fl % sizeof(unsigned long) ||
+		    ((FreeList *) (mem_p + fl))->size > mem_sz - fl ||
+		    mem_hdr->bytes_free > mem_sz) {
+			corrupt("bad free list in the header");
+			return;
+		}
+		if (mem_hdr->userdata && !valid_block(mem_hdr->userdata)) {
+			corrupt("bad user data offset in the header");
+			return;
+		}
 	}
 	if (mem_sz != mem_hdr->size) {
 #ifdef HAVE_SSTREAM
@@ -260,17 +291,20 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 	// * the allocated block has to hold its size
 	//   the memory after the size indicator will be returned
 	rsz = (rsz + sizeof(unsigned long) + 0xf) & (~0xf);
-	if (flhead == NULL) {
-		throw Error ("NVContainer(5946): Database file corrupted (freelist==NULL)",
-		     ERROR_LOCATION);
-	}
+	if (flhead == NULL)
+		corrupt("no free list");
 	// flhead points to the last free memory block available in the database
 	prv = flhead;
 	cur = o2fl(prv->next);
-	// find the first suitable memory block in the database
+	if (!cur)
+		corrupt("free list broken");
+	// find the first suitable memory block in the database (the list is
+	// sorted by address and ends with flhead)
 	while (cur->size < rsz && cur != flhead) {
 		prv = cur;
 		cur = o2fl(cur->next);
+		if (!cur || cur <= prv)
+			corrupt("free list out of order");
 	}
 
 	if (cur == flhead) {
@@ -283,36 +317,24 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 			// Since it is very likely that the mapped region will change
 			// during the resize operation, we will have to save the
 			// currently used pointers
-			int needsz = rsz + sizeof(FreeList) - flhead->size;
+			size_t needsz = rsz + sizeof(FreeList) - flhead->size;
 			resize(mem_sz + needsz);
 			cur = flhead = o2fl(mem_hdr->freelist);
 			prv = o2fl(prvoff);
-			ASSERT(if (cur->size < rsz + sizeof(FreeList)) {
-			       throw
-			       AssertionError
-			       ("NVContainer::nvalloc: resize failed",
-				ERROR_LOCATION);}
-			);
+			if (!cur || !prv || cur->size < rsz + sizeof(FreeList))
+				corrupt("free list broken after growing the file");
 		}
 	}
-	ASSERT(if (cur->size < rsz) {
-	       throw
-	       AssertionError
-	       ("NVContainer::nvalloc: did not find a large enough free memory block",
-		ERROR_LOCATION);}
-	);
+	if (cur->size < rsz)
+		corrupt("free list broken");
 
 	res = cur;
 
 	if (cur->size < rsz + sizeof(FreeList)) {
 		// The available space is too small to split?
 		// This may only occur if cur _is_not_ the tail of the free blocks
-		ASSERT(if (res == flhead) {
-		       throw
-		       AssertionError
-		       ("NVContainer::nvalloc: Cannot split block of free memory at tail of database",
-			ERROR_LOCATION);}
-		);
+		if (res == flhead)
+			corrupt("free block at the end too small");
 		prv->next = cur->next;
 		rsz = cur->size;
 	} else {
@@ -329,12 +351,8 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 		} else {
 			// list contains only one block pointing to itself
 			// this must be the free memory block at the tail
-			ASSERT(if (res != flhead) {
-			       throw
-			       AssertionError
-			       ("NVList::nvalloc: Lost block of free memory at tail of database",
-				ERROR_LOCATION);}
-			);
+			if (res != flhead)
+				corrupt("lost the free block at the end");
 			mem_hdr->freelist = cur->next = fl2o(cur);
 		}
 	}
@@ -389,7 +407,7 @@ void NVcontainer::nvfree(nvoff_t p)
 	lock(ExclLock);
 
 	FreeList *pb, *pe;
-	int psz;
+	unsigned long psz;
 #ifdef FREELIST_ASSERT_ON
 	FreeList *flhead;
 	FreeList *cur, *prv;
@@ -427,39 +445,29 @@ void NVcontainer::nvfree(nvoff_t p)
 	FreeList *cur = NULL, *prv = NULL;
 #endif
 
-	pb = o2fl(p - sizeof(unsigned long));
+	// p comes from the file (an index or a record chain)
+	if (!valid_block(p))
+		corrupt("freeing a block outside the file");
+	pb = (FreeList *) (mem_p + p - sizeof(unsigned long));
 	psz = *(unsigned long *) pb;
 	pe = (FreeList *) ((char *) pb + psz);
-
-//  ASSERT(memset(pb,255,psz));
-	ASSERT(if ((char *) pb < mem_p || mem_p + mem_sz < (char *) pe) {
-	       char buf[1024];
-	       close();
-	       sprintf(buf,
-		       "NVcontainer::nvfree: tried to free illegal memory block ([%p,%p])!\nNVcontainer mapped from [%p,%p]",
-		       pb, pe, mem_p, mem_p + mem_sz);
-	       throw AssertionError(buf, ERROR_LOCATION);});
+	if (!flhead)
+		corrupt("no free list");
 
 	// flhead points to the last free memory block available in the database
 	prv = flhead;
 	cur = o2fl(prv->next);
+	if (!cur)
+		corrupt("free list broken");
 	while (cur < pb && cur != flhead) {
 		prv = cur;
 		cur = o2fl(cur->next);
-		ASSERT(if (prv >= cur) {
-		       throw
-		       AssertionError
-		       ("NVContainer::nvfree: freelist out of order!",
-			ERROR_LOCATION);}
-		);
+		if (!cur || prv >= cur)
+			corrupt("free list out of order");
 	}
-	ASSERT(if (cur < pb) {
-	       char buf[1024];
-	       close();
-	       sprintf(buf,
-		       "NVcontainer::nvfree: tried to free unallocated memory block ([%p,%p])!\n Address must be smaller than flhead (%p)!\nNVcontainer mapped from[%p,%p]",
-		       pb, pe, flhead, mem_p, mem_p + mem_sz);
-	       throw AssertionError(buf, ERROR_LOCATION);});
+	if (cur < pb || pe > cur ||
+	    (prv < pb && (char *) prv + prv->size > (char *) pb))
+		corrupt("freeing a block that overlaps free memory");
 
 	if ((char *) prv + prv->size == (char *) pb) {
 #ifdef FREELIST_ASSERT_ON
@@ -489,12 +497,8 @@ void NVcontainer::nvfree(nvoff_t p)
 		// The freed block is adjacent to the next free block
 		if (cur->next == fl2o(cur)) {
 			// Only one block of free memory left
-			ASSERT(if (flhead != cur) {
-			       throw
-			       AssertionError
-			       ("NVContainer::nvfree: flhead lost trailing block of free memory",
-				ERROR_LOCATION);}
-			);
+			if (flhead != cur)
+				corrupt("lost the free block at the end");
 			mem_hdr->freelist = pb->next = fl2o(pb);
 			pb->size = psz + cur->size;
 		} else {
@@ -557,6 +561,11 @@ int NVcontainer::lock(int command, int block)
 	}
 	if (command == UnLock) {
 		// Unlock container 
+		if (lck_stackp >= NVcontainer_LOCKSTACKSIZE && lck_orphans > 0) {
+			// a lock that corrupt() gave up
+			lck_orphans--;
+			return 0;
+		}
 		if (lck_stackp >= NVcontainer_LOCKSTACKSIZE) {
 			throw
 			    Error
@@ -694,7 +703,15 @@ void NVcontainer::open(const char *dbname, int flags)
 	nvflock(mem_fd, UnLock, Block);
 
 	//Sanity checks of an existing database will be done in 
-	make_current();
+	in_open++;
+	try {
+		make_current();
+	}
+	catch(...) {
+		in_open--;
+		throw;
+	}
+	in_open--;
 }
 
 int NVcontainer::is_open(void)
@@ -721,21 +738,77 @@ void NVcontainer::close()
 	mem_hdr = (Header *) mem_p;
 }
 
-void NVcontainer::rename_to_bad_and_close()
+bool NVcontainer::valid_block(nvoff_t p, size_t * sz)
 {
-	string f_new = mem_fn;
+	unsigned long bs;
 
-	f_new += ".bad";
-	slog.p(Logger::Error) << "NVcontainer::rename_to_bad_and_close: "
-		<< "Error: bad database file: " << f_new << "\n";
-	if (rename (mem_fn, f_new.c_str()) != 0) {
-		slog.p (Logger::Error) << "NVcontainer::rename_to_bad_and_close: "
-			<< "rename error: errno=" << errno << " errtxt: "
-			<< strerror (errno) << "\n";
-	}
-	close ();
+	if (!mem_p || p < sizeof(Header) + sizeof(unsigned long) ||
+	    p > mem_sz || p % sizeof(unsigned long))
+		return false;
+	// nvalloc stores the block size, its own field included, just
+	// before the block
+	bs = *(unsigned long *) (mem_p + p - sizeof(unsigned long));
+	if (bs < 2 * sizeof(unsigned long) || bs % sizeof(unsigned long) ||
+	    bs > mem_sz - (p - sizeof(unsigned long)))
+		return false;
+	if (sz)
+		*sz = bs - sizeof(unsigned long);
+	return true;
 }
-	
+
+void NVcontainer::corrupt(const std::string & why)
+{
+	string fn = mem_fn, bad = fn + ".bad";
+	int opening = in_open;
+
+	if (in_corrupt || fn.empty()) {
+		// the new file is bad too, or there is no file: give up
+		throw CorruptDBError(fn, why);
+	}
+	in_corrupt = 1;
+	slog.p(Logger::Error) << "corrupt database " << fn << ": " << why
+		<< "; moved to " << bad << ", starting a new one\n";
+	struct stat ours, named;
+	if (mem_fd >= 0 && fstat(mem_fd, &ours) == 0 &&
+	    stat(fn.c_str(), &named) == 0 &&
+	    (ours.st_dev != named.st_dev || ours.st_ino != named.st_ino)) {
+		// another process has moved it aside already and started
+		// a new one: use that
+	} else if (::rename(fn.c_str(), bad.c_str()) != 0 && errno != ENOENT) {
+		slog.p(Logger::Error) << "cannot rename " << fn << ": "
+			<< strerror(errno) << "; removing it\n";
+		if (unlink(fn.c_str()) != 0) {
+			in_corrupt = 0;
+			throw CorruptDBError(fn, why);
+		}
+	}
+
+	// Drop the old mapping. The callers' locks go with it; their UnLock
+	// calls are let through (lck_orphans).
+	if (mem_p)
+		munmap(mem_p, mem_sz);
+	if (mem_fd >= 0)
+		::close(mem_fd);
+	lck_orphans += NVcontainer_LOCKSTACKSIZE - lck_stackp;
+	lck_stackp = NVcontainer_LOCKSTACKSIZE;
+	mem_fn[0] = '\0';
+	mem_fd = -1;
+	mem_p = NULL;
+	mem_hdr = NULL;
+	mem_sz = 0;
+	try {
+		open(fn.c_str());
+		reinit();
+	}
+	catch(const Error & e) {
+		slog.p(Logger::Error) << "cannot start a new " << fn << "\n";
+		e.print();
+	}
+	in_corrupt = 0;
+	if (!opening || mem_fd < 0)
+		throw CorruptDBError(fn, why);
+}
+
 void NVcontainer::setmtime(nvtime_t tm, int force)
 {
 	lock(ExclLock);

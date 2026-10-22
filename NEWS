@@ -225,6 +225,19 @@ Bug fixes:
 * XHDR takes a message-ID ("XHDR subject <id>", RFC 2980 2.6); it
   answered 501. The line starts with the message-ID, and no group needs
   to be selected.
+* A damaged database in the spool (a group's .db, or .active64) could
+  crash NewsCache. Damage behind the header crashed every session that
+  touched the group (SIGSEGV), a short or damaged .active64 aborted every
+  session before the greeting, a short .db gave "412 operation failed"
+  for good, and newscacheclean ended with SIGABRT at a damaged .db, before
+  it had removed anything. The offsets and sizes in these files are now
+  checked before they are used; a damaged file is moved to name.bad (one
+  error line in the log), a new one is started and filled from the
+  upstream server again, and the command that ran into it is retried.
+  newscacheclean goes on with the other groups and removes the .bad
+  files. A command that fails with any other unexpected error now gets a
+  503 instead of ending the session (e.g. a stored article that doesn't
+  parse; in inetd mode that aborted with SIGABRT).
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

@@ -1488,6 +1488,18 @@ Newsgroup *CServer::getgroup(const char *name)
 {
 	VERB(slog.
 	     p(Logger::Debug) << "CServer::getgroup(" << name << ")\n");
+	// A corrupt database is moved aside and a new one started (see
+	// NVcontainer::corrupt): then once more, on the new one.
+	try {
+		return getgroup_once(name);
+	}
+	catch(const CorruptDBError & e) {
+		return getgroup_once(name);
+	}
+}
+
+Newsgroup *CServer::getgroup_once(const char *name)
+{
 	CNewsgroup *grp;
 	MPListEntry *mpe;
 
@@ -1504,7 +1516,13 @@ Newsgroup *CServer::getgroup(const char *name)
 		NVNewsgroup *grp =
 		    new NVNewsgroup(_OverviewFormat, _SpoolDirectory,
 				    name);
-		grp->setsize(grpinfo.first(), grpinfo.last());
+		try {
+			grp->setsize(grpinfo.first(), grpinfo.last());
+		}
+		catch(...) {
+			delete grp;
+			throw;
+		}
 		return grp;
 	}
 
@@ -1522,7 +1540,13 @@ Newsgroup *CServer::getgroup(const char *name)
 
 	GroupInfo *grpinfo = groupinfo(name);
 	grp = new CNewsgroup(this, _OverviewFormat, _SpoolDirectory, name);
-	grp->setsize(grpinfo->first(), grpinfo->last());
+	try {
+		grp->setsize(grpinfo->first(), grpinfo->last());
+	}
+	catch(...) {
+		delete grp;
+		throw;
+	}
 	grp->setttl(mpe->groupTimeout);
 	return grp;
 }

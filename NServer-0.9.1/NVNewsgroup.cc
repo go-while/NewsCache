@@ -74,7 +74,13 @@ void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
-				_OverviewFormat->convert(*art, over);
+				try {
+					_OverviewFormat->convert(*art, over);
+				}
+				catch(const InvalidArticleError & e) {
+					delete art;
+					corrupt("stored article unreadable");
+				}
 				os << over << "\r\n";
 				delete art;
 			} else if (*data == bigarticle
@@ -201,14 +207,16 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 	for (i = f; i <= l; i++) {
 		nvoff_t *slot = &arrtab[i - arrfst];
 		if (*slot) {
+			char *data;
+			size_t szdata;
+
+			NVArray::sget(i, &data, &szdata);	// (checks the record)
 			if (History::enabled()) {
-				std::string id = recordmsgid(mem_p + *slot +
-							     sizeof(unsigned long),
-							     *(unsigned long *) (mem_p + *slot));
+				std::string id = recordmsgid(data, szdata);
 				if (!id.empty())
 					History::remove(id.c_str(), name());
 			}
-			if (*(mem_p + *slot + sizeof(long)) == bigarticle) {
+			if (*data == bigarticle) {
 				artfile(fn, sizeof(fn), i);
 				unlink(fn);
 			}
@@ -423,6 +431,16 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
+				// Every stored article has a Message-ID; a record
+				// without one, or that doesn't parse, is damaged.
+				try {
+					art->getfield("Message-ID:");
+				}
+				catch(const Error & e) {
+					delete art;
+					art = NULL;
+					corrupt("stored article unreadable");
+				}
 			} else if (*data == bigarticle) {
 				char fn[MAXPATHLEN];
 				ifstream fs;
@@ -609,7 +627,13 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
-				_OverviewFormat->convert(*art, over);
+				try {
+					_OverviewFormat->convert(*art, over);
+				}
+				catch(const InvalidArticleError & e) {
+					delete art;
+					corrupt("stored article unreadable");
+				}
 				delete art;
 			} else if (*data == bigarticle
 				   || *data == overview) {
@@ -747,6 +771,8 @@ void NVNewsgroup::printheaderdb(ostream & os,
 					fld = art.getfield(xheader.c_str(), 0);
 				} catch(NoSuchFieldError & nfe) {
 					found = false;
+				} catch(const InvalidArticleError & e) {
+					corrupt("stored article unreadable");
 				}
 			} else {
 				const char *over = data + sizeof(char);

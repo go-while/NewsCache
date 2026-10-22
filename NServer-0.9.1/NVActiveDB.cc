@@ -18,6 +18,16 @@
 using namespace std;
 
 // protected:
+const char *NVActiveDB::recname(Record * r)
+{
+	size_t off = GroupInfo::rawnameoffset();
+
+	if (r->szdata <= off || r->szdata > sizeof(GroupInfo) ||
+	    !memchr(r->datap() + off, '\0', r->szdata - off))
+		corrupt("bad record in the active database");
+	return r->datap() + off;
+}
+
 unsigned long NVActiveDB::hash(const char *strg)
 {
 	unsigned long h = 1;
@@ -38,8 +48,10 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 	unsigned int gisz;
 	Record *head = o2r(hashtab[hash(gi.name())]);
 	Record *r = head;
+	unsigned long steps = 0;
 
 	while (r) {
+		chain_step(&steps);
 		r = o2r(r->next);
 		if (!r)
 			break;	// lists are circular; 0 only in a corrupt file
@@ -54,8 +66,7 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 		// data is stored in the same layout in the file.
 		// The last (sizeof(GroupInfo)-r->szdata) bytes don't
 		// matter. These are junk anyways.
-		if (strcmp(((GroupInfo *) r->datap())->name(), gi.name())
-		    == 0) {
+		if (strcmp(recname(r), gi.name()) == 0) {
 			gi.setctime(((GroupInfo *) r->datap())->ctime());
 			gi.getraw(&gidata, &gisz);
 			if (gisz != r->szdata) {
@@ -107,8 +118,10 @@ int NVActiveDB::get(const char *group, GroupInfo * gi)
 	lock(ShrdLock);
 	Record *head = o2r(hashtab[hash(group)]);
 	Record *r = head;
+	unsigned long steps = 0;
 
 	while (r) {
+		chain_step(&steps);
 		r = o2r(r->next);
 		if (!r)
 			break;	// lists are circular; 0 only in a corrupt file
@@ -123,7 +136,7 @@ int NVActiveDB::get(const char *group, GroupInfo * gi)
 		// data is stored in the same layout in the file.
 		// The last (sizeof(GroupInfo)-r->szdata) bytes don't
 		// matter. These are junk anyways.
-		if (strcmp(((GroupInfo *) r->datap())->name(), group) == 0) {
+		if (strcmp(recname(r), group) == 0) {
 			gi->setraw(r->datap(), r->szdata);
 			break;
 		}
@@ -144,8 +157,10 @@ int NVActiveDB::hasgroup(const char *group)
 	lock(ShrdLock);
 	Record *head = o2r(hashtab[hash(group)]);
 	Record *r = head;
+	unsigned long steps = 0;
 
 	while (r) {
+		chain_step(&steps);
 		r = o2r(r->next);
 		if (!r)
 			break;	// lists are circular; 0 only in a corrupt file
@@ -160,7 +175,7 @@ int NVActiveDB::hasgroup(const char *group)
 		// data is stored in the same layout in the file.
 		// The last (sizeof(GroupInfo)-r->szdata) bytes don't
 		// matter. These are junk anyways.
-		if (strcmp(((GroupInfo *) r->datap())->name(), group) == 0) {
+		if (strcmp(recname(r), group) == 0) {
 			break;
 		}
 		if (r == head)

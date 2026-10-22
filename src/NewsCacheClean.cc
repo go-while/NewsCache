@@ -304,26 +304,30 @@ void clean(const char *cpath)
 	while ((i=ngname.find ("/")) != -1) {
 		ngname[i] = '.';
 	}
-	NVNewsgroup *ng;
+	NVNewsgroup *ng = NULL;
 	OverviewFmt *fmt = new OverviewFmt ();
 	artnum_t firstnr = 0;
 	artnum_t lastnr = 0;
+	// A corrupt database is moved to .db.bad when it is opened (and a
+	// new one started), see NVcontainer::corrupt. Any other error: log
+	// it and treat the group as having no database, so its .art files
+	// go. (NC_CATCH_ALL rethrew it, and the run ended with SIGABRT.)
 	try {
-		// The inner try handles NoSuchGroupError, NC_CATCH_ALL the
-		// rest (its own NoSuchGroupError handler would never run here).
-		try {
-			ng = open_spool_group(fmt, cpath, ngname.c_str());
-		} catch (const NoSuchGroupError &e) {
-			ng = NULL;
+		ng = open_spool_group(fmt, cpath, ngname.c_str());
+		if (ng != NULL) {
+			firstnr = ng->firstnbr ();
+			lastnr = ng->lastnbr ();
 		}
-	}
-	// FIXME: what we are doing with bad database files?
-	NC_CATCH_ALL ("Error, please report bug!");
-	if (ng != NULL) {
-		firstnr = ng->firstnbr ();
-		lastnr = ng->lastnbr ();
+	} catch (const NoSuchGroupError &e) {
+	} catch (const Error &e) {
+		slog.p(Logger::Error) << "cannot read the database of "
+			<< ngname << ": " << e._errtext << "\n";
+		firstnr = lastnr = 0;
 		delete ng;
+		ng = NULL;
 	}
+	int have_db = ng != NULL;
+	delete ng;
 	delete fmt;
 	artnum_t nr;
 	const char *end;
@@ -335,7 +339,14 @@ void clean(const char *cpath)
 			continue;
 		}
 		if (stat(buf, &s) == 0) {
-			if (S_ISREG(s.st_mode) && dbatime != 0 &&
+			size_t nl = strlen(f->d_name);
+			if (S_ISREG(s.st_mode) && nl > 4 &&
+			    strcmp(f->d_name + nl - 4, ".bad") == 0) {
+				// a database moved aside as corrupt: kept for a
+				// look until this run, removed first
+				pvector.push_back (new Entry(buf, 0, s.st_blocks));
+				_blocks += s.st_blocks;
+			} else if (S_ISREG(s.st_mode) && dbatime != 0 &&
 			    strncmp(f->d_name, ".art", 4) == 0) {
 				time_t at = MAX(s.st_atime, s.st_mtime);
 				if (dbatime <= at)
@@ -343,7 +354,7 @@ void clean(const char *cpath)
 				if (!parse_artnum(f->d_name + 4, &nr, &end) || *end) {
 					slog.p(Logger::Error) << "error "
 						<< "parsing " << f->d_name << "\n";
-				} else if (ng == NULL || nr < firstnr || nr > lastnr) {
+				} else if (!have_db || nr < firstnr || nr > lastnr) {
 					at = 0;
 				}
 				pvector.push_back (new Entry(buf, at, 

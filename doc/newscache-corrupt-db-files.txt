@@ -25,76 +25,45 @@ Aug 24 08:51:11 mail NewsCache[10564]: receiving signal SIGCHLD: 17
 
 
 
-Improved Error Messages
------------------------
+Behaviour since NewsCache 1.3.22
+--------------------------------
 
-Starting with NewsCache 1.2rc6. NVcontainer reporting the exact reason, which
-sanity check fails. At the moment, the improved error message will only be
-protocolled to the logfile, if configured with --enable-debug. All Exception
-will be catched in NewsCache.cc, but not be protocolled! -> This should be
-changed in the future. Such a protocol entry in news.debug looks like:
+(This section replaces the 2004 notes on error messages, automatic
+recovery, newscacheclean and the list of constraints, which described
+NewsCache 1.2rc6.)
 
-Sep 26 23:35:25 karte-faultier NewsCache[31040]: Exception! File:
-NVcontainer.cc Function: virtual void NVcontainer::make_current() Line: 186
-Desc: NVConatiner::make_current(): wrong header version mem_fn: /v
-ar/cache/newscache/at/test/.db mem_hdr->version: 842215985
+The spool's database files are a group's .db (its index, overview
+records and small articles) and the active database .active64. NewsCache
+maps them into memory, so every offset and size in them comes from the
+file. All of them are checked before they are used: the header (size,
+version, length of the file), the free list, the index or hash table,
+each record and each chain of records, and the text of stored articles.
 
-In news.err you will find:
-Sep 26 23:35:25 karte-faultier NewsCache[31040]:
-NVcontainer::rename_to_bad_and_close: Error: bad databa se file:
-/var/cache/newscache/at/test/.db.bad
+A file that fails a check is moved to name.bad (e.g. .db.bad,
+.active64.bad), and a new, empty database is started under the old name.
+It fills itself from the upstream server again: a group's overview and
+articles when they are asked for, the active database at the next
+access. The log gets one line at error level, e.g.
 
+  corrupt database /var/cache/newscache/at/test/.db: bad index entry;
+  moved to /var/cache/newscache/at/test/.db.bad, starting a new one
 
+In a session, the command that ran into the damage is run once more on
+the new database if nothing was sent yet; if part of a reply was sent,
+it is ended properly (a list with its final "."), so the client stays in
+step. Any other error a command doesn't handle gets a 503 reply instead
+of ending the session.
 
-Automatic Failure Recovery
---------------------------
+newscacheclean logs a damaged database and goes on with the next group;
+it removes the .bad files (they are only kept until its next run, for a
+look). updatenews prefetches a group whose database was moved aside into
+the new one.
 
-If NVcontainer detect a corrupt database, then NewsCache try to rename the
-corrupt file to *.bad. Then the old programm flow continues. The next User
-request to the newsgroup, which was curropted, can start with a now
-datadownload from the remote server.
+Everything in the spool is a cache of an upstream server, so nothing is
+lost but the time to fetch it again. (The "local newsgroups" of the
+manual are groups from a second upstream server, not groups stored only
+in NewsCache's spool.)
 
-
-
-NewsCacheClean:
----------------
-
-At the moment, newscacheclean stops with "Aborted" (SIGABRT signal). Starting
-with NewsCache 1.2rc6, the bad database file will be renamed to *.bad. With
-the next run of newscacheclean, it will work.
-
-The following sequenz will be protocolled in such a situation in news.err:
-
-Sep 26 23:25:07 ka NewsCacheClean[30955]: NVcontainer::rename_to_bad_and_close: Error: bad d
-atabase file: /var/cache/newscache/at/test/.db.bad
-Sep 26 23:25:07 ka NewsCacheClean[30955]: Error, please report bug! caught Error Exception!
-File: NVcontainer.cc Function: virtual void NVcontainer::make_current() Line: 186 Desc: NVConatiner::mak
-e_current(): wrong header version mem_fn: /var/cache/newscache/at/test/.db mem_hdr->version: 842215985
-
-
-
-Constraints and Future
-----------------------
-
-1) What happens with local newsgroups. (rename to bad is no solution).
-2) Improved Error Message only be protocolled, if configured with
-   --enable-debug
-3) newscacheclean: don't abort, if the database file renamed to *.bad
-4) NewsCache should be protocolled database failure to news.err
-
-
-
-Contribute
-----------
-
-You can help to improve this situation, with:
-o) report database curroption errors (mailinglist)
-o) sending patches, to improve the source code.
-
-
-
-Programming
------------
-Currently only the class NVcontainer is be analyzed for sanity check failures;
-method make_current. The new method rename_to_bad_and_close will be called
-only from make_current.
+The tests are in tests/e2e/corrupt_test.go: damaged headers, cut-off
+files, damaged indexes and random damage anywhere in a .db or
+.active64.
