@@ -801,6 +801,19 @@ Top hosts (#connect, bytes)
 @node Bugs and Misfeatures, FAQ, Statistics, Top
 @appendix Bugs and Misfeatures
 
+@cindex authentication, unix
+@cindex authentication, PAM
+NewsCache checks a client's password after it has switched to the user
+given with @code{Username} (usually @code{news}), and only root may read
+@file{/etc/shadow}. So @code{Authentication unix} can't check local
+accounts with shadow passwords; NewsCache logs ``cannot read the shadow
+password'' then. @code{Authentication pam} with @code{pam_unix} fails
+the same way: run as a user other than root, its helper
+@code{unix_chkpwd} only checks that user's own password. Use
+@code{Authentication file:}, or PAM modules that work without root,
+such as @code{pam_sss} (SSSD), @code{pam_ldap} or @code{pam_pwdfile}.
+Running NewsCache as root to get around this is not recommended.
+
 @cindex newsgroup descriptions
 @cdindex list newsgroups
 The description of newsgroups is currently not cached properly. The file

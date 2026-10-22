@@ -106,6 +106,9 @@ Admin tom@infosys.tuwien.ac.at
 # 	the access specified with the parameter allow, List, ReadTo,
 #	PostTo and authenticated clients uses the arguments and modify 
 #	the original parameters.
+#	NewsCache checks passwords as Username (news), and only root may
+#	read /etc/shadow, so unix (and pam with pam_unix) can't check
+#	local accounts. Use file:, or PAM modules that work without root.
 #
 # NOTE: The first matching entry is used, so put Default last. Without a
 #       Default entry the file does not load. Nothing is allowed by default:

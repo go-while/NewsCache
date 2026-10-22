@@ -2,8 +2,10 @@ package e2e
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -297,4 +299,70 @@ func TestAuthFileNegatedFlagRemoves(t *testing.T) {
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP after login: %q, want 211 (read kept)", line)
 	}
+}
+
+// TestAuthUnixShadowNotReadable: "Authentication unix" can't check a local
+// account with a shadow password when NewsCache doesn't run as root (only
+// root may read /etc/shadow). The login fails, and the log says why; it used
+// to fail silently. configure also never enabled shadow support by default,
+// so even as root the check compared against the "x" from /etc/passwd.
+func TestAuthUnixShadowNotReadable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs /etc/passwd with shadow passwords")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root, which may read /etc/shadow")
+	}
+	if testing.Short() {
+		t.Skip("waits 15 s for the auth failure delay")
+	}
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasShadowPassword(u.Username) {
+		t.Skipf("%s has no shadow password (\"x\") in /etc/passwd", u.Username)
+	}
+	t.Parallel()
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication unix::::
+  }
+  Default {
+    allow none
+  }
+}`
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("AUTHINFO USER %s", u.Username); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
+		t.Fatalf("AUTHINFO PASS: %q, want 502", line)
+	}
+	c.Cmd("QUIT")
+	if log := e.logFile(); !strings.Contains(log, "cannot read the shadow password of "+u.Username) {
+		t.Errorf("log does not say why the login failed:\n%s", log)
+	}
+}
+
+// hasShadowPassword reports whether name's password field in /etc/passwd is
+// "x", i.e. the hash is in /etc/shadow.
+func hasShadowPassword(name string) bool {
+	b, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if f := strings.Split(l, ":"); len(f) > 1 && f[0] == name {
+			return f[1] == "x"
+		}
+	}
+	return false
 }

@@ -193,12 +193,16 @@ The additional access specification are added to the normal List Read and PostTo
 Use unix authentication (getpwnam or getspnam). The additional access specification are added to the normal List Read and PostTo Parameters and allow(see above and the example section). If only unix is specified, then all clients must step throuh the authentication.  If further fields specified, then unauthenticated clients have the access specified with the parameter allow, List, ReadTo, PostTo and authenticated clients uses the arguments and modify the original parameters.
 .br
 It is also possible to specifiy empty fields, example: unix:::*:debug. Which means, that the PostTo parameter is extended with *. What actual settings are used by NewsCache can be determined with the xdebug dump authorization command.
+.br
+NewsCache checks the password after it has switched to \fIUsername\fR (usually news), and only root may read /etc/shadow. So unix authentication can't check local accounts with shadow passwords, unless NewsCache runs as root, which is not recommended. NewsCache then logs "cannot read the shadow password". Use file: instead, or pam with a PAM module that works without root.
 
 .IP pam:list:read:postto:allow
 Use pam authentication. For additional description of the fields see:
 .I unix:list:read:postto:allow
 The PAM Servicename can be specified with the configuration parameter
 .I PAMServicename
+.br
+pam_unix, the usual module for local accounts, can't check them either: run as a user other than root, its helper unix_chkpwd only checks that user's own password. NewsCache logs PAM's error together with this hint. Modules that work without root, such as pam_sss (SSSD), pam_ldap or pam_pwdfile, are fine.
 
 .IP pam+file:/path/to/file
 The authentication is handled over pam and the additional permission values are taken from the file. The recordformats in the file are valid:

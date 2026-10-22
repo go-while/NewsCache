@@ -91,6 +91,18 @@ Bug fixes:
   nothing, like empty ones, so the user keeps the rights of the Client
   entry. The sample newscache.conf-dist also showed the file format
   without its List and allow fields in one place.
+* "Authentication unix" never read /etc/shadow: configure's default
+  (--with-shadow=auto) didn't enable shadow password support even where
+  shadow.h exists, so the password was compared against the "x" in
+  /etc/passwd and every login failed, silently. Shadow support is now on
+  by default where shadow.h exists. Note that NewsCache checks passwords
+  after it has switched to its Username (news), and only root may read
+  /etc/shadow, so unix authentication still can't check local accounts;
+  the same is true of PAM with pam_unix. NewsCache now logs why ("cannot
+  read the shadow password", and PAM's error with a hint about pam_unix),
+  and the manual, newscache.conf(5), newscache.conf-dist and FEDORA.md
+  describe the limitation and what works instead: Authentication file:,
+  or PAM modules that work without root (pam_sss, pam_ldap, pam_pwdfile).
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
