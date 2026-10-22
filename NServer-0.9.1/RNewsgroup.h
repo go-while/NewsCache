@@ -27,6 +27,9 @@
 /**
  * \class RNewsgroup
  * \author Thomas Gschwind
+ * A newsgroup read from the news server without caching. Overview
+ * records are fetched when asked for, OVERVIEW_CHUNK numbers at a time;
+ * only the last chunk is kept.
  * \bug Documentation is missing.
  */
 class RNewsgroup:public Newsgroup {
@@ -34,16 +37,21 @@ class RNewsgroup:public Newsgroup {
 
 	std::map < artnum_t, std::string > _OverviewDB;
 	artnum_t _first, _last;
+	// the numbers whose records are in _OverviewDB (_cf > _cl: none)
+	artnum_t _cf, _cl;
 
 	// News stuff
 	RServer *_RemoteServer;
+
+	int load(artnum_t nbr);
 
   public:
 	RNewsgroup():Newsgroup(NULL, NULL)
 	{ }
 
 	RNewsgroup(RServer * srvr, OverviewFmt * fmt, const char *name)
-		: Newsgroup(fmt, name), _first(1), _last(0), _RemoteServer(srvr)
+		: Newsgroup(fmt, name), _first(1), _last(0), _cf(1), _cl(0),
+		  _RemoteServer(srvr)
 	{ }
 
 	~RNewsgroup()
@@ -68,16 +76,17 @@ class RNewsgroup:public Newsgroup {
 		return _last;
 	}
 	virtual int hasrecord(artnum_t i) {
-		return (_OverviewDB.find(i) != _OverviewDB.end());
+		return load(i) && _OverviewDB.find(i) != _OverviewDB.end();
 	}
 
 	virtual Article *getarticle(artnum_t nbr) {
+		Article *a = new Article;
 		try {
-			Article *a = new Article;
 			_RemoteServer->article(_NewsgroupName, nbr, a);
 			return a;
 		}
 		catch(...) {
+			delete a;
 			return NULL;
 		}
 	}
@@ -89,18 +98,12 @@ class RNewsgroup:public Newsgroup {
 	}
 	virtual void printarticle(std::ostream & os, artnum_t nbr);
 
-	virtual const char *getover(artnum_t nbr) {
-		iterator over = _OverviewDB.find(nbr);
-		if (over != _OverviewDB.end())
-			return over->second.c_str();
-		else
-			return NULL;
-	}
+	virtual const char *getover(artnum_t nbr);
 
 	virtual void setover(const std::string & over) {
 		artnum_t i = leading_artnum(over.c_str());
 
-		if (_first <= i && i <= _last) {
+		if (_cf <= i && i <= _cl) {
 			_OverviewDB[i] = over;
 		}
 	}
@@ -124,39 +127,14 @@ class RNewsgroup:public Newsgroup {
 		}
 	}
 
+	virtual void printoverdb(std::ostream & os, artnum_t f =
+				 0, artnum_t l = ARTNUM_MAX);
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,
 				   artnum_t f = 0, artnum_t l =
-				   ARTNUM_MAX, const char *pat = NULL) {
-		std::string xheader = headerfield(header), fld;
-		iterator begin = _OverviewDB.lower_bound(f), end =
-		    _OverviewDB.end();
-
-		for (; begin != end && begin->first <= l; ++begin) {
-			artnum_t i = begin->first;
-			try {
-				fld = _OverviewFormat->getfield(begin->second.c_str(),
-								xheader.c_str(), 0);
-			}
-			catch(NoSuchFieldError & nsfe) {
-				if (!pat)
-					os << i << " (none)\r\n";
-				continue;
-			}
-			if (headermatch(fld, pat))
-				os << i << " " << fld << "\r\n";
-		}
-	}
-
-	virtual void printlistgroup(std::ostream & os) {
-		iterator begin = _OverviewDB.begin(), end =
-		    _OverviewDB.end();
-
-		while (begin != end) {
-			os << begin->first << "\r\n";
-			++begin;
-		}
-	}
+				   ARTNUM_MAX, const char *pat = NULL);
+	virtual void printlistgroup(std::ostream & os, artnum_t f =
+				    0, artnum_t l = ARTNUM_MAX);
 };
 #endif
 

@@ -21,6 +21,7 @@ class NVArray:public NVcontainer {
 	unsigned long arrfst, arrlst;
 
 	void sclear(void);
+	char *sextra(size_t *sz);
 	void sset(unsigned long i, const char *data, size_t szdata);
 	void sdel(unsigned long i);
 	int sis_empty(void);
@@ -44,7 +45,13 @@ class NVArray:public NVcontainer {
 	 */
 	void open(const char *dbname, int flags = 0);
 
-	void ssetsize(unsigned long fst, unsigned long lst);
+	/**
+	 * Sets the index range to [fst,lst] (fst <= lst) and keeps the
+	 * elements inside it. Elements outside must have been freed by
+	 * the caller. extra bytes after the table are reserved and zeroed
+	 * for the caller (see sextra); older versions ignore them.
+	 */
+	void ssetsize(unsigned long fst, unsigned long lst, size_t extra = 0);
 
 	/**
 	 * Sets a new size for the NVArray.

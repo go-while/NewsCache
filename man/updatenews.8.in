@@ -25,10 +25,10 @@ Show version of program.
 Force the prefetch the active data base. Updatenews first invalidate the ActiveDB to force the update.
 .TP
 .B \-g, \-\-group
-Prefetch whole newsgroups.
+Prefetch whole newsgroups (the articles of the newest 10000000 article numbers of each group).
 .TP
 .B \-o, \-\-over
-Only prefetch the overview database.
+Only prefetch the overview database (of the newest 10000000 article numbers of each group).
 .TP
 .B \-l, \-\-lock-group
 Always  lock  the newsgroup while prefetching it. This improves the performance of update- news slightly, but nobody else can read this newsgroup while prefetching.

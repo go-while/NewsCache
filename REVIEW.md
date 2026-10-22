@@ -101,6 +101,7 @@ CI, not yet by the systematic review.
 | The pid file was never removed when the daemon stopped | 5 | Fedora packaging | #48 |
 | "ListIter in OverviewFmt.h" (old `TODO`): `OverviewFmt::convert` kept an upstream record's tab positions in an `int[256]`, so a record with more fields overflowed the stack; `:bytes`/`:lines` (RFC 3977) matched no field, so Bytes and Lines were empty; a stripped field name kept its `:` | 7, 8 | review (old TODO) | #49 |
 | "Groups without reading permission" (old `TODO`): a refused `LISTGROUP group` still made it the current group, so XOVER/ARTICLE n read it; ARTICLE/HEAD/BODY/STAT `<message-id>` ignored the Read list; 480 also where no login could help (now 502); the PostTo check mis-split Newsgroups (3+ groups, spaces) | 2, 4 | review (old TODO) | #50 |
+| The first XOVER on a group synchronized the whole group: LISTGROUP of the whole range, a 1-byte-per-number table and a spool index of 8 bytes per number (57 GB for a binary group); not-cached groups fetched the whole overview at every GROUP; a 423 for an empty OVER range disabled OVER and XOVER; LISTGROUP took no range and answered a non-RFC 211 line; `NVArray::clear` left freed records in the table | 2, 7, 9 | review #36 | #52 |
 
 ## Open points
 
@@ -112,10 +113,6 @@ that it stays as it is.
   (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
   instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
   `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
-- **The spool index has a slot for every article number in a group's
-  range** (area 9): 8 bytes per number from first to last, so a binary
-  group with long retention needs gigabytes unless `LimitGroupSize` is set.
-  A default limit, or a sparse index, is a decision still to make.
 - **`ARTICLE <message-id>` always goes upstream**, because the spool has no
   message-ID index (area 2). This is by design so far; see
   `TestArticleByMessageIDGoesUpstream`.

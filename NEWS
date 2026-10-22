@@ -79,11 +79,6 @@ Bug fixes:
   deleted.
   A number with trailing characters ("ARTICLE 12x") or one that doesn't
   fit in 64 bits now gets 501; atoi read the leading digits or overflowed.
-  On 32-bit systems the spool can't index numbers above 4294967295; groups
-  with such numbers are not cached there.
-  Note that a group's spool index has an 8-byte slot for every number from
-  its first to its last article. For binary groups with long retention,
-  set LimitGroupSize.
 * STAT with the number of an article that doesn't exist (a gap in the
   group, or past its last article) answered "223 <number>  status",
   without a Message-ID, instead of 423. And a successful STAT <number>
@@ -174,6 +169,32 @@ Bug fixes:
   matched only if PostTo listed the same groups in the same order, and
   the space after a comma was kept, so such posts were refused. A refused group now gets 441 once the client is logged in
   (or can't log in), not 480.
+  On 32-bit systems the spool can't index numbers above 4294967295; such
+  articles are passed through from the upstream server without caching.
+* The first XOVER (or XHDR, LISTGROUP, STAT, NEXT, LAST) on a group made
+  NewsCache synchronize the whole group, whatever range the client asked
+  for: a LISTGROUP of the whole group from the upstream server, the
+  overview records of every article it didn't have, a 1-byte-per-number
+  table in memory and a spool index of 8 bytes for every number from the
+  group's first to its last, written out in full. For a binary group with
+  numbers from 60000000000 to 67486767815 that is a 57 GB index and 7.5 GB
+  of memory, so such groups failed ("412 operation failed") or filled the
+  disk. Groups without caching (Options not-cached) fetched the overview
+  of the whole group at every GROUP.
+  NewsCache now asks for the numbers a client asks for, in steps of 10000
+  ("LISTGROUP group a-b", RFC 3977, then OVER for the missing records), and
+  compares each step with the upstream server again only after its
+  GroupTimeout. The spool's index covers what clients read, at most the
+  newest 10000000 numbers of a group; articles further back are passed
+  through without caching. LISTGROUP from a client passes the upstream
+  server's list on as it arrives, takes a range ("LISTGROUP group 100-200")
+  and answers "211 count first last group" as RFC 3977 says (it was
+  "211 list of article numbers follow"). updatenews -g and -o prefetch the
+  newest 10000000 numbers of each group. Spools of older versions keep
+  working, and older versions can read the new ones.
+  An OVER/XOVER range without articles (423, or 420 from older servers)
+  made NewsCache assume the upstream server has no OVER, then no XOVER,
+  and give up on the overview; it now means no records.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

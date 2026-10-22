@@ -206,7 +206,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	 "[active [wildmat]|active.times [time]|extensions|newsgroups|overview.fmt]",
 	 ns_list}
 	,
-	{"listgroup", "[newsgroup]", ns_listgroup}
+	{"listgroup", "[newsgroup [range]]", ns_listgroup}
 	,
 	{"mode", "reader", ns_mode}
 	,
@@ -1594,21 +1594,41 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 	return -1;
 }
 
-/* listgroup
- * Listgroup only works for groups, where the overview
- * database has already been cached!
+/* listgroup [group [range]] (RFC 3977 6.1.2)
+ * The numbers come from the news server's LISTGROUP as they arrive, or,
+ * if it has none, from the overview records.
  */
 int ns_listgroup(ClientData * clt, int argc, char *argv[])
 {
-	if (argc > 2) {
-		(*clt->co) << "501 Syntax: listgroup [Newsgroup]\r\n";
+	artnum_t fst = 0, lst = ARTNUM_MAX;
+	const char *p;
+	GroupInfo *gi;
+
+	if (argc > 3) {
+	      ns_listgroup_syntax:
+		(*clt->co) << "501 Syntax: listgroup [newsgroup [range]]\r\n";
 		return -1;
+	}
+	if (argc == 3) {
+		// n, n- or n-m
+		if (!parse_artnum(argv[2], &fst, &p))
+			goto ns_listgroup_syntax;
+		lst = fst;
+		if (*p == '-') {
+			lst = ARTNUM_MAX;
+			p++;
+			if (isdigit((unsigned char) *p) &&
+			    !parse_artnum(p, &lst, &p))
+				goto ns_listgroup_syntax;
+		}
+		if (*p != '\0')
+			goto ns_listgroup_syntax;
 	}
 	if (argc == 1 && clt->groupname[0] == '\0') {
 		(*clt->co) << "412 Not currently in a newsgroup\r\n";
 		return -1;
 	}
-	if (argc == 2) {
+	if (argc >= 2) {
 		// Check before selecting: a refused LISTGROUP must not make
 		// the group the current one (XOVER, ARTICLE n, ... read the
 		// current group without checking again).
@@ -1616,12 +1636,20 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 			access_denied(clt);
 			return 0;
 		}
-		if (selectgroup(clt, argv[1]) == NULL) {
+		if ((gi = selectgroup(clt, argv[1])) == NULL) {
+			(*clt->co) << "411 no such news group\r\n";
+			return -1;
+		}
+	} else {
+		// selects the group anew, the current article is its first
+		if ((gi = selectgroup(clt, clt->groupname)) == NULL) {
 			(*clt->co) << "411 no such news group\r\n";
 			return -1;
 		}
 	}
 
+	// (gi points to static data, which getgroup may change)
+	GroupInfo ginfo = *gi;
 	try {
 		if (!clt->grp)
 			clt->grp = clt->srvr->getgroup(clt->groupname);
@@ -1636,8 +1664,9 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 
-	(*clt->co) << "211 list of article numbers follow\r\n";
-	clt->grp->printlistgroup(*clt->co);
+	(*clt->co) << "211 " << ginfo.n() << " " << ginfo.first() << " "
+	    << ginfo.last() << " " << clt->groupname << " list follows\r\n";
+	clt->grp->printlistgroup(*clt->co, fst, lst);
 	(*clt->co) << ".\r\n";
 	return 0;
 }

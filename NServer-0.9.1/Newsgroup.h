@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <string.h>
 
 #include <iostream>
 #include <fstream>
@@ -29,6 +30,16 @@
 #define MAXGROUPNAMELEN 512
 #define MAXNEWSGROUPNAMELEN MAXGROUPNAMELEN
 
+/*
+ * NewsCache asks its news server for overview records and article
+ * lists in steps of at most OVERVIEW_CHUNK article numbers, and only
+ * for the numbers a client asked for. The spool keeps an index of at
+ * most MAX_INDEX_SPAN numbers per group (8 bytes each); what lies
+ * further back is passed through from the news server uncached.
+ */
+#define OVERVIEW_CHUNK 10000ULL
+#define MAX_INDEX_SPAN 10000000ULL
+
 class Newsgroup {
   protected:
 	char _NewsgroupName[MAXGROUPNAMELEN + 1];
@@ -40,10 +51,16 @@ class Newsgroup {
   public:
 	Newsgroup(OverviewFmt * fmt, const char *name) 
 	{
+		size_t n = name ? strlen(name) : 0;
+
 		_OverviewFormat = fmt;
-		_NewsgroupName[MAXGROUPNAMELEN] = '\0';
-		strncpy(_NewsgroupName, name, MAXGROUPNAMELEN);
-		ASSERT(if (strlen(name) > MAXGROUPNAMELEN) {
+		// (strncpy: GCC warns when name is another group's name)
+		if (n > MAXGROUPNAMELEN)
+			n = MAXGROUPNAMELEN;
+		if (n)
+			memcpy(_NewsgroupName, name, n);
+		_NewsgroupName[n] = '\0';
+		ASSERT(if (n == MAXGROUPNAMELEN && strlen(name) > MAXGROUPNAMELEN) {
 		       slog.p(Logger::Error) <<
 				   "Name of newsgroup too long - truncated\n";}
 		);
@@ -117,7 +134,8 @@ class Newsgroup {
 	static bool headermatch(const std::string & value, const char *pat) {
 		return !pat || wildmat(value.c_str(), pat);
 	}
-	virtual void printlistgroup(std::ostream & os) = 0;
+	virtual void printlistgroup(std::ostream & os, artnum_t f =
+				    0, artnum_t l = ARTNUM_MAX) = 0;
 };
 
 #ifdef _INCLUDE_NewsgroupIter_
