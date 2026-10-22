@@ -103,6 +103,12 @@ Bug fixes:
   and the manual, newscache.conf(5), newscache.conf-dist and FEDORA.md
   describe the limitation and what works instead: Authentication file:,
   or PAM modules that work without root (pam_sss, pam_ldap, pam_pwdfile).
+* newscache -p and "xdebug dump configuration" printed the Password of
+  each upstream server in plain text. -p output often ends up in bug
+  reports, and xdebug sends it to the client over the network. Both now
+  print "# Password set, not shown" instead. Read back as a config, that
+  line is a comment, so the upstream login fails (the server answers
+  AUTHINFO PASS with an error) until the password is put back.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

@@ -81,6 +81,7 @@ Admin tom@infosys.tuwien.ac.at
 #   xdebug command.
 #   NOTE: if you specify debug, then the client is able to
 #         read your configuration file (xdebug dump configuration)!!
+#         Upstream passwords are not shown.
 # List:
 #   A list of newsgroups that should be shown by the
 #   list [active|active.times|...] and newgroups commands

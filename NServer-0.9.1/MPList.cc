@@ -55,7 +55,11 @@ void MPListEntry::printParameters (std::ostream *pOut)
 		*pOut << "\t\tUser " << user << std::endl;
 	}
 	if (passwd[0] != '\0') {
-		*pOut << "\t\tPassword " << passwd << std::endl;
+		// newscache -p output ends up in bug reports, and xdebug sends it
+		// to a client: say there is a password, but not which. Read back
+		// as a config, the comment leaves the password out, so the
+		// upstream login fails instead of using a wrong password.
+		*pOut << "\t\t# Password set, not shown" << std::endl;
 	}
 	if (!tlsCAFile.empty()) {
 		*pOut << "\t\tTLSCAFile " << tlsCAFile << std::endl;
