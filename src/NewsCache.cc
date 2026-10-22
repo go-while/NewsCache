@@ -1015,13 +1015,6 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 
 int ns_stat(ClientData * clt, int argc, char *argv[])
 {
-	/* Offene Punkte:
-	   ** stat auf nummer die nicht vorhanden ist, ergibt:
-	   ** 223 351  status
-	   ** das ist falsch, sollte sein:
-	   ** 423 No Such Article In Group
-	   **
-	 */
 	if (argc > 2)
 		goto ns_stat_error;
 
@@ -1060,12 +1053,21 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			goto ns_stat_error;
 
 		ASSERT2(clt->grp->testdb());
+		// The overview record says whether the article exists; no
+		// need to fetch it. getover gives NULL or "" for none.
 		OverviewFmt *of = clt->srvr->overviewfmt();
 		const char *o = clt->grp->getover(nbr);
-		(*clt->co) << "223 " << nbr << " " << of->getfield(o,
-								   "Message-ID:",
-								   0)
-		    << " status \r\n";
+		string mid;
+		if (o && *o)
+			mid = of->getfield(o, "Message-ID:", 0);
+		if (mid.empty()) {
+			(*clt->
+			 co) <<
+		      "423 no such article number in this group\r\n";
+			return -1;
+		}
+		(*clt->co) << "223 " << nbr << " " << mid << " status\r\n";
+		clt->nbr = nbr;
 		return 0;
 	}
 	// stat by id?
