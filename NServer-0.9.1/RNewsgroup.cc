@@ -4,6 +4,8 @@
 // fetched the overview of the whole group, from number 1.)
 void RNewsgroup::setsize(artnum_t f, artnum_t l)
 {
+	if (l > ARTNUM_LIMIT)
+		l = ARTNUM_LIMIT;
 	if (f != _first || l != _last) {
 		if (l < _last)
 			slog.p(Logger::Notice) << "watermark(s) decreased?!?\n";
@@ -26,7 +28,7 @@ int RNewsgroup::load(artnum_t nbr)
 	if (_cf <= nbr && nbr <= _cl)
 		return 1;
 	a = nbr / OVERVIEW_CHUNK * OVERVIEW_CHUNK;
-	b = a + OVERVIEW_CHUNK - 1;
+	b = chunk_last(nbr);
 	if (a < _first)
 		a = _first;
 	if (b > _last)
@@ -74,7 +76,9 @@ void RNewsgroup::printoverdb(std::ostream & os, artnum_t f, artnum_t l)
 				os << i->second << "\r\n";
 		}
 		// next chunk ("a = _cl + 1" ends at l == ARTNUM_MAX too)
-		a = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK + OVERVIEW_CHUNK;
+		// next chunk; 0 after the last one (the addition used to
+		// wrap around to a small number near ARTNUM_MAX)
+		a = next_chunk(a);
 		if (a == 0)
 			break;
 	}
@@ -107,7 +111,9 @@ void RNewsgroup::printheaderdb(std::ostream & os, const char *header,
 				headerline(os, i->first, &fld, pat);
 			}
 		}
-		a = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK + OVERVIEW_CHUNK;
+		// next chunk; 0 after the last one (the addition used to
+		// wrap around to a small number near ARTNUM_MAX)
+		a = next_chunk(a);
 		if (a == 0)
 			break;
 	}
@@ -143,7 +149,9 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 			for (; i != end && i->first <= l; ++i)
 				os << i->first << "\r\n";
 		}
-		a = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK + OVERVIEW_CHUNK;
+		// next chunk; 0 after the last one (the addition used to
+		// wrap around to a small number near ARTNUM_MAX)
+		a = next_chunk(a);
 		if (a == 0)
 			break;
 	}

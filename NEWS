@@ -211,7 +211,14 @@ Bug fixes:
   and answers "211 count first last group" as RFC 3977 says (it was
   "211 list of article numbers follow"). updatenews -g and -o prefetch the
   newest 10000000 numbers of each group. Spools of older versions keep
-  working, and older versions can read the new ones.
+  working. Older versions open the new spools, but drop a group's cached
+  articles the first time they use it (its index now starts above the
+  server's first number, which they take for a renumbered group); the
+  .art files of big articles stay until newscacheclean needs the space.
+  When the server's last number goes down (its newest articles cancelled
+  or expired, or a server farm whose frontends lag behind), only the
+  cached articles above it are dropped; numbers far above, up to 2^64,
+  can't make a session loop.
   An OVER/XOVER range without articles (423, or 420 from older servers)
   made NewsCache assume the upstream server has no OVER, then no XOVER,
   and give up on the overview; it now means no records.

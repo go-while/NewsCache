@@ -109,6 +109,7 @@ CI, not yet by the systematic review.
 | Damaged spool databases crashed NewsCache (SIGSEGV behind the header, SIGABRT on a short `.active64` before the greeting, newscacheclean SIGABRT via `NC_CATCH_ALL`, `NVArray` `kill(SIGABRT)`); now every offset is checked, the file moved to `.bad` and rebuilt from upstream. No local groups in the spool: everything is a cache (old note `doc/newscache-corrupt-db-files.txt`) | 9, 11, 13 | review | #57 |
 | `CachePort` never worked (first-character test inverted since 2008: `nntp` → number "ntp", `#12000` kept its `#`) and overrode `ListenTo` against the docs; `-p` printed a `ListenTo` that hid it | 5, 6 | wiki #58 | #59 |
 | Docs and messages found while writing the wiki: the manual's "Access Control" knew only libwrap, the sample login example made the login optional, README.Debian's auth-file format, newscache(8) without `-n`, DATE's 501 text, a NEWS paragraph under the wrong entry | 0, 2, 3, 14 | wiki #58 | #60 |
+| #52 window cache: a drop of the upstream's last number emptied the whole cached group (taken for renumbering); chunk arithmetic wrapped near 2^64 (a session could loop); prefetchGroup kept a group lock after an exception; NEWS overstated downgrades | 9, 10 | review #52 | #61 |
 
 ## Open points
 

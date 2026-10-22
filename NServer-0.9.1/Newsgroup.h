@@ -40,6 +40,27 @@
 #define OVERVIEW_CHUNK 10000ULL
 #define MAX_INDEX_SPAN 10000000ULL
 
+/*
+ * The highest article number NewsCache takes from a news server; a
+ * group's range is cut there (no real server comes near it). Below it,
+ * "number + 1" and the chunk arithmetic can't wrap around.
+ */
+#define ARTNUM_LIMIT (ARTNUM_MAX - 2 * OVERVIEW_CHUNK)
+
+// The first number of the chunk after a's, or 0 if there is none.
+static inline artnum_t next_chunk(artnum_t a)
+{
+	artnum_t s = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK;
+	return s > ARTNUM_MAX - OVERVIEW_CHUNK ? 0 : s + OVERVIEW_CHUNK;
+}
+
+// The last number of the chunk that holds a.
+static inline artnum_t chunk_last(artnum_t a)
+{
+	artnum_t n = next_chunk(a);
+	return n ? n - 1 : ARTNUM_MAX;
+}
+
 class Newsgroup {
   protected:
 	char _NewsgroupName[MAXGROUPNAMELEN + 1];
