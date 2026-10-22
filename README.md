@@ -17,6 +17,11 @@ Since 2026-10-18, NewsCache continues here, with Christof Meerwald's agreement.
 Releases start at 1.3.17 (see [`NEWS`](NEWS)). Report bugs at
 <https://github.com/go-while/NewsCache/issues>.
 
+The [wiki](https://github.com/go-while/NewsCache/wiki) is the guide for
+administrators: installation, configuration, access and logins, upstream
+servers and TLS, caching and large groups, the NNTP commands,
+troubleshooting and development.
+
 > Most of the text below comes from the project's two original websites, which
 > are now offline (the Wayback Machine's last good captures are the ones linked
 > below; after them the pages are 404):
@@ -214,7 +219,9 @@ servers don't offer STARTTLS on 119.
 
 More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
 clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
-database files. The user manual is `doc/NewsCache.texi`.
+database files. The user manual is `doc/NewsCache.texi`; the
+[wiki](https://github.com/go-while/NewsCache/wiki) covers the same ground
+by task.
 
 ### In a container (Docker or Podman)
 
