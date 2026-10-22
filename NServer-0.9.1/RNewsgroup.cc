@@ -101,12 +101,10 @@ void RNewsgroup::printheaderdb(std::ostream & os, const char *header,
 						     xheader.c_str(), 0);
 				}
 				catch(NoSuchFieldError & nsfe) {
-					if (!pat)
-						os << i->first << " (none)\r\n";
+					headerline(os, i->first, NULL, pat);
 					continue;
 				}
-				if (headermatch(fld, pat))
-					os << i->first << " " << fld << "\r\n";
+				headerline(os, i->first, &fld, pat);
 			}
 		}
 		a = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK + OVERVIEW_CHUNK;

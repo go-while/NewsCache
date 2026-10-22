@@ -1,5 +1,7 @@
 #include"Newsgroup.h"
 
+const char Newsgroup::hdr_all[] = "*";
+
 Newsgroup::~Newsgroup()
 {
 }

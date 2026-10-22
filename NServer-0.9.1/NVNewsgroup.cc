@@ -704,10 +704,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 					found = false;
 				}
 			}
-			if (found && headermatch(fld, pat))
-				os << i << " " << fld << "\r\n";
-			else if (!found && !pat)
-				os << i << " (none)\r\n";
+			headerline(os, i, found ? &fld : NULL, pat);
 		}
 		if (i == l)
 			break;

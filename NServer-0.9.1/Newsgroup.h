@@ -120,7 +120,9 @@ class Newsgroup {
 	/*
 	 * Prints "number value" for the header in articles f to l (XHDR).
 	 * With pat (XPAT), only the lines whose value matches the wildmat
-	 * pat; articles without the header are left out then.
+	 * pat; articles without the header are left out then. With
+	 * pat == hdr_all (HDR), every article; one without the header gets
+	 * an empty value.
 	 */
 	virtual void printheaderdb(std::ostream & os,
 							   const char *header,
@@ -132,7 +134,22 @@ class Newsgroup {
 		return std::string(header) + ':';
 	}
 	static bool headermatch(const std::string & value, const char *pat) {
-		return !pat || wildmat(value.c_str(), pat);
+		return !pat || pat == hdr_all || wildmat(value.c_str(), pat);
+	}
+	// The pat of HDR (RFC 3977 8.5), told apart by its address.
+	static const char hdr_all[];
+	// Prints the line of article i for printheaderdb; fld is NULL when
+	// the article has no such header.
+	static void headerline(std::ostream & os, artnum_t i,
+			       const std::string * fld, const char *pat) {
+		if (fld) {
+			if (headermatch(*fld, pat))
+				os << i << " " << *fld << "\r\n";
+		} else if (!pat) {
+			os << i << " (none)\r\n";
+		} else if (pat == hdr_all) {
+			os << i << " \r\n";
+		}
 	}
 	virtual void printlistgroup(std::ostream & os, artnum_t f =
 				    0, artnum_t l = ARTNUM_MAX) = 0;

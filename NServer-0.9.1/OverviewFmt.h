@@ -61,6 +61,18 @@ class OverviewFmt {
   public:
 	int dotrans;
 
+	// The fields of our format: their number, and the name of field i
+	// with its colon ("Subject:"), and whether it keeps the name (Xref).
+	int nfields(void) const {
+		return _osz;
+	}
+	const char *fieldname(int i) const {
+		return _over[i].name;
+	}
+	int fieldfull(int i) const {
+		return _over[i].full;
+	}
+
 	OverviewFmt() {
 		const char *tmp[] = CONF_OverviewFmt, *q;
 		char *p;

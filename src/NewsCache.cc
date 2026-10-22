@@ -174,6 +174,7 @@ int ns_quit(ClientData * clt, int argc, char *argv[]);
 int ns_xmotd(ClientData * clt, int argc, char *argv[]);
 int ns_xover(ClientData * clt, int argc, char *argv[]);
 int ns_xpat(ClientData * clt, int argc, char *argv[]);
+int ns_hdr(ClientData * clt, int argc, char *argv[]);
 int ns_xdebug(ClientData * clt, int argc, char *argv[]);
 int ns_capabilities(ClientData * clt, int argc, char *argv[]);
 
@@ -198,12 +199,14 @@ static nnrp_command_t all_nnrp_commands[] = {
 	,
 	{"group", "newsgroup", ns_group}
 	,
+	{"hdr", "field [range|<id>]", ns_hdr}
+	,
 	{"help", "", ns_help}
 	,
 	{"last", "", ns_lastnext}
 	,
 	{"list",
-	 "[active [wildmat]|active.times [time]|extensions|newsgroups|overview.fmt]",
+	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]",
 	 ns_list}
 	,
 	{"listgroup", "[newsgroup [range]]", ns_listgroup}
@@ -298,6 +301,7 @@ void NNRPCommandMap::disableRead (void)
 	erase("next");
 	erase("over");
 	erase("xhdr");
+	erase("hdr");
 	erase("xover");
 	erase("xpat");
 	erase("list");
@@ -1505,6 +1509,65 @@ template < class Format > class active_filter_time {
 /* List [active|newsgroups|overview.fmt]
  * List the specified data
  */
+/*
+ * The overview field that HDR reads for name when it is given a range
+ * or the current article, without the colon ("Subject", "Bytes" for
+ * ":bytes"), or "" if there is none. The overview's Bytes and Lines are
+ * metadata, so the headers of these names are not offered (RFC 3977
+ * 8.5: HDR returns the article's header).
+ */
+static string hdr_overview_field(OverviewFmt * of, const char *name)
+{
+	string want;
+
+	if (strcasecmp(name, ":bytes") == 0)
+		want = "Bytes:";
+	else if (strcasecmp(name, ":lines") == 0)
+		want = "Lines:";
+	else if (name[0] == ':' || strcasecmp(name, "bytes") == 0 ||
+		 strcasecmp(name, "lines") == 0)
+		return "";
+	else
+		want = string(name) + ':';
+	for (int i = 0; i < of->nfields(); i++) {
+		if (strcasecmp(of->fieldname(i), want.c_str()) == 0) {
+			string f = of->fieldname(i);
+			return f.substr(0, f.size() - 1);
+		}
+	}
+	return "";
+}
+
+/*
+ * LIST HEADERS [MSGID|RANGE] (RFC 3977 8.6): by message-ID HDR fetches
+ * the article, so it has every header (":") and :bytes; by number it
+ * has the overview fields. Without an argument, what both forms have.
+ */
+static void list_headers(ClientData * clt, const char *form)
+{
+	OverviewFmt *of = clt->srvr->overviewfmt();
+	bool msgid = form && strcasecmp(form, "msgid") == 0;
+	bool range = form && strcasecmp(form, "range") == 0;
+
+	(*clt->co) << "215 headers and metadata items supported:\r\n";
+	if (msgid) {
+		(*clt->co) << ":\r\n";
+	} else {
+		for (int i = 0; i < of->nfields(); i++) {
+			string f = of->fieldname(i);
+			f = f.substr(0, f.size() - 1);
+			if (strcasecmp(f.c_str(), "bytes") == 0 ||
+			    strcasecmp(f.c_str(), "lines") == 0)
+				continue;
+			(*clt->co) << f << "\r\n";
+		}
+		if (range)
+			(*clt->co) << ":lines\r\n";
+	}
+	(*clt->co) << ":bytes\r\n";
+	(*clt->co) << ".\r\n";
+}
+
 int ns_list(ClientData * clt, int argc, char *argv[])
 {
 	if (argc <= 3) {
@@ -1577,6 +1640,9 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				}
 				(*clt->co) << ".\r\n";
 				return 0;
+			} else if (strcasecmp(argv[1], "headers") == 0) {
+				list_headers(clt, NULL);
+				return 0;
 			} else if (strcasecmp(argv[1], "overview.fmt") ==
 				   0) {
 				(*clt->
@@ -1588,9 +1654,16 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 		}
 	}
 
+	if (argc == 3 && strcasecmp(argv[1], "headers") == 0 &&
+	    (strcasecmp(argv[2], "msgid") == 0 ||
+	     strcasecmp(argv[2], "range") == 0)) {
+		list_headers(clt, argv[2]);
+		return 0;
+	}
+
 	(*clt->
 	 co) <<
-      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|newsgroups|overview.fmt]\r\n";
+      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]\r\n";
 	return -1;
 }
 
@@ -2061,6 +2134,137 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
+/*
+ * Sends the status line to out before the first character that is
+ * written; used() tells whether anything was. HDR answers 423 instead
+ * of an empty list (RFC 3977 8.5).
+ */
+class LazyStatus:public std::streambuf {
+	ostream & out;
+	string status;
+	bool started;
+	void start(void) {
+		if (!started) {
+			out << status;
+			started = true;
+		}
+	}
+      protected:
+	virtual int overflow(int c) {
+		if (c != EOF) {
+			start();
+			out.put((char) c);
+		}
+		return c;
+	}
+	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
+		if (n > 0) {
+			start();
+			out.write(p, n);
+		}
+		return n;
+	}
+      public:
+	LazyStatus(ostream & o, const char *st)
+	:out(o), status(st), started(false) {
+	}
+	bool used(void) const {
+		return started;
+	}
+};
+
+/*
+ * HDR field [range|<message-id>] (RFC 3977 8.5). By number it reads the
+ * overview fields (see LIST HEADERS); by message-ID it fetches the
+ * article, so every header is there.
+ */
+int ns_hdr(ClientData * clt, int argc, char *argv[])
+{
+	artnum_t fst, lst;
+
+	if (argc < 2 || argc > 3) {
+		(*clt->co) << "501 Syntax: hdr field [range|<id>]\r\n";
+		return -1;
+	}
+
+	if (argc == 3 && argv[2][0] == '<') {
+		Article a;
+		string val;
+		try {
+			clt->srvr->article(argv[2], &a);
+		}
+		catch(const NoSuchArticleError & nsae) {
+			(*clt->co) << "430 no such article id found\r\n";
+			return -1;
+		}
+		catch(const ResponseError & e) {
+			(*clt->co) << e._got << "\r\n";
+			return -1;
+		}
+		catch(const Error & e) {
+			(*clt->co) << "503 operation failed\r\n";
+			e.print();
+			return -1;
+		}
+		if (!may_read_article(clt, a)) {
+			access_denied(clt);
+			return -1;
+		}
+		if (strcasecmp(argv[1], ":bytes") == 0) {
+			val = a.getfield("bytes:");
+		} else if (argv[1][0] == ':') {
+			(*clt->co) << "503 " << argv[1] <<
+			    " not available by message-id\r\n";
+			return -1;
+		} else {
+			try {
+				val = a.getfield(Newsgroup::
+						 headerfield(argv[1]).c_str(), 0);
+			}
+			catch(const NoSuchFieldError & nsfe) {
+			}
+		}
+		(*clt->co) << "225 Headers follow\r\n0 " << val << "\r\n.\r\n";
+		return 0;
+	}
+
+	if (clt->groupname[0] == '\0') {
+		(*clt->co) << "412 No newsgroup currently selected\r\n";
+		return -1;
+	}
+	if (argc == 3) {
+		if (!parse_range(argv[2], &fst, &lst)) {
+			(*clt->co) << "501 Syntax: hdr field [range|<id>]\r\n";
+			return -1;
+		}
+	} else {
+		if (clt->nbr == 0) {
+			(*clt->co) <<
+			    "420 no current article has been selected\r\n";
+			return -1;
+		}
+		fst = lst = clt->nbr;
+	}
+	string fld = hdr_overview_field(clt->srvr->overviewfmt(), argv[1]);
+	if (fld.empty()) {
+		(*clt->co) << "503 " << argv[1] <<
+		    " not available by article number (see LIST HEADERS)\r\n";
+		return -1;
+	}
+	if (current_group(clt) < 0)
+		return -1;
+
+	LazyStatus ls(*clt->co, "225 Headers follow\r\n");
+	ostream os(&ls);
+	clt->grp->printheaderdb(os, fld.c_str(), fst, lst, Newsgroup::hdr_all);
+	os.flush();
+	if (ls.used())
+		(*clt->co) << ".\r\n";
+	else
+		(*clt->co) << "423 no articles in that range\r\n";
+	return 0;
+}
+
 int ns_xdebug(ClientData * clt, int argc, char *argv[])
 {
 	if (argc == 3) {
@@ -2103,15 +2307,28 @@ int ns_xdebug(ClientData * clt, int argc, char *argv[])
  */
 int ns_capabilities(ClientData * clt, int argc, char *argv[])
 {
+	// What this client can do now (RFC 3977 5.2): the reading commands
+	// and POST only with those rights, AUTHINFO only before a login
+	// (RFC 4643 2.2).
+	unsigned int rights = clt->access_entry->access_flags;
+
 	(*clt->co) << "101 Capability list:\r\n";
 	(*clt->co) << "VERSION 2\r\n";
-	(*clt->co) << "IMPLEMENTATION NewsCache\r\n";
-	if (clt->access_entry->authentication.getType() != "none") {
+	(*clt->co) << "IMPLEMENTATION " PACKAGE " " VERSION "\r\n";
+	if (clt->access_entry->authentication.getType() != "none" &&
+	    clt->auth_state != AUTH_OK) {
 		(*clt->co) << "AUTHINFO USER\r\n";
 	}
-	(*clt->co) << "READER\r\n";
-	(*clt->co) << "POST\r\n";
-	(*clt->co) << "LIST ACTIVE ACTIVE.TIMES NEWSGROUPS OVERVIEW.FMT\r\n";
+	if (rights & AccessEntry::af_read) {
+		(*clt->co) << "READER\r\n";
+		(*clt->co) << "HDR\r\n";
+		(*clt->co) << "OVER\r\n";
+		(*clt->co) <<
+		    "LIST ACTIVE ACTIVE.TIMES HEADERS NEWSGROUPS OVERVIEW.FMT\r\n";
+	}
+	if (rights & AccessEntry::af_post) {
+		(*clt->co) << "POST\r\n";
+	}
 	(*clt->co) << ".\r\n";
 	return 0;
 }
