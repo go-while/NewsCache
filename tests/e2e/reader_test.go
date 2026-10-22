@@ -499,3 +499,36 @@ func TestXhdrLongHeaderName(t *testing.T) {
 		t.Errorf("DATE after XHDR with a long header name: %q", line)
 	}
 }
+
+// TestXhdrMessageID: XHDR header <message-id> (RFC 2980 2.6) answered
+// 501. It needs no group, and its line starts with the message-ID.
+func TestXhdrMessageID(t *testing.T) {
+	e := newEnv(t)
+	ids := e.addArticles("test.alpha", 2)
+	c := e.session()
+	for _, tc := range []struct {
+		cmd  string
+		code int
+		want string
+	}{
+		{"XHDR subject " + ids[1], 221, ids[1] + " article 2 in test.alpha"},
+		{"XHDR Newsgroups " + ids[0], 221, ids[0] + " test.alpha"},
+		{"XHDR x-no-such " + ids[0], 221, ids[0] + " (none)"},
+		{"XHDR subject <nonexistent@upstream.test>", 430, ""},
+		{"XHDR", 501, ""},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != tc.code {
+			t.Errorf("%s: %q, want %d", tc.cmd, line, tc.code)
+			if code == 221 {
+				c.ReadDotLines()
+			}
+			continue
+		}
+		if code == 221 {
+			if got := c.ReadDotLines(); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("%s: %q, want [%q]", tc.cmd, got, tc.want)
+			}
+		}
+	}
+}

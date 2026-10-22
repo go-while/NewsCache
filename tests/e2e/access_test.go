@@ -230,3 +230,42 @@ func TestPostNewsgroupsList(t *testing.T) {
 		t.Errorf("upstream got %d posted articles, want 2", n)
 	}
 }
+
+// TestHeaderByMessageIDReadRights: XPAT with a message-ID returned the
+// header of any article, also in groups the client may not read (the
+// Read check of ARTICLE <id> came later than XPAT). XHDR and HDR with a
+// message-ID check it too.
+func TestHeaderByMessageIDReadRights(t *testing.T) {
+	e, alpha, secret := readEnv(t)
+	c := e.session()
+	for _, cmd := range []string{
+		"XPAT subject " + secret[0] + " *",
+		"XHDR subject " + secret[0],
+		"HDR subject " + secret[0],
+	} {
+		code, line := c.Cmd("%s", cmd)
+		if code == 221 || code == 225 {
+			c.ReadDotLines()
+		}
+		if code != 502 {
+			t.Errorf("%s: %q, want 502", cmd, line)
+		}
+	}
+	for _, tc := range []struct {
+		cmd  string
+		code int
+	}{
+		{"XPAT subject " + alpha[0] + " *", 221},
+		{"XHDR subject " + alpha[0], 221},
+		{"HDR subject " + alpha[0], 225},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != tc.code {
+			t.Errorf("%s: %q, want %d", tc.cmd, line, tc.code)
+			continue
+		}
+		if got := c.ReadDotLines(); len(got) != 1 {
+			t.Errorf("%s: %q, want one line", tc.cmd, got)
+		}
+	}
+}

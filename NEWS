@@ -204,6 +204,13 @@ Bug fixes:
   read or post, and AUTHINFO also after the login (RFC 4643 says not
   then). It now lists only what the client can do at that moment, and
   adds HDR, OVER and LIST HEADERS for readers.
+* XPAT with a message-ID ("XPAT subject <id> *") returned the header of
+  any article whose message-ID the client knew, also in groups its Read
+  list doesn't allow (XPAT came in this release, the Read check of
+  ARTICLE <id> after it). It now checks like ARTICLE, as XHDR and HDR do.
+* XHDR takes a message-ID ("XHDR subject <id>", RFC 2980 2.6); it
+  answered 501. The line starts with the message-ID, and no group needs
+  to be selected.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
