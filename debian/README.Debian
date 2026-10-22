@@ -12,7 +12,7 @@ Configuration
 over TLS and lets nobody in: every client gets "502 You have no permission
 to talk". The daemon runs as a systemd service (newscache.service) and is
 started on installation. It listens on port 119 (nntp) on all IPv4
-addresses; to use another address or port, change ListenTo.
+and IPv6 addresses; to use another address or port, change ListenTo.
 
 After changing the config, check it and reload the daemon:
 

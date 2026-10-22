@@ -23,7 +23,9 @@ PidFile /var/run/newscache.pid
 # In a multihomed environment the address of one NIC can be 
 # specified. The default Port is nntp from /etc/services. For
 # the port-number an entry fom /etc/services or a port-number
-# can be specified.
+# can be specified. DEFAULT (or DEFAULT:port) listens on all IPv4
+# and IPv6 addresses (on IPv4 only where the host has no IPv6);
+# 0.0.0.0 listens on IPv4 only.
 #
 # !!! If ListenTo is specified, then the parameter CachePort
 # is ignored !!!
