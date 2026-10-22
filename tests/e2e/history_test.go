@@ -1,10 +1,12 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
@@ -416,6 +418,23 @@ func historyFiles(t *testing.T, e *env) []string {
 	return m
 }
 
+// historyKB is the disk space of the history's shard files in KB, counted
+// like newscacheclean does (st_blocks). It can be far below the files'
+// sizes: the tables are mostly zeros, which some file systems (ZFS with
+// compression, as on the FreeBSD runner) don't store.
+func historyKB(t *testing.T, e *env) int64 {
+	t.Helper()
+	var blocks int64
+	for _, f := range historyFiles(t, e) {
+		var st syscall.Stat_t
+		if err := syscall.Stat(f, &st); err != nil {
+			t.Fatal(err)
+		}
+		blocks += int64(st.Blocks)
+	}
+	return blocks / 2
+}
+
 // TestHistorySpoolSize: newscacheclean didn't count the history in
 // SpoolSize, and its files never shrink. It now counts them, removes the
 // history when it alone takes more than half of SpoolSize (it is only a
@@ -459,8 +478,14 @@ func TestHistorySpoolSize(t *testing.T) {
 
 	t.Run("more than half of SpoolSize", func(t *testing.T) {
 		e := historyEnv(t)
-		fill(t, e) // each shard has a 512 KB table
-		e.Extra += "SpoolSize 4000\n"
+		fill(t, e)
+		// SpoolSize at the history's own size: it then takes more
+		// than half of it, on any file system
+		kb := historyKB(t, e)
+		if kb < 1 {
+			kb = 1
+		}
+		e.Extra += fmt.Sprintf("SpoolSize %d\n", kb)
 		clean(t, e)
 		if m := historyFiles(t, e); len(m) != 0 {
 			t.Errorf("history files kept: %q", m)
