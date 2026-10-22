@@ -123,7 +123,9 @@ class Newsgroup {
 		if (o)
 			os << o << "\r\n";
 	}
-	virtual void readoverdb(std::istream & is) = 0;
+	// Reads overview records up to the "." line and stores them;
+	// returns the highest article number read (0 for none).
+	virtual artnum_t readoverdb(std::istream & is) = 0;
 	virtual void printoverdb(std::ostream & os, artnum_t f =
 				 0, artnum_t l = ARTNUM_MAX) {
 		artnum_t i, ol;

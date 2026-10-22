@@ -862,10 +862,29 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 	}
 }
 
+/*
+ * Some providers return at most so many overview records per OVER,
+ * whatever the range. Asks again after the last record received until
+ * the range is done or a reply has no records; otherwise the rest of
+ * the range was taken for articles without a record. A server that
+ * returns the whole range costs one more request (answered 423) only
+ * when the range ends in numbers without articles.
+ */
 void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
 			 artnum_t lst)
 {
-	VERB(slog.p(Logger::Debug) << "RServer::overviewdb(*ng,"
+	for (;;) {
+		artnum_t h = overviewrange(ng, fst, lst);
+		if (h < fst || h >= lst)
+			return;
+		fst = h + 1;
+	}
+}
+
+artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
+				artnum_t lst)
+{
+	VERB(slog.p(Logger::Debug) << "RServer::overviewrange(*ng,"
 	     << fst << "-" << lst << ")\n");
 	ASSERT(if (!ng) {
 	       throw
@@ -898,10 +917,8 @@ void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
 			 (unsigned long long) lst);
 		resp = issue(buf, NULL);
 		p = resp.c_str();
-		if (NNTP_ISCODE(p, "224")) {
-			ng->readoverdb(*_pServerStream);
-			return;
-		}
+		if (NNTP_ISCODE(p, "224"))
+			return ng->readoverdb(*_pServerStream);
 		if (NNTP_ISCODE(p, "502")) {
 			throw NotAllowedError(resp, ERROR_LOCATION);
 		}
@@ -917,7 +934,7 @@ void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
 		// NewsCache asks for ranges that may be empty, this is no
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
-			return;
+			return 0;
 		if (fmt[0] == 'o')
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else

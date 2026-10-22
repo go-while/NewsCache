@@ -722,12 +722,13 @@ void NVNewsgroup::setover(const string & over)
 	ASSERT2(testdb());
 }
 
-void NVNewsgroup::readoverdb(istream & is)
+artnum_t NVNewsgroup::readoverdb(istream & is)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::readoverdb(&is)\n");
 
 	string line1, line2;
 	time_t now;
+	artnum_t n, high = 0;
 	HistoryBatch hb;	// one history lock per shard for the reply
 
 	lock(NVcontainer::ExclLock);
@@ -735,6 +736,8 @@ void NVNewsgroup::readoverdb(istream & is)
 		nlreadline(is, line1, 0);
 		if (line1 == "." || is.eof())
 			break;
+		if ((n = leading_artnum(line1.c_str())) > high)
+			high = n;
 		if (_OverviewFormat->dotrans) {
 			// Convert Record
 			_OverviewFormat->convert(line1, line2);
@@ -747,6 +750,7 @@ void NVNewsgroup::readoverdb(istream & is)
 	time(&now);
 	setmtime(now);
 	lock(NVcontainer::UnLock);
+	return high;
 }
 
 void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)

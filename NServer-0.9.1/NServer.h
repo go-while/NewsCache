@@ -244,6 +244,13 @@ class RServer:virtual public NServer {
 
 	sockstream *_pServerStream;
 
+	/**
+	* One OVER (or XOVER) request for [fst,lst]: stores the records in
+	* ng and returns the highest article number among them, 0 when
+	* there were none. Throws like overviewdb.
+	*/
+	artnum_t overviewrange(Newsgroup * ng, artnum_t fst, artnum_t lst);
+
 	RServer():NServer() {
 		_ServerList = NULL;
 		_CurrentServer = NULL;
