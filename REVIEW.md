@@ -96,6 +96,7 @@ CI, not yet by the systematic review.
 | `newscache -p` and `xdebug dump configuration` printed upstream passwords in plain text | 6 | review | #43 |
 | No wildcards in the prefetch file (old `TODO`); `!` lines were ignored and empty or `#` lines asked the upstream for a group of that name | 12 | old TODO | #44 |
 | `-c` arguments longer than `MAXPATHLEN` overflowed the config file name buffer (`strcpy`) in `newscache`, `newscacheclean` and `updatenews` | 5, 11, 12 | review | #45 |
+| A too long `SpoolDirectory` passed the config check and ended every session with an uncaught `AssertionError` | 6 | review | #46 |
 
 ## Open points
 
@@ -107,10 +108,6 @@ that it stays as it is.
   (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
   instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
   `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
-- **Too long `SpoolDirectory` ends the program with an uncaught
-  `AssertionError`** (area 6): `LServer::init` refuses it correctly, but
-  the exception isn't caught, so newscache prints "terminate called after
-  throwing an instance of 'AssertionError'" instead of a config error.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
 - **Two unclear notes from the old `TODO`**, to check while reviewing:

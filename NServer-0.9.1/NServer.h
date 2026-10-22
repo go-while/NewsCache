@@ -57,6 +57,10 @@ class CServer;
 extern char nntp_hostname[FQDN_BUFSIZE];
 extern char nntp_posting_host[MAXHOSTNAMELEN];
 
+/* Longest SpoolDirectory: a spool path must leave room for the longest
+ * group's directory and the file names in it. */
+#define MAXSPOOLDIRLEN (MAXPATHLEN - MAXGROUPNAMELEN - 16)
+
 #ifdef EXP
 /**
  * \class PostResult

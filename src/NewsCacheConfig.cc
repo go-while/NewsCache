@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -101,8 +102,16 @@ void Config::read(const char *fn)
 		if (lex.eof())
 			break;
 
-		HANDLESTRGARG(SpoolDirectory)
-		    else
+		if (tok == "SpoolDirectory") {
+			a1 = lex.getToken();
+			if (a1.length() > MAXSPOOLDIRLEN) {
+				char msg[128];
+				snprintf(msg, sizeof(msg), "SpoolDirectory too long "
+					 "(at most %d characters)", (int) MAXSPOOLDIRLEN);
+				throw SyntaxError(lex, msg, ERROR_LOCATION);
+			}
+			STRNCPY(SpoolDirectory, a1);
+		} else
 			HANDLESTRGARG(LogDirectory)
 			    else
 			HANDLESTRGARG(PrefetchFile)

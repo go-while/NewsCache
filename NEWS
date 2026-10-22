@@ -123,6 +123,13 @@ Bug fixes:
   characters, so a longer argument wrote past its end. Such an argument is
   now refused with "configuration file name is too long" and exit status 1.
   Only whoever starts the programs controls the argument.
+* A SpoolDirectory longer than the limit (MAXPATHLEN minus room for the
+  longest group name, 3568 characters on Linux) passed the config check,
+  and then every session ended with "terminate called after throwing an
+  instance of 'AssertionError'", without a reply. It is now a config error
+  ("SpoolDirectory too long"), reported at startup by newscache,
+  newscacheclean and updatenews (exit status 2), and the check no longer
+  depends on --enable-assertions.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

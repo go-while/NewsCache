@@ -113,14 +113,12 @@ void LServer::init(const char *spooldir)
 	VERB(slog.
 	     p(Logger::Debug) << "LServer::init(" << spooldir << ")\n");
 
-	ASSERT(if
-	       (strlen(spooldir) >
-		sizeof(_SpoolDirectory) - MAXGROUPNAMELEN - 16) {
-	       throw
-	       AssertionError
-	       ("name of spooldirectory too long. longest groupname+spooldirlength does not fit into maxpathlen",
-		ERROR_LOCATION);}
-	);
+	// Config::read refuses a longer SpoolDirectory; the paths built from
+	// _SpoolDirectory rely on this, so check it with assertions off too.
+	if (strlen(spooldir) > MAXSPOOLDIRLEN)
+		throw AssertionError("name of spooldirectory too long. longest "
+				     "groupname+spooldirlength does not fit into maxpathlen",
+				     ERROR_LOCATION);
 	strcpy(_SpoolDirectory, spooldir);
 	pSpool = new ArtSpooler(spooldir);
 
