@@ -118,8 +118,22 @@ CI, not yet by the systematic review.
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-- **CodeQL**: 12 alerts were dismissed as false positives or test code on
-  2026-10-19. Recheck them when their code is reviewed.
+None at the moment.
+
+## CodeQL dismissals
+
+13 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22). They were
+rechecked against main on 2026-10-22, after the review fixes; each still
+holds:
+
+| Alerts | Rule | Code | Why dismissed |
+|---|---|---|---|
+| #3-#8, #20, #21, #25 | `cpp/path-injection` | `NServer-0.9.1/checks/cArticle.cc`, `cOverviewFmt.cc`, `test/tartspool.cc` | Test programs opening the data files named on their own command line |
+| #2 | `cpp/path-injection` | `NServer-0.9.1/Lexer.h` | The config file given with `-c` by the admin who starts the daemon |
+| #11 | `cpp/unbounded-write` | `NVClasses-0.9.1/Logger.cc` (`Logger::append`) | The buffer is resized to at least `buflen + strlen(s) + 1` before the `strcat`, and is an empty string from the constructors on |
+| #14, #15 | `cpp/potential-system-data-exposure` | `src/setugid.cc` | Only the configured user's uid or group's gid, on stderr, when switching to it fails at startup. No longer reported since setugid was rewritten (initgroups) |
+
+A new dismissal gets a line here.
 
 ## Feature ideas from the old TODO
 
