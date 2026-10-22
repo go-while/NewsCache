@@ -22,7 +22,12 @@ class NVHash:public NVListBase {
 	unsigned long want_hashsz;	// the size open() was given
 
 	void create_table(unsigned long n);
+	void load_table(void);
 	void reinit(void);
+	void forget(void) {
+		hashtab = NULL;
+		hashsz = 0;
+	}
 
 	int sis_empty(void);
 	void sclear(void);

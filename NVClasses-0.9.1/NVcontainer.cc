@@ -103,6 +103,7 @@ NVcontainer::NVcontainer()
 {
 	lck_stackp = NVcontainer_LOCKSTACKSIZE;
 	lck_orphans = in_open = in_corrupt = 0;
+	lost_fn[0] = '\0';
 	mem_fn[0] = '\0';
 	mem_fd = -1;
 	mem_p = NULL;
@@ -114,6 +115,7 @@ NVcontainer::NVcontainer(const char *dbname, int flags)
 {
 	lck_stackp = NVcontainer_LOCKSTACKSIZE;
 	lck_orphans = in_open = in_corrupt = 0;
+	lost_fn[0] = '\0';
 	mem_fn[0] = '\0';
 	mem_fd = -1;
 	mem_p = NULL;
@@ -556,6 +558,26 @@ int NVcontainer::lock(int command, int block)
 	int res;
 	int curLock = UnLock;
 
+	if (command != UnLock && mem_fd < 0 && lost_fn[0] &&
+	    lck_stackp == NVcontainer_LOCKSTACKSIZE) {
+		// corrupt() couldn't start a new file; try again now
+		string fn = lost_fn;
+		lost_fn[0] = '\0';
+		try {
+			open(fn.c_str());
+			reinit();
+		}
+		catch(...) {
+			close();
+			snprintf(lost_fn, sizeof(lost_fn), "%s", fn.c_str());
+			throw;
+		}
+	}
+	if (command != UnLock && mem_fd < 0) {
+		string fn = lost_fn[0] ? lost_fn : mem_fn;
+		throw Error("NVContainer::lock(): database " + fn +
+			    " is not open", ERROR_LOCATION);
+	}
 	if (lck_stackp < NVcontainer_LOCKSTACKSIZE) {
 		curLock = lck_stack[lck_stackp];
 	}
@@ -593,13 +615,18 @@ int NVcontainer::lock(int command, int block)
 	// Relock if lock state changed
 	if (curLock != command) {
 		if ((res = nvflock(mem_fd, command, block)) < 0) {
-			if (errno == EWOULDBLOCK && block == NoBlock) {
+			int e = errno;
+			// Take the entry off again: the caller doesn't hold
+			// this lock, and won't UnLock it. (Left on the stack,
+			// the next lock() took it as held and used the
+			// mapping without flock or make_current.)
+			if (command != UnLock)
 				lck_stackp++;
+			if (e == EWOULDBLOCK && block == NoBlock)
 				return -1;
-			}
 			throw
 			    SystemError("NVContainer::lock(): flock failed",
-					errno, ERROR_LOCATION);
+					e, ERROR_LOCATION);
 		}
 		// Adapt to the new size if somebody changed the container's 
 		// size
@@ -635,13 +662,16 @@ void NVcontainer::open(const char *dbname, int flags)
 	flags = 0;
 	strcpy(mem_fn, dbname);
 	if ((mem_fd =::open(mem_fn, O_RDWR | O_CREAT, 0644)) < 0) {
+		int e = errno;
+		mem_fn[0] = '\0';	// not open (a later open() must try again)
+		errno = e;
 #ifdef HAVE_SSTREAM
 		stringstream sb;
 #else
 		strstream sb;
 #endif
 		sb << "NVConatiner::open(): cannot open("
-		   << " mem_fn: " << mem_fn
+		   << " mem_fn: " << dbname
 		   << ",O_RDWR|O_CREAT)";
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
@@ -700,18 +730,25 @@ void NVcontainer::open(const char *dbname, int flags)
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 		}
 	}
-	nvflock(mem_fd, UnLock, Block);
-
-	//Sanity checks of an existing database will be done in 
+	// The sanity checks of make_current() run under a shared lock: done
+	// without one, they could see another process half way through an
+	// allocation (the free list), call a sound file corrupt and move it
+	// aside, with everything the others had written to it.
+	nvflock(mem_fd, ShrdLock, Block);
 	in_open++;
 	try {
 		make_current();
 	}
 	catch(...) {
 		in_open--;
+		if (mem_fd >= 0)
+			nvflock(mem_fd, UnLock, Block);
 		throw;
 	}
 	in_open--;
+	// (after corrupt() this is the new file, already unlocked)
+	if (mem_fd >= 0)
+		nvflock(mem_fd, UnLock, Block);
 }
 
 int NVcontainer::is_open(void)
@@ -721,8 +758,11 @@ int NVcontainer::is_open(void)
 
 void NVcontainer::close()
 {
-	if (mem_fd < 0)
+	if (mem_fd < 0) {
+		mem_fn[0] = '\0';
+		lost_fn[0] = '\0';
 		return;
+	}
 	munmap(mem_p, mem_sz);
 	::close(mem_fd);
 	if (lck_stackp != NVcontainer_LOCKSTACKSIZE) {
@@ -733,9 +773,11 @@ void NVcontainer::close()
 		lck_stackp = NVcontainer_LOCKSTACKSIZE;
 	}
 	mem_fn[0] = '\0';
+	lost_fn[0] = '\0';
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_hdr = (Header *) mem_p;
+	mem_sz = 0;
 }
 
 bool NVcontainer::valid_block(nvoff_t p, size_t * sz)
@@ -756,6 +798,27 @@ bool NVcontainer::valid_block(nvoff_t p, size_t * sz)
 	return true;
 }
 
+/*
+ * An exclusive flock on the directory that holds fn, or -1: it makes
+ * the check-and-rename of corrupt() one step between processes (no
+ * extra lock file). flock works on directories on Linux and the BSDs.
+ */
+static int lock_dir(const string & fn)
+{
+	string::size_type sl = fn.rfind('/');
+	string dir = sl == string::npos ? string(".") :
+	    sl == 0 ? string("/") : fn.substr(0, sl);
+	int fd =::open(dir.c_str(), O_RDONLY);
+
+	if (fd < 0)
+		return -1;
+	if (flock(fd, LOCK_EX) != 0) {
+		::close(fd);
+		return -1;
+	}
+	return fd;
+}
+
 void NVcontainer::corrupt(const std::string & why)
 {
 	string fn = mem_fn, bad = fn + ".bad";
@@ -768,44 +831,70 @@ void NVcontainer::corrupt(const std::string & why)
 	in_corrupt = 1;
 	slog.p(Logger::Error) << "corrupt database " << fn << ": " << why
 		<< "; moved to " << bad << ", starting a new one\n";
-	struct stat ours, named;
-	if (mem_fd >= 0 && fstat(mem_fd, &ours) == 0 &&
-	    stat(fn.c_str(), &named) == 0 &&
-	    (ours.st_dev != named.st_dev || ours.st_ino != named.st_ino)) {
-		// another process has moved it aside already and started
-		// a new one: use that
-	} else if (::rename(fn.c_str(), bad.c_str()) != 0 && errno != ENOENT) {
-		slog.p(Logger::Error) << "cannot rename " << fn << ": "
-			<< strerror(errno) << "; removing it\n";
-		if (unlink(fn.c_str()) != 0) {
-			in_corrupt = 0;
-			throw CorruptDBError(fn, why);
-		}
-	}
 
-	// Drop the old mapping. The callers' locks go with it; their UnLock
-	// calls are let through (lck_orphans).
+	// Which file we have mapped, then drop it. The callers' locks go
+	// with it; their UnLock calls are let through (lck_orphans). Our
+	// fd is closed before we wait for the directory lock, so we hold
+	// no lock on any database file while we wait.
+	struct stat ours, named;
+	bool have_ours = mem_fd >= 0 && fstat(mem_fd, &ours) == 0;
 	if (mem_p)
 		munmap(mem_p, mem_sz);
 	if (mem_fd >= 0)
 		::close(mem_fd);
 	lck_orphans += NVcontainer_LOCKSTACKSIZE - lck_stackp;
+	if (lck_orphans > 4 * NVcontainer_LOCKSTACKSIZE) {
+		// UnLock calls that never came (their callers left by an
+		// exception); more can't be pending
+		lck_orphans = 4 * NVcontainer_LOCKSTACKSIZE;
+	}
 	lck_stackp = NVcontainer_LOCKSTACKSIZE;
 	mem_fn[0] = '\0';
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_hdr = NULL;
 	mem_sz = 0;
-	try {
-		open(fn.c_str());
-		reinit();
+	forget();
+
+	// Under the directory lock: move the file aside only if it is still
+	// the one we had (another process may have done so and started a
+	// new one already, which must not be moved), and open whatever is
+	// under the name then.
+	int dfd = lock_dir(fn);
+	bool gone = false;
+	if (have_ours && stat(fn.c_str(), &named) == 0 &&
+	    (ours.st_dev != named.st_dev || ours.st_ino != named.st_ino)) {
+		// replaced by another process already: use the new file
+	} else if (::rename(fn.c_str(), bad.c_str()) != 0 && errno != ENOENT) {
+		slog.p(Logger::Error) << "cannot rename " << fn << ": "
+			<< strerror(errno) << "; removing it\n";
+		if (unlink(fn.c_str()) != 0)
+			gone = true;
 	}
-	catch(const Error & e) {
-		slog.p(Logger::Error) << "cannot start a new " << fn << "\n";
-		e.print();
+	if (!gone) {
+		try {
+			open(fn.c_str());
+			reinit();
+		}
+		catch(const Error & e) {
+			slog.p(Logger::Error) << "cannot start a new " << fn
+				<< "\n";
+			e.print();
+			close();
+		}
+	}
+	if (dfd >= 0) {
+		flock(dfd, LOCK_UN);
+		::close(dfd);
 	}
 	in_corrupt = 0;
-	if (!opening || mem_fd < 0)
+	if (mem_fd < 0) {
+		// lock() tries again; until then the object is closed and
+		// every lock() throws, nothing uses the old mapping
+		snprintf(lost_fn, sizeof(lost_fn), "%s", fn.c_str());
+		throw CorruptDBError(fn, why);
+	}
+	if (!opening)
 		throw CorruptDBError(fn, why);
 }
 

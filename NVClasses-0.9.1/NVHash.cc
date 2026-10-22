@@ -9,12 +9,23 @@ using namespace std;
 
 void NVHash::make_current()
 {
-	nvoff_t hdata;
-
 	if (mem_p && is_current())
 		return;
 
 	NVListBase::make_current();
+	load_table();
+}
+
+// hashtab and hashsz from the table in the file (none: NULL, 0)
+void NVHash::load_table()
+{
+	nvoff_t hdata;
+
+	if (!mem_p) {
+		hashtab = NULL;
+		hashsz = 0;
+		return;
+	}
 	if ((hdata = getdata()) == 0) {
 		hashtab = NULL;
 		hashsz = 0;
@@ -77,6 +88,9 @@ NVHash::NVHash(const char *dbname, unsigned long hashsz, int flags)
 void NVHash::create_table(unsigned long n)
 {
 	lock(ExclLock);
+	// The file may have a table already: one another process made
+	// (after corrupt(), several processes start on the same new file).
+	load_table();
 	if (!hashtab) {
 		nvoff_t ht = nvalloc(sizeof(unsigned long) + n * sizeof(nvoff_t));
 		unsigned long i;
@@ -93,8 +107,6 @@ void NVHash::create_table(unsigned long n)
 // corrupt() started a new file: it needs its table
 void NVHash::reinit(void)
 {
-	hashtab = NULL;
-	hashsz = 0;
 	if (want_hashsz)
 		create_table(want_hashsz);
 }
