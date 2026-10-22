@@ -14,6 +14,12 @@ New functions:
   as before, even for groups the active list doesn't have. Empty lines and
   lines starting with # are skipped, and each group is prefetched once.
   A line starting with ! used to be ignored; it now excludes.
+* HDR and LIST HEADERS (RFC 3977 8.5, 8.6). By article number HDR reads
+  the overview: Subject, From, Date, Message-ID, References, Xref and the
+  metadata :bytes and :lines; other headers get 503, as the RFC asks. By
+  message-ID it fetches the article, so every header is there (and
+  :bytes). An article without the header gets a line with an empty value,
+  and a range without articles 423.
 
 Bug fixes:
 * Articles bigger than about 15 KB, which NewsCache stores in their own
@@ -193,6 +199,11 @@ Bug fixes:
   An OVER/XOVER range without articles (423, or 420 from older servers)
   made NewsCache assume the upstream server has no OVER, then no XOVER,
   and give up on the overview; it now means no records.
+* CAPABILITIES listed READER, POST and, for entries with Authentication,
+  AUTHINFO USER to every client: also to clients without the right to
+  read or post, and AUTHINFO also after the login (RFC 4643 says not
+  then). It now lists only what the client can do at that moment, and
+  adds HDR, OVER and LIST HEADERS for readers.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

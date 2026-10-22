@@ -104,6 +104,7 @@ CI, not yet by the systematic review.
 | The first XOVER on a group synchronized the whole group: LISTGROUP of the whole range, a 1-byte-per-number table and a spool index of 8 bytes per number (57 GB for a binary group); not-cached groups fetched the whole overview at every GROUP; a 423 for an empty OVER range disabled OVER and XOVER; LISTGROUP took no range and answered a non-RFC 211 line; `NVArray::clear` left freed records in the table | 2, 7, 9 | review #36 | #52 |
 | autoconf/automake warnings (21 with Fedora 45): `configure.in` instead of `configure.ac`, obsolete macros, `INCLUDES`, two-argument `AM_INIT_AUTOMAKE`, `.texinfo` suffix | 14 | build | #51 |
 | `doc/Makefile.am`: `EXTRA_DIST =` without a backslash, so the notes in `doc/` (which README.md points to) and the RFC texts were never in the tarball; it named two drafts no longer in the tree | 0, 14 | review #51 | #53 |
+| CAPABILITIES listed READER, POST and AUTHINFO USER regardless of the client's rights and login, and no OVER or HDR; there was no HDR (RFC 3977) | 1, 2 | review #39 | #54 |
 
 ## Open points
 
