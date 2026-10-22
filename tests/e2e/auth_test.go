@@ -78,6 +78,28 @@ func TestAuthFileShortLine(t *testing.T) {
 	c.ReadDotLines()
 }
 
+// TestAuthFileUserHashOnly: an auth-file line with only user and hash is
+// valid; the missing fields add nothing, like empty ones. Such lines used to
+// be refused (502 after the failure delay).
+func TestAuthFileUserHashOnly(t *testing.T) {
+	t.Run("keeps the entry's rights", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash)
+		c := e.session()
+		login(t, c)
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP after login: %q, want 211", line)
+		}
+	})
+	t.Run("adds no rights", func(t *testing.T) {
+		e := loginOnlyEnv(t, "tester:"+md5Hash)
+		c := e.session()
+		login(t, c)
+		if code, line := c.Cmd("GROUP test.alpha"); code == 211 {
+			t.Fatalf("GROUP after login: %q; the line gives no List/Read rights", line)
+		}
+	})
+}
+
 // md5Hash is base64(MD5("secret")), the auth-file format NewsCache detects
 // as an MD5 hash (24 characters ending in "=="). printf secret | openssl md5
 // -binary | base64 gives the same value.

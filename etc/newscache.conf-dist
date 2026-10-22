@@ -93,6 +93,8 @@ Admin tom@infosys.tuwien.ac.at
 #   none ... no further authentication necessary
 #   file:/path/to/file ... formatdescription 
 #		username:password:list:read:postto:allow
+#	Only username and password are required; fields missing at
+#	the end add nothing, like empty ones.
 #	The additional access specification are added to the normal
 #	List Read and PostTo Parameters (see above)
 # 	The password field is a encrypted password (md5crypt of crypt)
@@ -149,7 +151,7 @@ AccessList {
 #    PostTo at.*
 #    # allow users to gain additional privileges by
 #    # authenticating based on a password file
-#    # the format of the file is username:password:read:postto
+#    # the format of the file is username:password:list:read:postto:allow
 #    Authentication file:/usr/local/etc/tuwien.pass
 #  }
 #  Client 192.168.0.0/255.255.0.0 {
