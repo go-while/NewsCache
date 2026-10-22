@@ -7,6 +7,15 @@ New functions:
   headers of the articles in the spool; for other headers of articles
   that are only in the overview, nothing matches. XPAT is in HELP and in
   LIST EXTENSIONS ("pat").
+New functions:
+* The prefetch file of updatenews takes wildmat patterns: a line like
+  "de.*" or "comp.lang.[cg]o" prefetches every matching group of the
+  active list, and a line "!pattern" (or "!group") leaves the matching
+  groups out, wherever they come from in the file. Plain group names work
+  as before, even for groups the active list doesn't have. Empty lines and
+  lines starting with # are skipped, and each group is prefetched once.
+  A line starting with ! used to be ignored; it now excludes.
+
 
 Bug fixes:
 * Articles bigger than about 15 KB, which NewsCache stores in their own

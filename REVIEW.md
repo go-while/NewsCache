@@ -94,6 +94,7 @@ CI, not yet by the systematic review.
 | The auth failure delay was fixed at 15 seconds; now `AuthFailureDelay` | 3 | review | #41 |
 | `Authentication unix` never read `/etc/shadow` (configure's `--with-shadow=auto` default never defined `SHADOW_PASSWORD`); unix and PAM/pam_unix logins can't check local passwords as `news` and failed silently: now logged and documented, sessions keep running as `news` | 3, 14 | review | #42 |
 | `newscache -p` and `xdebug dump configuration` printed upstream passwords in plain text | 6 | review | #43 |
+| No wildcards in the prefetch file (old `TODO`); `!` lines were ignored and empty or `#` lines asked the upstream for a group of that name | 12 | old TODO | #44 |
 
 ## Open points
 
@@ -115,8 +116,6 @@ that it stays as it is.
   throwing an instance of 'AssertionError'" instead of a config error.
 - **`ListenTo DEFAULT` listens on IPv4 only** (area 5), seen on Fedora 44.
 - **The pid file isn't removed** when the daemon stops (area 5).
-- **No wildcards in the prefetch file** (area 12). `updatenews` reads group
-  names literally; the old `TODO` asked for wildcards.
 - **Two unclear notes from the old `TODO`**, to check while reviewing:
   "Groups without reading permission" (area 4) and "ListIter in
   OverviewFmt.h" (area 8).

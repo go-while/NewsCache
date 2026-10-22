@@ -394,6 +394,22 @@ set by the @code{PrefetchFile}-directive.
 PrefetchFile /lhome/newscache/etc/prefetch
 @end example
 
+@cindex prefetch file
+@code{updatenews} reads this file one line at a time. A line is a
+newsgroup name, a wildmat pattern (@samp{*}, @samp{?}, @samp{[...]})
+that selects every matching group of the active database, or
+@samp{!} followed by a pattern or name, which leaves the matching groups
+out. Empty lines and lines starting with @samp{#} are skipped, and each
+group is prefetched once.
+
+@example
+# all of de.*, but not the binaries
+de.*
+!de.alt.binaries.*
+comp.lang.[cg]o
+at.test
+@end example
+
 @c *** 
 @c *** ServerList
 @c *** 
