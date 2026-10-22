@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +170,54 @@ func TestNoSuchArticle(t *testing.T) {
 	}
 	if code, line := c.Cmd("GROUP no.such.group"); code != 411 {
 		t.Errorf("GROUP no.such.group: %q, want 411", line)
+	}
+}
+
+// TestStat: STAT n answers 223 with the article's message-ID and makes n
+// the current article; a number with no article gets 423 (it got
+// "223 n  status", without a message-ID). RFC 3977 6.2.4.
+func TestStat(t *testing.T) {
+	const group = "test.gap"
+	e := newEnv(t)
+	e.Store.AddGroup(group, "articles 1, 2 and 4")
+	for _, n := range []int64{1, 2, 4} {
+		e.Store.AddArticle(group, groupArticle(group, n, []string{fmt.Sprintf("body %d", n)}))
+	}
+	e.Store.AddGroup("test.empty", "no articles")
+	id := func(n int) string { return fmt.Sprintf("<test-gap.%d@upstream.test>", n) }
+
+	c := e.session()
+	if code, line := c.Cmd("STAT 1"); code != 412 {
+		t.Errorf("STAT 1 without a group: %q, want 412", line)
+	}
+	c.Cmd("GROUP %s", group)
+	for _, tc := range []struct {
+		cmd  string
+		want string
+	}{
+		{"STAT 2", "223 2 " + id(2)},
+		{"STAT 3", "423 "},  // gap
+		{"STAT 99", "423 "}, // after the last article
+		{"STAT", "223 2 " + id(2)},
+		{"NEXT", "223 4 " + id(4)},
+		{"STAT 1", "223 1 " + id(1)},
+		{"NEXT", "223 2 " + id(2)}, // STAT 1 set the current article
+		{"STAT " + id(4), "223 0 " + id(4)},
+		{"STAT <missing@upstream.test>", "430 "},
+		{"STAT 1x", "501 "},
+	} {
+		if _, line := c.Cmd("%s", tc.cmd); !strings.HasPrefix(line, tc.want) {
+			t.Errorf("%s: %q, want %q", tc.cmd, line, tc.want)
+		}
+	}
+	// a failed STAT keeps the current article
+	c.Cmd("STAT 3")
+	if _, line := c.Cmd("STAT"); !strings.HasPrefix(line, "223 2 "+id(2)) {
+		t.Errorf("STAT after STAT 3: %q, want 223 2 %s", line, id(2))
+	}
+	c.Cmd("GROUP test.empty")
+	if code, line := c.Cmd("STAT"); code != 420 {
+		t.Errorf("STAT in an empty group: %q, want 420", line)
 	}
 }
 

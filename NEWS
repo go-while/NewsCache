@@ -67,6 +67,12 @@ Bug fixes:
   Note that a group's spool index has an 8-byte slot for every number from
   its first to its last article. For binary groups with long retention,
   set LimitGroupSize.
+* STAT with the number of an article that doesn't exist (a gap in the
+  group, or past its last article) answered "223 <number>  status",
+  without a Message-ID, instead of 423. And a successful STAT <number>
+  didn't make that article the current one, so NEXT, LAST and a following
+  HEAD or BODY without a number went on from the previous article
+  (RFC 3977 6.2.4).
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
