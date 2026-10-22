@@ -114,6 +114,7 @@ CI, not yet by the systematic review.
 | History (#56, review): 256 buckets per shard made adds and lookups walk chains that grow with the history (10^7 entries: ~1.8 s of shard locks per 10 000-record chunk); now 65536 (format "history 2"). Also: removes of a whole range queued in memory, `.history` not counted in SpoolSize, STAT <id> decided from Xref but ARTICLE <id> from Newsgroups, a lookup fetched by number into a group the client may not read, and two processes resetting the same damaged shard could move the other one's fresh file aside | 2, 9, 11 | review #56 | #63 |
 | An upstream that caps the overview records per OVER (whatever the range) cut groups short: the rest of a range was taken for articles without a record; also for not-cached servers and without LISTGROUP | 7 | e2e tests (nntp-testkit 0.4.0 `MaxOverRange`) | #67 |
 | A 480 from the upstream in the middle of a session (a login that timed out) was not answered with a new login: OVER and XOVER were taken as unsupported, clients got an empty overview without an error; the code for it was commented out already in 1.2rc6 | 7 | e2e tests (nntp-testkit 0.4.0 `OverrideFrom`/`OverrideTimes`) | #68 |
+| The upstream server's password was logged: `RServer::issue` logs every command at level info, `authinfo pass <password>` too (syslog: also `/var/log/syslog` on Debian, the journal). Also: with no reply and no expected code, `issue` built a `std::string` from NULL | 7, 13 | review (while adding the re-login) | #69 |
 
 ## Open points
 

@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <strings.h>
 
 #include <iostream>
 #include <fstream>
@@ -441,6 +442,19 @@ void RServer::authenticate()
 	}
 }
 
+// The command as it may be logged or put in an error: AUTHINFO without
+// its arguments (the user name and password of the news server), like
+// the client's AUTHINFO in the session log.
+static string loggable(const char *command)
+{
+	if (strncasecmp(command, "authinfo", 8) == 0)
+		return "authinfo (arguments not shown)";
+	string c(command);
+	while (!c.empty() && (c[c.size() - 1] == '\n' || c[c.size() - 1] == '\r'))
+		c.erase(c.size() - 1);
+	return c;
+}
+
 string RServer::issue(const char *command, const char *expresp)
 {
 	string req, resp;
@@ -448,9 +462,7 @@ string RServer::issue(const char *command, const char *expresp)
 	int i = _CurrentServer->retries + 1;
 	int relogin = 0;
 
-	req = "issue ";
-	req.append(command, strlen(command) - 2);
-	req.append("\n");
+	req = "issue " + loggable(command) + "\n";
 	slog.p(Logger::Info) << "RServer::issue: " << req.c_str();
 	if (!is_connected())
 		connect();
@@ -528,7 +540,7 @@ string RServer::issue(const char *command, const char *expresp)
 	if ((rs < 3)
 	    || (expresp
 		&& strncmp(expresp, resp.data(), strlen(expresp)))) {
-		string c(command), e(expresp);
+		string c(loggable(command)), e(expresp ? expresp : "");
 		throw ResponseError(c, e, resp);
 	}
 

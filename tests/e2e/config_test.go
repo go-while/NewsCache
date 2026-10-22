@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
 // TestPrintServerOptions: newscache -p prints every server option it parsed.
@@ -416,4 +419,42 @@ func dirOfLength(t *testing.T, base string, n int) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestUpstreamPasswordNotLogged: every command to the upstream server was
+// logged ("RServer::issue: ..." at level info), "authinfo pass <password>"
+// too, so the news server's password ended up in the log file, or in
+// syslog (with Debian's default rsyslog also in /var/log/syslog). The
+// client's own AUTHINFO was already logged without its arguments.
+func TestUpstreamPasswordNotLogged(t *testing.T) {
+	const secret = "s3cret-upstream-pw"
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    User tester\n    Password " + secret
+	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: e.Store,
+		StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: secret}})
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q (login to the upstream failed?)", line)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	if strings.Contains(log, secret) {
+		t.Errorf("the log has the upstream password:\n%s", grepLines(log, secret))
+	}
+	if !strings.Contains(log, "RServer::issue: issue authinfo (arguments not shown)") {
+		t.Errorf("no masked AUTHINFO line in the log:\n%s", firstLines(log, 20))
+	}
+}
+
+// grepLines returns the lines of s that contain sub.
+func grepLines(s, sub string) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, sub) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
 }
