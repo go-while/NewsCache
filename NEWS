@@ -276,6 +276,13 @@ Bug fixes:
   now asks again after the last record received until the range is done.
   A server that returns whole ranges costs at most one more request
   (answered 423), when a range ends in numbers without articles.
+* When the upstream server asked for the login again in the middle of a
+  session (480, as servers do when a login times out), NewsCache took the
+  480 to an OVER for "no OVER", then the one to XOVER for "no XOVER", and
+  gave up on the overview: clients got an empty XOVER without an error
+  until the session ended; other commands failed with the 480. NewsCache
+  logged in only when it connected. It now logs in again (with the
+  server's User and Password) and sends the command once more.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
@@ -291,7 +298,7 @@ Other changes:
   with a timer and ships an /etc/newscache.conf that lets nobody in. See
   debian/README.Debian.
 * The info manual has a dir entry, and newscache.conf(5) a whatis line.
-* The end-to-end tests use nntp-testkit 0.4.0 and need Go 1.26 or later.
+* The end-to-end tests use nntp-testkit 0.4.1 and need Go 1.26 or later.
   With an older Go, make check now skips them with a message, instead of
   having Go try to download a newer toolchain (which fails offline). Set
   GOTOOLCHAIN to let Go fetch one anyway. The fake upstream server can

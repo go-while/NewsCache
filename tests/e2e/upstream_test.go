@@ -380,3 +380,31 @@ func TestUpstreamOverRangeCap(t *testing.T) {
 		})
 	}
 }
+
+// TestUpstreamLoginExpired: the upstream server asks for the login again
+// in the middle of a session (480 to an OVER, and to an XOVER after it),
+// as servers do when a login times out. NewsCache logs in when it
+// connects; it must log in again and repeat the command, not take the
+// 480 for "no OVER" and then "no XOVER" and give up on the overview.
+func TestUpstreamLoginExpired(t *testing.T) {
+	e := newEnv(t)
+	e.Store = numberedStore(1, 3)
+	e.Store.AddGroup("alt.other", "second group")
+	e.Store.AddArticle("alt.other", groupArticle("alt.other", 1, []string{"body"}))
+	e.ServerLines = "    User tester\n    Password secret"
+	f := fakeserver.Faults{
+		Override:      map[string][]string{"OVER": {"480 Authentication required"}, "XOVER": {"480 Authentication required"}},
+		OverrideFrom:  map[string]int{"OVER": 2, "XOVER": 1},
+		OverrideTimes: map[string]int{"OVER": 1, "XOVER": 1},
+	}
+	upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: "secret"}, Faults: f})
+	c := e.session()
+	c.Cmd("GROUP %s", bigGroup)
+	expectXover(t, c, 1, 3, 1, 2, 3) // the first OVER
+	c.Cmd("GROUP alt.other")
+	expectXover(t, c, 1, 1, 1) // the second OVER gets 480
+	c.Cmd("QUIT")
+	if n := e.Upstream.Count("AUTHINFO"); n < 4 {
+		t.Errorf("upstream got %d AUTHINFO lines, want a second login", n)
+	}
+}

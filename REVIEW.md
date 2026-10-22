@@ -113,6 +113,7 @@ CI, not yet by the systematic review.
 | Damaged databases (#57 follow-up): `open()` ran the sanity checks without a lock and took a sound file another process was writing for damaged, moving it aside with their updates; two processes moving the same file could orphan the new one; a failed new file left a lock on the stack and the old mapping in use (SIGSEGV) | 9 | review #57 | #62 |
 | History (#56, review): 256 buckets per shard made adds and lookups walk chains that grow with the history (10^7 entries: ~1.8 s of shard locks per 10 000-record chunk); now 65536 (format "history 2"). Also: removes of a whole range queued in memory, `.history` not counted in SpoolSize, STAT <id> decided from Xref but ARTICLE <id> from Newsgroups, a lookup fetched by number into a group the client may not read, and two processes resetting the same damaged shard could move the other one's fresh file aside | 2, 9, 11 | review #56 | #63 |
 | An upstream that caps the overview records per OVER (whatever the range) cut groups short: the rest of a range was taken for articles without a record; also for not-cached servers and without LISTGROUP | 7 | e2e tests (nntp-testkit 0.4.0 `MaxOverRange`) | #67 |
+| A 480 from the upstream in the middle of a session (a login that timed out) was not answered with a new login: OVER and XOVER were taken as unsupported, clients got an empty overview without an error; the code for it was commented out already in 1.2rc6 | 7 | e2e tests (nntp-testkit 0.4.0 `OverrideFrom`/`OverrideTimes`) | #68 |
 
 ## Open points
 
