@@ -39,6 +39,7 @@
 #include "Debug.h"
 #include "NewsCacheConfig.h"
 #include "NServer.h"
+#include "History.h"
 #include "Logger.h"
 #include "setugid.h"
 #include "wildmat.h"
@@ -444,6 +445,8 @@ int main(int argc, char **argv)
 	// news server
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
+	if (Cfg.HistoryEnabled)
+		History::setspooldir(Cfg.SpoolDirectory);
 	update();
 	return 0;
 }

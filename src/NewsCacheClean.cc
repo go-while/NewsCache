@@ -48,6 +48,7 @@
 #endif
 
 #include <string>
+#include <map>
 #include <vector>
 #include <algorithm>
 
@@ -56,6 +57,7 @@
 #include "NewsCacheConfig.h"
 #include "Logger.h"
 #include "NServer.h"
+#include "History.h"
 
 using namespace std;
 
@@ -206,6 +208,21 @@ void remove_elements(long max_blocks, struct cache_statistic *pS)
 	}
 }
 
+// For History::prune: whether the group still has a database in the
+// spool (the current directory); arg caches the answers.
+static bool group_has_db(const string & group, void *arg)
+{
+	map < string, bool > &dbs = *(map < string, bool > *)arg;
+	map < string, bool >::iterator i = dbs.find(group);
+	if (i != dbs.end())
+		return i->second;
+	const char *dir = group2dir(group.c_str());
+	struct stat s;
+	bool has = dir && stat((string(dir) + "/.db").c_str(), &s) == 0;
+	dbs[group] = has;
+	return has;
+}
+
 // The group's database in the spool directory cpath, or NULL if there is
 // none. Throws NoSuchGroupError if NVNewsgroup refuses the group.
 static NVNewsgroup *open_spool_group(OverviewFmt *fmt, const char *cpath,
@@ -237,6 +254,8 @@ void clean(const char *cpath)
 	if (strcmp(buf, "./.artSpool") == 0)
 		return;
 	if (strcmp(buf, "./.badArticles") == 0)
+		return;
+	if (strcmp(buf, "./.history/.db") == 0)
 		return;
 	if (stat(buf, &s) == 0) {
 		dbatime = MAX(s.st_atime, s.st_mtime);
@@ -503,6 +522,8 @@ int main(int argc, char **argv)
 	}
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
+	if (Cfg.HistoryEnabled)
+		History::setspooldir(Cfg.SpoolDirectory);
 	clean(".");
 	sort (pvector.begin(), pvector.end(), sort_entries);
 	if (p_flag) {
@@ -515,6 +536,12 @@ int main(int argc, char **argv)
 	}
 	if (!try_flag) {
 		remove_elements(Cfg.SpoolSize * 2, &Stat);
+		// the history's entries of groups whose database is gone
+		map < string, bool > dbs;
+		long n = History::prune(group_has_db, &dbs);
+		if (n > 0)
+			slog.p(Logger::Info) << "history: " << n
+			    << " entries of removed groups dropped\n";
 	}
 	if (stat) {
 		print_statistic(cout, &Stat);

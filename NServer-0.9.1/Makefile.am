@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in
 
 ## Global options
-AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1
+AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/md5lib
 
 ## Libraries
 noinst_LIBRARIES = libnserver.a
@@ -17,6 +17,8 @@ libnserver_a_SOURCES =		ActiveDB.cc\
 	CNewsgroup.h\
 	GroupInfo.cc\
 	GroupInfo.h\
+	History.cc\
+	History.h\
 	Lexer.cc\
 	Lexer.h\
 	MPList.cc\

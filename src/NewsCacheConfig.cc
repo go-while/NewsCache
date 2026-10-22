@@ -67,6 +67,7 @@ void Config::init(void)
 
 	ClientTimeout = 1200;
 	AuthFailureDelay = 15;
+	HistoryEnabled = 0;
 	MaxConnections = 32;
 
 	NiceServer = 0;
@@ -189,6 +190,16 @@ void Config::read(const char *fn)
 						  "AuthFailureDelay expects seconds, 0 to 3600",
 						  ERROR_LOCATION);
 			AuthFailureDelay = (int) v;
+		} else if (tok == "History") {
+			a1 = lex.getToken();
+			if (a1 == "on" || a1 == "yes")
+				HistoryEnabled = 1;
+			else if (a1 == "off" || a1 == "no")
+				HistoryEnabled = 0;
+			else
+				throw SyntaxError(lex,
+						  "History expects on or off",
+						  ERROR_LOCATION);
 		} else if (tok == "Timeouts") {
 			a1 = lex.getToken();
 			a2 = lex.getToken();
@@ -246,6 +257,7 @@ void Config::printParameters (ostream *pOut)
 	}
 	*pOut << "ClientTimeout " << ClientTimeout << endl;
 	*pOut << "AuthFailureDelay " << AuthFailureDelay << endl;
+	*pOut << "History " << (HistoryEnabled ? "on" : "off") << endl;
 	*pOut << "MaxConnections " << MaxConnections << endl;
 	*pOut << "Timeouts " << ttl_list << " " << ttl_desc << endl;
 	*pOut << "NiceServer " << NiceServer << endl;

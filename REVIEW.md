@@ -128,9 +128,6 @@ that it stays as it is.
     that it is only logged with `--enable-debug` no longer holds.
   Needs a test with a damaged `.db` (and a damaged `.active64`) for
   sessions, newscacheclean and updatenews.
-- **`ARTICLE <message-id>` always goes upstream**, because the spool has no
-  message-ID index (area 2). This is by design so far; see
-  `TestArticleByMessageIDGoesUpstream`.
 - **CodeQL**: 12 alerts were dismissed as false positives or test code on
   2026-10-19. Recheck them when their code is reviewed.
 
@@ -145,10 +142,13 @@ the review is done.
   NEWGROUPS, OVER).
 - Negative caching (remember articles the upstream doesn't have), and
   caching of headers.
-- A message-ID database, so crossposted articles are fetched once and
-  `ARTICLE <message-id>` can be served from the spool.
 - Support for upstream servers without an overview database
   (`OVER`/`XOVER`), a known restriction in README.md.
+
+Done before 1.3.22: the message-ID database, so crossposted articles are
+fetched once and `ARTICLE <message-id>` is served from the spool (the
+spool's history, `.history`; up to 1.3.21 every message-ID request went
+upstream "by design", see `tests/e2e/history_test.go`).
 
 Dropped from the old `TODO` as done or obsolete: the socket++ and PAM build
 notes for 1.2; the 8-character user name limit (user names and passwords now

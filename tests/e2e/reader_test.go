@@ -250,27 +250,6 @@ func TestArticleCached(t *testing.T) {
 	}
 }
 
-// TestArticleByMessageIDGoesUpstream documents a design limitation: NewsCache
-// has no message-ID index for its spool, so ARTICLE <id> is always forwarded
-// to the upstream server, even for an article already in the spool. If this
-// test starts failing, the behaviour changed: update the test and the docs.
-func TestArticleByMessageIDGoesUpstream(t *testing.T) {
-	e := newEnv(t)
-	ids := e.addArticles("test.alpha", 1)
-	c := e.session()
-	c.Cmd("GROUP test.alpha")
-	c.Cmd("ARTICLE 1")
-	c.ReadDotLines()
-	before := e.Upstream.Count("ARTICLE")
-	if code, line := c.Cmd("ARTICLE %s", ids[0]); code != 220 {
-		t.Fatalf("ARTICLE <id>: %q", line)
-	}
-	c.ReadDotLines()
-	if n := e.Upstream.Count("ARTICLE"); n != before+1 {
-		t.Errorf("upstream ARTICLE count %d -> %d, want +1 (forwarded)", before, n)
-	}
-}
-
 // TestOfflineServesCache: with the upstream gone, cached articles are still
 // served.
 func TestOfflineServesCache(t *testing.T) {
