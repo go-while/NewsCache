@@ -100,6 +100,7 @@ CI, not yet by the systematic review.
 | `ListenTo DEFAULT` listened on IPv4 only (the first wildcard address, `0.0.0.0` on Linux) | 5 | Fedora packaging | #47 |
 | The pid file was never removed when the daemon stopped | 5 | Fedora packaging | #48 |
 | "ListIter in OverviewFmt.h" (old `TODO`): `OverviewFmt::convert` kept an upstream record's tab positions in an `int[256]`, so a record with more fields overflowed the stack; `:bytes`/`:lines` (RFC 3977) matched no field, so Bytes and Lines were empty; a stripped field name kept its `:` | 7, 8 | review (old TODO) | #49 |
+| "Groups without reading permission" (old `TODO`): a refused `LISTGROUP group` still made it the current group, so XOVER/ARTICLE n read it; ARTICLE/HEAD/BODY/STAT `<message-id>` ignored the Read list; 480 also where no login could help (now 502); the PostTo check mis-split Newsgroups (3+ groups, spaces) | 2, 4 | review (old TODO) | #50 |
 
 ## Open points
 
@@ -111,8 +112,6 @@ that it stays as it is.
   (`AC_TRY_COMPILE`, `AC_HEADER_STDC`, `AM_CONFIG_HEADER`, ...), `INCLUDES`
   instead of `AM_CPPFLAGS`, the two-argument `AM_INIT_AUTOMAKE`. Renaming
   `configure.in` also changes the release steps in `.claude/CLAUDE.md`.
-- **An unclear note from the old `TODO`**, to check while reviewing:
-  "Groups without reading permission" (area 4).
 - **The spool index has a slot for every article number in a group's
   range** (area 9): 8 bytes per number from first to last, so a binary
   group with long retention needs gigabytes unless `LimitGroupSize` is set.

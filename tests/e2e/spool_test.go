@@ -28,6 +28,7 @@ func groupArticle(group string, n int64, body []string) fakeserver.Article {
 		Headers: []string{
 			"From: poster@upstream.test",
 			fmt.Sprintf("Subject: article %d in %s", n, group),
+			"Newsgroups: " + group,
 			fmt.Sprintf("Xref: upstream.test %s:%d", group, n),
 		},
 		Body: body,

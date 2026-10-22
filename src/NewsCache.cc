@@ -113,6 +113,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include <algorithm>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "NServer.h"
 #include "Newsgroup.h"
@@ -918,6 +919,63 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	return gi;
 }
 
+/*
+ * Answers a command for a group or an article the client may not read:
+ * 480 while a login could still give it the right (RFC 4643), 502 once it
+ * has logged in or when its entry has no Authentication.
+ */
+static void access_denied(ClientData * clt)
+{
+	if (clt->auth_state != AUTH_OK)
+		(*clt->co) << "480 authentication required\r\n";
+	else
+		(*clt->co) << "502 access denied\r\n";
+}
+
+/*
+ * The group names in a Newsgroups header: separated by commas, with
+ * optional white space around them.
+ */
+static std::vector<std::string> newsgroups_list(const std::string & ngs)
+{
+	std::vector<std::string> v;
+	std::string::size_type i = 0, n = ngs.size();
+	while (i < n) {
+		std::string::size_type e = ngs.find(',', i);
+		if (e == std::string::npos)
+			e = n;
+		std::string::size_type b = i, l = e;
+		while (b < l && (ngs[b] == ' ' || ngs[b] == '\t'))
+			b++;
+		while (l > b && (ngs[l - 1] == ' ' || ngs[l - 1] == '\t'))
+			l--;
+		if (l > b)
+			v.push_back(ngs.substr(b, l - b));
+		i = e + 1;
+	}
+	return v;
+}
+
+/*
+ * Whether the client may read an article fetched by message-ID: at least
+ * one of its groups must match the client's Read list, as for GROUP.
+ */
+static int may_read_article(ClientData * clt, const Article & a)
+{
+	std::string ngs;
+	try {
+		ngs = a.getfield("Newsgroups:");
+	}
+	catch(const NoSuchFieldError & nsfe) {
+		return 0;
+	}
+	std::vector<std::string> groups = newsgroups_list(ngs);
+	for (std::vector<std::string>::size_type i = 0; i < groups.size(); i++)
+		if (clt->access_entry->read.matches(groups[i].c_str()) > 0)
+			return 1;
+	return 0;
+}
+
 void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 {
 	string aid = a->getfield("Message-ID:");
@@ -1071,6 +1129,10 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 		try {
 			Article a;
 			clt->srvr->article(argv[1], &a);
+			if (!may_read_article(clt, a)) {
+				access_denied(clt);
+				return -1;
+			}
 			nsh_particle(clt, argv[0], 0, &a);
 		}
 		catch(const NoSuchArticleError &nsae) {
@@ -1196,6 +1258,10 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			e.print();
 			return -1;
 		}
+		if (!may_read_article(clt, a)) {
+			access_denied(clt);
+			return -1;
+		}
 		string mid = a.getfield("Message-ID:");
 		(*clt->co) << "223 0 " << mid << " status\r\n";
 		return 0;
@@ -1248,7 +1314,7 @@ int ns_group(ClientData * clt, int argc, char *argv[])
 	}
 
 	if (clt->access_entry->read.matches(argv[1]) <= 0) {
-		(*clt->co) << "480 authentication required\r\n";
+		access_denied(clt);
 		return 0;
 	}
 
@@ -1543,13 +1609,16 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	if (argc == 2) {
+		// Check before selecting: a refused LISTGROUP must not make
+		// the group the current one (XOVER, ARTICLE n, ... read the
+		// current group without checking again).
+		if (clt->access_entry->read.matches(argv[1]) <= 0) {
+			access_denied(clt);
+			return 0;
+		}
 		if (selectgroup(clt, argv[1]) == NULL) {
 			(*clt->co) << "411 no such news group\r\n";
 			return -1;
-		}
-		if (clt->access_entry->read.matches(argv[1]) <= 0) {
-			(*clt->co) << "480 authentication required\r\n";
-			return 0;
 		}
 	}
 
@@ -1732,20 +1801,27 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		art.read(*clt->ci);
 
 		// check whether client is authorized to post this article.
-		string newsgroups = art.getfield("newsgroups:");
-		string::size_type i1 = 0, i2 = newsgroups.find(",");
-		for (;;) {
-			string group = newsgroups.substr(i1, i2);
+		// (substr took the second argument as an end position,
+		// so a name was checked with the following ones appended;
+		// spaces after the commas were kept)
+		std::vector<std::string> groups =
+		    newsgroups_list(art.getfield("newsgroups:"));
+		if (groups.empty()) {
+			(*clt->co) << "441 no newsgroups\r\n";
+			return -1;
+		}
+		for (std::vector<std::string>::size_type i = 0;
+		     i < groups.size(); i++) {
 			if (clt->access_entry->postTo.
-			    matches(group.c_str()) <= 0) {
-				(*clt->
-				 co) << "480 authentication required\r\n";
+			    matches(groups[i].c_str()) <= 0) {
+				if (clt->auth_state != AUTH_OK)
+					(*clt->co) <<
+					    "480 authentication required\r\n";
+				else
+					(*clt->co) << "441 posting to " <<
+					    groups[i] << " not allowed\r\n";
 				return 0;
 			}
-			if (i2 == string::npos)
-				break;
-			i1 = i2 + 1;
-			i2 = newsgroups.find(",", i1);
 		}
 	}
 	catch(const InvalidArticleError & iae) {
