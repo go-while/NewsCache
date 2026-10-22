@@ -91,6 +91,7 @@ CI, not yet by the systematic review.
 | `XHDR` copied the header name into a 512-byte stack buffer; a command line has up to 1024 characters | 2, 10 | review | #39 |
 | No `XPAT` (old `TODO`): added, with the headers XHDR sees | 2 | old `TODO` | #39 |
 | An auth-file line with only `user:hash` was refused; at least `user:hash:list` was needed | 3 | review | #40 |
+| The auth failure delay was fixed at 15 seconds; now `AuthFailureDelay` | 3 | review | #41 |
 
 ## Open points
 
@@ -123,7 +124,6 @@ that it stays as it is.
 - **PAM and `Authentication unix` can't check local passwords** (area 3):
   sessions run as `news`, pam_unix's `unix_chkpwd` only checks the caller's
   own password, and `getspnam` needs root.
-- **The auth failure delay is a fixed 15 seconds**, not configurable (area 3).
 - **The spool index has a slot for every article number in a group's
   range** (area 9): 8 bytes per number from first to last, so a binary
   group with long retention needs gigabytes unless `LimitGroupSize` is set.

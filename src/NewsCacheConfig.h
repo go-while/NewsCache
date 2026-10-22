@@ -45,6 +45,7 @@ class Config {
 	char PidFile[MAXPATHLEN];
 
 	int ClientTimeout;
+	int AuthFailureDelay;	// seconds, times the number of failed logins
 	int MaxConnections;
 	time_t ttl_list;
 	time_t ttl_desc;

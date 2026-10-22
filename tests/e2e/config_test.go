@@ -233,3 +233,41 @@ func TestAccessPrefixNeedsAddress(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthFailureDelayConfig: AuthFailureDelay takes 0 to 3600 seconds and
+// newscache -p prints it (15 without the option); anything else is a config
+// error.
+func TestAuthFailureDelayConfig(t *testing.T) {
+	for _, c := range []struct {
+		extra, want string
+	}{
+		{"", "AuthFailureDelay 15"},
+		{"AuthFailureDelay 0", "AuthFailureDelay 0"},
+		{"AuthFailureDelay 3600", "AuthFailureDelay 3600"},
+		{"AuthFailureDelay -1", ""},
+		{"AuthFailureDelay 3601", ""},
+		{"AuthFailureDelay 5s", ""},
+	} {
+		t.Run(c.extra, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = c.extra
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("newscache -p accepted %q:\n%s", c.extra, out)
+				}
+				if !strings.Contains(string(out), "AuthFailureDelay expects seconds") {
+					t.Errorf("%q: error %q", c.extra, strings.TrimSpace(string(out)))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains("\n"+string(out), "\n"+c.want+"\n") {
+				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
+			}
+		})
+	}
+}

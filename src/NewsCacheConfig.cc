@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -64,6 +65,7 @@ void Config::init(void)
 	PrefetchFile[0] = PidFile[0] = '\0';
 
 	ClientTimeout = 1200;
+	AuthFailureDelay = 15;
 	MaxConnections = 32;
 
 	NiceServer = 0;
@@ -165,6 +167,19 @@ void Config::read(const char *fn)
 			srvrs.read(lex);
 		} else if (tok == "AccessList") {
 			clnts.read(lex);
+		} else if (tok == "AuthFailureDelay") {
+			char *e;
+			long v;
+
+			a1 = lex.getToken();
+			errno = 0;
+			v = strtol(a1.c_str(), &e, 10);
+			if (!isdigit((unsigned char) a1[0]) || *e || errno
+			    || v > 3600)
+				throw SyntaxError(lex,
+						  "AuthFailureDelay expects seconds, 0 to 3600",
+						  ERROR_LOCATION);
+			AuthFailureDelay = (int) v;
 		} else if (tok == "Timeouts") {
 			a1 = lex.getToken();
 			a2 = lex.getToken();
@@ -221,6 +236,7 @@ void Config::printParameters (ostream *pOut)
 		*pOut << "PidFile " << PidFile << endl;
 	}
 	*pOut << "ClientTimeout " << ClientTimeout << endl;
+	*pOut << "AuthFailureDelay " << AuthFailureDelay << endl;
 	*pOut << "MaxConnections " << MaxConnections << endl;
 	*pOut << "Timeouts " << ttl_list << " " << ttl_desc << endl;
 	*pOut << "NiceServer " << NiceServer << endl;
