@@ -11,6 +11,7 @@
 #include"Logger.h"
 #include"Error.h"
 #include"NVNewsgroup.h"
+#include"History.h"
 
 using namespace std;
 
@@ -165,8 +166,26 @@ void NVNewsgroup::setknownlast(artnum_t l)
 	h->glast = l;
 }
 
+// The Message-ID of the record data (type byte first), "" if none.
+std::string NVNewsgroup::recordmsgid(const char *data, size_t szdata)
+{
+	try {
+		if (*data == article) {
+			Article art(0, data + sizeof(char),
+				    szdata - sizeof(char) - 1);
+			return art.getfield("Message-ID:");
+		}
+		if (*data == bigarticle || *data == overview)
+			return _OverviewFormat->getfield(data + sizeof(char),
+							 "Message-ID:", 0);
+	}
+	catch(...) {
+	}
+	return "";
+}
+
 // Frees the records of [f,l] in the index, and the .art files of big
-// articles. Needs the exclusive lock.
+// articles; their entries go from the history. Needs the exclusive lock.
 void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 {
 	char fn[MAXPATHLEN];
@@ -178,9 +197,17 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 		f = arrfst;
 	if (l > arrlst)
 		l = arrlst;
+	HistoryBatch hb;
 	for (i = f; i <= l; i++) {
 		nvoff_t *slot = &arrtab[i - arrfst];
 		if (*slot) {
+			if (History::enabled()) {
+				std::string id = recordmsgid(mem_p + *slot +
+							     sizeof(unsigned long),
+							     *(unsigned long *) (mem_p + *slot));
+				if (!id.empty())
+					History::remove(id.c_str(), name());
+			}
 			if (*(mem_p + *slot + sizeof(long)) == bigarticle) {
 				artfile(fn, sizeof(fn), i);
 				unlink(fn);
@@ -383,6 +410,7 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 	size_t szdata;
 	unsigned long f, l;
 	Article *art = NULL;
+	bool from_spool = false;
 
 	NVArray::lock(NVcontainer::ShrdLock);
 	NVArray::getsize(&f, &l);
@@ -390,6 +418,7 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 		NVArray::sget(nbr, &data, &szdata);
 		if (data) {
 			if (*data == article) {
+				from_spool = true;
 				// szdata ... Size of article including type and the trailing \0
 				art =
 				    new Article(nbr, data + sizeof(char),
@@ -406,6 +435,7 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				} else {
 					art = new Article(nbr);
 					art->read(fs);
+					from_spool = true;
 				}
 				fs.close();
 			} else {
@@ -420,6 +450,15 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 		}
 	}
 	NVArray::lock(NVcontainer::UnLock);
+	if (art && from_spool && History::enabled()) {
+		// a spool of an older version has no history entries
+		try {
+			History::note(art->getfield("Message-ID:").c_str(),
+				      name(), nbr);
+		}
+		catch(...) {
+		}
+	}
 	return art;
 }
 
@@ -494,6 +533,14 @@ void NVNewsgroup::setarticle(Article * art)
 			     p(Logger::
 			       Debug) <<
 			     "NVNewsgroup::setarticle: Tried to store an existing article\n");
+		}
+		if (History::enabled()) {
+			try {
+				History::add(art->getfield("Message-ID:").c_str(),
+					     name(), nbr);
+			}
+			catch(...) {
+			}
 		}
 	}			/* if(f<=nbr<=l) */
 	lock(NVcontainer::UnLock);
@@ -608,6 +655,13 @@ void NVNewsgroup::setover(const string & over)
 			memcpy(data + sizeof(char), over.c_str(),
 			       over.length() + 1);
 			*data = overview;
+			if (History::enabled()) {
+				std::string id =
+				    _OverviewFormat->getfield(over.c_str(),
+							      "Message-ID:", 0);
+				if (!id.empty())
+					History::add(id.c_str(), name(), nbr);
+			}
 		}
 	}
 	NVArray::lock(NVcontainer::UnLock);
@@ -620,6 +674,7 @@ void NVNewsgroup::readoverdb(istream & is)
 
 	string line1, line2;
 	time_t now;
+	HistoryBatch hb;	// one history lock per shard for the reply
 
 	lock(NVcontainer::ExclLock);
 	for (;;) {

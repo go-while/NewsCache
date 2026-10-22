@@ -116,6 +116,8 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include <vector>
 
 #include "NServer.h"
+#include "NVNewsgroup.h"
+#include "History.h"
 #include "Newsgroup.h"
 
 #include "util.h"
@@ -981,14 +983,155 @@ static int may_read_article(ClientData * clt, const Article & a)
 }
 
 /*
- * Fetches the article with message-ID id for XHDR, XPAT and HDR, and
- * checks that the client may read it. Returns 0, or -1 after an error
- * reply (430, the news server's error, 503, or 480/502).
+ * Opens group for spool_locate and spool_article: the client's current
+ * group if it is that one (*own = false), else a new instance (*own =
+ * true, to be freed with freegroup).
+ */
+static Newsgroup *open_group(ClientData * clt, const string & group,
+			     bool * own)
+{
+	*own = false;
+	if (clt->grp && group == clt->groupname)
+		return clt->grp;
+	Newsgroup *g = clt->srvr->getgroup(group.c_str());
+	*own = true;
+	return g;
+}
+
+/*
+ * The spool's record of the article with message-ID id, found with the
+ * history: the group and number of a location whose record in the spool
+ * has this Message-ID (the client's current group first), and that
+ * overview record. Locations whose record is gone or holds another
+ * article are dropped from the history. Returns 0 if the spool has none.
+ */
+static int spool_locate(ClientData * clt, const char *id, string & group,
+			artnum_t & nbr, string & over)
+{
+	vector < History::Location > locs;
+	if (History::lookup(id, locs) <= 0)
+		return 0;
+	for (size_t i = 1; i < locs.size(); i++) {
+		if (locs[i].group == clt->groupname) {
+			std::swap(locs[0], locs[i]);
+			break;
+		}
+	}
+	OverviewFmt *of = clt->srvr->overviewfmt();
+	for (size_t i = 0; i < locs.size(); i++) {
+		Newsgroup *g = NULL;
+		bool own = false;
+		string o;
+		try {
+			g = open_group(clt, locs[i].group, &own);
+			// the spool's record only: no synchronization
+			NVNewsgroup *nvg = dynamic_cast < NVNewsgroup * >(g);
+			const char *p;
+			if (nvg && (p = nvg->NVNewsgroup::getover(locs[i].nbr)))
+				o = p;
+		}
+		catch(...) {
+			o = "";
+		}
+		if (own && g)
+			clt->srvr->freegroup(g);
+		if (!o.empty() && of->getfield(o.c_str(), "Message-ID:", 0) == id) {
+			group = locs[i].group;
+			nbr = locs[i].nbr;
+			over = o;
+			return 1;
+		}
+		History::remove(id, locs[i].group.c_str());
+	}
+	return 0;
+}
+
+/*
+ * The article with message-ID id from the spool. If the spool has only
+ * its overview record, it is fetched by number from the news server and
+ * stored, so an article crossposted to several groups is fetched once.
+ * Returns 0 if the spool doesn't have it (or the fetch failed).
+ */
+static int spool_article(ClientData * clt, const char *id, Article & a)
+{
+	string group, over;
+	artnum_t nbr;
+	if (!spool_locate(clt, id, group, nbr, over))
+		return 0;
+	Newsgroup *g = NULL;
+	bool own = false;
+	Article *p = NULL;
+	int ok = 0;
+	try {
+		g = open_group(clt, group, &own);
+		NVNewsgroup *nvg = dynamic_cast < NVNewsgroup * >(g);
+		if (nvg)
+			p = nvg->NVNewsgroup::getarticle(nbr);
+		if (p) {
+			ok = p->getfield("Message-ID:") == id;
+			if (ok)	// (no operator=: _ctext points into _text)
+				a.settext(p->GetText());
+		}
+	}
+	catch(...) {
+		ok = 0;
+	}
+	if (p)
+		g->freearticle(p);
+	if (own && g)
+		clt->srvr->freegroup(g);
+	return ok;
+}
+
+/*
+ * Whether the groups in the Xref field of an overview record allow the
+ * client to read the article (like may_read_article with Newsgroups):
+ * 1 or 0, or -1 if the record has no Xref.
+ */
+static int may_read_xref(ClientData * clt, const string & over)
+{
+	string xref;
+	try {
+		xref = clt->srvr->overviewfmt()->getfield(over.c_str(), "Xref:", 0);
+	}
+	catch(...) {
+		return -1;
+	}
+	// "host group:number group:number ..."
+	std::string::size_type i = xref.find(' ');
+	if (i == std::string::npos)
+		return -1;
+	int any = 0;
+	while (i < xref.size()) {
+		while (i < xref.size() && xref[i] == ' ')
+			i++;
+		std::string::size_type e = xref.find(' ', i);
+		if (e == std::string::npos)
+			e = xref.size();
+		std::string tok = xref.substr(i, e - i);
+		std::string::size_type c = tok.rfind(':');
+		if (c != std::string::npos && c > 0) {
+			any = 1;
+			if (clt->access_entry->read.
+			    matches(tok.substr(0, c).c_str()) > 0)
+				return 1;
+		}
+		i = e;
+	}
+	return any ? 0 : -1;
+}
+
+/*
+ * Fetches the article with message-ID id, from the spool if it is there
+ * (see spool_article), else from the news server, and checks that the
+ * client may read it. Returns 0, or -1 after an error reply (430, the
+ * news server's error, 503, or 480/502).
  */
 static int fetch_readable(ClientData * clt, const char *id, Article & a)
 {
 	try {
-		clt->srvr->article(id, &a);
+		if (!spool_article(clt, id, a))
+			clt->srvr->article(id, &a);
 	}
 	catch(const NoSuchArticleError & nsae) {
 		(*clt->co) << "430 no such article id found\r\n";
@@ -1160,34 +1303,12 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 	}
 	// retrieve article|body|head by id?
 	if (argv[1][0] == '<') {
-		try {
-			Article a;
-			clt->srvr->article(argv[1], &a);
-			if (!may_read_article(clt, a)) {
-				access_denied(clt);
-				return -1;
-			}
-			nsh_particle(clt, argv[0], 0, &a);
-		}
-		catch(const NoSuchArticleError &nsae) {
-			(*clt->co) << "430 no such article id found\r\n";
+		// from the spool if it has the article (the history), else
+		// from the news server
+		Article a;
+		if (fetch_readable(clt, argv[1], a) < 0)
 			return -1;
-		}
-		catch(const ResponseError &e) {
-			// error
-			(*clt->co) << e._got << "\r\n";
-			return -1;
-		}
-		catch(const Error &e) {
-			// error
-			(*clt->co) << "520 ???\r\n";
-			slog.
-			    p(Logger::
-			      Error) <<
-			    "Internal Error? Please report this at https://github.com/go-while/NewsCache/issues\n";
-			e.print();
-			return -1;
-		}
+		nsh_particle(clt, argv[0], 0, &a);
 		clt->stat_artingrp++;
 		clt->stat_articles++;
 		return 0;
@@ -1267,35 +1388,24 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 	}
 	// stat by id?
 	if (argv[1][0] == '<') {
-		//(*clt->co) << "223 0 " << argv[1] << " status\r\n";
+		// The spool's overview record is enough when its Xref tells
+		// whether the client may read the article.
+		string group, over;
+		artnum_t nbr;
+		if (spool_locate(clt, argv[1], group, nbr, over)) {
+			int r = may_read_xref(clt, over);
+			if (r > 0) {
+				(*clt->co) << "223 0 " << argv[1] << " status\r\n";
+				return 0;
+			}
+			if (r == 0) {
+				access_denied(clt);
+				return -1;
+			}
+		}
 		Article a;
-		try {
-			clt->srvr->article(argv[1], &a);
-			//nsh_particle(clt, argv[0], 0, &a);
-		}
-		catch(const NoSuchArticleError &nsae) {
-			(*clt->co) << "430 no such article id found\r\n";
+		if (fetch_readable(clt, argv[1], a) < 0)
 			return -1;
-		}
-		catch(const ResponseError &e) {
-			// error
-			(*clt->co) << e._got << "\r\n";
-			return -1;
-		}
-		catch(const Error &e) {
-			// error
-			(*clt->co) << "520 ???\r\n";
-			slog.
-			    p(Logger::
-			      Error) <<
-			    "Internal Error? Please report this at https://github.com/go-while/NewsCache/issues\n";
-			e.print();
-			return -1;
-		}
-		if (!may_read_article(clt, a)) {
-			access_denied(clt);
-			return -1;
-		}
 		string mid = a.getfield("Message-ID:");
 		(*clt->co) << "223 0 " << mid << " status\r\n";
 		return 0;
@@ -2617,6 +2727,8 @@ void nnrpd(int fd)
 	// authentication!
 	set_client_command_table (clt);
 
+	// (after setugid: .history belongs to the news user)
+	History::setspooldir(Cfg.SpoolDirectory);
 	try {
 		clt.srvr = new CServer(Cfg.SpoolDirectory, &(Cfg.srvrs));
 		clt.srvr->setttl(Cfg.ttl_list, Cfg.ttl_desc);

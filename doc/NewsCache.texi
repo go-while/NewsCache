@@ -550,6 +550,43 @@ The group database (@file{.db}) never shrinks. A spool written by an
 older version may hold a large one; remove the group's directory to get
 the space back, NewsCache fetches what clients ask for again.
 
+@anchor{Articles by Message-ID}
+@section Articles by Message-ID
+
+@cindex message-ID
+@cindex history
+NewsCache keeps a history of the articles in its spool: for each
+Message-ID, the groups that hold the article and its number there. With
+it, @code{ARTICLE}, @code{HEAD}, @code{BODY} and @code{STAT} with a
+message-ID, and the message-ID forms of @code{XHDR}, @code{XPAT} and
+@code{HDR}, serve an article from the spool. If the spool has only the
+article's overview record, the article is fetched by number and stored,
+so an article crossposted to several groups is fetched only once. In
+offline mode, or with the news server down, articles in the spool can be
+read by message-ID too. The @code{Read} list of the client applies as
+for articles from the news server. Up to version 1.3.21 every
+message-ID request went to the news server.
+
+The history is filled when overview records and articles are stored,
+and when an article is read from the spool (so a spool of an older
+version, or one whose history was removed, gets its entries as clients
+read it); its entries go when NewsCache drops them from the spool (expired on
+the news server, or outside a group's index). @command{newscacheclean}
+removes the entries of groups whose database it removed. Every lookup
+checks that the record at that number still has the Message-ID, and
+drops the entry if not; the history can't serve a wrong article.
+
+It lives in @file{.history} in the spool directory, in 16 files
+@file{0} to @file{f}. The key is the MD5 hash of the Message-ID in hex:
+its first digit picks the file, the next two one of the file's 256
+buckets (as in go-pugleaf's history; INN's history works similarly). A
+record holds the Message-ID and its locations,
+@samp{group:number,group:number}. Each file is a database like a group's
+@file{.db}, with its own lock, and carries a record that marks the
+format. A damaged file, or one of another format, is renamed to
+@file{@var{n}.bad} and started anew. The history can be removed at any
+time while NewsCache is stopped; it is filled again as clients read.
+
 @section Reducing the Load of a News Server
 
 @cindex load reduction
