@@ -93,6 +93,24 @@ finding. GitHub deletes the branch when the pull request is merged. Don't
 collect several unrelated fixes on one branch; each one should be reviewable,
 testable and revertable on its own.
 
+## Wiki
+
+The GitHub wiki (https://github.com/go-while/NewsCache/wiki) is its own git
+repository, `go-while/NewsCache.wiki.git`. A clone lives next to this one, at
+`../NewsCache.wiki` (`/tank0/efs/GO/src/github.com/go-while/NewsCache.wiki`);
+clone it there if it's missing. One Markdown file per page (`Home.md`,
+`Configuration.md`, ...; dashes become spaces in titles), plus `_Sidebar.md`
+and `_Footer.md`.
+
+- The wiki has no pull requests or CI: commit and `git push` to its default
+  branch directly. Pull first; pages can also be edited on github.com.
+- The pages describe `main`. When a merged change alters behaviour, options,
+  commands or the build, update the affected pages afterwards, and add new
+  pages to `_Sidebar.md` and the table on `Home.md`.
+- Write from the code and the docs in this repo (README.md, FEDORA.md,
+  `doc/NewsCache.texi`, the man pages, `etc/newscache.conf-dist`, NEWS), not
+  from memory. Link to files as `https://github.com/go-while/NewsCache/blob/main/<path>`.
+
 ## Syncing new SVN commits
 
 One-time setup in a fresh clone:
