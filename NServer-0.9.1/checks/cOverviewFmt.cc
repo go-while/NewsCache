@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 #include <string.h>
@@ -93,6 +94,66 @@ int checkConvertArtOver(const char *artfn)
 	return 0;
 }
 
+// Converts rec with an upstream overview format given as its LIST
+// OVERVIEW.FMT lines and compares the result with want.
+static int checkConvert(const char *what, const char *fmt, const string & rec,
+			const string & want)
+{
+	istringstream is(fmt);
+	OverviewFmt o;
+	string out;
+
+	o.readxoin(is);
+	if (!o.dotrans) {
+		cout << what << ": format not converted\n";
+		return -1;
+	}
+	o.convert(rec, out);
+	if (out != want) {
+		cout << what << ":\n Got: " << out << "\n SBe: " << want << endl;
+		return -1;
+	}
+	return 0;
+}
+
+// An upstream record with more fields than the format: convert kept the
+// tab positions in an int[256] and wrote past it. (Servers replace tabs
+// in header values with spaces, so only a broken or hostile upstream
+// sends that.)
+int checkConvertManyFields()
+{
+	string rec = "1\tsubj\tfrom\tdate\t<id@x>\tref\t100\t5\tXref: h g:1";
+	for (int i = 0; i < 3000; i++)
+		rec += "\tx";
+	return checkConvert("checkConvertManyFields",
+			    "Subject:\nFrom:\nDate:\nMessage-ID:\nReferences:\n"
+			    "Bytes:\nLines:\nX-Extra:\nXref:full\n.\n", rec,
+			    "1\tsubj\tfrom\tdate\t<id@x>\tref\t100\t5\tx");
+}
+
+// RFC 3977's names for the size fields, ":bytes" and ":lines", matched
+// none of ours, so the Bytes and Lines fields of XOVER were empty.
+int checkConvertMetadataNames()
+{
+	return checkConvert("checkConvertMetadataNames",
+			    "Subject:\nFrom:\nDate:\nMessage-ID:\nReferences:\n"
+			    ":bytes\n:lines\nX-Extra:\nXref:full\n.\n",
+			    "3\tsubj\tfrom\tdate\t<id@x>\tref\t100\t5\textra\tXref: h g:3",
+			    "3\tsubj\tfrom\tdate\t<id@x>\tref\t100\t5\tXref: h g:3");
+}
+
+// A field the upstream sends with its name ("Subject:full") that we keep
+// without: the name and the blanks after it are stripped. The ':' was
+// kept ("\t: hello").
+int checkConvertStripName()
+{
+	return checkConvert("checkConvertStripName",
+			    "Subject:full\nFrom:\nDate:\nMessage-ID:\nReferences:\n"
+			    "Bytes:\nLines:\nXref:full\n.\n",
+			    "2\tSubject: hello\tfrom\tdate\t<id@x>\t\t10\t1\tXref: h g:2",
+			    "2\thello\tfrom\tdate\t<id@x>\t\t10\t1\tXref: h g:2");
+}
+
 int main(int argc, char *argv[])
 {
 	char **al = articleList;
@@ -121,6 +182,18 @@ int main(int argc, char *argv[])
 	} else {
 		cout << "checkConvertOverOver succeeded\n";
 	}
+	if (checkConvertManyFields() < 0)
+		ef++;
+	else
+		cout << "checkConvertManyFields succeeded\n";
+	if (checkConvertMetadataNames() < 0)
+		ef++;
+	else
+		cout << "checkConvertMetadataNames succeeded\n";
+	if (checkConvertStripName() < 0)
+		ef++;
+	else
+		cout << "checkConvertStripName succeeded\n";
 
 	if (ef == 0) {
 		cout << "cOverviewFmt: all tests succeeded\n";

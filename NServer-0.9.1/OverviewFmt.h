@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include "config.h"
 #include "NSError.h"
@@ -135,22 +136,23 @@ class OverviewFmt {
 	 * \param recout The converted overview record.
 	 */
 	void convert(const std::string & recin, std::string & recout) const {
-		int tabs[256];
-		int i, j, k, rinsz;
+		// tabs[n] is the position of the n-th tab, the last entry the
+		// end of the record. The record comes from the upstream server
+		// and may have any number of fields (this was an int[256]).
+		std::vector<std::string::size_type> tabs;
+		std::string::size_type k;
+		int i, j, rinsz;
 		if (!dotrans) {
 			recout = recin;
 			return;
 		}
 
-		i = 0;
-		rinsz = 0;
-		j = recin.length();
-		do {
-			if (recin[i] == '\t')
-				tabs[rinsz++] = i;
-			i++;
-		} while (i < j);
-		tabs[rinsz] = i;
+		for (k = 0; k < recin.length(); k++) {
+			if (recin[k] == '\t')
+				tabs.push_back(k);
+		}
+		rinsz = tabs.size();
+		tabs.push_back(recin.length());
 
 		recout = recin.substr(0, tabs[0]);
 		for (i = 0; i < _osz; i++) {
@@ -170,10 +172,10 @@ class OverviewFmt {
 				} else if (_trans[i].full > _over[i].full) {
 					// Strip fieldname from field
 					k = tabs[j];
-					while (recin[k] != ':'
-					       && k < tabs[j + 1])
+					while (k < tabs[j + 1]
+					       && recin[k] != ':')
 						k++;
-					if (recin[k] != ':') {
+					if (k >= tabs[j + 1]) {
 						// Cannot find fieldname -- leave it as it is
 						recout +=
 						    recin.substr(tabs[j],
@@ -181,8 +183,12 @@ class OverviewFmt {
 								      1] -
 								 tabs[j]);
 					} else {
-						while (isspace(recin[k])
-						       && k < tabs[j + 1])
+						// skip the ':' and the blanks
+						// after it (the ':' was kept)
+						k++;
+						while (k < tabs[j + 1]
+						       && isspace((unsigned char)
+								  recin[k]))
 							k++;
 						recout += '\t';
 						recout +=

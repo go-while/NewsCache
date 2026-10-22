@@ -146,6 +146,17 @@ Bug fixes:
   package, FEDORA.md) and the container no longer set a PidFile, since the
   service manager knows the pid; without PidFile no file is written and
   nothing is logged (it used to warn "cannot open pid file").
+* Overview records from the upstream server were converted with the tab
+  positions in a fixed array of 256, so a record with more fields than
+  that overflowed the stack. Servers replace tabs in header values with
+  spaces, so only a broken or hostile upstream sends such a record. The
+  conversion only runs when the upstream's overview format differs from
+  NewsCache's.
+* The size fields that RFC 3977 servers list as ":bytes" and ":lines" in
+  LIST OVERVIEW.FMT matched none of NewsCache's fields ("Bytes:",
+  "Lines:"), so with such a server the Bytes and Lines fields of XOVER
+  were empty. And a field the upstream sends with its name (e.g.
+  "Subject:full") lost the name but kept the colon (": text").
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead

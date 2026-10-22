@@ -15,6 +15,12 @@ void OverviewFmt::readxoin(istream & is)
 		nlreadline(is, field, 0);
 		if (field == "." || is.eof())
 			break;
+		// RFC 3977 (8.4) names the size fields ":bytes" and ":lines";
+		// older servers, and our own format, "Bytes:" and "Lines:".
+		if (strcasecmp(field.c_str(), ":bytes") == 0)
+			field = "Bytes:";
+		else if (strcasecmp(field.c_str(), ":lines") == 0)
+			field = "Lines:";
 		for (i = 0; i < _osz; i++) {
 			if (field.length() >= (unsigned int) _over[i].len
 			    && strncasecmp(field.data(), _over[i].name,
