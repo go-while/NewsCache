@@ -28,7 +28,12 @@ class CNewsgroup:public NVNewsgroup {
 	void sUpdateGroupInfo(void);
 	void listgroup(char *lstgrp, artnum_t f, artnum_t l);
 	void syncrange(artnum_t f, artnum_t l);
-	void freshen(artnum_t f, artnum_t l, int *refreshed);
+	// false when the records couldn't be stored (disk full): the
+	// caller serves the chunk from the news server instead
+	bool freshen(artnum_t f, artnum_t l, int *refreshed);
+	// cover(), with an index that can't grow (disk full) taken as
+	// "not covered": the numbers are passed on from the news server
+	artnum_t cover_safe(artnum_t f, artnum_t l);
 	RNewsgroup *pass(void);
 	virtual Article *retrievearticle(artnum_t nbr);
 

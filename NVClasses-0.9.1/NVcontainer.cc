@@ -8,6 +8,10 @@
 #include<sys/stat.h>
 #include<sys/types.h>
 #include<time.h>
+#include<unistd.h>
+#include<errno.h>
+#include<sys/resource.h>
+#include<string.h>
 
 #ifdef HAVE_SSTREAM
 #include <sstream>
@@ -16,6 +20,44 @@
 #endif
 
 using namespace std;
+
+/*
+ * Takes the disk blocks for the bytes from..to-1 of fd (just made longer
+ * with ftruncate): the file is written through mmap, and a page in a hole
+ * that the file system cannot fill (full disk, quota) is not an error
+ * there but SIGBUS. Returns 0 or the errno. Where the file system has no
+ * posix_fallocate (ZFS, NFS, macOS), the range is written with zeros
+ * (a compressing file system may still keep it as a hole).
+ */
+static int reserve(int fd, off_t from, off_t to)
+{
+	if (to <= from)
+		return 0;
+	// The file size limit (ulimit -f) as an error of its own: FreeBSD's
+	// ftruncate and posix_fallocate don't apply it everywhere.
+	struct rlimit rl;
+	if (getrlimit(RLIMIT_FSIZE, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY &&
+	    (rlim_t) to > rl.rlim_cur)
+		return EFBIG;
+#ifdef HAVE_POSIX_FALLOCATE
+	int r = posix_fallocate(fd, from, to - from);
+	if (r == 0 || (r != EINVAL && r != EOPNOTSUPP && r != ENOSYS))
+		return r;
+#endif
+	static const char zeros[4096] = { 0 };
+	while (from < to) {
+		size_t n = to - from < (off_t) sizeof(zeros) ?
+		    (size_t) (to - from) : sizeof(zeros);
+		ssize_t w = pwrite(fd, zeros, n, from);
+		if (w < 0) {
+			if (errno == EINTR)
+				continue;
+			return errno;
+		}
+		from += w;
+	}
+	return 0;
+}
 
 int nvflock(int fd, int cmnd, int block)
 {
@@ -247,16 +289,26 @@ size_t NVcontainer::resize(size_t nsz)
 	FreeList *flhead = o2fl(mem_hdr->freelist);
 
 	nsz = (nsz + 0x10000) & (~0xffff);
-	if (ftruncate(mem_fd, nsz) < 0) {
+	int e = 0;
+	if (ftruncate(mem_fd, nsz) < 0)
+		e = errno;
+	else if ((e = reserve(mem_fd, mem_sz, nsz)) != 0) {
+		// no space: back to the old size (the header still says it)
+		if (ftruncate(mem_fd, mem_sz) < 0) {
+			// the size check of the next open() catches it
+		}
+	}
+	if (e) {
 #ifdef HAVE_SSTREAM
 		stringstream sb;
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::resize(): ftruncate failed  "
+		sb << "NVConatiner::resize(): cannot grow the file"
 		   << " mem_fn: " << mem_fn
 		   << " nsz: " << (unsigned long int) nsz;
-		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
+		lock(UnLock);
+		throw SystemError(sb.rdbuf()->str(), e, ERROR_LOCATION);
 	}
 	mem_hdr->bytes_free += nsz - mem_sz;
 	flhead->size += nsz - mem_sz;
@@ -320,7 +372,13 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 			// during the resize operation, we will have to save the
 			// currently used pointers
 			size_t needsz = rsz + sizeof(FreeList) - flhead->size;
-			resize(mem_sz + needsz);
+			try {
+				resize(mem_sz + needsz);
+			}
+			catch(...) {
+				lock(UnLock);	// no space: nothing allocated
+				throw;
+			}
 			cur = flhead = o2fl(mem_hdr->freelist);
 			prv = o2fl(prvoff);
 			if (!cur || !prv || cur->size < rsz + sizeof(FreeList))
@@ -695,16 +753,21 @@ void NVcontainer::open(const char *dbname, int flags)
 		fl.next = hdr.freelist;
 		fl.size = hdr.bytes_free = hdr.size - hdr.hlen;
 
-		if (ftruncate(mem_fd, hdr.size) < 0) {
+		int e = 0;
+		if (ftruncate(mem_fd, hdr.size) < 0)
+			e = errno;
+		else
+			e = reserve(mem_fd, 0, hdr.size);
+		if (e) {
 			unlink(mem_fn);
 #ifdef HAVE_SSTREAM
 			stringstream sb;
 #else
 			strstream sb;
 #endif
-			sb << "NVConatiner::open(): ftruncate failed, unlinked"
+			sb << "NVConatiner::open(): cannot create the file, unlinked"
 			   << " mem_fn: " << mem_fn;
-			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
+			throw SystemError (sb.rdbuf()->str(), e, ERROR_LOCATION);
 			}
 		if (write(mem_fd, &hdr, sizeof(Header)) != sizeof(Header)) {
 			unlink(mem_fn);

@@ -236,7 +236,7 @@ dnl Checks for library functions.
 dnl ****************************************************************
 
 AC_FUNC_MMAP
-AC_CHECK_FUNCS(gethostname gettimeofday mkdir select setpriority socket strerror strstr strtol syslog sigaction)
+AC_CHECK_FUNCS(gethostname gettimeofday mkdir select setpriority socket strerror strstr strtol syslog sigaction posix_fallocate)
 
 AC_MSG_CHECKING([argument 3 of accept])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include<sys/types.h>

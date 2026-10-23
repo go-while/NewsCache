@@ -9,38 +9,8 @@ static inline artnum_t chunk_end(artnum_t a)
 	return chunk_last(a);
 }
 
-/*
- * NVArray::lock(ExclLock or ShrdLock) and the matching UnLock, also when
- * the block is left by an exception.
- */
-class GroupLock {
-	NVArray & _a;
-	bool _held;
-      public:
-	// take = false: no lock (for "only if the caller doesn't hold one")
-	GroupLock(NVArray & a, int how, bool take = true)
-	:_a(a), _held(false) {
-		if (take) {
-			_a.lock(how);
-			_held = true;
-		}
-	}
-	void release(void) {
-		if (_held) {
-			_held = false;
-			_a.lock(NVcontainer::UnLock);
-		}
-	}
-	~GroupLock() {
-		try {
-			release();
-		}
-		catch(...) {
-			// (a destructor must not throw; corrupt() may have
-			// taken the lock stack down already)
-		}
-	}
-};
+// the lock guard of NVcontainer.h (it was defined here first)
+typedef NVLock GroupLock;
 
 CNewsgroup::~CNewsgroup()
 {
@@ -103,7 +73,7 @@ void CNewsgroup::setsize(artnum_t f, artnum_t l)
 
 	if (l > ARTNUM_LIMIT)
 		l = ARTNUM_LIMIT;
-	NVArray::lock(NVcontainer::ExclLock);
+	GroupLock guard(*this, NVcontainer::ExclLock);	// (the index may grow)
 	/*
 	 * The news server's last number went down: its newest articles went
 	 * (cancelled or expired), or this connection reached a server of a
@@ -134,7 +104,6 @@ void CNewsgroup::setsize(artnum_t f, artnum_t l)
 	NVNewsgroup::setsize(f, l);
 	if (l != knownlast())
 		setknownlast(l);
-	NVArray::lock(NVcontainer::UnLock);
 }
 
 /*
@@ -228,20 +197,31 @@ void CNewsgroup::syncrange(artnum_t f0, artnum_t l0)
  * numbers above what was synchronized are fetched (new articles).
  * *refreshed: the group's numbers were already updated in this command.
  */
-void CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
+artnum_t CNewsgroup::cover_safe(artnum_t f, artnum_t l)
+{
+	try {
+		return cover(f, l);
+	}
+	catch(const SystemError & e) {
+		slog.p(Logger::Error) << name() << ": the spool's index can't "
+		    << "grow, passing articles on without keeping them\n";
+		e.print();
+		return 0;
+	}
+}
+
+bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 {
 	artnum_t c = f / OVERVIEW_CHUNK, from, top;
 	SyncEnt e;
 	nvtime_t now = nvtime(NULL);
 	int full;
 
-	NVArray::lock(NVcontainer::ExclLock);
+	GroupLock guard(*this, NVcontainer::ExclLock);	// (sUpdateGroupInfo may throw)
 	getsync(c, &e);
 	full = !(e.time && e.time + _TTLGroup >= now);
-	if (!full && e.through >= l) {
-		NVArray::lock(NVcontainer::UnLock);
-		return;
-	}
+	if (!full && e.through >= l)
+		return true;
 	if (!*refreshed) {
 		// about to ask the news server: first its current numbers
 		*refreshed = 1;
@@ -249,10 +229,8 @@ void CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 		getsync(c, &e);
 		full = !(e.time && e.time + _TTLGroup >= now);
 	}
-	if (arrfst > arrlst || f > arrlst || l < arrfst) {
-		NVArray::lock(NVcontainer::UnLock);
-		return;
-	}
+	if (arrfst > arrlst || f > arrlst || l < arrfst)
+		return true;
 	top = chunk_end(f);
 	if (top > arrlst)
 		top = arrlst;
@@ -276,6 +254,12 @@ void CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 			setsync(c, e.time, top);
 		setmtime(now);
 	}
+	catch(SystemError & ex) {
+		// (disk full) the chunk's records may be missing
+		slog.p(Logger::Error) << "updating the overview database failed("
+		    << name() << "): " << ex._errtext << "\n";
+		return false;
+	}
 	catch(Error & ex) {
 		slog.p(Logger::Error) << "updating the overview database failed("
 		    << name() << "): " << ex._errtext << "\n";
@@ -285,7 +269,7 @@ void CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 		    << "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
 		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 	}
-	NVArray::lock(NVcontainer::UnLock);
+	return true;
 }
 
 /*
@@ -301,7 +285,7 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 
 	if (!clamp(&f, &l))
 		return;
-	cl = cover(f, l);
+	cl = cover_safe(f, l);
 	if (cl != f) {
 		RNewsgroup *p = pass();
 		pl = cl ? cl - 1 : l;
@@ -323,8 +307,21 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 		b = chunk_end(a);
 		if (b > l)
 			b = l;
-		freshen(a, b, &refreshed);
-		switch (what) {
+		if (!freshen(a, b, &refreshed)) {
+			// not stored (disk full): from the news server
+			RNewsgroup *p = pass();
+			switch (what) {
+			case print_over:
+				p->printoverdb(os, a, b);
+				break;
+			case print_header:
+				p->printheaderdb(os, header, a, b, pat);
+				break;
+			case print_list:
+				p->printlistgroup(os, a, b);
+				break;
+			}
+		} else switch (what) {
 		case print_over:
 			NVNewsgroup::printoverdb(os, a, b);
 			break;
@@ -374,10 +371,8 @@ const char *CNewsgroup::getover(artnum_t nbr)
 
 	if (!clamp(&f, &l))
 		return "";
-	if (cover(nbr, nbr)) {
-		freshen(nbr, nbr, &refreshed);
+	if (cover_safe(nbr, nbr) && freshen(nbr, nbr, &refreshed))
 		return NVNewsgroup::getover(nbr);
-	}
 	o = pass()->getover(nbr);
 	over = o ? o : "";
 	return over.c_str();
@@ -389,7 +384,7 @@ Article *CNewsgroup::getarticle(artnum_t nbr)
 
 	if (!clamp(&f, &l))
 		return NULL;
-	if (cover(nbr, nbr))
+	if (cover_safe(nbr, nbr))
 		return NVNewsgroup::getarticle(nbr);
 	// far below the cached part: from the news server, not stored
 	return retrievearticle(nbr);
@@ -424,7 +419,7 @@ void CNewsgroup::prefetchOverview(void)
 		return;
 	if (l - f + 1 > MAX_INDEX_SPAN)
 		f = l - MAX_INDEX_SPAN + 1;
-	if (!(cl = cover(f, l)))
+	if (!(cl = cover_safe(f, l)))
 		return;
 	for (a = cl;; a = b + 1) {
 		b = chunk_end(a);
@@ -458,7 +453,7 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 		return;
 	if (l - f + 1 > MAX_INDEX_SPAN)
 		f = l - MAX_INDEX_SPAN + 1;
-	if (!(cl = cover(f, l)))
+	if (!(cl = cover_safe(f, l)))
 		return;
 
 	for (a = cl;; a = b + 1) {

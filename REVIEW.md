@@ -118,6 +118,7 @@ CI, not yet by the systematic review.
 | The overview record of an article read by a client (kept in the group database) was made from the article: `:lines` empty without a `Lines` header (XHDR `(none)`, HDR empty), `:bytes` counted the dot-stuffing dots; XHDR/HDR read such an article with its trailing NUL | 2, 9 | e2e tests (nntp-testkit 0.5.0 `OverviewFields`, while testing an overview out of step with the articles) | #71 |
 | With several servers, the Xref of articles was filtered to the groups of the server they came from (`CServer::filter_xref`), the Xref of overview records was not: XOVER showed another server's numbers for crossposts | 7 | e2e tests (nntp-testkit 0.5.0, two servers) | #72 |
 | A group moved to another server whose numbers overlap the old ones: the articles cached from the old server are served under the new server's numbers (the spool doesn't record a group's server). Documented instead of a format change: the manual's FAQ says to remove the group's `.db` and `.art*` after such a move; the test does that | 7, 9 | e2e tests (nntp-testkit 0.5.0, two servers) | #73 |
+| A full spool crashed NewsCache (SIGBUS): `NVcontainer` grew its files with `ftruncate` (sparse) and wrote them through `mmap`; with History on already at the first shard. With growth now an error: every `ExclLock ... UnLock` around an allocation releases on the exception (`NVLock` guard in `NVcontainer.h`; a leaked flock blocked every other session), records are allocated before the old ones are freed (`NVArray::sset`, `setsize` (which also freed one entry too many), `setarticle`), the active list and OVER replies are read to the end (else the upstream connection got out of step), and what can't be stored is passed on from upstream. An `.art` file written only partly (ENOSPC, EFBIG) was kept and served cut off; an empty or unopenable one gave 503 | 9 | e2e tests (tmpfs in a user namespace; ulimit -f; nntp-testkit 0.5.0 `Ulimit`); review of the fix | #74 |
 
 ## Open points
 
@@ -126,7 +127,7 @@ that it stays as it is.
 
 | Point | Area | Found by | Test |
 |---|---|---|---|
-| A full spool: the group databases are grown with `ftruncate` (sparse) and written through `mmap`, so a write into the new part on a full disk ends with SIGBUS; an article whose `.art` file could not be written completely (ENOSPC, EFBIG) is kept cut off and served so from then on | 9 | e2e tests (tmpfs in a user namespace; ulimit -f) | `TestSpoolDiskFull`, `TestSpoolFileSizeLimit/existing-spool` (known bug `disk-full`) |
+| FreeBSD only: started with 6 file descriptors (`ulimit -n 6`, 3 free), newscache aborts before the greeting with "Terminating due to uncaught exception ... of type int". NewsCache's own code throws no int, so it likely comes from a library or the C++ runtime; not reproducible on Linux. With 8 or more descriptors it answers | 9 | e2e tests (FreeBSD CI, #74) | `TestSpoolFewFiles/6` (known bug `fewfiles-freebsd`) |
 
 ## CodeQL dismissals
 

@@ -304,6 +304,27 @@ Bug fixes:
   crossposts read by the overview's Xref marked articles of the other
   group that have those numbers on the other server. Overview records
   from a server now get the same Xref as its articles.
+* A full spool crashed NewsCache with SIGBUS: the databases (group
+  databases, the active list, the history) grow with ftruncate, which
+  leaves a hole, and are written through mmap, where a hole the file
+  system cannot fill is a signal, not an error. With History on it
+  happened at the first history file. The space is now taken when a
+  database grows (posix_fallocate, or zeros written where there is
+  none; the file size limit counts too), so a full disk is an error,
+  and clients hardly notice it: articles and overview records that
+  can't be kept are passed on from the news server (a 423 or a cut
+  XOVER before), the active list is read to its end so the connection
+  to the news server stays in step, and every database lock is given
+  back when the error comes (a lock left held would have kept every
+  other client of that database waiting until the session ended).
+  Nothing is left half written: a database record is replaced only
+  after the new one is allocated, and an article whose own file (over
+  15 kB) could not be written completely was kept cut off and served
+  so from then on; such a file is now removed. A file that is empty
+  or can't be opened (no file descriptor left) is no longer served as
+  an article ("503 internal error"): the article is fetched again.
+  The databases now take the disk space of their size (the history's
+  16 files about 8 MB) instead of being sparse.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
