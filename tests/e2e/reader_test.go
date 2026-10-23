@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-while/nntp-testkit/client"
 )
 
 const noPending = 100 * time.Millisecond
@@ -514,4 +516,61 @@ func TestXhdrMessageID(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestOverviewAfterArticleRead: an article read by a client replaces its
+// overview record in the group database, and the record is then made
+// from the article. It lost :lines when the article has no Lines header
+// (most don't; RFC 5536 made it obsolete), and :bytes counted the dots
+// of dot-stuffing. The records must stay what the news server sent.
+func TestOverviewAfterArticleRead(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3) // bodies of 3 lines, one starting with a dot
+	e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 4, bigBody()))
+	overview := func(c *client.Conn) []string {
+		t.Helper()
+		if code, line := c.Cmd("XOVER 1-4"); code != 224 {
+			t.Fatalf("XOVER: %q", line)
+		}
+		return c.ReadDotLines()
+	}
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	before := overview(c)
+	for _, cmd := range []string{"ARTICLE 1", "HEAD 2", "BODY 3", "ARTICLE 4"} {
+		if code, line := c.Cmd("%s", cmd); code < 220 || code > 222 {
+			t.Fatalf("%s: %q", cmd, line)
+		}
+		c.ReadDotLines()
+	}
+	after := overview(c)
+	if strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Errorf("overview after reading the articles:\n%s\nwant (as before):\n%s",
+			strings.Join(after, "\n"), strings.Join(before, "\n"))
+	}
+	for _, hc := range []struct{ cmd, want string }{
+		{"XHDR lines 1-4", "1 3|2 3|3 3|4 220"},
+		{"HDR :lines 1-4", "1 3|2 3|3 3|4 220"},
+	} {
+		if code, line := c.Cmd("%s", hc.cmd); code != 221 && code != 225 {
+			t.Errorf("%s: %q", hc.cmd, line)
+		} else if got := strings.Join(c.ReadDotLines(), "|"); got != hc.want {
+			t.Errorf("%s: %q, want %q", hc.cmd, got, hc.want)
+		}
+	}
+	// :bytes by message-ID comes from the article itself
+	f := strings.Split(before[0], "\t")
+	if code, line := c.Cmd("HDR :bytes <test-alpha.1@upstream.test>"); code != 225 {
+		t.Errorf("HDR :bytes <id>: %q", line)
+	} else if got := c.ReadDotLines(); len(got) != 1 || got[0] != "0 "+f[6] {
+		t.Errorf("HDR :bytes <id>: %q, want \"0 %s\" (the news server's :bytes)", got, f[6])
+	}
+	c.Cmd("QUIT")
+
+	c = e.session()
+	c.Cmd("GROUP test.alpha")
+	if again := overview(c); strings.Join(again, "\n") != strings.Join(before, "\n") {
+		t.Errorf("overview in a new session:\n%s", strings.Join(again, "\n"))
+	}
+	c.Cmd("QUIT")
 }

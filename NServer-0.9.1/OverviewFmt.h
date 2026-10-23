@@ -241,14 +241,16 @@ class OverviewFmt {
 						       _over[i].full));
 			}
 			catch(NoSuchFieldError & nf) {
-				// Check, whether field==bytes:
-				if (strcasecmp(_over[i].name, "bytes:") ==
+				// Most articles have no Lines header (RFC
+				// 5536 made it obsolete): count the body
+				// lines, as the news server's overview does
+				// (:lines). Other fields not found => empty
+				if (strcasecmp(_over[i].name, "lines:") ==
 				    0) {
-					sprintf(buf, "%d",
-						article.length());
+					snprintf(buf, sizeof(buf), "%lu",
+						 article.bodylines());
 					recout.append(buf);
 				}
-				// Field not found => empty
 			}
 		}
 	}

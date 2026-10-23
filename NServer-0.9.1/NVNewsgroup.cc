@@ -5,6 +5,7 @@
 #include<utime.h>
 #include<unistd.h>
 #include<string.h>
+#include<strings.h>
 
 #include<vector>
 
@@ -800,11 +801,21 @@ void NVNewsgroup::printheaderdb(ostream & os,
 				// szdata ... Size of article including the trailing \0 plus
 				//            1char (= InformationTag of NVNewsgroup)
 				Article art(i, data + sizeof(char),
-					    szdata - sizeof(char));
+					    szdata - sizeof(char) - 1);
 				try {
 					fld = art.getfield(xheader.c_str(), 0);
 				} catch(NoSuchFieldError & nfe) {
-					found = false;
+					// no Lines header: the body lines,
+					// as in the overview (:lines)
+					if (strcasecmp(xheader.c_str(),
+						       "lines:") == 0) {
+						char n[32];
+						snprintf(n, sizeof(n), "%lu",
+							 art.bodylines());
+						fld = n;
+					} else {
+						found = false;
+					}
 				} catch(const InvalidArticleError & e) {
 					corrupt("stored article unreadable");
 				}

@@ -291,6 +291,13 @@ Bug fixes:
   --without-syslog, newscache.log. AUTHINFO to the server is now logged
   without its arguments, as the client's AUTHINFO already was. Check old
   logs, and change the password if they were readable by others.
+* Once a client had read an article (up to 15 kB, kept in the group
+  database), its overview record was made from the article: :lines was
+  empty when the article has no Lines header (most articles; RFC 5536
+  made it obsolete), XHDR Lines gave "(none)" and HDR :lines nothing, and
+  :bytes counted the dots added for dot-stuffing (RFC 3977 counts the
+  article without them). :lines now counts the body lines, and :bytes
+  leaves those dots out, also for HDR :bytes <message-id>.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
