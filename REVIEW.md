@@ -117,6 +117,7 @@ CI, not yet by the systematic review.
 | The upstream server's password was logged: `RServer::issue` logs every command at level info, `authinfo pass <password>` too (syslog: also `/var/log/syslog` on Debian, the journal). Also: with no reply and no expected code, `issue` built a `std::string` from NULL | 7, 13 | review (while adding the re-login) | #69 |
 | The overview record of an article read by a client (kept in the group database) was made from the article: `:lines` empty without a `Lines` header (XHDR `(none)`, HDR empty), `:bytes` counted the dot-stuffing dots; XHDR/HDR read such an article with its trailing NUL | 2, 9 | e2e tests (nntp-testkit 0.5.0 `OverviewFields`, while testing an overview out of step with the articles) | #71 |
 | With several servers, the Xref of articles was filtered to the groups of the server they came from (`CServer::filter_xref`), the Xref of overview records was not: XOVER showed another server's numbers for crossposts | 7 | e2e tests (nntp-testkit 0.5.0, two servers) | #72 |
+| A group moved to another server whose numbers overlap the old ones: the articles cached from the old server are served under the new server's numbers (the spool doesn't record a group's server). Documented instead of a format change: the manual's FAQ says to remove the group's `.db` and `.art*` after such a move; the test does that | 7, 9 | e2e tests (nntp-testkit 0.5.0, two servers) | #73 |
 
 ## Open points
 
@@ -125,7 +126,6 @@ that it stays as it is.
 
 | Point | Area | Found by | Test |
 |---|---|---|---|
-| A group moved to another server (`Read` patterns changed) that numbers it so that the numbers overlap the old ones: the articles and overview records cached from the old server are served under the new server's numbers, next to the new server's (XOVER mixes both, ARTICLE n can be the old server's article). The spool doesn't record which server a group's data came from. Options: keep the server (host and port) in the group database's sync header and drop the group's cache when it changes (a format change of the header), or document that the group's spool directory must be removed after such a move | 7, 9 | e2e tests (nntp-testkit 0.5.0, two servers) | `TestUpstreamMovedToOtherServer/numbers-overlap` (known bug `moved-group`) |
 | A full spool: the group databases are grown with `ftruncate` (sparse) and written through `mmap`, so a write into the new part on a full disk ends with SIGBUS; an article whose `.art` file could not be written completely (ENOSPC, EFBIG) is kept cut off and served so from then on | 9 | e2e tests (tmpfs in a user namespace; ulimit -f) | `TestSpoolDiskFull`, `TestSpoolFileSizeLimit/existing-spool` (known bug `disk-full`) |
 
 ## CodeQL dismissals

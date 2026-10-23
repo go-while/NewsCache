@@ -375,7 +375,9 @@ Other changes:
   ("allow read post"); it now uses "allow authentication" with the rights
   in the user file, as FEDORA.md does. debian/README.Debian still said an
   auth-file line needs the list field. newscache(8) lacked -n and what -c
-  does.
+  does. The FAQ says what to do after moving groups to another news
+  server: remove their databases, or NewsCache may serve the old server's
+  cached articles under the new server's numbers.
 
 Release 1.3.21:
 Billy G. - 2026-10-20

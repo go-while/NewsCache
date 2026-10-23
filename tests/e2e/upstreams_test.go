@@ -357,20 +357,19 @@ func testSeveralServers(t *testing.T, opts string) {
 // TestUpstreamMovedToOtherServer: the admin moves a group to another
 // server, which numbers it differently. With numbers above the old ones
 // the cached articles go and the new server's are served. With numbers
-// that overlap the old ones, articles cached from the old server must not
-// be served under the new server's numbers (open point in REVIEW.md).
+// that overlap the old ones NewsCache can't tell the servers apart: the
+// manual's FAQ says to remove the group's database after the move, and
+// then only the new server's articles are served.
 func TestUpstreamMovedToOtherServer(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		from, to int64
+		removeDB bool // remove the group's database after the move, as the manual's FAQ says
 	}{
-		{"numbers-above", 101, 104},
-		{"numbers-overlap", 2, 6},
+		{"numbers-above", 101, 104, false},
+		{"numbers-overlap", 2, 6, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.from <= 3 {
-				knownBug(t, "moved-group", "a group moved to a server whose numbers overlap the old ones mixes cached articles of both")
-			}
 			e := newEnv(t)
 			e.addArticles("test.beta", 3)
 			st := fakeserver.NewStore()
@@ -391,6 +390,18 @@ func TestUpstreamMovedToOtherServer(t *testing.T) {
 			c.Cmd("QUIT")
 
 			e.ExtraServers = serverBlock(b, "test.beta")
+			if tc.removeDB {
+				// NewsCache doesn't record which server a group came from:
+				// with overlapping numbers it would mix the old server's
+				// cached articles with the new server's
+				dir := filepath.Join(e.Spool, "test", "beta")
+				files, _ := filepath.Glob(filepath.Join(dir, ".art*"))
+				for _, f := range append(files, filepath.Join(dir, ".db")) {
+					if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+				}
+			}
 			time.Sleep(1100 * time.Millisecond)
 			c = e.session()
 			if code, line := c.Cmd("GROUP test.beta"); code != 211 ||
