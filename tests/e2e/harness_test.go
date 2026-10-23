@@ -62,6 +62,7 @@ type env struct {
 	ServerPort     string // upstream port, "" = the fake upstream's
 	ServerLines    string // extra lines in the upstream's Server block
 	GroupTimeout   int
+	ExtraServers   string // more Server blocks after the upstream's, in NewsServerList
 	Extra          string // extra lines at the end of the config
 	AccessList     string // the whole AccessList block
 }
@@ -179,6 +180,9 @@ NewsServerList {
 {{.ServerLines}}
 {{- end}}
   }
+{{- if .ExtraServers}}
+{{.ExtraServers}}
+{{- end}}
 }
 {{.Extra}}
 `))
@@ -214,6 +218,7 @@ func (e *env) writeConf() {
 		"UpHost":         firstNonEmpty(e.ServerHost, e.Upstream.Host()),
 		"UpPort":         firstNonEmpty(e.ServerPort, fmt.Sprint(e.Upstream.Port())),
 		"ServerLines":    e.ServerLines,
+		"ExtraServers":   e.ExtraServers,
 		"GroupTimeout":   e.GroupTimeout,
 		"ServerOptions":  e.ServerOptions,
 		"Extra":          e.Extra,
