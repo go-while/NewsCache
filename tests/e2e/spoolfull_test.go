@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -103,6 +104,9 @@ var spoolCmds = []string{"GROUP test.alpha", "XOVER 1-8", "ARTICLE 1", "ARTICLE 
 func TestSpoolFewFiles(t *testing.T) {
 	for _, n := range []int{6, 8, 10, 12, 16} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			if runtime.GOOS == "freebsd" {
+				knownBug(t, "disk-full", "FreeBSD: an .art file that could not be written is kept (503 when it is read)")
+			}
 			e := newEnv(t)
 			e.Extra += "History on\n"
 			fullArticles(e)
@@ -133,6 +137,10 @@ func fileSizeLimit(blocks int) func(*proc.Options) {
 // could not be written must not be kept cut off.
 func TestSpoolFileSizeLimit(t *testing.T) {
 	t.Run("new-spool", func(t *testing.T) {
+		if runtime.GOOS == "freebsd" {
+			// ftruncate there is not limited by ulimit -f
+			knownBug(t, "disk-full", "FreeBSD: the sparse databases are created beyond the file size limit")
+		}
 		e := newEnv(t)
 		e.Extra += "History on\n"
 		fullArticles(e)
