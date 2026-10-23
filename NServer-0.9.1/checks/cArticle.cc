@@ -89,6 +89,34 @@ int checkArticle(const char *artfn)
 	return 0;
 }
 
+// :bytes without the dots of dot-stuffing, :lines from the body.
+int checkSizes(void)
+{
+	const char text[] =
+	    "From: a@b.c\r\nSubject: s\r\n\r\n"
+	    "one\r\n..starts with a dot\r\n\r\n...\r\n";
+	Article a(1, text, sizeof(text) - 1);
+
+	// head and empty line 27 bytes, body 5+21+2+5 = 33, minus 2 dots
+	if (a.bytes() != sizeof(text) - 1 - 2)
+		return -1;
+	if (a.getfield("bytes:") != "58")
+		return -2;
+	if (a.bodylines() != 4)
+		return -3;
+
+	const char nobody[] = "From: a@b.c\r\nSubject: s\r\n";
+	Article b(1, nobody, sizeof(nobody) - 1);
+	if (b.bodylines() != 0)
+		return -4;
+
+	const char lf[] = "From: a@b.c\n\nline 1\nline 2";
+	Article c(1, lf, sizeof(lf) - 1);
+	if (c.bodylines() != 2)
+		return -5;
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	char **al = articleList;
@@ -110,6 +138,12 @@ int main(int argc, char *argv[])
 			cout << "checkArticle(" << al[i] <<
 			    ") succeeded\n";
 		}
+	}
+	if ((e = checkSizes()) < 0) {
+		cout << "checkSizes() failed with: " << e << endl;
+		ef++;
+	} else {
+		cout << "checkSizes() succeeded\n";
 	}
 	if (ef == 0) {
 		cout << "cArticle: all tests succeeded\n";

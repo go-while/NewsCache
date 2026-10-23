@@ -114,6 +114,42 @@ int Article::length(void) const
 {
 	return _text.length();
 }
+
+// The text is kept as it came over the wire: a line that starts with a dot
+// has a second one in front (dot-stuffing). RFC 3977 (8.4.2) counts :bytes
+// without those dots.
+size_t Article::bytes(void) const
+{
+	size_t n = _text.length();
+
+	for (string::size_type p = _text.find("\n."); p != string::npos;
+	     p = _text.find("\n.", p + 2))
+		n--;
+	return n;
+}
+
+// The number of body lines (RFC 3977 :lines): the lines after the empty
+// line that ends the head; 0 when there is none.
+unsigned long Article::bodylines(void) const
+{
+	string::size_type b = _text.find("\r\n\r\n");
+	string::size_type skip = 4;
+
+	if (b == string::npos) {
+		b = _text.find("\n\n");
+		skip = 2;
+	}
+	if (b == string::npos)
+		return 0;
+	b += skip;
+	unsigned long n = 0;
+	for (string::size_type p = _text.find('\n', b); p != string::npos;
+	     p = _text.find('\n', p + 1))
+		n++;
+	if (b < _text.length() && _text[_text.length() - 1] != '\n')
+		n++;	// a last line without its line end
+	return n;
+}
 	
 int Article::has_field(const char *ifld)
 {
@@ -204,7 +240,7 @@ string Article::getfield(const char *ifld, int Full) const
 #else
 		strstream sb;
 #endif
-		sb << _text.length();
+		sb << bytes();
 		return sb.rdbuf()->str();
 	}
 

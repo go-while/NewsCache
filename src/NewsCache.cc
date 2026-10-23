@@ -2198,6 +2198,15 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 			}
 			catch(const NoSuchFieldError & nsfe) {
 				val = "(none)";
+				// no Lines header: the body lines, as the
+				// overview has them (XHDR by number)
+				if (strcasecmp(Newsgroup::headerfield(argv[1]).
+					       c_str(), "lines:") == 0) {
+					char n[32];
+					snprintf(n, sizeof(n), "%lu",
+						 a.bodylines());
+					val = n;
+				}
 			}
 			(*clt->co) << "221 " << argv[1] << " header follows\r\n"
 			    << argv[2] << " " << val << "\r\n.\r\n";

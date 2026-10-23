@@ -78,6 +78,14 @@ class Article {
 	const char *c_str(void);
 	
 	int length(void) const;
+
+	/* The size as :bytes counts it: without the dots of dot-stuffing.
+	 */
+	size_t bytes(void) const;
+
+	/* The number of body lines (:lines).
+	 */
+	unsigned long bodylines(void) const;
 	
 	int has_field(const char *ifld);
 
