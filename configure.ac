@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script.
 dnl The version: set it here for a release (see NEWS and debian/changelog).
 dnl The fourth argument keeps PACKAGE (greeting, syslog name, tarball) as
 dnl "NewsCache"; by default autoconf would lower-case it.
-AC_INIT([NewsCache], [1.3.21], [https://github.com/go-while/NewsCache/issues],
+AC_INIT([NewsCache], [1.3.22], [https://github.com/go-while/NewsCache/issues],
 	[NewsCache], [https://github.com/go-while/NewsCache])
 AC_PREREQ([2.69])
 AC_CONFIG_SRCDIR([src/NewsCache.cc])

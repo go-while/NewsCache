@@ -1,4 +1,30 @@
-Unreleased:
+Release 1.3.22:
+Billy G. - 2026-10-23
+
+Upgrading:
+* The upstream news server's password was written to the log (see Bug
+  fixes). Check old logs, and change the password if others could read
+  them.
+* The active database becomes .active64 at the first start; the old
+  .active is kept as .active.v1. Older versions can still open the
+  spool, but drop each group's cached articles the first time they use
+  it; to go back to 1.3.21, rename .active.v1 to .active again.
+* "ListenTo DEFAULT" now listens on IPv6 as well as IPv4. Check your
+  firewall, or use "ListenTo 0.0.0.0" for IPv4 only.
+* ARTICLE, HEAD, BODY and STAT by message-ID, LISTGROUP and XPAT now
+  check the Read list of the client's entry, and clients that a login
+  can't help get 502 instead of 480.
+* LISTGROUP answers "211 count first last group", as RFC 3977 says.
+* In the prefetch file of updatenews, a line starting with ! now
+  excludes groups; it used to be ignored.
+* newscache -p no longer prints the upstream servers' Password; put it
+  back into a config made from -p output.
+* The spool databases take the disk space of their full size instead of
+  being sparse files (with History on, about 8 MB more for the history),
+  so that a full disk is an error instead of a crash.
+* Packagers: configure.in is now configure.ac (autoconf 2.69 or later)
+  and the manual doc/NewsCache.texi; the end-to-end tests need Go 1.26
+  and are skipped with an older Go.
 
 New functions:
 * XPAT (RFC 2980 2.9): "XPAT header range|<message-id> pattern" lists
