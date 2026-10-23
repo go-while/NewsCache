@@ -1,3 +1,28 @@
+newscache (1.3.22-1) unstable; urgency=medium
+
+  * XPAT, HDR and LIST HEADERS; XHDR by message-ID
+  * Optional History: articles by message-ID from the spool (off by default)
+  * Prefetch file takes wildmat patterns and !exclusions
+  * 64-bit article numbers; the active database becomes .active64
+  * Large groups: overview fetched in steps of 10000 numbers instead of
+    the whole group; spool index limited to the newest 10000000 numbers
+  * Read list checked for message-ID requests, LISTGROUP and XPAT;
+    502 where a login can't help
+  * Damaged spool databases are moved aside instead of crashing
+  * Full spool: no crash (SIGBUS), no cut-off articles, locks given back;
+    what can't be stored is passed on from the news server
+  * Overview records of read articles keep :lines; :bytes without
+    dot-stuffing; Xref of overview records filtered per server
+  * Upstream: re-login on 480, capped OVER replies, password no longer
+    logged or printed by -p and xdebug
+  * ListenTo DEFAULT listens on IPv6 and IPv4; CachePort works
+  * PidFile removed on exit; supplementary groups dropped as root
+  * New option AuthFailureDelay
+  * configure.ac and NewsCache.texi replace configure.in and
+    NewsCache.texinfo
+
+ -- Billy G. <newscache-maintainer@pugleaf.net>  Fri, 23 Oct 2026 12:00:00 +0000
+
 newscache (1.3.21-2) unstable; urgency=medium
 
   * Packaging for Debian 13 (trixie) and Ubuntu 24.04: debhelper compat 13
