@@ -1390,14 +1390,22 @@ CServer::~CServer()
 
 void CServer::filter_xref(Article *art, MPListEntry *server, const char *gname)
 {
-	static const char delim[] = " \t\r\n";
-
 	// Xref is optional (RFC 3977/5536); nothing to filter without it
 	if (!art->has_field("xref:"))
 		return;
 
-	bool xref_changed = false;
 	std::string xref = art->getfield("xref:", 1);
+	if (filter_xref_value(xref, server, gname)) {
+		xref.append("\r\n");
+		art->setfield("Xref:", xref.c_str());
+	}
+}
+
+bool CServer::filter_xref_value(std::string & xref, MPListEntry *server,
+				const char *gname)
+{
+	static const char delim[] = " \t\r\n";
+	bool xref_changed = false;
 
 	std::string::size_type beg_header =
 		xref.find_first_not_of(delim, 5);
@@ -1440,11 +1448,47 @@ void CServer::filter_xref(Article *art, MPListEntry *server, const char *gname)
 		}
 	}
 
-	if (xref_changed) {
-		xref.append("\r\n");
-		art->setfield("Xref:", xref.c_str());
-	}
+	return xref_changed;
 }
+
+/*
+ * Drops the Xref entries of groups that other servers serve from the
+ * overview records of a group (field is the Xref field's place in the
+ * record, 0 being the article number), as filter_xref does for articles:
+ * their numbers are another server's, and newsreaders use the Xref of the
+ * overview to mark crossposts read.
+ */
+class XrefRecordFilter:public OverRecordFilter {
+	CServer *_cs;
+	MPListEntry *_server;
+	const char *_gname;
+	int _field;
+  public:
+	XrefRecordFilter(CServer * cs, MPListEntry * server,
+			 const char *gname, int field)
+	:_cs(cs), _server(server), _gname(gname), _field(field) {
+	}
+	virtual void filter(std::string & rec) const {
+		std::string::size_type b = 0, e;
+		for (int i = 0; i < _field; i++) {
+			if ((b = rec.find('\t', b)) == std::string::npos)
+				return;
+			b++;
+		}
+		if ((e = rec.find('\t', b)) == std::string::npos)
+			e = rec.length();
+		std::string x = rec.substr(b, e - b);
+		// the field keeps its name ("Xref:full"), or comes without
+		bool named = strncasecmp(x.c_str(), "xref:", 5) == 0;
+		if (!named)
+			x.insert(0, "Xref: ");
+		if (!_cs->filter_xref_value(x, _server, _gname))
+			return;
+		if (!named)
+			x.erase(0, 6);
+		rec.replace(b, e - b, x);
+	}
+};
 
 ActiveDB *CServer::active()
 {
@@ -1721,8 +1765,32 @@ void CServer::overviewdb(Newsgroup * ng, artnum_t fst,
 	MPListEntry *mpe;
 
 	mpe = _ServerList->server(ng->name());
-	if (!(mpe->flags & MPListEntry::F_OFFLINE))
+	if (mpe->flags & MPListEntry::F_OFFLINE)
+		return;
+
+	// the Xref field's place in our records (0 = none)
+	OverviewFmt *of = ng->getoverviewfmt();
+	int field = 0;
+	for (int i = 0; of && i < of->nfields(); i++) {
+		if (strcasecmp(of->fieldname(i), "xref:") == 0) {
+			field = i + 1;
+			break;
+		}
+	}
+	if (!field) {
 		RServer::overviewdb(ng, fst, lst);
+		return;
+	}
+	XrefRecordFilter xf(this, mpe, ng->name(), field);
+	ng->setrecordfilter(&xf);
+	try {
+		RServer::overviewdb(ng, fst, lst);
+	}
+	catch(...) {
+		ng->setrecordfilter(NULL);
+		throw;
+	}
+	ng->setrecordfilter(NULL);
 }
 
 /* CServer::article
