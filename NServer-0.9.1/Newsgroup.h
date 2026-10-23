@@ -61,10 +61,21 @@ static inline artnum_t chunk_last(artnum_t a)
 	return n ? n - 1 : ARTNUM_MAX;
 }
 
+// Changes an overview record from the news server (in our format) before
+// it is stored: CServer::overviewdb drops the Xref entries of groups that
+// other servers serve, as it does in articles.
+class OverRecordFilter {
+  public:
+	virtual ~OverRecordFilter() {
+	}
+	virtual void filter(std::string & rec) const = 0;
+};
+
 class Newsgroup {
   protected:
 	char _NewsgroupName[MAXGROUPNAMELEN + 1];
 	OverviewFmt *_OverviewFormat;
+	const OverRecordFilter *_RecordFilter;	// NULL: records as they come
 	virtual Article *retrievearticle(artnum_t nbr) {
 		return NULL;
       }
@@ -75,6 +86,7 @@ class Newsgroup {
 		size_t n = name ? strlen(name) : 0;
 
 		_OverviewFormat = fmt;
+		_RecordFilter = NULL;
 		// (strncpy: GCC warns when name is another group's name)
 		if (n > MAXGROUPNAMELEN)
 			n = MAXGROUPNAMELEN;
@@ -93,6 +105,10 @@ class Newsgroup {
 	}
 	OverviewFmt *getoverviewfmt() {
 		return _OverviewFormat;
+	}
+	// The filter readoverdb applies to every record (NULL: none).
+	void setrecordfilter(const OverRecordFilter * f) {
+		_RecordFilter = f;
 	}
 
 #ifdef ENABLE_ASSERTIONS

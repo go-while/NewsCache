@@ -249,7 +249,16 @@ func TestUpstreamOverviewIDMismatch(t *testing.T) {
 // serverBlock is a Server entry for the fake server s that serves the
 // groups matching read.
 func serverBlock(s *fakeserver.Server, read string) string {
-	return fmt.Sprintf("  Server %s %d {\n    Read %s\n    PostTo %s\n    GroupTimeout 0\n  }", s.Host(), s.Port(), read, read)
+	return serverBlockOpts(s, read, "")
+}
+
+// serverBlockOpts is serverBlock with an Options line ("" for none).
+func serverBlockOpts(s *fakeserver.Server, read, opts string) string {
+	o := ""
+	if opts != "" {
+		o = "    Options " + opts + "\n"
+	}
+	return fmt.Sprintf("  Server %s %d {\n    Read %s\n    PostTo %s\n    GroupTimeout 0\n%s  }", s.Host(), s.Port(), read, read, o)
 }
 
 // crossArticle is an article crossposted to test.alpha and test.beta,
@@ -263,9 +272,10 @@ func crossArticle(n int64, id, xref string) fakeserver.Article {
 // twoServers: upstream A (the env's) has test.alpha 1-2 and test.beta 1-4;
 // B has test.beta 101-104 and serves it (Read test.beta is the longer
 // match). The article crossposted to both is test.alpha:2 and
-// test.beta:4 on A, test.beta:104 on B.
-func twoServers(t *testing.T) (*env, *fakeserver.Server) {
+// test.beta:4 on A, test.beta:104 on B. opts are both servers' Options.
+func twoServers(t *testing.T, opts string) (*env, *fakeserver.Server) {
 	e := newEnv(t)
+	e.ServerOptions = opts
 	const x = "<cross@upstream.test>"
 	e.addArticles("test.alpha", 1)
 	e.addArticles("test.beta", 3)
@@ -278,16 +288,24 @@ func twoServers(t *testing.T) (*env, *fakeserver.Server) {
 	}
 	st.AddArticle("test.beta", crossArticle(104, x, "b.test test.beta:104 test.alpha:7"))
 	b := fakeserver.New(t, fakeserver.Options{Store: st})
-	e.ExtraServers = serverBlock(b, "test.beta")
+	e.ExtraServers = serverBlockOpts(b, "test.beta", opts)
 	return e, b
 }
 
 // TestUpstreamSeveralServers: two upstream servers carry the same group
 // with their own numbers. Everything a client sees of it (LIST, GROUP,
-// XOVER, articles) comes from the server configured for it, and an
-// article's Xref keeps only the groups of the server it came from.
+// XOVER, articles) comes from the server configured for it, and the Xref
+// of an article and of its overview record keeps only the groups of the
+// server it came from (newsreaders mark crossposts read by the overview's
+// Xref; another server's numbers there marked other articles).
 func TestUpstreamSeveralServers(t *testing.T) {
-	e, b := twoServers(t)
+	for _, opts := range []string{"", "not-cached"} {
+		t.Run(firstNonEmpty(opts, "cached"), func(t *testing.T) { testSeveralServers(t, opts) })
+	}
+}
+
+func testSeveralServers(t *testing.T, opts string) {
+	e, b := twoServers(t, opts)
 	c := e.session()
 	if code, line := c.Cmd("LIST"); code != 215 {
 		t.Fatalf("LIST: %q", line)
@@ -297,7 +315,16 @@ func TestUpstreamSeveralServers(t *testing.T) {
 	if code, line := c.Cmd("GROUP test.beta"); code != 211 || !strings.HasPrefix(line, "211 4 101 104 ") {
 		t.Errorf("GROUP test.beta: %q", line)
 	}
+	wantXref := func(group string, n int64, want string) {
+		t.Helper()
+		if code, line := c.Cmd("XOVER %d", n); code != 224 {
+			t.Errorf("XOVER %d in %s: %q", n, group, line)
+		} else if ov := c.ReadDotLines(); len(ov) != 1 || !strings.HasSuffix(ov[0], "\t"+want) {
+			t.Errorf("XOVER %d in %s: %q, want the Xref %q", n, group, ov, want)
+		}
+	}
 	wantNumbers(t, "XOVER test.beta", xover(t, c, 1, 200), 101, 102, 103, 104)
+	wantXref("test.beta", 104, "Xref: b.test test.beta:104")
 	if code, line := c.Cmd("ARTICLE 4"); code != 423 {
 		t.Errorf("ARTICLE 4 in test.beta: %q, want 423 (A's number)", line)
 	}
@@ -308,6 +335,7 @@ func TestUpstreamSeveralServers(t *testing.T) {
 	}
 	c.Cmd("GROUP test.alpha")
 	wantNumbers(t, "XOVER test.alpha", xover(t, c, 1, 2), 1, 2)
+	wantXref("test.alpha", 2, "Xref: a.test test.alpha:2")
 	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
 		t.Errorf("ARTICLE 2 in test.alpha: %q", line)
 	} else if a := c.ReadDotLines(); !containsLine(a, "Xref: a.test test.alpha:2") {

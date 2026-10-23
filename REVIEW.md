@@ -116,6 +116,7 @@ CI, not yet by the systematic review.
 | A 480 from the upstream in the middle of a session (a login that timed out) was not answered with a new login: OVER and XOVER were taken as unsupported, clients got an empty overview without an error; the code for it was commented out already in 1.2rc6 | 7 | e2e tests (nntp-testkit 0.4.0 `OverrideFrom`/`OverrideTimes`) | #68 |
 | The upstream server's password was logged: `RServer::issue` logs every command at level info, `authinfo pass <password>` too (syslog: also `/var/log/syslog` on Debian, the journal). Also: with no reply and no expected code, `issue` built a `std::string` from NULL | 7, 13 | review (while adding the re-login) | #69 |
 | The overview record of an article read by a client (kept in the group database) was made from the article: `:lines` empty without a `Lines` header (XHDR `(none)`, HDR empty), `:bytes` counted the dot-stuffing dots; XHDR/HDR read such an article with its trailing NUL | 2, 9 | e2e tests (nntp-testkit 0.5.0 `OverviewFields`, while testing an overview out of step with the articles) | #71 |
+| With several servers, the Xref of articles was filtered to the groups of the server they came from (`CServer::filter_xref`), the Xref of overview records was not: XOVER showed another server's numbers for crossposts | 7 | e2e tests (nntp-testkit 0.5.0, two servers) | #72 |
 
 ## Open points
 

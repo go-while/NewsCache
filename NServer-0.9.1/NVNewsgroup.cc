@@ -742,10 +742,12 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 		if (_OverviewFormat->dotrans) {
 			// Convert Record
 			_OverviewFormat->convert(line1, line2);
-			setover(line2);
 		} else {
-			setover(line1);
+			line2 = line1;
 		}
+		if (_RecordFilter)
+			_RecordFilter->filter(line2);
+		setover(line2);
 	}
 
 	time(&now);

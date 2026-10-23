@@ -560,6 +560,11 @@ class CServer
 	 */
 	void filter_xref(Article *art, MPListEntry *server,
 			 const char *gname = NULL);
+	// The same for the value of an Xref field ("Xref: host group:n
+	// ..."); true when it changed.
+	bool filter_xref_value(std::string & xref, MPListEntry *server,
+			       const char *gname);
+	friend class XrefRecordFilter;
 
 	// This variable indicates, whether a newsgroup has been 
 	// already selected on the remote news server

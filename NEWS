@@ -298,6 +298,12 @@ Bug fixes:
   :bytes counted the dots added for dot-stuffing (RFC 3977 counts the
   article without them). :lines now counts the body lines, and :bytes
   leaves those dots out, also for HDR :bytes <message-id>.
+* With several news servers, the Xref of an article lost the groups that
+  another server serves (their numbers are the other server's), but the
+  Xref of its overview record kept them: a newsreader that marks
+  crossposts read by the overview's Xref marked articles of the other
+  group that have those numbers on the other server. Overview records
+  from a server now get the same Xref as its articles.
 
 Other changes:
 * Spool, config and log file paths are built with bounded snprintf instead
