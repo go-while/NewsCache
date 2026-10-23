@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -105,6 +106,9 @@ var spoolCmds = []string{"GROUP test.alpha", "XOVER 1-8", "ARTICLE 1", "ARTICLE 
 func TestSpoolFewFiles(t *testing.T) {
 	for _, n := range []int{6, 8, 10, 12, 16} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			if n == 6 && runtime.GOOS == "freebsd" {
+				knownBug(t, "fewfiles-freebsd", "FreeBSD, 3 free file descriptors: abort before the greeting (uncaught exception of type int)")
+			}
 			e := newEnv(t)
 			e.Extra += "History on\n"
 			fullArticles(e)

@@ -125,7 +125,9 @@ CI, not yet by the systematic review.
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-None at the moment.
+| Point | Area | Found by | Test |
+|---|---|---|---|
+| FreeBSD only: started with 6 file descriptors (`ulimit -n 6`, 3 free), newscache aborts before the greeting with "Terminating due to uncaught exception ... of type int". NewsCache's own code throws no int, so it likely comes from a library or the C++ runtime; not reproducible on Linux. With 8 or more descriptors it answers | 9 | e2e tests (FreeBSD CI, #74) | `TestSpoolFewFiles/6` (known bug `fewfiles-freebsd`) |
 
 ## CodeQL dismissals
 
