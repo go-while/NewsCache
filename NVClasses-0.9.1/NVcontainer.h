@@ -165,6 +165,44 @@ class NVcontainer {
 	void getmtime(nvtime_t * tm);
 };
 
+/*
+ * A lock of a container (ShrdLock or ExclLock) that is given back when
+ * the guard goes out of scope, also when an exception leaves the block:
+ * nvalloc throws when the disk is full, and a lock left on the stack kept
+ * the flock (with forked sessions: every other client of that database
+ * waited) until the session ended. take = false: no lock (for "only if
+ * the caller doesn't hold one"). release() gives it back early.
+ */
+class NVLock {
+	NVcontainer & _c;
+	bool _held;
+	NVLock(const NVLock &);
+	NVLock & operator=(const NVLock &);
+  public:
+	NVLock(NVcontainer & c, int how, bool take = true)
+	:_c(c), _held(false) {
+		if (take) {
+			_c.lock(how);
+			_held = true;
+		}
+	}
+	void release(void) {
+		if (_held) {
+			_held = false;
+			_c.lock(NVcontainer::UnLock);
+		}
+	}
+	~NVLock() {
+		try {
+			release();
+		}
+		catch(...) {
+			// (a destructor must not throw; corrupt() may have
+			// taken the lock stack down already)
+		}
+	}
+};
+
 /* We should add a general iterator class */
 /*
 class NVcontainterIter {

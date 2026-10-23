@@ -19,32 +19,28 @@ int NVList::is_empty()
 
 void NVList::prepend(const char *data, size_t szdata)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);	// (allocates: may throw)
 	sprepend(getdatap(), data, szdata);
-	lock(UnLock);
 }
 
 void NVList::append(const char *data, size_t szdata)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);	// (allocates: may throw)
 	sappend(getdatap(), data, szdata);
-	lock(UnLock);
 }
 
 void NVList::remove()
 {
 	if (getdata()) {
-		lock(ExclLock);
+		NVLock guard(*this, ExclLock);
 		sremove(getdatap());
-		lock(UnLock);
 	}
 }
 
 void NVList::clear()
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);
 	sclear(getdatap());
-	lock(UnLock);
 }
 
 void NVList::print(ostream & os)

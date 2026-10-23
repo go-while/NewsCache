@@ -1,3 +1,4 @@
+#include <vector>
 #include "NVArray.h"
 #include "Error.h"
 
@@ -84,11 +85,13 @@ char *NVArray::sextra(size_t *sz)
 
 void NVArray::sset(unsigned long i, const char *data, size_t szdata)
 {
-	nvoff_t x;
+	// the new block first: when nvalloc throws (disk full), the old
+	// record stays in place instead of a freed block in the index
+	nvoff_t x, old = arrtab[i];
 
-	if (arrtab[i])
-		nvfree(arrtab[i]);
 	x = nvalloc(szdata + sizeof(unsigned long));
+	if (old)
+		nvfree(old);
 	arrtab[i] = x;
 	*((unsigned long *) (mem_p + x)) = szdata;
 	memcpy(mem_p + x + sizeof(unsigned long), data, szdata);
@@ -244,57 +247,41 @@ int NVArray::setsize(unsigned long fst, unsigned long lst, int flags)
 	// changes the arraysize again
 	// This is just to ensure that the NVArray cannot get inconsistent
 	// even in the case where the user uses this database incorrectly.
-	lock(ExclLock);
-	int ok = 1;
+	NVLock guard(*this, ExclLock);
+	std::vector < nvoff_t > drop;	// records outside [fst,lst]
 	unsigned long i, n;
 
 	if (arrfst <= arrlst) {
-		// Clean up existing array or return an error
-		if (fst > arrfst) {
-			n = fst - arrfst + 1;
-			for (i = 0; i < n; i++) {
-				if (arrtab[i]) {
-					if (flags & force)
-						nvfree(arrtab[i]);
-					else
-						ok = 0;
-				}
-			}
-		}
-		if (lst < arrlst) {
-			n = arrlst - arrfst + 1;
-			for (i = lst - arrfst + 1; i < n; i++) {
-				if (arrtab[i]) {
-					if (flags & force) {
-						nvfree(arrtab[i]);
-						arrtab[i] = 0;
-					} else
-						ok = 0;
-				}
+		n = arrlst - arrfst + 1;
+		for (i = 0; i < n; i++) {
+			if (arrtab[i] &&
+			    (i + arrfst < fst || i + arrfst > lst)) {
+				if (!(flags & force))
+					return -1;
+				drop.push_back(arrtab[i]);
 			}
 		}
 	}
-	if (ok)
-		ssetsize(fst, lst);
-	lock(UnLock);
-	if (ok)
-		return 0;
-	else
-		return -1;
+	// the new index first (it copies only the entries within the new
+	// range), then the records that fell out: when nvalloc throws, the
+	// old index is still whole. (The loop for fst > arrfst freed one
+	// entry too many, the record of fst itself, and kept it.)
+	ssetsize(fst, lst);
+	for (i = 0; i < drop.size(); i++)
+		nvfree(drop[i]);
+	return 0;
 }
 
 void NVArray::clear(void)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);
 	sclear();
-	lock(UnLock);
 }
 
 void NVArray::set(unsigned long i, const char *data, size_t szdata)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);
 	sset(i, data, szdata);
-	lock(UnLock);
 }
 
 void NVArray::del(unsigned long i)

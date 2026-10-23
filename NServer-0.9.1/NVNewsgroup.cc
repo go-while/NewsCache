@@ -6,6 +6,7 @@
 #include<unistd.h>
 #include<string.h>
 #include<strings.h>
+#include<errno.h>
 
 #include<vector>
 
@@ -318,7 +319,7 @@ artnum_t NVNewsgroup::cover(artnum_t f, artnum_t l)
 	if (l - f + 1 > MAX_INDEX_SPAN)
 		want = l - MAX_INDEX_SPAN + 1;
 
-	NVArray::lock(NVcontainer::ExclLock);
+	NVLock guard(*this, NVcontainer::ExclLock);	// (resize_index allocates)
 	if (arrfst > arrlst || arrlst < gf || (_ghave && arrfst > _glast)) {
 		// no index yet, or none with anything of the group in it
 		lo = chunk_start(want);
@@ -343,7 +344,6 @@ artnum_t NVNewsgroup::cover(artnum_t f, artnum_t l)
 			need = l - want + 1;
 			if (gap > span && gap > need && gap > OVERVIEW_CHUNK) {
 				// far below the cached part: not cached
-				NVArray::lock(NVcontainer::UnLock);
 				return 0;
 			}
 			// grow downwards by at least the current size, so that
@@ -364,7 +364,6 @@ artnum_t NVNewsgroup::cover(artnum_t f, artnum_t l)
 	r = 0;
 	if (arrfst <= l && l <= arrlst)
 		r = f < arrfst ? arrfst : f;
-	NVArray::lock(NVcontainer::UnLock);
 	return r;
 }
 
@@ -385,7 +384,7 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 	_glast = l;
 	_ghave = 1;
 
-	NVArray::lock(NVcontainer::ExclLock);
+	NVLock guard(*this, NVcontainer::ExclLock);	// (resize_index allocates)
 	if (arrfst <= arrlst) {
 		lo = arrfst;
 		hi = arrlst;
@@ -407,7 +406,6 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 				resize_index(lo, hi);
 		}
 	}
-	NVArray::lock(NVcontainer::UnLock);
 }
 
 bool NVNewsgroup::spooled(artnum_t nbr)
@@ -451,7 +449,8 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 	Article *art = NULL;
 	bool from_spool = false;
 
-	NVArray::lock(NVcontainer::ShrdLock);
+	// (retrievearticle may throw: the guard gives the lock back)
+	NVLock guard(*this, NVcontainer::ShrdLock);
 	NVArray::getsize(&f, &l);
 	if (nbr >= f && nbr <= l) {
 		NVArray::sget(nbr, &data, &szdata);
@@ -473,32 +472,51 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 					corrupt("stored article unreadable");
 				}
 			} else if (*data == bigarticle) {
+				// The article's own file. One that can't be
+				// opened (gone, or no file descriptor left) or
+				// that is empty or has no Message-ID (a write
+				// that failed in an older version, kept on a
+				// full disk) is not served: the article comes
+				// from the news server, and a bad file goes.
 				char fn[MAXPATHLEN];
 				ifstream fs;
 				artfile(fn, sizeof(fn), nbr);
 				fs.open(fn);
-				if (!fs.good() && errno == ENOENT) {
-					if ((art =
-					     retrievearticle(nbr)) != NULL)
-						setarticle(art);
-				} else {
-					art = new Article(nbr);
-					art->read(fs);
-					from_spool = true;
+				if (fs.good()) {
+					Article *a = new Article(nbr);
+					bool ok = false;
+					try {
+						a->read(fs);
+						ok = a->length() > 0 &&
+						    !a->getfield("Message-ID:").empty();
+					}
+					catch(const Error & e) {
+					}
+					if (ok) {
+						art = a;
+						from_spool = true;
+					} else {
+						delete a;
+						slog.p(Logger::Warning) << fn
+						    << ": empty or unreadable, fetching the article again\n";
+						unlink(fn);
+					}
 				}
 				fs.close();
+				if (!art && (art = retrievearticle(nbr)) != NULL)
+					storearticle(art);
 			} else {
 				// Article not available
 				if ((art = retrievearticle(nbr)) != NULL)
-					setarticle(art);
+					storearticle(art);
 			}
 		} else {
 			// Article not available
 			if ((art = retrievearticle(nbr)) != NULL)
-				setarticle(art);
+				storearticle(art);
 		}
 	}
-	NVArray::lock(NVcontainer::UnLock);
+	guard.release();
 	if (art && from_spool && History::enabled()) {
 		// a spool of an older version has no history entries
 		try {
@@ -511,6 +529,21 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 	return art;
 }
 
+// Stores an article fetched for a client, when there is room: without
+// (disk full, ...) the client gets it all the same, and it is fetched
+// again next time.
+void NVNewsgroup::storearticle(Article * art)
+{
+	try {
+		setarticle(art);
+	}
+	catch(const SystemError & e) {
+		slog.p(Logger::Error) << "cannot store article " << art->getnbr()
+		    << " of " << name() << " in the spool\n";
+		e.print();
+	}
+}
+
 void NVNewsgroup::setarticle(Article * art)
 {
 	unsigned long f, l;
@@ -521,7 +554,7 @@ void NVNewsgroup::setarticle(Article * art)
 	ASSERT2(testdb());
 
 	nbr = art->getnbr();
-	NVArray::lock(NVcontainer::ExclLock);
+	NVLock guard(*this, NVcontainer::ExclLock);	// (nvalloc may throw)
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
 		char *data;
@@ -532,12 +565,13 @@ void NVNewsgroup::setarticle(Article * art)
 		NVArray::sget(nbr, &data, &szdata);
 		if (art->length() <= 15360) {
 			// Article smaller/equal 15k => Store article in NewsgroupDB
-			nvoff_t x;
-			if (data) {
-				nvfree(arrtab[i]);
-			}
+			// (the new block first: without space the old record
+			// stays as it is)
+			nvoff_t x, old = data ? arrtab[i] : 0;
 			szdata = art->length() + 1 + sizeof(char);
 			x = nvalloc(szdata + sizeof(unsigned long));
+			if (old)
+				nvfree(old);
 			arrtab[i] = x;
 			data = mem_p + x;
 			*((unsigned long *) data) = szdata;
@@ -550,9 +584,12 @@ void NVNewsgroup::setarticle(Article * art)
 			       art->length() + 1);
 		} else if (art->length() > 15360) {
 			// Article bigger 15k => Store externally
+			// (a stored article's record goes after the new
+			// one is allocated, as above)
+			nvoff_t old = 0;
 			if (data && *data != overview
 			    && *data != bigarticle) {
-				nvfree(arrtab[i]);
+				old = arrtab[i];
 				data = NULL;
 			}
 			if (!data) {
@@ -568,14 +605,25 @@ void NVNewsgroup::setarticle(Article * art)
 				data += sizeof(unsigned long);
 				memcpy(data + sizeof(char), over.c_str(),
 				       over.length() + 1);
+				*data = overview;
 			}
-			*data = bigarticle;
+			if (old)
+				nvfree(old);
 			char fn[MAXPATHLEN];
 			ofstream fs;
 			artfile(fn, sizeof(fn), nbr);
 			fs.open(fn);
 			fs << *art;
 			fs.close();
+			if (fs.fail()) {
+				// (disk full, ...) a cut-off file must not be
+				// served: the article stays an overview record
+				int e = errno;
+				unlink(fn);
+				*data = overview;
+				throw SystemError(string("cannot write ") + fn,
+						  e, ERROR_LOCATION);
+			}
 			*data = bigarticle;
 		} else {
 			VERB(slog.
@@ -592,7 +640,7 @@ void NVNewsgroup::setarticle(Article * art)
 			}
 		}
 	}			/* if(f<=nbr<=l) */
-	lock(NVcontainer::UnLock);
+	guard.release();
 	ASSERT2(testdb());
 }
 
@@ -690,7 +738,7 @@ void NVNewsgroup::setover(const string & over)
 	artnum_t nbr;
 
 	nbr = leading_artnum(over.c_str());
-	NVArray::lock(NVcontainer::ExclLock);
+	NVLock guard(*this, NVcontainer::ExclLock);	// (nvalloc may throw)
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
 		char *data;
@@ -719,7 +767,7 @@ void NVNewsgroup::setover(const string & over)
 			}
 		}
 	}
-	NVArray::lock(NVcontainer::UnLock);
+	guard.release();
 	ASSERT2(testdb());
 }
 
@@ -732,27 +780,43 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 	artnum_t n, high = 0;
 	HistoryBatch hb;	// one history lock per shard for the reply
 
-	lock(NVcontainer::ExclLock);
+	// No space for a record (disk full): the rest of the reply is read
+	// all the same, so the connection to the news server stays in step
+	// (the next command read the rest for its reply), and the error is
+	// thrown at the end.
+	bool failed = false;
+	SystemError err;
+
+	NVLock guard(*this, NVcontainer::ExclLock);
 	for (;;) {
 		nlreadline(is, line1, 0);
 		if (line1 == "." || is.eof())
 			break;
 		if ((n = leading_artnum(line1.c_str())) > high)
 			high = n;
-		if (_OverviewFormat->dotrans) {
-			// Convert Record
-			_OverviewFormat->convert(line1, line2);
-		} else {
-			line2 = line1;
+		if (failed)
+			continue;
+		try {
+			if (_OverviewFormat->dotrans) {
+				// Convert Record
+				_OverviewFormat->convert(line1, line2);
+			} else {
+				line2 = line1;
+			}
+			if (_RecordFilter)
+				_RecordFilter->filter(line2);
+			setover(line2);
 		}
-		if (_RecordFilter)
-			_RecordFilter->filter(line2);
-		setover(line2);
+		catch(const SystemError & e) {
+			failed = true;
+			err = e;
+		}
 	}
+	if (failed)
+		throw err;
 
 	time(&now);
 	setmtime(now);
-	lock(NVcontainer::UnLock);
 	return high;
 }
 

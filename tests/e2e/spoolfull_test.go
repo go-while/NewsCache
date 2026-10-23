@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 	"github.com/go-while/nntp-testkit/proc"
 )
 
@@ -104,9 +105,6 @@ var spoolCmds = []string{"GROUP test.alpha", "XOVER 1-8", "ARTICLE 1", "ARTICLE 
 func TestSpoolFewFiles(t *testing.T) {
 	for _, n := range []int{6, 8, 10, 12, 16} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
-			if runtime.GOOS == "freebsd" {
-				knownBug(t, "disk-full", "FreeBSD: an .art file that could not be written is kept (503 when it is read)")
-			}
 			e := newEnv(t)
 			e.Extra += "History on\n"
 			fullArticles(e)
@@ -137,10 +135,6 @@ func fileSizeLimit(blocks int) func(*proc.Options) {
 // could not be written must not be kept cut off.
 func TestSpoolFileSizeLimit(t *testing.T) {
 	t.Run("new-spool", func(t *testing.T) {
-		if runtime.GOOS == "freebsd" {
-			// ftruncate there is not limited by ulimit -f
-			knownBug(t, "disk-full", "FreeBSD: the sparse databases are created beyond the file size limit")
-		}
 		e := newEnv(t)
 		e.Extra += "History on\n"
 		fullArticles(e)
@@ -149,7 +143,6 @@ func TestSpoolFileSizeLimit(t *testing.T) {
 		}
 	})
 	t.Run("existing-spool", func(t *testing.T) {
-		knownBug(t, "disk-full", "an article whose .art file could not be written is kept cut off")
 		e := newEnv(t)
 		e.Extra += "History on\n"
 		fullArticles(e)
@@ -164,17 +157,31 @@ func TestSpoolFileSizeLimit(t *testing.T) {
 
 // TestSpoolDiskFull: the spool is a tmpfs of a few hundred kB that fills
 // up during the session (in a user namespace; skipped where the system
-// does not allow one). The group database is grown with ftruncate and
-// written through mmap, so a full disk ended with SIGBUS.
+// does not allow one). The databases were grown with ftruncate and
+// written through mmap, so a full disk ended with SIGBUS (with History
+// on already at its first shard). Now there are errors where nothing
+// fits (128 kB), no history (512 kB), or articles served but not kept
+// (192 kB without History: the group database fits, not every .art file;
+// a first session in the same spool reads the articles, and the session
+// tested must not get them cut off from the spool).
 func TestSpoolDiskFull(t *testing.T) {
 	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
 		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
 	}
-	for _, kb := range []int{128, 256, 512} {
-		t.Run(fmt.Sprint(kb), func(t *testing.T) {
-			knownBug(t, "disk-full", "a full spool ends with SIGBUS")
+	for _, tc := range []struct {
+		kb      int
+		history bool
+		first   string // commands of a first session in the same spool
+	}{
+		{128, true, ""},
+		{512, true, ""},
+		{192, false, `GROUP test.alpha\r\nARTICLE 4\r\nARTICLE 5\r\nARTICLE 6\r\nARTICLE 7\r\nARTICLE 8\r\nQUIT\r\n`},
+	} {
+		t.Run(fmt.Sprintf("%dk-history-%v", tc.kb, tc.history), func(t *testing.T) {
 			e := newEnv(t)
-			e.Extra += "History on\n"
+			if tc.history {
+				e.Extra += "History on\n"
+			}
 			fullArticles(e)
 			limitedSession(t, e, func(o *proc.Options) {
 				// newscache runs as root of the namespace: no Username
@@ -192,11 +199,200 @@ func TestSpoolDiskFull(t *testing.T) {
 				if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
 					t.Fatal(err)
 				}
+				o.Env = append(o.Env, "FIRST="+tc.first)
 				o.Args = append([]string{"-rm", "/bin/sh", "-c",
-					fmt.Sprintf(`mount -t tmpfs -o size=%dk tmpfs "$0" || exit 99; exec "$@"`, kb),
+					fmt.Sprintf(`mount -t tmpfs -o size=%dk tmpfs "$0" || exit 99
+[ -z "$FIRST" ] || printf "$FIRST" | "$@" >/dev/null 2>&1
+exec "$@"`, tc.kb),
 					e.Spool, o.Path}, o.Args...)
 				o.Path = "unshare"
 			}, spoolCmds...)
 		})
+	}
+}
+
+// TestSpoolDiskFullDaemon: the daemon on a nearly full spool (tmpfs in a
+// user namespace), History on. Client 1 reads the active list of an
+// upstream with 3000 groups and the overview of a group of 20000
+// articles, so the group database and the history shards grow until the
+// disk is full; then 2000 new groups make the active list grow; client 1
+// stays connected. Client 2 (its
+// own session process) must still be answered: a lock left held by
+// client 1's session after the error (the flock of .active64, a group
+// database or a history shard) kept every other session waiting. After
+// the daemon stops, the spool must not be damaged: no .bad files, and
+// newscacheclean runs through.
+func TestSpoolDiskFullDaemon(t *testing.T) {
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
+	}
+	clean := filepath.Join(filepath.Dir(binPath(t)), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to the newscache binary")
+	}
+	// the history shards take about 9 MB: the sizes leave a little for
+	// the active list and the group databases
+	for _, kb := range []int{9600, 10400} {
+		t.Run(fmt.Sprintf("%dk", kb), func(t *testing.T) { testDiskFullDaemon(t, kb, clean) })
+	}
+}
+
+func testDiskFullDaemon(t *testing.T, kb int, clean string) {
+	e := newEnv(t)
+	// Timeouts: the active list is due again after a second
+	e.Extra += "History on\nTimeouts 1 3600\n"
+	e.MaxConnections = 4
+	for i := 0; i < 3000; i++ {
+		e.Store.AddGroup(fmt.Sprintf("test.many.group-with-a-longer-name.%04d", i), "")
+	}
+	e.Store.AddGenerated(hugeGroup, "", fakeserver.Generator{Low: 1, High: 20000})
+	out := filepath.Join(e.Dir, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.writeConf()
+	o := e.procOpts("-n")
+	// newscache runs as root of the namespace: no Username and Groupname
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The tmpfs lives as long as the namespace: the shell keeps it, and
+	// when it is stopped it checks the spool before it ends.
+	script := fmt.Sprintf(`mount -t tmpfs -o size=%dk tmpfs "$SPOOL" || exit 99
+"$@" & pid=$!
+trap 'kill $pid; wait $pid
+find "$SPOOL" -name "*.bad" > "$OUT/bad.txt"
+"$CLEAN" -c "$CONF" > "$OUT/clean.txt" 2>&1; echo $? > "$OUT/clean.rc"
+exit 0' TERM
+wait $pid`, kb)
+	o.Env = append(o.Env, "SPOOL="+e.Spool, "OUT="+out, "CLEAN="+clean, "CONF="+e.Conf)
+	o.Args = append([]string{"-rm", "/bin/sh", "-c", script, "nc", o.Path}, o.Args...)
+	o.Path = "unshare"
+	p := proc.StartTCP(t, o, e.Listen)
+
+	// each reply must arrive within 60 s (the deadline of the conn, for a
+	// whole dot block: a -race client on a slow machine needs some for
+	// 20000 records); a lock left held makes a session wait for good
+	run := func(name string, c *client.Conn, cmds ...string) {
+		for _, cmd := range cmds {
+			code, line, err := c.TryCmd("%s", cmd)
+			if err != nil {
+				t.Fatalf("%s: %s: no reply within 60s (%v)", name, cmd, err)
+			}
+			if strings.HasPrefix(cmd, "ARTICLE") && code != 220 {
+				t.Errorf("%s: %s: %q, want the article (passed on when it can't be kept)", name, cmd, line)
+			}
+			if code == 215 || code == 224 || code == 220 || code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+				lines, err := c.TryReadDotLines()
+				if err != nil {
+					t.Fatalf("%s: %s: %v", name, cmd, err)
+				}
+				var a, b int
+				if n, _ := fmt.Sscanf(cmd, "XOVER %d-%d", &a, &b); n == 2 && len(lines) != b-a+1 {
+					t.Errorf("%s: %s: %d records, want %d (passed on when they can't be kept)", name, cmd, len(lines), b-a+1)
+				}
+			}
+			t.Logf("%s: %s -> %.60s", name, cmd, line)
+		}
+	}
+	session := func(name string, keep bool, cmds ...string) *client.Conn {
+		c, err := client.TryDial(e.Listen, 60*time.Second)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		c = c.WithTB(t)
+		run(name, c, cmds...)
+		if !keep {
+			c.TryCmd("QUIT")
+			c.Close()
+		}
+		return c
+	}
+	c1 := session("client 1", true, "LIST", "GROUP "+hugeGroup, "XOVER 1-20000",
+		"ARTICLE 19999")
+	// the disk is full now: new groups make the active list grow
+	for i := 0; i < 2000; i++ {
+		e.Store.AddGroup(fmt.Sprintf("test.more.group-with-a-longer-name.%04d", i), "")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	run("client 1", c1, "LIST")
+	session("client 2", false, "LIST ACTIVE test.many.*.000?", "GROUP "+hugeGroup,
+		"XOVER 1-100", "ARTICLE 50", "ARTICLE "+hugeID(60), "XOVER 19990-20000")
+	for _, cmd := range []string{"GROUP " + hugeGroup, "XOVER 1-10"} {
+		if code, line, err := c1.TryCmd("%s", cmd); err != nil {
+			t.Fatalf("client 1 afterwards: %s: %v", cmd, err)
+		} else if code == 224 {
+			c1.TryReadDotLines()
+		} else {
+			t.Logf("client 1 afterwards: %s -> %q", cmd, line)
+		}
+	}
+	c1.TryCmd("QUIT")
+	c1.Close()
+	p.Stop()
+
+	if bad, err := os.ReadFile(filepath.Join(out, "bad.txt")); err != nil {
+		t.Errorf("the spool was not checked: %v", err)
+	} else if s := strings.TrimSpace(string(bad)); s != "" {
+		t.Errorf("damaged databases moved aside:\n%s", s)
+	}
+	if rc, err := os.ReadFile(filepath.Join(out, "clean.rc")); err != nil || strings.TrimSpace(string(rc)) != "0" {
+		msg, _ := os.ReadFile(filepath.Join(out, "clean.txt"))
+		t.Errorf("newscacheclean: exit %q (%v)\n%s", rc, err, msg)
+	}
+	if lf, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil {
+		full := strings.Contains(string(lf), "cannot grow the file") ||
+			strings.Contains(string(lf), "cannot create the file") ||
+			strings.Contains(string(lf), "cannot store article")
+		t.Logf("disk full reached: %v", full)
+		if strings.Contains(string(lf), "damaged") {
+			t.Errorf("the log reports a damaged database")
+		}
+	}
+}
+
+// TestSpoolEmptyArticleFile: the .art file of an article over 15 kB is
+// empty (written by an older version on a full disk, or a crash). It was
+// served as an article without anything ("503 internal error"); now the
+// article comes from the news server again and the file is written anew.
+// The same for a file NewsCache can't open.
+func TestSpoolEmptyArticleFile(t *testing.T) {
+	e := newEnv(t)
+	fullArticles(e)
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	for _, n := range []int{4, 5} {
+		if code, line := c.Cmd("ARTICLE %d", n); code != 220 {
+			t.Fatalf("ARTICLE %d: %q", n, line)
+		}
+		c.ReadDotLines()
+	}
+	c.Cmd("QUIT")
+	dir := filepath.Join(e.Spool, "test", "alpha")
+	if err := os.Truncate(filepath.Join(dir, ".art4"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getuid() != 0 { // root opens it anyway
+		if err := os.Chmod(filepath.Join(dir, ".art5"), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := e.Upstream.Count("ARTICLE")
+	wholeArticles(t, e)
+	if n := e.Upstream.Count("ARTICLE") - before; n < 1 {
+		t.Errorf("upstream got %d ARTICLE, want article 4 fetched again", n)
+	}
+	if st, err := os.Stat(filepath.Join(dir, ".art4")); err != nil || st.Size() == 0 {
+		t.Errorf(".art4 after the refetch: %v, size %v", err, st)
 	}
 }

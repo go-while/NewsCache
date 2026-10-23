@@ -87,7 +87,7 @@ NVHash::NVHash(const char *dbname, unsigned long hashsz, int flags)
 
 void NVHash::create_table(unsigned long n)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);
 	// The file may have a table already: one another process made
 	// (after corrupt(), several processes start on the same new file).
 	load_table();
@@ -101,7 +101,6 @@ void NVHash::create_table(unsigned long n)
 		for (i = 0; i < hashsz; i++)
 			hashtab[i] = 0;
 	}
-	lock(UnLock);
 }
 
 // corrupt() started a new file: it needs its table
@@ -123,9 +122,8 @@ void NVHash::open(const char *dbname, unsigned long nhashsz, int flags)
 
 void NVHash::clear(void)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);
 	sclear();
-	lock(UnLock);
 }
 
 int NVHash::is_empty(void)
@@ -139,9 +137,8 @@ int NVHash::is_empty(void)
 
 void NVHash::add(unsigned long h, const char *data, size_t szdata)
 {
-	lock(ExclLock);
+	NVLock guard(*this, ExclLock);	// (sadd allocates: may throw)
 	sadd(h, data, szdata);
-	lock(UnLock);
 }
 
 void NVHash::print(ostream & os)

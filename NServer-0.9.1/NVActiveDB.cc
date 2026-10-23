@@ -196,8 +196,13 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 	GroupInfo gd;
 	string line;
 	time_t now;
+	// No space for a group (disk full): the rest of the list is read
+	// all the same, so the connection to the news server stays in step,
+	// and the error is thrown at the end.
+	bool failed = false;
+	SystemError err;
 
-	lock(NVcontainer::ExclLock);
+	NVLock guard(*this, NVcontainer::ExclLock);
 	if (flags & F_CLEAR)
 		clear();
 	while (!is.eof()) {
@@ -223,12 +228,21 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 			}
 			if (flags & F_STORE_READONLY)
 				gd.setflag('n');
-			sset(gd);
+			if (failed)
+				continue;
+			try {
+				sset(gd);
+			}
+			catch(const SystemError & e) {
+				failed = true;
+				err = e;
+			}
 		}
 	}
+	if (failed)
+		throw err;
 	time(&now);
 	setmtime(now);
-	lock(NVcontainer::UnLock);
 }
 
 namespace {
