@@ -121,7 +121,10 @@ CI, not yet by the systematic review.
 Known, not fixed yet. Each one needs a `fix/<topic>` branch, or a decision
 that it stays as it is.
 
-None at the moment.
+| Point | Area | Found by | Test |
+|---|---|---|---|
+| A group moved to another server (`Read` patterns changed) that numbers it so that the numbers overlap the old ones: the articles and overview records cached from the old server are served under the new server's numbers, next to the new server's (XOVER mixes both, ARTICLE n can be the old server's article). The spool doesn't record which server a group's data came from. Options: keep the server (host and port) in the group database's sync header and drop the group's cache when it changes (a format change of the header), or document that the group's spool directory must be removed after such a move | 7, 9 | e2e tests (nntp-testkit 0.5.0, two servers) | `TestUpstreamMovedToOtherServer/numbers-overlap` (known bug `moved-group`) |
+| A full spool: the group databases are grown with `ftruncate` (sparse) and written through `mmap`, so a write into the new part on a full disk ends with SIGBUS; an article whose `.art` file could not be written completely (ENOSPC, EFBIG) is kept cut off and served so from then on | 9 | e2e tests (tmpfs in a user namespace; ulimit -f) | `TestSpoolDiskFull`, `TestSpoolFileSizeLimit/existing-spool` (known bug `disk-full`) |
 
 ## CodeQL dismissals
 
