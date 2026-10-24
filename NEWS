@@ -17,6 +17,9 @@ Documentation:
   (Fedora's packaging checks flag the old address). The license is
   unchanged: GPL version 2 or later.
 
+Other changes:
+* The end-to-end tests use nntp-testkit 0.7.0 (still Go 1.26 or later).
+
 Release 1.3.22:
 Billy G. - 2026-10-23
 
