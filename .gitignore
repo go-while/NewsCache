@@ -1,0 +1,2 @@
+# Local credentials (VM and host logins); never commit them.
+/creds/
