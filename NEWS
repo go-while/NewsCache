@@ -1,5 +1,10 @@
 Unreleased:
 
+Bug fixes:
+* ./autogen stops with an error when autoreconf fails (autoconf, automake
+  or libtool missing). It used to say "Next run ./configure" anyway, and
+  the build failed one step later because there was no configure script.
+
 Documentation:
 * The sample newscache.conf-dist works as /etc/newscache.conf as it is,
   for packages: Admin (shown by HELP) is root@localhost instead of the
