@@ -9,7 +9,10 @@ if [ -f Makefile ]; then
 fi
 
 echo "autoreconf..."
-autoreconf -i
+if ! autoreconf -i; then
+	echo "autogen: autoreconf failed (are autoconf, automake and libtool installed?)" >&2
+	exit 1
+fi
 
 echo "Next run ./configure"
 echo "Next run make"
