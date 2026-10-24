@@ -1,6 +1,14 @@
 Unreleased:
 
 Documentation:
+* The sample newscache.conf-dist works as /etc/newscache.conf as it is,
+  for packages: Admin (shown by HELP) is root@localhost instead of the
+  original author's address of 1997, PidFile is /run/newscache.pid,
+  LogDirectory /var/log/newscache, and PrefetchFile and the NoServer
+  entry are commented out. The NoServer entry made fido*, maus.* and
+  z-netz.* (about 3500 groups at news.blueworldhosting.com) answer "411
+  no such news group". The comment on PrefetchFile said the daemon
+  prefetches when a group is read; only updatenews does.
 * COPYING is the current text of the GPL version 2 from gnu.org, and the
   license notices in README, COPYRIGHT and the sources point to
   https://www.gnu.org/licenses/ instead of the FSF's old postal address

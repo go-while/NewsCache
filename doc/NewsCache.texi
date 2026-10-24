@@ -247,7 +247,7 @@ port number prepended by the @code{#}-sign.
 @example
 ServerType standalone
 CachePort nntp
-PidFile /var/run/NewsCache.pid
+PidFile /run/newscache.pid
 @end example
 
 @cdindex MaxConnections
@@ -394,7 +394,7 @@ The file that lists all those newsgroups that have to be prefetched is
 set by the @code{PrefetchFile}-directive.
 
 @example
-PrefetchFile /lhome/newscache/etc/prefetch
+PrefetchFile /etc/newscache.prefetch
 @end example
 
 @cindex prefetch file

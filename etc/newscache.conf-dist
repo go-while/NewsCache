@@ -15,10 +15,12 @@ ConfigVersion 5
 ServerType standalone
 
 # If you are running in standalone mode, you should specify the
-# location of the pid file (not needed under systemd). NewsCache
+# location of the pid file. Under systemd it is not needed when the
+# service runs "newscache -n" (in the foreground); a service of
+# Type=forking needs it, with the same path in PIDFile=. NewsCache
 # removes it when it stops; for that, its directory must be writable
 # for Username, otherwise the file is only emptied.
-PidFile /var/run/newscache.pid
+PidFile /run/newscache.pid
 
 # The Address, where NewsCache is listening, if running in
 # standalone mode.  
@@ -70,8 +72,9 @@ NiceClean 3
 Username news
 Groupname news
 
-# Put in here the local newscache administrator
-Admin tom@infosys.tuwien.ac.at
+# Put in here the local newscache administrator. HELP shows it to
+# clients: "Report problems to ...".
+Admin root@localhost
 
 ################################################################
 ## Client-access configuration 
@@ -284,10 +287,11 @@ NewsServerList {
   #  Password secret
   #  Options ssl
   #}
-  NoServer {
-    Read au.*,z-netz.*,maus.*,fido*
-    PostTo au.*
-  }
+  # Groups that no server should be asked for, and no postings sent to:
+  #NoServer {
+  #  Read alt.binaries.*
+  #  PostTo alt.binaries.*
+  #}
 }
 
 ################################################################
@@ -330,9 +334,11 @@ SpoolDirectory /var/cache/newscache
 SpoolSize 3300000
 
 # All the log files go here, if syslogd is not being used. This
-# depends on how NewsCache has been configured. By default,
-# NewsCache uses syslogd.
-LogDirectory /home/services/newscache/log
+# depends on how NewsCache has been configured: by default it logs to
+# syslog and ignores LogDirectory; built with --without-syslog, it
+# writes newscache.log here (the directory must be writable for
+# Username).
+LogDirectory /var/log/newscache
 
 # Log Style
 # All combination of these options are valid:
@@ -348,9 +354,10 @@ LogStyle hostname ip-address
 ################################################################
 ## Prefetching
 ################################################################
-# Each newsgroup listed in this file will be prefetched, 
-# whenever one of its articles is read by a user or whenever 
-# updatenews is executed. One group per line; a line may also be a
-# wildmat pattern (de.*) or !pattern to leave groups out. Lines
-# starting with # are skipped.
-PrefetchFile /home/services/newscache/etc/prefetch
+# The newsgroups listed in this file are prefetched when updatenews
+# runs with -g (articles) or -o (overview), for example from cron or
+# a systemd timer; the daemon itself doesn't read the file. One group
+# per line; a line may also be a wildmat pattern (de.*) or !pattern to
+# leave groups out. Lines starting with # are skipped. Without
+# PrefetchFile, updatenews only refreshes the active database.
+#PrefetchFile /etc/newscache.prefetch

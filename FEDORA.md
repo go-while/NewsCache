@@ -110,10 +110,11 @@ If a `news` user already exists, for example from an earlier install,
 
 ### Config
 
-`/etc/newscache.conf-dist` documents every option, but it uses example
-servers, host names and paths, so it doesn't run as it is. A minimal
-`/etc/newscache.conf` with one upstream server. It lets nobody read or post
-yet; see "Letting clients in" below:
+`/etc/newscache.conf-dist` documents every option and works as it is:
+copied to `/etc/newscache.conf`, it reads from news.blueworldhosting.com
+over TLS and lets nobody read or post yet (packages can install it this
+way). The same in a minimal `/etc/newscache.conf`; see "Letting clients
+in" below:
 
 ```
 ConfigVersion 5
