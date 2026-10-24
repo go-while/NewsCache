@@ -619,6 +619,23 @@ int check_auth_unix (ClientData *clt)
 	return 0;
 }
 
+/*
+ * Adds the rights of an auth-file line to the entry. fields points to the
+ * List field; then come Read, PostTo and the allow flags. The array ends
+ * with NULL, and missing fields add nothing.
+ */
+static void add_auth_line_rights(AccessEntry *access_entry, char **fields)
+{
+	const char *f[4] = { "", "", "", "" };
+
+	for (int i = 0; i < 4 && fields[i]; i++)
+		f[i] = fields[i];
+	access_entry->list |= NewsgroupFilter(f[0]);
+	access_entry->read |= NewsgroupFilter(f[1]);
+	access_entry->postTo |= NewsgroupFilter(f[2]);
+	access_entry->modifyAccessFlags(f[3]);
+}
+
 int check_auth_file (ClientData *clt)
 {
 	AccessEntry *access_entry = clt->access_entry;
@@ -657,17 +674,7 @@ int check_auth_file (ClientData *clt)
 	for (authc=2; authv[authc]; authc++) {
 		access_entry->authentication.appendField(authv[authc]);
 	}
-	access_entry->list |= NewsgroupFilter(
-			(access_entry->authentication.getField(2))
-			.c_str());
-	access_entry->read |= NewsgroupFilter(
-			(access_entry->authentication.getField(3))
-			.c_str());
-	access_entry->postTo |= NewsgroupFilter(
-			(access_entry->authentication.getField(4)).
-			c_str());
-	access_entry->modifyAccessFlags (access_entry->authentication.
-			getField(5));
+	add_auth_line_rights(access_entry, authv + 2);
 	slog.p(Logger::Debug) << "check_auth_file::NewsgroupFilter set to: "
 		<< access_entry->list.getRulelist() << ":"
 		<< access_entry->read.getRulelist() << ":"
@@ -734,73 +741,50 @@ int check_auth_pam_file (ClientData *clt)
 	if (check_pam_user_pass (clt))
 		return -1;
 
-	Authentication userAuth, defAuth;
 	string authfile = access_entry->authentication.getField(1);
-	char **authv = seekfile(authfile.c_str(), clt->auth_user);
-	if (authv == NULL)
-		return -1;
+	char **authv;
+	int found = 0;
 
-	int authc, j;
-	struct group *dummy_group;
-	char group_entry[1024];
-
-	userAuth.set (type+authfile);
-	for (authc=1; authv[authc]; authc++) {
-		userAuth.appendField (authv[authc]);
+	// The rights of every line that applies are added: the line "*"
+	// (all users), the lines "@group" of the user's supplementary
+	// groups, and the user's own line, in that order, so that a "!flag"
+	// in the user's own line can still remove a right. Each line is
+	// added on its own; the fields used to be joined as strings, without
+	// a comma ("at.test" and "de.*" gave "at.testde.*", "post" twice
+	// "postpost"), and lines of different lengths lost fields. A user
+	// without a line of their own gets the rights of "*" and of their
+	// groups; if no line applies at all, the login is refused.
+	if ((authv = seekfile(authfile.c_str(), "*")) != NULL) {
+		add_auth_line_rights(access_entry, authv + 1);
+		found = 1;
 	}
-
-	/* apply rights of user '*' to everyone :) */
-	authv = seekfile(authfile.c_str(), "*");
-	if (authv != NULL) {
-		defAuth.set (type+authfile);
-		for (authc=1; authv[authc]; authc++)
-			defAuth.appendField (authv[authc]);
-	}
-
-	/* Gather rights given to user supplementary groups */
-	vector<Authentication> groupAuths;
+	struct group *gr;
 	setgrent();
-	while ((dummy_group = getgrent()) != NULL) {
-		for (j = 0; dummy_group->gr_mem[j]; j++) {
-			if (!strcmp (dummy_group->gr_mem[j], clt->auth_user)) {
-				group_entry[0] = '@';
-				strcpy(group_entry + 1,
-				       dummy_group->gr_name);
+	while ((gr = getgrent()) != NULL) {
+		for (int j = 0; gr->gr_mem[j]; j++) {
+			if (!strcmp(gr->gr_mem[j], clt->auth_user)) {
+				string group_entry = string("@") + gr->gr_name;
 				authv = seekfile(authfile.c_str(),
-					     group_entry);
+						 group_entry.c_str());
 				if (authv != NULL) {
-					Authentication a;
-					a.set(type+authfile);
-					for (authc = 1; authv[authc]; authc++) {
-						a.appendField(authv[authc]);
-					}
-					groupAuths.push_back(a);
+					add_auth_line_rights(access_entry,
+							     authv + 1);
+					found = 1;
 				}
 				break;
 			}
 		}
 	}
-	// Now assemble the various authentication informations.
-	access_entry->authentication = userAuth;
-	access_entry->authentication.modify (2, defAuth);
-	vector<Authentication>::iterator ap, ae;
-	ap = groupAuths.begin();
-	ae = groupAuths.end();
-	for (; ap!=ae; ap++) {
-		access_entry->authentication.modify (2, *ap);
+	endgrent();
+	if ((authv = seekfile(authfile.c_str(), clt->auth_user)) != NULL) {
+		add_auth_line_rights(access_entry, authv + 1);
+		found = 1;
 	}
-	// and set the new access_entry values
-	access_entry->list |= NewsgroupFilter(
-			(access_entry->authentication.getField(2))
-			.c_str());
-	access_entry->read |= NewsgroupFilter(
-			(access_entry->authentication.getField(3))
-			.c_str());
-	access_entry->postTo |= NewsgroupFilter(
-			(access_entry->authentication.getField(4)).
-			c_str());
-	access_entry->modifyAccessFlags (access_entry->authentication.
-			getField(5));
+	if (!found) {
+		slog.p(Logger::Notice) << "pam+file: no line in " << authfile
+		    << " applies to " << clt->auth_user << "\n";
+		return -1;
+	}
 	slog.p(Logger::Debug) << "check_auth_pam_file::NewsgroupFilter set to: "
 		<< access_entry->list.getRulelist() << ":"
 		<< access_entry->read.getRulelist() << ":"

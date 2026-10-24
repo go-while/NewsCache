@@ -73,15 +73,6 @@ class Authentication {
 	void modifyField (unsigned int nr, const char *v);
 
 	/*
-	 * Modify the current object with the source.
-	 * Walk through the lists and append each 
-	 * destination field, with the source field.
-	 * \param start start with element nr start
-	 * \param source of modify operation
-	 */
-	void modify (unsigned int start, Authentication &source);
-
-	/*
 	 * Append the next field with the value.
 	 * \param v value
 	 */

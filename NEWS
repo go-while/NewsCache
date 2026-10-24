@@ -1,6 +1,15 @@
 Unreleased:
 
 Bug fixes:
+* "Authentication pam+file": the rights of the lines that apply to a user
+  (the user's own line, the lines @group of their groups, and the line *)
+  were joined as strings without a comma, so "at.test" and "us.*" became
+  "at.testus.*" and "post" twice "postpost": with the manual's example the
+  user lost every group and the post right, and "*" plus "!alt.*" became
+  "*!alt.*". The rights of each line are now added on their own. A user
+  without a line of their own now gets the rights of "*" and of their
+  groups, as the manual says; if no line applies, the login is refused as
+  before.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.

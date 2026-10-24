@@ -239,7 +239,7 @@ hugo:at.test:at.test:at.test:post
 @mygroup:de.*:de.*:de.*:post
 *:us.*:us.*::
 .fi
-This mean, that after a succussfully authentication process, the user hugo can list at.test, read at.test, postto at.test and allow the use of post command. If the account is member of the group mygroup additionally allow list de.* read de.* and postto de.*, also allowing the use of the post command. * means, that all users can list us.* and read us.* newsgroups.
+The fields are List, Read, PostTo and the allow flags, as in the file: format but without the password. After PAM has accepted the password, the rights of every line that applies are added to those of the entry: the line *, the lines @group of the groups the user is a member of (supplementary groups, as listed in the group database), and the user's own line, in that order. In the example, hugo can list, read and post to at.test and use the post command; if hugo is a member of mygroup, de.* is added; and every user, hugo included, can list and read us.*. A user without a line of their own gets the rights of * and of their groups. If no line applies, the login is refused.
 
 .IP "PAMServicename name-of-service"
 This parameter specifiy the name of the PAM Service. The default is newscache. You can use different PAM settings for each Client network. For further explanation of PAM see the System administrators PAM Guide. This Guide can be downloaded from http://www.kernel.org/pub/linux/libs/pam/pre/doc/
