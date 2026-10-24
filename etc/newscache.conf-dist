@@ -261,7 +261,8 @@ AccessList {
 #   news.blueworldhosting.com            reading and posting, no account
 #   archive.usenet.blueworldhosting.com  old articles, read only
 #   news.eternal-september.org           needs a free account (User/Password)
-#   news-ams.pugleaf.net and the others listed at https://pugleaf.net/
+#   news-ams.pugleaf.net, news-can, news-fra, news-lax, news-lon, news-sfo,
+#   news-sin, news-tyo, news-wdc (.pugleaf.net; https://pugleaf.net/)
 #                                        text-only, read only
 NewsServerList {
   Server news.blueworldhosting.com 563 {
@@ -275,6 +276,20 @@ NewsServerList {
     # Options ssl offline not-setpostflag
     # Commands not-over
   }
+  # If several entries read the same groups (Read * here), the first one is
+  # used. To read from one of these instead, put it in place of the entry
+  # above. A pugleaf.net server near you, read only, text groups:
+  #Server news-fra.pugleaf.net 563 {
+  #  Read *
+  #  PostTo !*
+  #  Options ssl
+  #}
+  # Old articles, read only:
+  #Server archive.usenet.blueworldhosting.com 563 {
+  #  Read *
+  #  PostTo !*
+  #  Options ssl
+  #}
   # The groups eternal-september.* come from eternal-september.org, which
   # needs a (free) account. For each group NewsCache uses the server whose
   # Read pattern matches it most specifically, so eternal-september.* wins

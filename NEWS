@@ -8,7 +8,9 @@ Documentation:
   entry are commented out. The NoServer entry made fido*, maus.* and
   z-netz.* (about 3500 groups at news.blueworldhosting.com) answer "411
   no such news group". The comment on PrefetchFile said the daemon
-  prefetches when a group is read; only updatenews does.
+  prefetches when a group is read; only updatenews does. Commented-out
+  Server entries show news-fra.pugleaf.net (one of nine read-only text
+  servers) and archive.usenet.blueworldhosting.com (old articles).
 * COPYING is the current text of the GPL version 2 from gnu.org, and the
   license notices in README, COPYRIGHT and the sources point to
   https://www.gnu.org/licenses/ instead of the FSF's old postal address
