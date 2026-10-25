@@ -68,6 +68,10 @@ Bug fixes:
   SIGPIPE, from a write to a connection the server had closed, ended the
   prefetch after the current group as if updatenews had been stopped;
   it is ignored now, as in newscache.
+* updatenews -w (--workers) always failed with the usage text, so it
+  neither posted nor prefetched anything. The option is now accepted
+  and ignored: groups are prefetched one at a time. --lock-groups, as
+  the usage text spells it, works too.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

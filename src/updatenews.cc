@@ -312,11 +312,11 @@ void update(void)
 "       -o --over\n"\
 "              Prefetch overview database.\n"\
 "\n"\
-"       -l --lock-groups\n"\
+"       -l --lock-group\n"\
 "              Lock newsgroup, when prefetching.\n"\
 "\n"\
-"       -w --workers\n"\
-"              Prefetch # newsgroups at once.\n"\
+"       -w --workers #\n"\
+"              Ignored (accepted for old command lines).\n"\
 
 int main(int argc, char **argv)
 {
@@ -327,6 +327,7 @@ int main(int argc, char **argv)
 #endif
 	char conffile[MAXPATHLEN];
 	int opt_flagsset = 0;
+	int workers_ignored = 0;
 	int c, aerr = 0;
 
 	snprintf(conffile, sizeof(conffile), "%s/newscache.conf", SYSCONFDIR);
@@ -342,6 +343,7 @@ int main(int argc, char **argv)
 			{"group", 0, 0, 'g'},
 			{"over", 0, 0, 'o'},
 			{"lock-group", 0, 0, 'l'},
+			{"lock-groups", 0, 0, 'l'},	// as the usage said
 			{"workers", 1, 0, 'w'},
 			{"configuration", 1, 0, 'c'},
 			{0, 0, 0, 0}
@@ -385,6 +387,19 @@ int main(int argc, char **argv)
 			case 'l':
 				opt_flags |= F_PREFETCH_LOCKGROUP;
 				opt_flagsset = 1;
+				break;
+
+			case 'w':
+				// accepted, so old command lines work, but ignored:
+				// the workers would share one upstream connection
+				// and the parent doesn't wait for them
+				if (strspn(optarg, "0123456789") != strlen(optarg) ||
+				    !*optarg) {
+					cerr << cmnd << ": -w needs a number\n";
+					aerr = 1;
+				} else {
+					workers_ignored = 1;
+				}
 				break;
 
 			case 'c':
@@ -477,6 +492,9 @@ int main(int argc, char **argv)
 	}
 	slog.open (logfile);
 #endif
+	if (workers_ignored)
+		slog.p(Logger::Notice) << "-w ignored, prefetching one group "
+		    "at a time\n";
 
 	// Check the queue in each server-directory and send it off to the 
 	// news server

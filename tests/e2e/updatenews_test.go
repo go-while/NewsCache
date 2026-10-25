@@ -450,3 +450,37 @@ func TestUpdatenewsConnectTimeout(t *testing.T) {
 	}
 	t.Logf("updatenews -a gave up after %v", time.Since(start).Round(100*time.Millisecond))
 }
+
+// TestUpdatenewsWorkersOption: -w N and --workers=N (in the man page and the
+// usage text) are accepted, and --lock-groups as the usage text spelled it.
+// -w was never handled: updatenews printed the usage and exited 1 without
+// doing anything. It is ignored; the groups are prefetched one at a time.
+func TestUpdatenewsWorkersOption(t *testing.T) {
+	for _, args := range [][]string{{"-w", "2", "-o"}, {"--workers=2", "-o"}, {"-o", "--lock-groups"}, {"-o", "--lock-group"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e := newEnv(t)
+			for _, g := range []string{"de.test", "at.test"} {
+				e.Store.AddGroup(g, g)
+				e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+			}
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte("de.test\nat.test\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+			out, err := exec.Command(updatenewsBin(t, e), append([]string{"-c", e.Conf}, args...)...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews %v: %v\n%s", args, err, out)
+			}
+			if got := prefetched(e); strings.Join(got, " ") != "de.test at.test" {
+				t.Errorf("updatenews %v prefetched %q, want [de.test at.test]", args, got)
+			}
+		})
+	}
+	e := newEnv(t)
+	e.writeConf()
+	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-w", "x").CombinedOutput(); err == nil {
+		t.Errorf("updatenews -w x: accepted\n%s", out)
+	}
+}
