@@ -253,6 +253,13 @@ class RServer:virtual public NServer {
 	void authenticate();
 
 	/**
+	* Reads an article's text after a 220 reply.
+	* \throw SystemError If the server closed the connection before the
+	* 	final "." (the connection is closed then).
+	*/
+	void readarticle(Article * art);
+
+	/**
 	* One OVER (or XOVER) request for [fst,lst]: stores the records in
 	* ng and returns the highest article number among them, 0 when
 	* there were none. Throws like overviewdb.

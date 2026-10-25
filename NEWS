@@ -22,6 +22,11 @@ Bug fixes:
   servers) made the first command of every session fail ("411 no such
   news group"). NewsCache now uses the standard overview format then, as
   it was meant to.
+* An article that the upstream server cut off (the connection closed in
+  the middle) was served as if complete and kept in the spool for good,
+  so every later reader got the cut copy. The client now gets an error
+  and the article is fetched again next time; a cut-off overview range
+  or active list isn't taken as complete either.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
