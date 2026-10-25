@@ -194,6 +194,8 @@ Bug fixes:
   And a Username or Groupname that doesn't exist was reported only on
   that closed standard error: the daemon stopped at once without a word
   in the log. Such errors are logged now too.
+* Started as root without Username, NewsCache and every client session
+  kept running as root without a word. It now logs a warning.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came

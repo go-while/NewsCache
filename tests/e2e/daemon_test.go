@@ -297,6 +297,39 @@ func TestDaemonDetached(t *testing.T) {
 	})
 }
 
+// TestNoUsernameWarning: started as root without Username, the daemon
+// and every session (which parse client input) kept running as root, and
+// nothing said so. It still does, but logs a warning.
+func TestNoUsernameWarning(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root")
+	}
+	e := newEnv(t)
+	e.writeConf()
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := proc.StartTCP(t, e.procOpts("-n"), e.Listen)
+	c := e.dial()
+	c.Cmd("QUIT")
+	c.Close()
+	p.Signal(syscall.SIGTERM)
+	p.Wait()
+	if log := e.logFile(); !strings.Contains(log, "no Username in the config: running as root") {
+		t.Errorf("no warning about running as root in the log:\n%s", log)
+	}
+}
+
 // freePort returns a free TCP port on 127.0.0.1.
 func freePort(t *testing.T) string {
 	t.Helper()

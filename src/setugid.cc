@@ -83,6 +83,11 @@ void setugid(const char *uname, const char *gname)
 		fail(string("Cannot set effective userid to ") + id + ": " +
 		     err);
 	}
+	// Without Username everything stays root: the sessions that parse
+	// client input, PAM, the upstream TLS. Said nowhere before.
+	if (!have_uid && geteuid() == 0)
+		slog.p(Logger::Warning) << "no Username in the config: "
+		    "running as root\n";
 }
 
 /*
