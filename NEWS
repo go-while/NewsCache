@@ -30,6 +30,10 @@ Bug fixes:
 * Malformed wildmat patterns from a client (XPAT, LIST ACTIVE), such as
   "a[b-" or a trailing backslash, were read past their end; they now
   match nothing.
+* NEWGROUPS took a time given in GMT as local time on Linux, and used
+  the daylight saving state of the current day instead of the given
+  one, so it listed groups from the wrong time window (off by the UTC
+  offset, or an hour).
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

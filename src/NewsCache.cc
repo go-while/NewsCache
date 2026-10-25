@@ -1952,6 +1952,8 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	int i, y4, is_gmt = 0;
 	struct tm ltm;
 	time_t lt;
+
+	memset(&ltm, 0, sizeof(ltm));
 	char *p;
 
 	// check first two arguments, y4 indicates whether year has 4 digits
@@ -2011,32 +2013,19 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	p += 2;
 	ltm.tm_sec = DD2INT(p);
 
-#ifdef HAVE_TZNAME
-	ltm.tm_isdst = daylight;
-
-	lt = mktime(&ltm);
-	if (lt == -1)
-		goto ns_newgroups_error;
-
-	// correct timezone if time/date is given in GMT
+	// The instant of the given date and time: in UTC with timegm, or in
+	// local time with mktime, which decides DST for that date. The DST
+	// flag used to be forced (from "daylight", or from the current time)
+	// and, on glibc (no HAVE_TZNAME), "GMT" wasn't applied at all: the
+	// time was off by the UTC offset, or by an hour across DST.
 	if (is_gmt) {
-		lt -= timezone;
+		lt = timegm(&ltm);
+	} else {
+		ltm.tm_isdst = -1;
+		lt = mktime(&ltm);
 	}
-#else
-	struct tm *plt, pltbuf;
-
-	time(&lt);
-	plt = localtime_r(&lt, &pltbuf);
-	if (plt == NULL)
-		goto ns_newgroups_error;
-
-	ltm.tm_isdst = plt->tm_isdst;
-	ltm.tm_gmtoff = plt->tm_gmtoff;
-
-	lt = mktime(&ltm);
 	if (lt == -1)
 		goto ns_newgroups_error;
-#endif
 
 	ActiveDB *active;
 	try {
