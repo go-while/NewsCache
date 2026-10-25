@@ -510,3 +510,37 @@ func TestListActiveWildmatList(t *testing.T) {
 		}
 	}
 }
+
+// TestInetdAddressEntries: an inetd session (no peer address) never
+// matches an address entry, even one for every address, and gets the
+// "stdin" entry after them. The session's address was left uninitialized
+// (stack contents), and the address entries before "stdin" read it; if it
+// happened to look like an IPv4 or IPv6 address, the session could get
+// their rights instead. (Whether that happens depends on the stack, so
+// the old code passes this test too, mostly.)
+func TestInetdAddressEntries(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.AccessList = `AccessList {
+  Client 0.0.0.0/0 {
+    allow none
+  }
+  Client ::/0 {
+    allow none
+  }
+  Client stdin {
+    allow read
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP: %q, want 211 (the stdin entry)", line)
+	}
+}

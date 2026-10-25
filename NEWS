@@ -171,6 +171,10 @@ Bug fixes:
   taken for its address: name and domain Client entries didn't match it,
   and the log and X-NNTP-Posting-Host showed the address. Names of up to
   255 characters are used now.
+* In inetd mode (and when the client's address can't be read) the
+  address entries of the access list were matched against an
+  uninitialized address; a session could get the rights of such an entry
+  instead of the "stdin" one, depending on what was on the stack.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came
