@@ -349,3 +349,89 @@ func TestPostSizeLimit(t *testing.T) {
 		t.Errorf("upstream got %d posted articles, want 1 (the 900 KB one)", n)
 	}
 }
+
+// TestPostNewsgroupsSeparators: the PostTo check and the choice of the
+// upstream servers to post to split the Newsgroups header differently.
+// The check split on commas only, and its matcher stopped at white
+// space, so "test.alpha test.secret" was checked as test.alpha; the
+// posting split on white space too and sent the article to the servers
+// of both groups, test.secret's included. The client may post to
+// test.alpha and test.beta and not to test.secret, which a second
+// upstream (B) serves. Whatever separates an allowed and the denied name,
+// the post is refused (441) and reaches neither server. A blank between
+// two allowed names is refused too: RFC 5536 separates names with commas
+// only, and what the upstream makes of "a b" is its own reading (the
+// other way to fix this, splitting on blanks as the posting did, would
+// have accepted it).
+func TestPostNewsgroupsSeparators(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.addArticles("test.beta", 1)
+	st := fakeserver.NewStore()
+	st.AddGroup("test.secret", "on B")
+	st.AddArticle("test.secret", groupArticle("test.secret", 1, []string{"body on B"}))
+	b := fakeserver.New(t, fakeserver.Options{Store: st})
+	e.ExtraServers = serverBlock(b, "test.secret")
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo test.alpha,test.beta,!test.secret
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+	// ok: posted (240) to upstream A and not B; else 441 and nowhere
+	cases := []struct {
+		name, groups string
+		ok           bool
+	}{
+		{"two allowed, comma", "test.alpha,test.beta", true},
+		{"two allowed, comma space", "test.alpha, test.beta", true},
+		{"two allowed, blank only", "test.alpha test.beta", false},
+		{"comma", "test.alpha,test.secret", false},
+		{"comma space", "test.alpha, test.secret", false},
+		{"space comma", "test.alpha ,test.secret", false},
+		{"space comma space", "test.alpha , test.secret", false},
+		{"trailing space", "test.alpha,test.secret ", false},
+		{"comma tab", "test.alpha,\ttest.secret", false},
+		{"folded", "test.alpha,\r\n test.secret", false},
+		{"space only", "test.alpha test.secret", false},
+		{"tab only", "test.alpha\ttest.secret", false},
+		{"folded no comma", "test.alpha\r\n test.secret", false},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a0, b0 := len(e.Store.Posted()), len(st.Posted())
+			c := e.session()
+			defer c.Cmd("QUIT")
+			if code, line := c.Cmd("POST"); code != 340 {
+				t.Fatalf("POST: %q", line)
+			}
+			if err := c.Send(fmt.Sprintf("Newsgroups: %s\r\nFrom: client@newscache.test\r\n"+
+				"Subject: sep %d\r\nMessage-ID: <sep%d@newscache.test>\r\n\r\nhello\r\n.\r\n", tc.groups, i, i)); err != nil {
+				t.Fatal(err)
+			}
+			code, line, err := c.ReadStatus()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, wantA := 441, 0
+			if tc.ok {
+				want, wantA = 240, 1
+			}
+			if code != want {
+				t.Errorf("Newsgroups %q: %q, want %d", tc.groups, line, want)
+			}
+			if n := len(e.Store.Posted()) - a0; n != wantA {
+				t.Errorf("Newsgroups %q: upstream A got %d article(s), want %d", tc.groups, n, wantA)
+			}
+			if n := len(st.Posted()) - b0; n != 0 {
+				t.Errorf("Newsgroups %q: upstream B (test.secret, denied) got %d article(s)", tc.groups, n)
+			}
+		})
+	}
+}

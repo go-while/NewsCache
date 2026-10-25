@@ -1,10 +1,24 @@
 #ifndef _NSutil_h_
 #define _NSutil_h_
 
+#include <string>
+#include <vector>
+
 extern int mkpdir(const char *dirname, int mode);
 /* The spool directory of a group (dots become slashes), in a static
  * buffer; NULL if the name doesn't fit. */
 extern const char *group2dir(const char *name);
+
+/* The group names in the body of a Newsgroups header: separated by
+ * commas, with optional spaces and tabs around them (RFC 5536); empty
+ * entries are skipped. Returns false, with an empty list, when a name
+ * contains white space or a control character: such a header has no
+ * single reading (one parser sees one group where another sees two), so
+ * nothing may act on it. Every check and every action on a Newsgroups
+ * header goes through this one routine, so that they all see the same
+ * groups. */
+extern bool split_newsgroups(const std::string & ngs,
+			     std::vector < std::string > &groups);
 
 /**
  * \author Thomas Gschwind

@@ -69,6 +69,34 @@ const char *group2dir(const char *name)
 	return buf;
 }
 
+bool split_newsgroups(const std::string & ngs,
+		      std::vector < std::string > &groups)
+{
+	groups.clear();
+	std::string::size_type i = 0, n = ngs.size();
+	while (i < n) {
+		std::string::size_type e = ngs.find(',', i);
+		if (e == std::string::npos)
+			e = n;
+		std::string::size_type b = i, l = e;
+		while (b < l && (ngs[b] == ' ' || ngs[b] == '\t'))
+			b++;
+		while (l > b && (ngs[l - 1] == ' ' || ngs[l - 1] == '\t'))
+			l--;
+		for (std::string::size_type k = b; k < l; k++) {
+			unsigned char c = ngs[k];
+			if (c <= ' ' || c == 0x7f) {
+				groups.clear();
+				return false;
+			}
+		}
+		if (l > b)
+			groups.push_back(ngs.substr(b, l - b));
+		i = e + 1;
+	}
+	return true;
+}
+
 int matchgroup(const char *pattern, const char *group)
 {
 	char c;

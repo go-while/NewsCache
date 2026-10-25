@@ -960,30 +960,6 @@ static void access_denied(ClientData * clt)
 }
 
 /*
- * The group names in a Newsgroups header: separated by commas, with
- * optional white space around them.
- */
-static std::vector<std::string> newsgroups_list(const std::string & ngs)
-{
-	std::vector<std::string> v;
-	std::string::size_type i = 0, n = ngs.size();
-	while (i < n) {
-		std::string::size_type e = ngs.find(',', i);
-		if (e == std::string::npos)
-			e = n;
-		std::string::size_type b = i, l = e;
-		while (b < l && (ngs[b] == ' ' || ngs[b] == '\t'))
-			b++;
-		while (l > b && (ngs[l - 1] == ' ' || ngs[l - 1] == '\t'))
-			l--;
-		if (l > b)
-			v.push_back(ngs.substr(b, l - b));
-		i = e + 1;
-	}
-	return v;
-}
-
-/*
  * Whether the client may read an article fetched by message-ID: at least
  * one of its groups must match the client's Read list, as for GROUP.
  */
@@ -996,7 +972,11 @@ static int may_read_article(ClientData * clt, const Article & a)
 	catch(const NoSuchFieldError & nsfe) {
 		return 0;
 	}
-	std::vector<std::string> groups = newsgroups_list(ngs);
+	// (split_newsgroups, as POST and the posting use it: a header that
+	// reads differently to different parsers gives no right)
+	std::vector<std::string> groups;
+	if (!split_newsgroups(ngs, groups))
+		return 0;
 	for (std::vector<std::string>::size_type i = 0; i < groups.size(); i++)
 		if (clt->access_entry->read.matches(groups[i].c_str()) > 0)
 			return 1;
@@ -2149,11 +2129,15 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		art.settext(text);
 
 		// check whether client is authorized to post this article.
-		// (substr took the second argument as an end position,
-		// so a name was checked with the following ones appended;
-		// spaces after the commas were kept)
-		std::vector<std::string> groups =
-		    newsgroups_list(art.getfield("newsgroups:"));
+		// The same split as RServer::post, which picks the servers
+		// to post to: a name with white space in it ("a b", which
+		// the matcher read as "a" and the posting as two groups)
+		// is refused rather than read two ways.
+		std::vector<std::string> groups;
+		if (!split_newsgroups(art.getfield("newsgroups:"), groups)) {
+			(*clt->co) << "441 invalid Newsgroups header\r\n";
+			return -1;
+		}
 		if (groups.empty()) {
 			(*clt->co) << "441 no newsgroups\r\n";
 			return -1;

@@ -9,9 +9,9 @@ LDADD=../libnserver.a @LDADD@ ../../NVClasses-0.9.1/libnvcontainer.a ../../md5li
 ## extra files needed for checking
 EXTRA_DIST=article5283.in article5283.over.in article9621.in article9621.over.in article9622.in article9622.over.in overviewfmt1.in overviewfmt2.in overviewdb.in
 
-check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cActiveDB cHistory cChunk cCorruptDB
+check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB
 
-TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cActiveDB cHistory cChunk cCorruptDB
+TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB
 
 cArticle_SOURCES = cArticle.cc
 
@@ -20,6 +20,8 @@ cNSError_SOURCES = cNSError.cc
 cOverviewFmt_SOURCES = cOverviewFmt.cc
 
 cNewsgroupFilter_SOURCES = cNewsgroupFilter.cc
+
+cNewsgroupList_SOURCES = cNewsgroupList.cc
 
 cActiveDB_SOURCES = cActiveDB.cc
 
