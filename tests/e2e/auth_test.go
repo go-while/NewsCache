@@ -241,11 +241,17 @@ func TestLoginOnlyEntry(t *testing.T) {
 	c.ReadDotLines()
 }
 
-// TestModeReaderPosting: MODE READER answers 200 only when the client may
-// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
-// answered 200 to every client, and 480 where the entry allows only the
-// login.
-func TestModeReaderPosting(t *testing.T) {
+// postingCase is an access entry and whether its client may post right
+// after the greeting: 200 if it may, 201 if not (RFC 3977 5.1.1, 5.3).
+type postingCase struct {
+	name string
+	env  func(t *testing.T) *env
+	want int
+}
+
+// postingCases are the entries TestModeReaderPosting and TestGreetingPosting
+// check: one that may post, and four that may not (yet).
+func postingCases() []postingCase {
 	entry := func(rights, auth string) string {
 		return `AccessList {
   Client stdin {
@@ -260,11 +266,7 @@ func TestModeReaderPosting(t *testing.T) {
   }
 }`
 	}
-	cases := []struct {
-		name string
-		env  func(t *testing.T) *env
-		want int
-	}{
+	return []postingCase{
 		{"read post", func(t *testing.T) *env {
 			e := newEnv(t)
 			e.AccessList = entry("allow read post", "none")
@@ -291,7 +293,14 @@ func TestModeReaderPosting(t *testing.T) {
     PostTo *`, "tester:"+md5Hash+":*:*:*:post")
 		}, 201},
 	}
-	for _, tc := range cases {
+}
+
+// TestModeReaderPosting: MODE READER answers 200 only when the client may
+// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
+// answered 200 to every client, and 480 where the entry allows only the
+// login.
+func TestModeReaderPosting(t *testing.T) {
+	for _, tc := range postingCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			c := tc.env(t).session()
 			code, line := c.Cmd("MODE READER")
@@ -303,6 +312,25 @@ func TestModeReaderPosting(t *testing.T) {
 				if code, line := c.Cmd("POST"); code == 340 {
 					t.Errorf("POST after MODE READER 201: %q", line)
 				}
+			}
+		})
+	}
+}
+
+// TestGreetingPosting: the greeting follows the same rule as MODE READER,
+// 200 only when the client may post now and 201 otherwise (RFC 3977
+// 5.1.1). It was 200 for every client. The texts of both replies are the
+// same as MODE READER's.
+func TestGreetingPosting(t *testing.T) {
+	for _, tc := range postingCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.env(t).session()
+			want := fmt.Sprintf("%d ", tc.want)
+			if !strings.HasPrefix(c.Greeting, want) {
+				t.Fatalf("greeting %q, want %d", c.Greeting, tc.want)
+			}
+			if code, line := c.Cmd("MODE READER"); len(line) < 4 || line[4:] != c.Greeting[4:] {
+				t.Errorf("MODE READER %q (%d), greeting %q: different texts", line, code, c.Greeting)
 			}
 		})
 	}

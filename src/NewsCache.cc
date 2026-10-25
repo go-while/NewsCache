@@ -2102,6 +2102,32 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
+/*
+ * The rights the client can use right now: none before a required login
+ * (nnrpd() answers 480 to everything but AUTHINFO, CAPABILITIES, MODE
+ * READER, HELP and QUIT then).
+ */
+static unsigned int current_rights(ClientData * clt)
+{
+	if (clt->auth_state == AUTH_REQUIRED)
+		return 0;
+	return clt->access_entry->access_flags;
+}
+
+/*
+ * The greeting and the reply to MODE READER: 200 if the client may post
+ * now, 201 otherwise (RFC 3977 5.1.1, 5.3).
+ */
+static void send_ready(ClientData * clt)
+{
+	if (current_rights(clt) & AccessEntry::af_post)
+		(*clt->co) << "200 " PACKAGE " " VERSION
+		    ", accepting NNRP commands\r\n";
+	else
+		(*clt->co) << "201 " PACKAGE " " VERSION
+		    ", accepting NNRP commands, posting prohibited\r\n";
+}
+
 int ns_mode(ClientData * clt, int argc, char *argv[])
 {
 	if (argc != 2 ||
@@ -2111,15 +2137,8 @@ int ns_mode(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	// Answered before the login as well: a client sends MODE READER
-	// before AUTHINFO, never after it (RFC 4643 2.2). 200 only if the
-	// client may post now (RFC 3977 5.3); before a login POST gets 480.
-	if ((clt->access_entry->access_flags & AccessEntry::af_post) &&
-	    clt->auth_state != AUTH_REQUIRED)
-		(*clt->co) << "200 " PACKAGE " " VERSION
-		    ", accepting NNRP commands\r\n";
-	else
-		(*clt->co) << "201 " PACKAGE " " VERSION
-		    ", accepting NNRP commands, posting prohibited\r\n";
+	// before AUTHINFO, never after it (RFC 4643 2.2).
+	send_ready(clt);
 	return 0;
 }
 
@@ -3169,8 +3188,7 @@ void nnrpd(int fd)
 		exit(1);
 	}
 
-	(*clt.
-	 co) << "200 " PACKAGE " " VERSION ", accepting NNRP commands\r\n";
+	send_ready(&clt);
 	do {
 		flush(*clt.co);
 		if (!clt.co->good()) {

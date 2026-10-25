@@ -966,9 +966,10 @@ successful login, or where the entry has @code{Authentication none},
 gets 502. Before the login, commands that need a right the client doesn't
 have yet get @samp{480}; @code{CAPABILITIES}, @code{MODE READER},
 @code{AUTHINFO}, @code{HELP} and @code{QUIT} are answered in any case.
-@code{MODE READER} answers @samp{200} only if the client may post at
-that moment, and @samp{201} (posting prohibited) otherwise, also before
-a login that would add the post right (RFC 3977, RFC 4643).
+The greeting and @code{MODE READER} answer @samp{200} only if the
+client may post at that moment, and @samp{201} (posting prohibited)
+otherwise, also before a login that would add the post right (RFC 3977,
+RFC 4643).
 
 @example
 AccessList @{

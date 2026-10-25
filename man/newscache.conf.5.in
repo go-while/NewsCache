@@ -235,7 +235,7 @@ errors.
 .IP "allow [read] [post] [debug] [none] [authentication]"
 Allow read, post, debug for this Client. The default is none. If only authenticated users are allowed for this network, then authentication can be specified. See example "Only authenticated users".
 Before the login, such a client gets 480 for the commands that need a right it doesn't have yet; CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT are answered in any case.
-MODE READER answers 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
+The greeting and MODE READER answer 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
 .IP "List \fINGSpecification\fR"
 Permits client access to the specified newsgroups.
 .IP "Read \fINGSpecification\fR"

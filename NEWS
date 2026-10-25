@@ -445,6 +445,13 @@ Bug fixes:
   characters: the length was checked first. The sequence is now checked
   first. AUTHINFO with an unknown subcommand and a long argument now
   gets 501 (syntax) instead of 481.
+* The greeting was "200" (posting allowed) for every client. It now
+  follows the same rule as MODE READER: "201 ..., posting prohibited"
+  when the client may not post at that moment, as RFC 3977 says:
+  read-only entries, entries that allow only the login, and before a
+  login that is required or that would add the post right. Behaviour
+  change: such clients get 201 instead of 200 in the greeting; after
+  the login, CAPABILITIES says whether POST is available.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry
