@@ -93,6 +93,11 @@ Bug fixes:
   connection without a reply. It now gets "501 Line too long" and the
   session goes on; a line of 256 words or more gets 501 too, instead of
   500 (RFC 3977).
+* The client's password was logged when its AUTHINFO line started with a
+  blank or a tab: the log hid the arguments only of lines that began
+  with "AUTHINFO", but the command itself skipped leading blanks. The
+  line was logged at level info, and after a wrong password once more at
+  level notice.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

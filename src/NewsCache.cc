@@ -3090,8 +3090,13 @@ void nnrpd(int fd)
 			else
 				*rp = '\0';
 		}
-		strcpy(oreq, req);
-		// FIXME: better solution?
+		// oreq, for the log, without leading blanks either: the split
+		// below skips them, so " AUTHINFO PASS x" is an AUTHINFO
+		// command, and its password must not be logged.
+		rp = req;
+		while (isspace((unsigned char)*rp))
+			rp++;
+		strcpy(oreq, rp);
 		if (strncasecmp(oreq, "authinfo", 8))
 			slog.p(Logger::Info) << clt.
 			    client_logname << " " << oreq << "\n";

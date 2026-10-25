@@ -164,6 +164,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | LIST ACTIVE with a wildmat showed groups outside the client's List: `NewsgroupFilter::matches` let the wildmat decide for every group no rule matched (`bmlen` 0), so only groups a `!` rule rejects stayed hidden | 2, 10 | review (fixing LIST NEWSGROUPS) | #109 |
 | OVER, XOVER and XHDR without an argument and without a current article answered an empty 224/221 for article 0 instead of 420 (RFC 3977 8.3.2); HDR already answered 420 | 2 | review (area 2) | #109 |
 | `xdebug dump <unknown>` (and `xdebug <a> <b>`) sent no reply; xdebug answered with the code `xxx`, `xdebug help` with none; now 501 and 100. `ns_xmotd` was dead code (not in the command table): removed | 2 | review (areas 1, 2) | #109 |
+| The client's password was logged when its AUTHINFO line started with a blank or a tab (`" AUTHINFO PASS x"`): the log masking tested the raw line, the argument split skips leading blanks | 1, 3 | review (areas 1, 3) | #PR |
 | `TestSpoolDiskFullDaemon` failed now and then, mostly in the `-race` pass on a busy machine: client 1 waits while client 2 works, which took longer than the default ClientTimeout (60 s), so NewsCache ended client 1's session as idle; and a reply deadline of 60 s was too short for 20000 overview records. Test timing only, not a NewsCache bug | 15 | e2e tests (Fedora 44, `go test -race`) | #83 |
 | With `Options starttls`, a 480 to MODE READER (sent before STARTTLS) made `issue()` log in at once (the re-login of #68): User and Password went out in plain text, which anyone in the middle could force by injecting the 480; this undid #16. Also, a server that wants the login before MODE READER got a second login (502) and the connect failed every time | 7 | review (area 7) | #85 |
 | NEXT and LAST crashed (SIGSEGV) at the first gap in a group that isn't cached (`Options not-cached`): `RNewsgroup::getover` returns NULL for a number without a record, and `ns_lastnext` read `o[0]` | 2 | review (area 2) | #86 |
@@ -187,7 +188,6 @@ that it stays as it is.
 
 | Point | Area | Found by | Test |
 |---|---|---|---|
-| The client's password is logged when the AUTHINFO line starts with a blank: the log masking tests the raw line, the argument split skips leading blanks | 1, 3 | review (areas 1, 3) | e2e: " AUTHINFO PASS x" must not appear in the log |
 | With `LogStyle strict-inn` the connection isn't closed after three failed logins: the check sits inside the LogINN block | 1, 3 | review (areas 1, 3) | e2e with strict-inn: the 4th AUTHINFO PASS gets no answer |
 | AUTHINFO is accepted again after a successful login (RFC 4643: 502), and the rights of both users add up; a failed second login keeps the first one's | 1, 3 | review (areas 1, 3) | e2e: second AUTHINFO USER after 281 gets 502 |
 | With a login required, CAPABILITIES, MODE READER and unknown commands get 480 instead of their answer (RFC 3977/4643) | 1 | review (area 1) | e2e: CAPABILITIES before login lists AUTHINFO USER |

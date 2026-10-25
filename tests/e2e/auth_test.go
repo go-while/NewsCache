@@ -573,3 +573,38 @@ func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
 		t.Errorf("AUTHINFO md5 / the right password: %d, want 281", code)
 	}
 }
+
+// TestAuthinfoLeadingBlankNotLogged: the log shows AUTHINFO without its
+// arguments, also when the line starts with blanks. The test for AUTHINFO
+// looked at the line as it came, but the command split skips leading
+// blanks, so " AUTHINFO PASS <password>" ran as AUTHINFO and was logged in
+// full, at level info and again with "failed" at level notice.
+func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
+	const secret = "s3cr3t-client-pw"
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	if code, line := c.Cmd(" AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("\tAUTHINFO PASS %s", secret); code != 502 {
+		t.Fatalf("AUTHINFO PASS (wrong): %q, want 502", line)
+	}
+	if code, line := c.Cmd("  AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd(" AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	for _, s := range []string{secret, "PASS secret"} {
+		if strings.Contains(log, s) {
+			t.Errorf("the log has the password (%q):\n%s", s, grepLines(log, s))
+		}
+	}
+	if !strings.Contains(log, "failed authinfo for user") {
+		t.Errorf("no masked AUTHINFO failure in the log:\n%s", grepLines(log, "uthinfo"))
+	}
+}
