@@ -762,7 +762,7 @@ func TestAuthinfoAfterLogin(t *testing.T) {
 // TestAuthinfoFailedReplies: every failed login answers 481 (RFC 4643
 // 2.3.2), whatever the backend and the reason; they all answered 502, which
 // means that AUTHINFO isn't available at all. AUTHINFO PASS without a user
-// name stays 482 (out of sequence).
+// name stays 482 (out of sequence), also with a password that is too long.
 func TestAuthinfoFailedReplies(t *testing.T) {
 	// tryLogin sends AUTHINFO USER user (381 expected) and AUTHINFO PASS
 	// pass, and returns the reply to the PASS.
@@ -844,6 +844,17 @@ func TestAuthinfoFailedReplies(t *testing.T) {
 		c := e.session()
 		if code, line := c.Cmd("AUTHINFO PASS secret"); code != 482 {
 			t.Fatalf("AUTHINFO PASS before AUTHINFO USER: %q, want 482", line)
+		}
+		login(t, c)
+	})
+	// The sequence comes first: a password too long to keep, sent
+	// without a user name, got 481 (the length check ran first).
+	t.Run("long PASS before USER", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+		c := e.session()
+		long := strings.Repeat("p", 600)
+		if code, line := c.Cmd("AUTHINFO PASS %s", long); code != 482 {
+			t.Fatalf("AUTHINFO PASS with 600 characters before AUTHINFO USER: %q, want 482", line)
 		}
 		login(t, c)
 	})

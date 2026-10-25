@@ -440,6 +440,11 @@ Bug fixes:
   BODY by number, LIST, ...) answers "403 internal error" or "403 spool
   database damaged, try again" instead of 503. HDR still answers 503
   for a field it can't serve, as RFC 3977 asks.
+* AUTHINFO PASS without a preceding AUTHINFO USER got 481 instead of
+  482 (out of sequence, RFC 4643) when the password was longer than 511
+  characters: the length was checked first. The sequence is now checked
+  first. AUTHINFO with an unknown subcommand and a long argument now
+  gets 501 (syntax) instead of 481.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

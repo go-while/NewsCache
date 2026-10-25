@@ -1390,12 +1390,12 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 	// check arguments
 	if (argc != 3)
 		goto ns_authinfo_error;
-	if (strlen(argv[2]) > sizeof(clt->auth_user) - 1) {
-		(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
-		return -1;
-	}
 
 	if (!strcasecmp(argv[1], "user")) {
+		if (strlen(argv[2]) > sizeof(clt->auth_user) - 1) {
+			(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
+			return -1;
+		}
 		strcpy(clt->auth_user, argv[2]);
 		(*clt->co) << PASS_NEEDED_SEQUENCE " password please\r\n";
 		return 0;
@@ -1406,6 +1406,13 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 			(*clt->
 			 co) << INCORRECT_ORDER_SEQUENCE
 		      " issue authinfo user first\r\n";
+			return -1;
+		}
+		// (after the sequence check: PASS without USER is 482 in
+		// any case, RFC 4643 2.3.2)
+		if (strlen(argv[2]) > sizeof(clt->auth_pass) - 1) {
+			clear_password(argv[2]);
+			(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
 			return -1;
 		}
 		strcpy(clt->auth_pass, argv[2]);
