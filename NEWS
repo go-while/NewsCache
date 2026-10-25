@@ -130,6 +130,10 @@ Bug fixes:
   stderr; a link to the program's own stderr, as in the container image,
   still works. The directory doesn't need to be writable for the news
   user when the programs start as root.
+* An empty element in a group list, such as "LIST ACTIVE.TIMES ," from
+  a client or empty List, Read or PostTo fields in the auth file, made
+  NewsCache read past the end of two strings when it combined the lists
+  (seen with AddressSanitizer). Empty elements are now skipped.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
