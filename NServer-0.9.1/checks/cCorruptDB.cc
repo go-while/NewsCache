@@ -4,7 +4,9 @@
 //     file descriptor left): the object must stay usable - every access
 //     an error, no use of the old mapping - and recover later;
 //  2. many processes run into the same damaged file at once: they must
-//     all end up on one new file, none on a file another one moved aside.
+//     all end up on one new file, none on a file another one moved aside;
+//  3. a free block whose size reaches into the records behind it must
+//     count as damage, not be handed out again over those records.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -22,6 +24,7 @@
 
 #include "Logger.h"
 #include "NVActiveDB.h"
+#include "NVArray.h"
 
 using namespace std;
 
@@ -184,6 +187,54 @@ static void race(const string & dir, int round)
 	unlink((fn + ".bad").c_str());
 }
 
+struct OffArray:public NVArray {
+	OffArray(const char *fn) {
+		open(fn);
+	}
+	nvoff_t off(unsigned long i) {
+		return arrtab[i];
+	}
+};
+
+static void free_overlap(const string & dir)
+{
+	string fn = dir + "/overlap.db";
+	char rec[100];
+	memset(rec, 'r', sizeof(rec));
+	OffArray a(fn.c_str());
+	a.setsize(0, 9);
+	for (int i = 1; i <= 4; i++)
+		a.set(i, rec, sizeof(rec));
+	// the blocks of 1 and 3 freed; record 2 lies between them
+	nvoff_t b1 = a.off(1) - sizeof(unsigned long);
+	nvoff_t b3 = a.off(3) - sizeof(unsigned long);
+	a.del(1);
+	a.del(3);
+	// damage: the free block of 1 reaches over 2 into the one of 3
+	unsigned long sz = b3 - b1 + 16;
+	int fd = open(fn.c_str(), O_RDWR);
+	if (fd < 0 || pwrite(fd, &sz, sizeof(sz), b1 + sizeof(nvoff_t)) !=
+	    (ssize_t) sizeof(sz)) {
+		perror(fn.c_str());
+		exit(1);
+	}
+	close(fd);
+	// a record that fits only into the damaged block: it was put over
+	// record 2
+	string big(b3 - b1 - 32, 'b');
+	bool threw = false;
+	try {
+		a.set(5, big.data(), big.size());
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	CHECK(threw);
+	CHECK(exists(fn + ".bad"));
+	unlink(fn.c_str());
+	unlink((fn + ".bad").c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -195,8 +246,10 @@ int main(int argc, char *argv[])
 	string dir(tmpl);
 
 	bool race_only = argc > 1 && strcmp(argv[1], "race") == 0;
-	if (!race_only)
+	if (!race_only) {
 		lost_file(dir);
+		free_overlap(dir);
+	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);
 

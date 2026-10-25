@@ -359,6 +359,15 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 		cur = o2fl(cur->next);
 		if (!cur || cur <= prv)
 			corrupt("free list out of order");
+		if ((char *) prv + prv->size > (char *) cur)
+			corrupt("free blocks overlap");
+	}
+	// The block must end before the next free one: a damaged size that
+	// reaches into the records behind it would hand them out again.
+	if (cur != flhead) {
+		FreeList *nxt = o2fl(cur->next);
+		if (!nxt || nxt <= cur || (char *) cur + cur->size > (char *) nxt)
+			corrupt("free blocks overlap");
 	}
 
 	if (cur == flhead) {
