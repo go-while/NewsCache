@@ -1930,6 +1930,29 @@ void CServer::article(const char *gname, artnum_t nbr, Article * art)
 	filter_xref(art, mpe, gname);
 }
 
+/*
+ * Sends cmd (ARTICLE <id>) to the current server and returns 1 with its
+ * reply in resp, or 0 (and sets unreachable) if the server can't be
+ * reached or the connection fails.
+ */
+int CServer::ask_article(const char *cmd, string & resp, bool & unreachable)
+{
+	try {
+		connect();
+		resp = issue(cmd, NULL);
+		return 1;
+	}
+	catch(const SystemError &) {
+	}
+	catch(const ResponseError &) {
+	}
+	slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
+	    << ":" << _CurrentServer->servicename
+	    << " unreachable for a message-ID, trying the others\n";
+	unreachable = true;
+	return 0;
+}
+
 void CServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::article(" << id << ")\n");
@@ -1942,9 +1965,15 @@ void CServer::article(const char *id, Article * art)
 	// Not a fixed buffer, see RServer::article(id)
 	const string cmd = string("article ") + id + "\r\n";
 	const char * const buf = cmd.c_str();
+
+	// A server that can't be reached is skipped, not the end of the
+	// search: the article may be on one of the others. Only if none of
+	// them has it is that passed on (503), instead of 430.
+	bool unreachable = false;
+
 	if (_CurrentServer
-	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)) {
-		resp = issue(buf, NULL);
+	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)
+	    && ask_article(buf, resp, unreachable)) {
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			readarticle(art);
@@ -1971,8 +2000,8 @@ void CServer::article(const char *id, Article * art)
 		    _ServerList->entries[i].flags & MPListEntry::F_OFFLINE)
 			continue;
 		setserver(&(_ServerList->entries[i]));
-		connect();
-		resp = issue(buf, NULL);
+		if (!ask_article(buf, resp, unreachable))
+			continue;
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			readarticle(art);
@@ -1987,6 +2016,9 @@ void CServer::article(const char *id, Article * art)
 			    << p;
 		}
 	}
+	if (unreachable)
+		throw SystemError("article not found, a news server was "
+				  "unreachable", -1, ERROR_LOCATION);
 	throw NoSuchArticleError(resp, ERROR_LOCATION);
 }
 

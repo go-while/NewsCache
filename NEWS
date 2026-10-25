@@ -24,6 +24,9 @@ Bug fixes:
   ReadTimeout (300 s): the command to the upstream server was cut off
   together with its line end, and the server waited for the rest. The
   same went for a very long upstream User or Password.
+* With several upstream servers, ARTICLE <message-id> answered "503
+  operation failed" when one of the servers asked before the one that
+  had the article couldn't be reached. Such a server is now skipped.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

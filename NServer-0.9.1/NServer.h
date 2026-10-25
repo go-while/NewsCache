@@ -752,6 +752,10 @@ class CServer
 	* \todo Synchronize Description and Code (return).
 	*/
 	virtual void article(const char *id, Article * art);
+
+  private:
+	int ask_article(const char *cmd, std::string & resp,
+			bool & unreachable);
 };
 
 inline void CServer::invalidateActiveDB (void)
