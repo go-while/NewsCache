@@ -210,10 +210,15 @@ func TestAuthFailureDelay(t *testing.T) {
 // hasn't logged in neither list nor read; after the login it gets the rights
 // from the auth file. Before the login, known commands get 480, so that
 // newsreaders offer a login (RFC 4643); they used to get "500 What?".
+// MODE READER is answered (201, no posting yet): clients send it before
+// AUTHINFO and must not send it after the login (RFC 4643 2.2); it got 480.
 func TestLoginOnlyEntry(t *testing.T) {
 	e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,post")
 	c := e.session()
-	for _, cmd := range []string{"MODE READER", "LIST", "GROUP test.alpha", "ARTICLE 1", "POST"} {
+	if code, line := c.Cmd("MODE READER"); code != 201 {
+		t.Fatalf("MODE READER before login: %q, want 201", line)
+	}
+	for _, cmd := range []string{"LIST", "GROUP test.alpha", "ARTICLE 1", "POST"} {
 		if code, line := c.Cmd("%s", cmd); code != 480 {
 			t.Fatalf("%s before login: %q, want 480", cmd, line)
 		}
@@ -234,6 +239,73 @@ func TestLoginOnlyEntry(t *testing.T) {
 		t.Fatalf("ARTICLE 1 after login: %q, want 220", line)
 	}
 	c.ReadDotLines()
+}
+
+// TestModeReaderPosting: MODE READER answers 200 only when the client may
+// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
+// answered 200 to every client, and 480 where the entry allows only the
+// login.
+func TestModeReaderPosting(t *testing.T) {
+	entry := func(rights, auth string) string {
+		return `AccessList {
+  Client stdin {
+    ` + rights + `
+    List *
+    Read *
+    PostTo *
+    Authentication ` + auth + `
+  }
+  Default {
+    allow none
+  }
+}`
+	}
+	cases := []struct {
+		name string
+		env  func(t *testing.T) *env
+		want int
+	}{
+		{"read post", func(t *testing.T) *env {
+			e := newEnv(t)
+			e.AccessList = entry("allow read post", "none")
+			return e
+		}, 200},
+		{"read only", func(t *testing.T) *env {
+			e := newEnv(t)
+			e.AccessList = entry("allow read", "none")
+			return e
+		}, 201},
+		// "Authentication unix" without fields: POST needs the login
+		{"login required", func(t *testing.T) *env {
+			e := newEnv(t)
+			e.AccessList = entry("allow read post", "unix")
+			return e
+		}, 201},
+		{"login only", func(t *testing.T) *env {
+			return loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read,post")
+		}, 201},
+		{"optional login adds post", func(t *testing.T) *env {
+			return authEnv(t, `allow read
+    List *
+    Read *
+    PostTo *`, "tester:"+md5Hash+":*:*:*:post")
+		}, 201},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.env(t).session()
+			code, line := c.Cmd("MODE READER")
+			if code != tc.want {
+				t.Fatalf("MODE READER: %q, want %d", line, tc.want)
+			}
+			// the reply must match what POST does
+			if code == 201 {
+				if code, line := c.Cmd("POST"); code == 340 {
+					t.Errorf("POST after MODE READER 201: %q", line)
+				}
+			}
+		})
+	}
 }
 
 // TestAuthFileLoginOptional: with "allow read post" and an auth file, the

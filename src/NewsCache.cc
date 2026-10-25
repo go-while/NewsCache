@@ -308,7 +308,6 @@ void NNRPCommandMap::disableRead (void)
 	erase("xover");
 	erase("xpat");
 	erase("list");
-	erase("mode");
 	erase("newgroups");
 }
 
@@ -2106,8 +2105,16 @@ int ns_mode(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "501 Syntax: mode (reader|query)\r\n";
 		return -1;
 	}
-	(*clt->
-	 co) << "200 " PACKAGE " " VERSION ", accepting NNRP commands\r\n";
+	// Answered before the login as well: a client sends MODE READER
+	// before AUTHINFO, never after it (RFC 4643 2.2). 200 only if the
+	// client may post now (RFC 3977 5.3); before a login POST gets 480.
+	if ((clt->access_entry->access_flags & AccessEntry::af_post) &&
+	    clt->auth_state != AUTH_REQUIRED)
+		(*clt->co) << "200 " PACKAGE " " VERSION
+		    ", accepting NNRP commands\r\n";
+	else
+		(*clt->co) << "201 " PACKAGE " " VERSION
+		    ", accepting NNRP commands, posting prohibited\r\n";
 	return 0;
 }
 

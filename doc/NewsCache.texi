@@ -953,7 +953,12 @@ entry. As RFC 4643 says, a failed login (wrong password, unknown user,
 a stored hash that can't be checked) gets 481, @code{AUTHINFO PASS}
 without @code{AUTHINFO USER} gets 482, and @code{AUTHINFO} after a
 successful login, or where the entry has @code{Authentication none},
-gets 502.
+gets 502. Before the login, commands that need a right the client doesn't
+have yet get @samp{480}; @code{CAPABILITIES}, @code{MODE READER},
+@code{AUTHINFO}, @code{HELP} and @code{QUIT} are answered in any case.
+@code{MODE READER} answers @samp{200} only if the client may post at
+that moment, and @samp{201} (posting prohibited) otherwise, also before
+a login that would add the post right (RFC 3977, RFC 4643).
 
 @example
 AccessList @{
