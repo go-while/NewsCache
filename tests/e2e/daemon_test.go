@@ -188,6 +188,56 @@ func TestPidFile(t *testing.T) {
 	})
 }
 
+// TestPidFileNoFollow: the daemon opened its pid file as root with
+// O_CREAT|O_TRUNC, following symlinks, in a directory newscache.conf(5)
+// says to make writable for Username. That user could replace the file
+// with a symlink or a hard link to any file (/etc/shadow), which root
+// emptied and overwrote at the next start. Now only a regular file with
+// one link is written; anything else is left alone. A stale pid file is
+// still replaced. (As an ordinary user the target is the test's own file;
+// the open is the same as root's.)
+func TestPidFileNoFollow(t *testing.T) {
+	const content = "important content, not a pid\n"
+	for _, kind := range []string{"symlink", "hard link"} {
+		t.Run(kind, func(t *testing.T) {
+			e := newEnv(t)
+			victim := filepath.Join(e.Dir, "victim")
+			if err := os.WriteFile(victim, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pidFile := filepath.Join(e.Dir, "newscache.pid")
+			link := os.Symlink
+			if kind == "hard link" {
+				link = os.Link
+			}
+			if err := link(victim, pidFile); err != nil {
+				t.Skipf("%s: %v", kind, err)
+			}
+			p := e.standalone()
+			c := e.dial()
+			c.Cmd("QUIT")
+			c.Close()
+			if b, _ := os.ReadFile(victim); string(b) != content {
+				t.Errorf("the daemon wrote through a %s at PidFile: target holds %q", kind, b)
+			}
+			p.Signal(syscall.SIGTERM)
+			p.Wait()
+			if b, _ := os.ReadFile(victim); string(b) != content {
+				t.Errorf("after SIGTERM the %s's target holds %q", kind, b)
+			}
+		})
+	}
+	t.Run("stale file", func(t *testing.T) {
+		e := newEnv(t)
+		pidFile := filepath.Join(e.Dir, "newscache.pid")
+		if err := os.WriteFile(pidFile, []byte("4194304999\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		p := e.standalone()
+		checkPidFile(t, pidFile, p.Pid())
+	})
+}
+
 func checkPidFile(t *testing.T, fn string, pid int) {
 	t.Helper()
 	b, err := os.ReadFile(fn)

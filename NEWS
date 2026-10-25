@@ -359,6 +359,12 @@ Bug fixes:
   client, without a word. Prefix lengths of 65536 and more wrapped around
   (65536 became /0 as well), and a netmask with gaps (255.0.255.0) was
   cut at its first gap. All of these are configuration errors now.
+* The pid file was opened as root following symbolic links, in a
+  directory the manual page says to make writable for the news user. That
+  user could replace it with a link to any file (/etc/shadow, say), which
+  the daemon emptied and overwrote with its pid at the next start. Now
+  only a regular file with one link is written; anything else is left
+  alone with a warning.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
