@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "NewsgroupFilter.h"
+#include "wildmat.h"
 
 using namespace std;
 
@@ -145,6 +146,43 @@ int main(int argc, char *argv[])
 			cout << "-" << endl;
 			ef++;
 		}
+	}
+
+	// Malformed wildmat patterns read past their end (seen with ASan on
+	// exact-size buffers, as std::string::c_str() gives): they must not
+	// match, and must not read beyond the NUL.
+	cout << "malformed wildmats: " << flush;
+	{
+		static const char *bad[] = { "a[b-", "a[^", "[", "a[", "*[^",
+			"[a-", "a\\", "\\", "[\\", 0 };
+		static const char *texts[] = { "abc", "Re: x", "a", "", 0 };
+		for (int i = 0; bad[i]; i++) {
+			size_t n = strlen(bad[i]) + 1;
+			char *p = new char[n];
+			memcpy(p, bad[i], n);
+			for (int j = 0; texts[j]; j++) {
+				size_t m = strlen(texts[j]) + 1;
+				char *t = new char[m];
+				memcpy(t, texts[j], m);
+				if (wildmat(t, p)) {
+					cout << "-" << flush;
+					V(cout << " {" << bad[i] << "} matched {" << texts[j] << "} ");
+					ef++;
+				} else {
+					cout << "+" << flush;
+				}
+				delete[] t;
+			}
+			delete[] p;
+		}
+		// well-formed patterns still work
+		if (!wildmat("abc", "a[b-c]c") || !wildmat("a-c", "a[-]c")
+		    || !wildmat("a]c", "a[]]c") || wildmat("abc", "a[^b]c")
+		    || !wildmat("a*c", "a\\*c")) {
+			cout << "-" << flush;
+			ef++;
+		}
+		cout << endl;
 	}
 
 	if (ef == 0) {
