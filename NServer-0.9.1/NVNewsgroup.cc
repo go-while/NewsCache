@@ -665,6 +665,11 @@ void NVNewsgroup::setarticle(Article * art)
 			}
 			if (old)
 				nvfree(old);
+			// An overview record until the file is complete (also
+			// when a stored article's file is written again): a
+			// crash in the middle must not leave a bigarticle
+			// record with a cut-off file.
+			*data = overview;
 			char fn[MAXPATHLEN];
 			ofstream fs;
 			artfile(fn, sizeof(fn), nbr);

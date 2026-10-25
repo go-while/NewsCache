@@ -117,6 +117,11 @@ Bug fixes:
   the group's whole cache was moved to .db.bad and fetched again. An
   article without a Message-ID is no longer stored, and a stored article
   that doesn't parse is dropped on its own and fetched again.
+* When the file of an article over 15 KB was written again (it had been
+  found empty or unreadable), a crash in the middle (SIGKILL, the OOM
+  killer, a power loss) left the spool saying the article was complete,
+  and the cut-off file was served from then on. The article now counts
+  as stored only after its file is written.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
