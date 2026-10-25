@@ -68,6 +68,32 @@ Article::~Article ()
 {
 }
 
+// RFC 5536 allows neither NUL nor a CR outside CRLF. Kept as they came,
+// a CR in the head made the article unparsable (find_field and getfield
+// throw: 423 for an article the server has), and a NUL anywhere made the
+// stored record look damaged, so the whole group database was moved aside
+// at every read. Both become a space; a lone CR in the body does no harm
+// and stays. readtext ends every line with CRLF.
+static void clean_text(string & text)
+{
+	string::size_type i, n = text.length();
+	int head = 1;
+
+	for (i = 0; i < n; i++) {
+		if (text[i] == '\0') {
+			text[i] = ' ';
+		} else if (text[i] == '\r' && head) {
+			if (i + 1 < n && text[i + 1] == '\n') {
+				if (i == 0 || (i >= 2 && text[i - 2] == '\r'
+						       && text[i - 1] == '\n'))
+					head = 0;	// the empty line after the head
+			} else {
+				text[i] = ' ';
+			}
+		}
+	}
+}
+
 int Article::read(std::istream & is, size_t max)
 {
 	DEBUG(slog.p(Logger::Debug) << "Article::read(&is)\n");
@@ -77,6 +103,8 @@ int Article::read(std::istream & is, size_t max)
 	r = readtext(is, _text, 1, ".\r\n", max);
 	if (r < 0)
 		std::string().swap(_text);
+	else
+		clean_text(_text);
 	_ctext = _text.c_str();
 	return r < 0 ? -1 : 0;
 }
@@ -165,35 +193,20 @@ int Article::has_field(const char *ifld)
 	return 1;
 }
 
+// The name is compared as it is, without a length limit. It was cut to
+// 511 characters in a buffer, so a longer name (XHDR, XPAT, HDR from a
+// client) matched a header that only starts with those, and getfield,
+// which skips strlen(ifld), read past the end of the article.
 const char* Article::find_field(const char *ifld) const
 {
-	char hdrbuf[513], *p;
-	const char *q, *fld;
-	const char *ifp;
-	unsigned int i;
-
-	i = 1;
-	p = hdrbuf;
-	ifp = ifld;
-	while (i < sizeof(hdrbuf) && (*p = tolower(*ifp))) {
-		i++;
-		p++;
-		ifp++;
-	}
-	if (i == sizeof(hdrbuf)) {
-		p--;
-		VERB(slog.
-		     p(Logger::
-		       Error) <<
-		     "Article::find_field: field exceeds 512 characters! Contact maintainer!\n");
-	}
-	*p = '\0';
+	const char *p, *q, *fld;
 
 	q = _ctext;
 	for (;;) {
-		p = hdrbuf;
+		p = ifld;
 		fld = q;
-		while (*p && *p == tolower(*q)) {
+		while (*p && tolower((unsigned char) *p) ==
+		       tolower((unsigned char) *q)) {
 			p++;
 			q++;
 		}
@@ -313,6 +326,12 @@ string Article::getfield(const char *ifld, int Full) const
 	return rfld;
 }
 
+// Replaces the header ifld (with its continuation lines) by field_data,
+// which ends with CRLF; an empty field_data removes it. A missing header
+// is added at the end of the head. The header's end is searched line by
+// line and stops at the end of the text: isspace() went over line ends
+// (an empty header took the next line along), and the continuation loop
+// had no check for the end of the text.
 void Article::setfield(const char *ifld, const char *field_data)
 {
 	const char *p, *fld;
@@ -326,37 +345,14 @@ void Article::setfield(const char *ifld, const char *field_data)
 	}
 	// We have found the header
 	p = fld + strlen(ifld);
-	while (isspace(*p))
-		p++;
-	while (*p && *p != '\r' && *p != '\n')
-		p++;
-	ASSERT(if (!(*p)) {
-	       slog.p(Logger::Error) << "Article without body.\n";}
-	       if (*p == '\r' && !(*(p + 1))) {
-	       slog.p(Logger::Error) << "Article ended with <CR><NULL>.\n";}
-	);
-	if (*p == '\n')
-		p++;
-	if (*p == '\r' && *(p + 1) == '\n')
-		p += 2;
-
-	// Multiline header?
-	while (isspace(*p) && *p != '\n' && *p != '\r') {
-		while (isspace(*p))
+	for (;;) {
+		while (*p && *p != '\n')
 			p++;
-		while (*p != '\r' && *p != '\n')
-			p++;
-		ASSERT(if (!(*p)) {
-		       slog.p(Logger::Error) << "Article without body.\n";}
-		       if (*p == '\r' && !(*(p + 1))) {
-		       slog.
-		       p(Logger::
-			 Error) << "Article ended with <CR><NULL>.\n";}
-		);
-		if (*p == '\n')
-			p++;
-		if (*p == '\r' && *(p + 1) == '\n')
-			p += 2;
+		if (!*p)
+			break;
+		p++;
+		if (*p != ' ' && *p != '\t')
+			break;	// no continuation line
 	}
 	_text.replace(fld - _ctext, p - fld, field_data);
 	_ctext = _text.c_str();

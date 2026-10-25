@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 	"github.com/go-while/nntp-testkit/proc"
 )
 
@@ -554,6 +555,38 @@ func TestXhdrLongHeaderName(t *testing.T) {
 	}
 }
 
+// TestXhdrLongNameMatch: find_field cut a header name to 511 characters,
+// so a longer one matched a header that only starts with those, and
+// getfield skipped the whole name: past the end of the article when that
+// header is the last one (a heap over-read; AddressSanitizer reports it).
+func TestXhdrLongNameMatch(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<longname.1@upstream.test>"
+	name := strings.Repeat("A", 600)
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: s", "Newsgroups: test.alpha", name + ": v"},
+		Body: []string{"b"}})
+	c := e.session()
+	for _, tc := range []struct{ name, want string }{
+		{strings.Repeat("A", 900), id + " (none)"},
+		{name, id + " v"},
+	} {
+		code, line, err := c.TryCmd("XHDR %s %s", tc.name, id)
+		if err != nil || code != 221 {
+			t.Errorf("XHDR <%d characters> %s: %d %q %v, want 221", len(tc.name), id, code, line, err)
+			continue
+		}
+		if got := c.ReadDotLines(); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("XHDR <%d characters> %s: %q, want [%q]", len(tc.name), id, got, tc.want)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE: %q", line)
+	}
+}
+
 // TestXhdrMessageID: XHDR header <message-id> (RFC 2980 2.6) answered
 // 501. It needs no group, and its line starts with the message-ID.
 func TestXhdrMessageID(t *testing.T) {
@@ -644,6 +677,46 @@ func TestOverviewAfterArticleRead(t *testing.T) {
 	c.Cmd("QUIT")
 }
 
+// TestOverviewLinesHeader: the overview record made from an article read
+// by a client took Lines from the poster's Lines header when there was
+// one, the news server's record counts the body (RFC 3977 :lines): the
+// same article showed two line counts, depending on where its record
+// came from. XHDR lines by number did the same.
+func TestOverviewLinesHeader(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<lines.1@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: s", "Newsgroups: test.alpha", "Lines: 99",
+			"Xref: upstream.test test.alpha:1"},
+		Body: []string{"one", "two"}})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	xover := func() []string {
+		t.Helper()
+		if code, line := c.Cmd("XOVER 1"); code != 224 {
+			t.Fatalf("XOVER 1: %q", line)
+		}
+		return c.ReadDotLines()
+	}
+	before := xover()
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	if after := xover(); strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Errorf("XOVER 1 after ARTICLE 1: %q, want (as before) %q", after, before)
+	}
+	for _, cmd := range []string{"XHDR lines 1", "HDR :lines 1"} {
+		if code, line := c.Cmd("%s", cmd); code != 221 && code != 225 {
+			t.Errorf("%s: %q", cmd, line)
+		} else if got := c.ReadDotLines(); len(got) != 1 || got[0] != "1 2" {
+			t.Errorf("%s: %q, want [\"1 2\"]", cmd, got)
+		}
+	}
+}
+
 // TestNextLastNotCachedGap: NEXT and LAST skip numbers without an article.
 // In a group that isn't cached (Options not-cached), the overview of a
 // missing number is a NULL pointer, which NEXT and LAST dereferenced: the
@@ -674,5 +747,36 @@ func TestNextLastNotCachedGap(t *testing.T) {
 	}
 	if code, line := c.Cmd("DATE"); code != 111 {
 		t.Errorf("DATE after NEXT/LAST: %q, want 111 (session alive)", line)
+	}
+}
+
+// TestOverviewHeaderTab: the overview record made from an article read by
+// a client kept a TAB in a header as it was (RFC 3977 8.3.2: it becomes a
+// space). "Subject: one<TAB>two" gave the record a tenth field, the
+// fields after it moved, and STAT 1 answered with the Date as the
+// message-ID.
+func TestOverviewHeaderTab(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<tab.1@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: one\ttwo", "Newsgroups: test.alpha",
+			"Xref: upstream.test test.alpha:1"},
+		Body: []string{"body line"}})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("XOVER 1"); code != 224 {
+		t.Errorf("XOVER 1: %q", line)
+	} else if ov := c.ReadDotLines(); len(ov) != 1 || strings.Count(ov[0], "\t") != 8 ||
+		strings.Split(ov[0], "\t")[1] != "one two" || strings.Split(ov[0], "\t")[4] != id {
+		t.Errorf("XOVER 1 after ARTICLE 1: %q, want 9 fields, Subject \"one two\"", ov)
+	}
+	if code, line := c.Cmd("STAT 1"); code != 223 || !strings.Contains(line, id) {
+		t.Errorf("STAT 1: %q, want 223 1 %s", line, id)
 	}
 }

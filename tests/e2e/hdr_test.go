@@ -243,3 +243,50 @@ func TestFoldedHeader(t *testing.T) {
 		}
 	}
 }
+
+// XHDR and HDR Xref by number, answered from overview records: the
+// field name is stripped ("Xref: host g:1" gives "host g:1"; it gave
+// ": host g:1"). A record whose Xref field is empty and that ends with a
+// tab made the strip read on into the next field and past the end of the
+// record: std::length_error, and the session was killed (SIGABRT).
+func TestXhdrXrefOverview(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{
+		OverviewFields: func(conn int, group string, f []string) []string {
+			if f[0] != "2" {
+				return f
+			}
+			f[len(f)-1] = ""
+			return append(f, "")
+		},
+	}})
+	c := e.session()
+	c.Strict = false
+	c.Cmd("GROUP test.alpha")
+	if code, line := c.Cmd("XOVER 1-2"); code != 224 {
+		t.Fatalf("XOVER 1-2: %q", line)
+	}
+	c.ReadDotLines()
+	for _, tc := range []struct {
+		cmd  string
+		code int
+	}{{"XHDR Xref 1-2", 221}, {"HDR Xref 1-2", 225}} {
+		code, line, err := c.TryCmd("%s", tc.cmd)
+		if err != nil {
+			t.Fatalf("%s: no reply: %v", tc.cmd, err)
+		}
+		if code != tc.code {
+			t.Errorf("%s: %q, want %d", tc.cmd, line, tc.code)
+			continue
+		}
+		lines := c.ReadDotLines()
+		empty := map[string]bool{"2": true, "2 ": true, "2 (none)": true}
+		if len(lines) != 2 || lines[0] != "1 upstream.test test.alpha:1" || !empty[lines[1]] {
+			t.Errorf("%s: %q, want \"1 upstream.test test.alpha:1\" and an empty 2", tc.cmd, lines)
+		}
+	}
+	if code, line, err := c.TryCmd("DATE"); err != nil || code != 111 {
+		t.Errorf("DATE after XHDR/HDR Xref: %d %q %v", code, line, err)
+	}
+}

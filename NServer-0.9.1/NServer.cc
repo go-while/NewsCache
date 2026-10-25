@@ -1344,6 +1344,10 @@ int RServer::post(Article * article)
 	//FIXME! We should use the path field here, or introduce a 
 	//FIXME! new field that shows the cache-posting-chain
 	if (nntp_posting_host[0]) {
+		// Every X-NNTP-Posting-Host of the client goes, not only the
+		// first: a second one stayed next to ours.
+		while (article->has_field("X-NNTP-Posting-Host:"))
+			article->setfield("X-NNTP-Posting-Host:", "");
 		snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
 			 nntp_posting_host);
 		article->setfield("X-NNTP-Posting-Host:", buf);

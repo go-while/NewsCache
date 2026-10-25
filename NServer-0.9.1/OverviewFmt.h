@@ -117,11 +117,21 @@ class OverviewFmt {
 					return field;
 				}
 				if (full < _over[i].full) {
-					// Strip fieldname
-					while (*p && *p != ':')
-						p++;
-					while (*p && isspace(*p))
-						p++;
+					// Strip fieldname: up to the ':' and the
+					// blanks after it, within this field (q is
+					// its end). A field without ':', such as an
+					// empty Xref, stays as it is.
+					const char *c = p;
+
+					while (c < q && *c != ':')
+						c++;
+					if (c < q) {
+						c++;
+						while (c < q
+						       && isspace((unsigned char) *c))
+							c++;
+						p = c;
+					}
 					field.assign(p, q - p);
 					return field;
 				}
@@ -229,28 +239,37 @@ class OverviewFmt {
 		char buf[256];
 		std::string fld;
 		int i;
+		std::string::size_type k;
 
 		 snprintf(buf, sizeof(buf), "%llu",
 			  (unsigned long long) article.getnbr());
 		 recout = buf;
 		for (i = 0; i < _osz; i++) {
 			recout += '\t';
+			// Lines is the count of body lines (:lines), as
+			// the news server's overview has it, not the
+			// poster's Lines header (RFC 5536 made it obsolete)
+			if (strcasecmp(_over[i].name, "lines:") == 0) {
+				snprintf(buf, sizeof(buf), "%lu",
+					 article.bodylines());
+				recout.append(buf);
+				continue;
+			}
 			try {
-				recout.append(article.
-					      getfield(_over[i].name,
-						       _over[i].full));
+				fld = article.getfield(_over[i].name,
+						       _over[i].full);
+				// RFC 3977 8.3.2: a TAB, CR or LF in a field
+				// becomes a space; a TAB would add a field
+				// and move the ones after it.
+				for (k = 0; k < fld.length(); k++) {
+					if (fld[k] == '\t' || fld[k] == '\r'
+					    || fld[k] == '\n' || fld[k] == '\0')
+						fld[k] = ' ';
+				}
+				recout.append(fld);
 			}
 			catch(NoSuchFieldError & nf) {
-				// Most articles have no Lines header (RFC
-				// 5536 made it obsolete): count the body
-				// lines, as the news server's overview does
-				// (:lines). Other fields not found => empty
-				if (strcasecmp(_over[i].name, "lines:") ==
-				    0) {
-					snprintf(buf, sizeof(buf), "%lu",
-						 article.bodylines());
-					recout.append(buf);
-				}
+				// fields not found => empty
 			}
 		}
 	}
