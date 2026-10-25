@@ -54,7 +54,7 @@ class CServer;
 /* NServer parent-class, RServer and LServer child-classes.
  */
 extern char nntp_hostname[FQDN_BUFSIZE];
-extern char nntp_posting_host[MAXHOSTNAMELEN];
+extern char nntp_posting_host[FQDN_BUFSIZE];
 
 /* Longest SpoolDirectory: a spool path must leave room for the longest
  * group's directory and the file names in it. */

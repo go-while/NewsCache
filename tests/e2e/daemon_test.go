@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // TestStandaloneSession: the daemon accepts a TCP client and serves it.
@@ -404,5 +405,58 @@ func TestStandaloneSpoolUnavailable(t *testing.T) {
 	line, err := bufio.NewReader(nc).ReadString('\n')
 	if !strings.HasPrefix(line, "400 ") {
 		t.Fatalf("greeting without a spool: %q, %v; want 400", line, err)
+	}
+}
+
+// TestLongClientName: a client whose host name has more than 63
+// characters is known by that name: Client entries for it match, and the
+// log shows it. The name buffer had MAXHOSTNAMELEN (64 on Linux) bytes,
+// so getnameinfo failed, and such clients were taken for their address
+// (and got the Default entry). The name comes from an /etc/hosts of the
+// test's own, bind-mounted in a user and mount namespace (skipped where
+// the system doesn't allow one).
+func TestLongClientName(t *testing.T) {
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
+	}
+	name := "a-client-with-a-host-name-of-more-than-sixty-four-characters.dialup.example.test"
+	e := newEnv(t)
+	hosts := filepath.Join(e.Dir, "hosts")
+	if err := os.WriteFile(hosts, []byte("127.0.0.1 "+name+"\n::1 localhost\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = accessEntry(name)
+	e.Extra = "LogStyle hostname ip-address"
+	e.writeConf()
+	// newscache runs as root of the namespace: no Username and Groupname
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := e.procOpts("-n")
+	o.Env = append(o.Env, "HOSTS="+hosts)
+	o.Args = append([]string{"-rm", "/bin/sh", "-c",
+		`mount --bind "$HOSTS" /etc/hosts || exit 99
+exec "$@"`, "nc", o.Path}, o.Args...)
+	o.Path = "unshare"
+	proc.StartTCP(t, o, e.Listen)
+
+	c := e.dialRaw()
+	if !strings.HasPrefix(c.Greeting, "200 ") {
+		t.Fatalf("greeting for %s: %q, want 200 (its Client entry)", name, c.Greeting)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	if log := e.logFile(); !strings.Contains(log, name+" [127.0.0.1] connect") {
+		t.Errorf("the log doesn't name the client %s:\n%s", name, grepLines(log, "connect"))
 	}
 }

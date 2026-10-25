@@ -54,7 +54,7 @@ using namespace std;
                                  (reply)[2]==(code)[2])
 
 char nntp_hostname[FQDN_BUFSIZE];
-char nntp_posting_host[MAXHOSTNAMELEN];
+char nntp_posting_host[FQDN_BUFSIZE];
 
 //********************
 //***   NServer

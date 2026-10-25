@@ -413,7 +413,9 @@ class ClientData {
   public:
 	struct sockaddr_storage sock;
 	SOCKLEN_TYPE socklen;
-	char client_name[MAXHOSTNAMELEN];
+	// a DNS name has up to 253 characters (MAXHOSTNAMELEN is 64 on
+	// Linux, and getnameinfo failed for longer names)
+	char client_name[FQDN_BUFSIZE];
 	char client_addr[INET6_ADDRSTRLEN];
 	string client_logname;
 	istream *ci;
@@ -2872,11 +2874,11 @@ void nnrpd(int fd)
 			// get the name of the client and store it in clt.client_name.
 			// if the client does not have a name, use the ip-address instead
 			// store it in nntp_posting_host as used by libnserver
-			clt.client_name[0] = '\0';
-			getnameinfo((const struct sockaddr *) &clt.sock,
-				    clt.socklen,
-				    clt.client_name, sizeof(clt.client_name),
-				    NULL, 0, 0);
+			if (getnameinfo((const struct sockaddr *) &clt.sock,
+					clt.socklen,
+					clt.client_name, sizeof(clt.client_name),
+					NULL, 0, 0) != 0)
+				clt.client_name[0] = '\0';
 
 			struct addrinfo hints;
 			memset(&hints, 0, sizeof(hints));

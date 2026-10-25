@@ -167,6 +167,10 @@ Bug fixes:
   open the spool (missing or not writable): the "400 ... service not
   available" stayed in the buffer, because the session exited without
   sending it.
+* A client whose host name has more than 63 characters (on Linux) was
+  taken for its address: name and domain Client entries didn't match it,
+  and the log and X-NNTP-Posting-Host showed the address. Names of up to
+  255 characters are used now.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came

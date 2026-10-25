@@ -171,6 +171,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | Auth-file lines over 1023 bytes were split silently (`seekfile` read with `fgets` into 1024 bytes): the line lost its later fields, the rest was parsed as a line of its own, its start taken for a user name; now read with `getline`, any length | 3 | review (area 3) | #110 |
 | A successful login wasn't logged with the user name (a failed one was); `auth_pass` stayed in memory for the whole session, e.g. in a core dump | 3 | review (area 3) | #110 |
 | In standalone mode the "400 ... service not available" sent when the session can't open the spool (`new CServer` throws) was lost: `exit(1)` doesn't flush the socket stream (inetd mode's stdout it does) | 1 | review (area 1) | #PR |
+| Client host names of 64 characters or more were never used on Linux (`client_name[MAXHOSTNAMELEN]`, the result of `getnameinfo` unchecked): name and domain Client entries didn't match, the address was logged; now `FQDN_BUFSIZE` (256), also `nntp_posting_host` | 1 | review (area 1) | #PR |
 | `TestSpoolDiskFullDaemon` failed now and then, mostly in the `-race` pass on a busy machine: client 1 waits while client 2 works, which took longer than the default ClientTimeout (60 s), so NewsCache ended client 1's session as idle; and a reply deadline of 60 s was too short for 20000 overview records. Test timing only, not a NewsCache bug | 15 | e2e tests (Fedora 44, `go test -race`) | #83 |
 | With `Options starttls`, a 480 to MODE READER (sent before STARTTLS) made `issue()` log in at once (the re-login of #68): User and Password went out in plain text, which anyone in the middle could force by injecting the 480; this undid #16. Also, a server that wants the login before MODE READER got a second login (502) and the connect failed every time | 7 | review (area 7) | #85 |
 | NEXT and LAST crashed (SIGSEGV) at the first gap in a group that isn't cached (`Options not-cached`): `RNewsgroup::getover` returns NULL for a number without a record, and `ns_lastnext` read `o[0]` | 2 | review (area 2) | #86 |
@@ -204,7 +205,6 @@ that it stays as it is.
 | Point | Area | Found by | Test |
 |---|---|---|---|
 | SIGTERM doesn't end an idle session, or one blocked in send (the EINTR loops only stop on the alarm); `nntpd` exits without signalling its children | 1, 5 | review (area 1) | e2e: SIGTERM to the daemon ends open sessions |
-| Client host names of 64 characters or more are never used on Linux (`client_name[MAXHOSTNAMELEN]`, the result of `getnameinfo` isn't checked) | 1 | review (area 1) |  |
 | In inetd mode the access list is matched against an uninitialized `clt.sock` | 1 | review (area 1) |  |
 | Upstream error replies reach the client as they are (`fetch_readable` passes a ResponseError's text on): a stray `220` or `381` without data | 2, 7 | review (area 7) |  |
 | A failed AUTHINFO PASS answers 502; RFC 4643 says 481 (three e2e tests expect 502) | 3 | review (area 3) |  |
