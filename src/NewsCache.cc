@@ -327,7 +327,80 @@ Config Cfg;
 bool reReadConfig;
 
 sig_atomic_t Xsignal;
-int nntp_connections;
+volatile sig_atomic_t nntp_connections;	// sigchld() decrements it
+
+/* The daemon's session processes, so that it can end them when it stops
+ * (they kept running until ClientTimeout). Only sigchld() changes a pid
+ * to 0; the main flow touches the table with SIGCHLD blocked. */
+static vector < pid_t > sessions;
+
+static void block_sigchld(sigset_t * old)
+{
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGCHLD);
+	sigprocmask(SIG_BLOCK, &set, old);
+}
+
+static void add_session(pid_t pid)
+{
+	size_t i;
+	for (i = 0; i < sessions.size() && sessions[i] != 0; i++)
+		;
+	if (i < sessions.size())
+		sessions[i] = pid;
+	else
+		sessions.push_back(pid);
+}
+
+static void end_sessions(void)
+{
+	sigset_t old;
+	block_sigchld(&old);
+	for (size_t i = 0; i < sessions.size(); i++)
+		if (sessions[i] != 0)
+			kill(sessions[i], SIGTERM);
+}
+
+/* Sessions that ended with an error, recorded by sigchld() and logged by
+ * log_ended_sessions() in the main flow: the Logger isn't
+ * async-signal-safe (malloc, localtime_r, stdio, syslog), and logging
+ * from the handler deadlocked the daemon when it interrupted a log line. */
+#define ENDED_MAX 64
+static pid_t ended_pid[ENDED_MAX];
+static int ended_status[ENDED_MAX];
+static volatile sig_atomic_t ended_n, ended_lost;
+
+static void log_ended_sessions(void)
+{
+	pid_t pid[ENDED_MAX];
+	int st[ENDED_MAX];
+	int n, lost;
+	sigset_t old;
+
+	if (ended_n == 0 && ended_lost == 0)
+		return;
+	block_sigchld(&old);
+	n = ended_n;
+	lost = ended_lost;
+	memcpy(pid, ended_pid, n * sizeof(pid[0]));
+	memcpy(st, ended_status, n * sizeof(st[0]));
+	ended_n = 0;
+	ended_lost = 0;
+	sigprocmask(SIG_SETMASK, &old, NULL);
+
+	for (int i = 0; i < n; i++) {
+		if (WIFEXITED(st[i]))
+			slog.p(Logger::Error) << pid[i] << " returned "
+			    << WEXITSTATUS(st[i]) << "\n";
+		else
+			slog.p(Logger::Error) << pid[i] << " caught signal "
+			    << WTERMSIG(st[i]) << "\n";
+	}
+	if (lost)
+		slog.p(Logger::Error) << lost << " more sessions ended "
+		    "with an error\n";
+}
 
 /* The pid file this daemon wrote, kept open so it can be emptied when the
  * daemon can't remove it any more (see remove_pid_file). */
@@ -413,7 +486,9 @@ class ClientData {
   public:
 	struct sockaddr_storage sock;
 	SOCKLEN_TYPE socklen;
-	char client_name[MAXHOSTNAMELEN];
+	// a DNS name has up to 253 characters (MAXHOSTNAMELEN is 64 on
+	// Linux, and getnameinfo failed for longer names)
+	char client_name[FQDN_BUFSIZE];
 	char client_addr[INET6_ADDRSTRLEN];
 	string client_logname;
 	istream *ci;
@@ -452,6 +527,10 @@ class ClientData {
 	{
 		auth_user[0] = auth_pass[0] = '\0';
 		groupname[0] = '\0';
+		// no address (AF_UNSPEC) for inetd mode and when getpeername
+		// fails: the access list's address entries read it
+		memset(&sock, 0, sizeof(sock));
+		socklen = 0;
 	}
 };
 
@@ -2872,11 +2951,11 @@ void nnrpd(int fd)
 			// get the name of the client and store it in clt.client_name.
 			// if the client does not have a name, use the ip-address instead
 			// store it in nntp_posting_host as used by libnserver
-			clt.client_name[0] = '\0';
-			getnameinfo((const struct sockaddr *) &clt.sock,
-				    clt.socklen,
-				    clt.client_name, sizeof(clt.client_name),
-				    NULL, 0, 0);
+			if (getnameinfo((const struct sockaddr *) &clt.sock,
+					clt.socklen,
+					clt.client_name, sizeof(clt.client_name),
+					NULL, 0, 0) != 0)
+				clt.client_name[0] = '\0';
 
 			struct addrinfo hints;
 			memset(&hints, 0, sizeof(hints));
@@ -3058,6 +3137,9 @@ void nnrpd(int fd)
 		(*clt.
 		 co) << "400 " PACKAGE " " VERSION
 	       ", service not available\r\n";
+		// exit() doesn't flush the socket stream (it does stdout in
+		// inetd mode): without this the client got no reply
+		clt.co->flush();
 		exit(1);
 	}
 
@@ -3074,29 +3156,33 @@ void nnrpd(int fd)
 		}
 
 		alarmed = 0;
-		alarm (Cfg.ClientTimeout);
-		clt.ci->getline(req, sizeof(req), '\n');
+		// (no wait after a signal during the last command)
 		too_long = false;
-		if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
-		    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {
-			// The line doesn't fit into req: skip the rest of it
-			// and answer 501 (RFC 3977 3.2.1). The failed getline
-			// used to end the session without a reply.
-			too_long = true;
-			clt.ci->clear();
-			clt.ci->ignore(std::numeric_limits < std::streamsize >::max(),
-				       '\n');
+		if (Xsignal == -1) {
+			alarm (Cfg.ClientTimeout);
+			clt.ci->getline(req, sizeof(req), '\n');
+			if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
+			    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {
+				// The line doesn't fit into req: skip the rest of
+				// it and answer 501 (RFC 3977 3.2.1). The failed
+				// getline used to end the session without a reply.
+				too_long = true;
+				clt.ci->clear();
+				clt.ci->ignore(std::numeric_limits < std::streamsize >::max(),
+					       '\n');
+			}
+			alarm (0);
 		}
-		alarm (0);
+		if (Xsignal != -1) {
+			alarmed = 0;	// (else the reply isn't sent)
+			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
+			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
+			goto client_exit;
+		}
 		if (alarmed) {
 			alarmed = 0;
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service timed out!\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " ClientTimeout reached\n";
-			goto client_exit;
-		}
-		if (Xsignal != -1) {
-			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
-			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
 		}
 		if (clt.ci->eof()) {
@@ -3470,10 +3556,12 @@ void nntpd()
 				}
 			}
 
+			log_ended_sessions();
 			errno = 0;
 			clt_fd = accept(sock, NULL, NULL);
 			if (Xsignal != -1) {
 				close(sock);
+				end_sessions();
 				remove_pid_file();
 				slog.p(Logger::Notice) << "NewsCache Server Stop "
 				    "(signal " << (int) Xsignal << ")\n";
@@ -3488,8 +3576,13 @@ void nntpd()
 			continue;
 		}
 #ifdef CONF_MultiClient
+		// SIGCHLD blocked until the new session is in the table: a
+		// session that ended at once would stay there for good
+		sigset_t old_mask;
+		block_sigchld(&old_mask);
 		if (nntp_connections >= Cfg.MaxConnections
 		    || (clt_pid = fork()) < 0) {
+			sigprocmask(SIG_SETMASK, &old_mask, NULL);
 			if (clt_pid < 0) {
 				slog.
 				    p(Logger::
@@ -3505,6 +3598,8 @@ void nntpd()
 			// success
 			if (clt_pid == 0) {
 				// child
+				sigprocmask(SIG_SETMASK, &old_mask, NULL);
+				sessions.clear();
 				close(sock);
 				if (pid_file_fd >= 0) {
 					close(pid_file_fd);
@@ -3569,10 +3664,12 @@ void nntpd()
 				exit(0);
 			}
 			//Parent
+			add_session(clt_pid);
+			nntp_connections = nntp_connections + 1;
+			sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
 			while ((close(clt_fd) < 0) && (errno == EINTR)) {
 			}
-			nntp_connections++;
 		}
 #else
 		nnrpd(clt_fd);
@@ -3587,8 +3684,8 @@ void sigchld(int num)
 {
 	int pid;
 	int st;
+	int saved_errno = errno;	// waitpid may change it
 
-	//slog.p(Logger::Debug) << "receiving signal SIGCHLD: " << num << "\n";
 	/* Reinstall the signal handler */
 #ifdef HAVE_SIGACTION
 	struct sigaction action;
@@ -3603,23 +3700,22 @@ void sigchld(int num)
 	while ((pid = waitpid(0, &st, WNOHANG)) > 0) {
 		if (WIFEXITED(st) || WIFSIGNALED(st)) {
 			// child terminated
-			nntp_connections--;
+			nntp_connections = nntp_connections - 1;
+			for (size_t i = 0; i < sessions.size(); i++)
+				if (sessions[i] == pid)
+					sessions[i] = 0;
+			// no logging here (see log_ended_sessions)
 			if (st) {
-				if (WIFEXITED(st)) {
-					slog.
-					    p(Logger::
-					      Error) << pid << " returned "
-					    << WEXITSTATUS(st) << "\n";
-				} else if (WIFSIGNALED(st)) {
-					slog.
-					    p(Logger::
-					      Error) << pid <<
-					    " caught signal " <<
-					    WTERMSIG(st) << "\n";
-				}
+				if (ended_n < ENDED_MAX) {
+					ended_pid[ended_n] = pid;
+					ended_status[ended_n] = st;
+					ended_n = ended_n + 1;
+				} else
+					ended_lost = ended_lost + 1;
 			}
 		}
 	}
+	errno = saved_errno;
 }
 
 void catchsigalarm(int num)
@@ -3655,6 +3751,10 @@ void catchsighup(int num)
 void catchsignal(int num)
 {
 	Xsignal = num;
+	// A session waiting for the client (a command, or a send it doesn't
+	// read) stops at once: the EINTR loops of sockstream end on alarmed
+	// only, so SIGTERM was noticed after the next command line.
+	alarmed = 1;
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -3904,9 +4004,20 @@ int main(int argc, char **argv)
 					      Error) << "setsid failed\n";
 					exit(1);
 				}
-				close(STDIN_FILENO);
-				close(STDOUT_FILENO);
-				close(STDERR_FILENO);
+				// /dev/null, not closed: else the next files
+				// opened became fds 0-2, and what went to stderr
+				// (an abort message, setugid's errors) went to a
+				// client's socket or into a spool file
+				{
+					int fd = open("/dev/null", O_RDWR);
+					if (fd >= 0) {
+						dup2(fd, STDIN_FILENO);
+						dup2(fd, STDOUT_FILENO);
+						dup2(fd, STDERR_FILENO);
+						if (fd > STDERR_FILENO)
+							close(fd);
+					}
+				}
 				break;
 			default:
 				return 0;

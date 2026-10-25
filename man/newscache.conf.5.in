@@ -78,7 +78,9 @@ the file is only emptied. Under systemd no pid file is needed.
 .I "Username username"
 Change the user id to username as soon as NewsCache has bound to
 .IR CachePort .
-No default value. 
+No default value: started as root without Username, NewsCache and
+every client session keep running as root, and the log says so with a
+warning. Set it (for example to news).
 .TP
 .I "Groupname groupname"
 Change the group id to groupname as soon as NewsCache has bound to

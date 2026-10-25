@@ -9,13 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // TestStandaloneSession: the daemon accepts a TCP client and serves it.
@@ -193,6 +196,137 @@ func checkPidFile(t *testing.T, fn string, pid int) {
 	}
 	if got := strings.TrimSpace(string(b)); got != fmt.Sprint(pid) {
 		t.Fatalf("pid file holds %q, want %d", got, pid)
+	}
+}
+
+// startDetached starts newscache the classic way, without -n: it forks,
+// the parent exits and the daemon goes on. Returns the daemon's pid from
+// the pid file, or 0 if the daemon is gone again before that.
+func startDetached(t *testing.T, e *env) int {
+	t.Helper()
+	pidFile := filepath.Join(e.Dir, "newscache.pid")
+	if err := exec.Command(e.Bin, "-c", e.Conf).Run(); err != nil {
+		t.Fatalf("newscache: %v", err)
+	}
+	for i := 0; i < 50; i++ {
+		b, _ := os.ReadFile(pidFile)
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGTERM) })
+			return pid
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return 0
+}
+
+// TestDaemonDetached: the detached daemon closed stdin, stdout and stderr
+// instead of pointing them at /dev/null, so the next files it opened took
+// fds 0-2: the listening socket became fd 0, and in a session process the
+// client's socket became stderr (where glibc's abort messages go). And
+// setugid reported a Username that doesn't exist only on that closed
+// stderr: the daemon died at once, without a trace in the log.
+func TestDaemonDetached(t *testing.T) {
+	t.Run("stdio is /dev/null", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("reads /proc/<pid>/fd")
+		}
+		e := newEnv(t)
+		e.addArticles("test.alpha", 1)
+		e.writeConf()
+		pid := startDetached(t, e)
+		if pid == 0 {
+			t.Fatal("the daemon wrote no pid file")
+		}
+		// the pid file comes before listen()
+		for i := 0; i < 50; i++ {
+			if nc, err := net.Dial("tcp", e.Listen); err == nil {
+				nc.Close()
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		c := e.dial()
+		c.Cmd("GROUP test.alpha")
+		// whether fds 0-2 of pid are /dev/null; false if pid is gone
+		check := func(who string, pid int) bool {
+			for fd := 0; fd <= 2; fd++ {
+				l, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd))
+				if err != nil && who == "session" {
+					// the session of the probe above, ending
+					return false
+				}
+				if l != "/dev/null" {
+					t.Errorf("%s (pid %d): fd %d is %q (%v), want /dev/null", who, pid, fd, l, err)
+				}
+			}
+			return true
+		}
+		check("daemon", pid)
+		kids, _ := os.ReadFile(fmt.Sprintf("/proc/%d/task/%d/children", pid, pid))
+		n := 0
+		for _, k := range strings.Fields(string(kids)) {
+			if kid, err := strconv.Atoi(k); err == nil && check("session", kid) {
+				n++
+			}
+		}
+		if n == 0 {
+			t.Logf("no session process found under %d (no /proc/<pid>/task/<pid>/children?)", pid)
+		}
+		c.Cmd("QUIT")
+	})
+	t.Run("unknown Username is logged", func(t *testing.T) {
+		e := newEnv(t)
+		e.writeConf()
+		b, err := os.ReadFile(e.Conf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conf := strings.Replace(string(b), "\nUsername ", "\nUsername nosuchuser_e2e\n#", 1)
+		if err := os.WriteFile(e.Conf, []byte(conf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if pid := startDetached(t, e); pid != 0 {
+			for i := 0; i < 50 && syscall.Kill(pid, 0) == nil; i++ {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		log := e.logFile()
+		if !strings.Contains(log, "Cannot get pwent for nosuchuser_e2e") {
+			t.Errorf("the log doesn't say why the daemon stopped:\n%s", log)
+		}
+	})
+}
+
+// TestNoUsernameWarning: started as root without Username, the daemon
+// and every session (which parse client input) kept running as root, and
+// nothing said so. It still does, but logs a warning.
+func TestNoUsernameWarning(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root")
+	}
+	e := newEnv(t)
+	e.writeConf()
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := proc.StartTCP(t, e.procOpts("-n"), e.Listen)
+	c := e.dial()
+	c.Cmd("QUIT")
+	c.Close()
+	p.Signal(syscall.SIGTERM)
+	p.Wait()
+	if log := e.logFile(); !strings.Contains(log, "no Username in the config: running as root") {
+		t.Errorf("no warning about running as root in the log:\n%s", log)
 	}
 }
 
@@ -381,5 +515,257 @@ func TestClientPostStall(t *testing.T) {
 	}
 	if n := len(e.Store.Posted()); n != 0 {
 		t.Errorf("upstream got %d posted articles, want none", n)
+	}
+}
+
+// TestStandaloneSpoolUnavailable: when a session can't open the spool, the
+// client gets "400 ... service not available" before the connection is
+// closed. In standalone mode the reply stayed in the socket stream's
+// buffer (the session exited without flushing it), so the client saw only
+// the connection close.
+func TestStandaloneSpoolUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.standalone()
+	if err := os.RemoveAll(e.Spool); err != nil {
+		t.Fatal(err)
+	}
+	nc, err := net.DialTimeout("tcp", e.Listen, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	nc.SetDeadline(time.Now().Add(10 * time.Second))
+	line, err := bufio.NewReader(nc).ReadString('\n')
+	if !strings.HasPrefix(line, "400 ") {
+		t.Fatalf("greeting without a spool: %q, %v; want 400", line, err)
+	}
+}
+
+// TestLongClientName: a client whose host name has more than 63
+// characters is known by that name: Client entries for it match, and the
+// log shows it. The name buffer had MAXHOSTNAMELEN (64 on Linux) bytes,
+// so getnameinfo failed, and such clients were taken for their address
+// (and got the Default entry). The name comes from an /etc/hosts of the
+// test's own, bind-mounted in a user and mount namespace (skipped where
+// the system doesn't allow one).
+func TestLongClientName(t *testing.T) {
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
+	}
+	name := "a-client-with-a-host-name-of-more-than-sixty-four-characters.dialup.example.test"
+	e := newEnv(t)
+	hosts := filepath.Join(e.Dir, "hosts")
+	if err := os.WriteFile(hosts, []byte("127.0.0.1 "+name+"\n::1 localhost\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = accessEntry(name)
+	e.Extra = "LogStyle hostname ip-address"
+	e.writeConf()
+	// newscache runs as root of the namespace: no Username and Groupname
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := e.procOpts("-n")
+	o.Env = append(o.Env, "HOSTS="+hosts)
+	o.Args = append([]string{"-rm", "/bin/sh", "-c",
+		`mount --bind "$HOSTS" /etc/hosts || exit 99
+exec "$@"`, "nc", o.Path}, o.Args...)
+	o.Path = "unshare"
+	proc.StartTCP(t, o, e.Listen)
+
+	c := e.dialRaw()
+	if !strings.HasPrefix(c.Greeting, "200 ") {
+		t.Fatalf("greeting for %s: %q, want 200 (its Client entry)", name, c.Greeting)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	if log := e.logFile(); !strings.Contains(log, name+" [127.0.0.1] connect") {
+		t.Errorf("the log doesn't name the client %s:\n%s", name, grepLines(log, "connect"))
+	}
+}
+
+// childPids returns the pids of pid's child processes (Linux: from /proc).
+func childPids(t *testing.T, pid int) []int {
+	t.Helper()
+	dirs, err := filepath.Glob("/proc/[0-9]*/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []int
+	for _, d := range dirs {
+		b, err := os.ReadFile(d)
+		if err != nil {
+			continue
+		}
+		// pid (comm) state ppid ...: comm may hold blanks
+		s := string(b)
+		f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+		if len(f) > 1 && f[1] == strconv.Itoa(pid) {
+			n, _ := strconv.Atoi(strings.Fields(s)[0])
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// running reports whether process pid exists and isn't a zombie.
+func running(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(f) > 0 && f[0] != "Z"
+}
+
+// TestSIGTERMEndsSessions: SIGTERM to the daemon ends its sessions: an
+// idle one gets "400 ... service discontinued" at once, and one blocked
+// in sending to a client that doesn't read ends too. The daemon exited
+// without telling its sessions, and a session noticed SIGTERM only after
+// the next command line, so both kept running until ClientTimeout.
+func TestSIGTERMEndsSessions(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session processes in /proc")
+	}
+	const group = "alt.binaries.stall"
+	e := newEnv(t)
+	e.ClientTimeout = 600
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	p := e.standalone()
+
+	// a: idle after the greeting
+	a := e.dial()
+	// b: stops reading in the middle of a big XOVER
+	b, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	b.(*net.TCPConn).SetReadBuffer(4096)
+	rb := bufio.NewReader(b)
+	b.SetDeadline(time.Now().Add(60 * time.Second))
+	rb.ReadString('\n') // greeting
+	io.WriteString(b, "GROUP "+group+"\r\nXOVER 1-40000\r\n")
+	if l, err := rb.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
+		t.Fatalf("b: GROUP: %q %v", l, err)
+	}
+	if l, err := rb.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
+		t.Fatalf("b: XOVER: %q %v", l, err)
+	}
+	time.Sleep(2 * time.Second)
+	sessions := childPids(t, p.Pid())
+	if len(sessions) != 2 {
+		t.Fatalf("daemon %d has the children %v, want 2 sessions", p.Pid(), sessions)
+	}
+
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	a.Deadline = 5 * time.Second
+	code, line, err := a.ReadStatus()
+	if err != nil || code != 400 {
+		t.Errorf("idle session after SIGTERM: %q, %v; want 400", line, err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for _, pid := range sessions {
+		for running(pid) {
+			if time.Now().After(deadline) {
+				t.Errorf("session %d still runs 5 s after SIGTERM to the daemon", pid)
+				syscall.Kill(pid, syscall.SIGKILL)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+// TestSigchldStress: the SIGCHLD handler logged "<pid> returned <n>" for
+// a session that ended with an error, from inside the signal handler. The
+// Logger isn't async-signal-safe (malloc, localtime_r, stdio, syslog):
+// when the signal came while the daemon itself was logging, the handler
+// blocked on a lock its own process held, and the daemon hung for good
+// (it accepted nothing, systemd saw a live process). Here every session
+// fails (SpoolDirectory is a file) while SIGHUP makes the daemon log a
+// reload line every 200 microseconds; afterwards the daemon must still
+// answer, and the "returned 1" lines must still be logged (from the main
+// loop now). The window is small: the old code hung after 30-60 seconds of
+// this, so the default run (5 s) mainly checks the logging;
+// NEWSCACHE_STRESS=120s runs longer.
+func TestSigchldStress(t *testing.T) {
+	dur := 5 * time.Second
+	if d, err := time.ParseDuration(os.Getenv("NEWSCACHE_STRESS")); err == nil {
+		dur = d
+	}
+	e := newEnv(t)
+	e.MaxConnections = 64
+	p := e.standalone()
+	good, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Replace(string(good), "SpoolDirectory "+e.Spool, "SpoolDirectory "+e.Conf, 1)
+	if err := os.WriteFile(e.Conf, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.Signal(syscall.SIGHUP)
+	time.Sleep(200 * time.Millisecond)
+
+	stop := time.Now().Add(dur)
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(stop) {
+				c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
+				if err != nil {
+					continue
+				}
+				c.SetDeadline(time.Now().Add(3 * time.Second))
+				bufio.NewReader(c).ReadString('\n')
+				c.Close()
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(stop) {
+			p.Signal(syscall.SIGHUP)
+			time.Sleep(200 * time.Microsecond)
+		}
+	}()
+	wg.Wait()
+
+	// the good config again: a session must get its greeting
+	if err := os.WriteFile(e.Conf, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.Signal(syscall.SIGHUP)
+	time.Sleep(300 * time.Millisecond)
+	c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
+	if err != nil {
+		t.Fatalf("daemon after the stress: %v", err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(10 * time.Second))
+	if l, err := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(l, "200") {
+		wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", l, err, wchan)
+	}
+	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(b), " returned 1") {
+		t.Errorf("no \"<pid> returned 1\" line in the log for the failed sessions")
 	}
 }

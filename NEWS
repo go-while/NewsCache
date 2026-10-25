@@ -163,6 +163,39 @@ Bug fixes:
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
+* In standalone mode a client got no reply when its session couldn't
+  open the spool (missing or not writable): the "400 ... service not
+  available" stayed in the buffer, because the session exited without
+  sending it.
+* A client whose host name has more than 63 characters (on Linux) was
+  taken for its address: name and domain Client entries didn't match it,
+  and the log and X-NNTP-Posting-Host showed the address. Names of up to
+  255 characters are used now.
+* In inetd mode (and when the client's address can't be read) the
+  address entries of the access list were matched against an
+  uninitialized address; a session could get the rights of such an entry
+  instead of the "stdin" one, depending on what was on the stack.
+* SIGTERM to the daemon left its sessions running until ClientTimeout
+  (20 minutes by default): the daemon didn't pass it on, and a session
+  noticed SIGTERM only after the client's next command, and not at all
+  while it was blocked sending to a client that didn't read. The daemon
+  now sends SIGTERM to its sessions, which end at once with "400 ...
+  service discontinued", as newscache(8) says.
+* The daemon could hang for good, accepting no more clients, when a
+  client session ended with an error at the moment the daemon itself
+  wrote a log line (after a reload, for example): the SIGCHLD handler
+  wrote its own log line from inside the signal handler, which isn't
+  safe. The handler now only records the ended session; the daemon logs
+  it from its main loop.
+* Started without -n, the daemon closed its standard input, output and
+  error instead of pointing them at /dev/null, so the next files it
+  opened took their place: in a session process the client's connection
+  became the standard error, where error messages of the C library go.
+  And a Username or Groupname that doesn't exist was reported only on
+  that closed standard error: the daemon stopped at once without a word
+  in the log. Such errors are logged now too.
+* Started as root without Username, NewsCache and every client session
+  kept running as root without a word. It now logs a warning.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came

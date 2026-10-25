@@ -294,6 +294,13 @@ int sockstream::sockstreambuf::sync()
   while ((pbase() + off) != pptr())
   {
     int rc_send;
+    // The indicator is set (the alarm, SIGTERM): no new wait. A send
+    // interrupted after part of the data returns that part, not EINTR,
+    // so the loop would block again for the rest.
+    if (_alarm_indicator && *_alarm_indicator)
+    {
+      return -1;
+    }
     do
     {
       rc_send = ::send(_fd, pbase() + off, pptr() - pbase() - off, 0);
@@ -321,6 +328,11 @@ int sockstream::sockstreambuf::underflow()
   }
 
   int rc_recv;
+  // (no new wait once the indicator is set, see sync)
+  if (_alarm_indicator && *_alarm_indicator)
+  {
+    return traits_type::eof();
+  }
   do
   {
     rc_recv = ::recv(_fd, _gbuf, sizeof(_gbuf), 0);
