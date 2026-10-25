@@ -326,7 +326,7 @@ ClientTimeout 900
 
 @cdindex AuthFailureDelay
 After a failed login (@code{AUTHINFO PASS} with a wrong user name or
-password), NewsCache waits before it answers: @code{AuthFailureDelay}
+password), NewsCache waits before it answers 481: @code{AuthFailureDelay}
 seconds after the first failure, twice that after the second, and so on
 within the same connection; after the third failure it closes the
 connection. This slows down password guessing. The default is 15
@@ -949,7 +949,11 @@ sees (@code{List}), reads (@code{Read}) and posts to (@code{PostTo}),
 and how a client logs in (@code{Authentication none},
 @code{file:@var{path}}, @code{unix}, @code{pam} or @code{pam+file}).
 A login adds the rights and groups of the user's line to those of the
-entry.
+entry. As RFC 4643 says, a failed login (wrong password, unknown user,
+a stored hash that can't be checked) gets 481, @code{AUTHINFO PASS}
+without @code{AUTHINFO USER} gets 482, and @code{AUTHINFO} after a
+successful login, or where the entry has @code{Authentication none},
+gets 502.
 
 @example
 AccessList @{
