@@ -272,7 +272,10 @@ string Article::getfield(const char *ifld, int Full) const
 		throw InvalidArticleError("article without body",
 					  ERROR_LOCATION);
 
-	// multi-line header?
+	// multi-line header? Unfolding (RFC 5322 2.2.3) removes only the
+	// CRLF, so the white space that starts the continuation line stays;
+	// here it becomes one space. (It used to be dropped: "foo\r\n bar"
+	// read "foobar", and "a\r\n b" in Newsgroups became the group "ab".)
 	while (*p == ' ' || *p == '\t') {
 		do {
 			p++;
@@ -280,7 +283,12 @@ string Article::getfield(const char *ifld, int Full) const
 		fld = p;
 		while (*p && *p != '\r' && *p != '\n')
 			p++;
-		rfld.append(fld, p - fld);
+		if (p > fld) {
+			if (!rfld.empty() && rfld[rfld.size() - 1] != ' '
+			    && rfld[rfld.size() - 1] != '\t')
+				rfld += ' ';
+			rfld.append(fld, p - fld);
+		}
 
 		if (*p == '\n')
 			p++;

@@ -117,6 +117,51 @@ int checkSizes(void)
 	return 0;
 }
 
+// Folded header lines (RFC 5322 2.2.3): the CRLF goes, the white space
+// that starts the continuation line becomes one space.
+int checkUnfold(void)
+{
+	struct {
+		const char *text;	// the head; a body follows
+		const char *field;
+		int full;
+		const char *want;
+	} cases[] = {
+		{"Subject: foo\r\n bar\r\n", "subject:", 0, "foo bar"},
+		{"Subject: foo\n bar\n", "subject:", 0, "foo bar"},
+		{"Subject: foo\r\n\tbar\r\n", "subject:", 0, "foo bar"},
+		{"Subject: foo\r\n   \t bar\r\n", "subject:", 0, "foo bar"},
+		{"Subject: foo \r\n bar\r\n", "subject:", 0, "foo bar"},
+		{"Subject: foo\r\n bar\r\n baz\r\n", "subject:", 0, "foo bar baz"},
+		{"Subject:\r\n foo\r\n", "subject:", 0, "foo"},
+		{"Subject: foo\r\n bar\r\n", "subject:", 1, "Subject: foo bar"},
+		{"Subject:\r\n foo\r\n", "subject:", 1, "Subject: foo"},
+		// a continuation line of white space only adds nothing
+		{"Subject: foo\r\n \r\n", "subject:", 0, "foo"},
+		{"Subject: foo\r\nFrom: x\r\n", "subject:", 0, "foo"},
+		// Newsgroups: a fold after the comma keeps the two names apart,
+		// a fold instead of a comma is white space in a name (which
+		// split_newsgroups refuses), not the group "ab"
+		{"Newsgroups: a,\r\n b\r\n", "newsgroups:", 0, "a, b"},
+		{"Newsgroups: a\r\n b\r\n", "newsgroups:", 0, "a b"},
+		{"Xref: h a:1\r\n b:2\r\n", "xref:", 1, "Xref: h a:1 b:2"},
+	};
+	int e = 0;
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		string text = string(cases[i].text) + "From: a@b.c\r\n\r\nbody\r\n";
+		Article a(1, text.c_str(), text.length());
+		string got = a.getfield(cases[i].field, cases[i].full);
+		if (got != cases[i].want) {
+			cout << "checkUnfold: getfield(" << cases[i].field << ", "
+			    << cases[i].full << ") of \"" << cases[i].text
+			    << "\" gives \"" << got << "\", want \""
+			    << cases[i].want << "\"\n";
+			e++;
+		}
+	}
+	return e ? -1 : 0;
+}
+
 int main(int argc, char *argv[])
 {
 	char **al = articleList;
@@ -144,6 +189,12 @@ int main(int argc, char *argv[])
 		ef++;
 	} else {
 		cout << "checkSizes() succeeded\n";
+	}
+	if ((e = checkUnfold()) < 0) {
+		cout << "checkUnfold() failed with: " << e << endl;
+		ef++;
+	} else {
+		cout << "checkUnfold() succeeded\n";
 	}
 	if (ef == 0) {
 		cout << "cArticle: all tests succeeded\n";

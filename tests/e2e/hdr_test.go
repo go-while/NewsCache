@@ -3,6 +3,8 @@ package e2e
 import (
 	"strings"
 	"testing"
+
+	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
 // HDR and LIST HEADERS (RFC 3977 8.5, 8.6), and CAPABILITIES (5.2)
@@ -184,5 +186,60 @@ func TestListHeaders(t *testing.T) {
 	}
 	if code, line := c.Cmd("LIST HEADERS foo"); code != 501 {
 		t.Errorf("LIST HEADERS foo: %q, want 501", line)
+	}
+}
+
+// TestFoldedHeader: a header folded over two lines (RFC 5322 2.2.3) is
+// unfolded by removing the line break only, so "Subject: foo" with the
+// continuation line " bar" reads "foo bar", as the upstream's overview
+// has it. NewsCache read the stored article as "foobar": HDR, XHDR and
+// XPAT by message-ID, and by number once the article was in the spool,
+// disagreed with the overview and with the upstream.
+func TestFoldedHeader(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	const id = "<folded@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{
+		Number:    2,
+		MessageID: id,
+		Headers: []string{
+			"From: poster@upstream.test",
+			"Subject: foo",
+			" bar",
+			"Newsgroups: test.alpha",
+			"Xref: upstream.test test.alpha:2",
+		},
+		Body: []string{"folded subject"},
+	})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	// from the overview, as the upstream unfolds it
+	if code, line := c.Cmd("HDR subject 2"); code != 225 {
+		t.Fatalf("HDR subject 2: %q", line)
+	} else if got := hdrLines(c.ReadDotLines()); got != "2 foo bar" {
+		t.Errorf("HDR subject 2 from the overview: %q, want %q", got, "2 foo bar")
+	}
+	// from the article: by message-ID, and by number once it is spooled
+	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
+		t.Fatalf("ARTICLE 2: %q", line)
+	} else if a := c.ReadDotLines(); !containsLine(a, " bar") {
+		t.Errorf("ARTICLE 2 doesn't keep the fold: %q", a)
+	}
+	for _, tc := range []struct{ cmd, want string }{
+		{"HDR subject " + id, "0 foo bar"},
+		{"XHDR subject " + id, id + " foo bar"},
+		{"HDR subject 2", "2 foo bar"},
+		{"XHDR subject 2", "2 foo bar"},
+		{"XPAT subject " + id + " foo*bar", id + " foo bar"},
+		{"XPAT subject 2 foo*bar", "2 foo bar"},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != 225 && code != 221 {
+			t.Errorf("%s: %q", tc.cmd, line)
+			continue
+		}
+		if got := hdrLines(c.ReadDotLines()); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.cmd, got, tc.want)
+		}
 	}
 }
