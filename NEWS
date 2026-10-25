@@ -334,6 +334,11 @@ Bug fixes:
   after its last entry made the session loop for ever at full CPU while
   it held the group's lock: the client got no answer, every other session
   on that group hung, and only SIGKILL ended it.
+* A SpoolSize of 1 TByte (1073741824 KBytes) or more made every
+  newscacheclean run delete the whole spool: the limit was computed in a
+  32-bit number and wrapped negative. Values from 2147483648 on were cut
+  by the parser. SpoolSize is a 64-bit number now, and anything but a
+  plain number of KBytes is a config error.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.

@@ -127,8 +127,8 @@ Maximal number of simultanous connections. This Parameter works only in standalo
 .I "SpoolDirectory directory"
 The directory, where the cached newsgroups and articles should be stored. The default value is /var/cache/newscache.
 .TP
-.I "Spoolsize KBytes"
-The maximum size of the spool area. This is controlled by the
+.I "SpoolSize KBytes"
+The maximum size of the spool area, a plain number of KBytes. This is controlled by the
 .BR newscacheclean (8) .
 The default value is 1048576 KBytes (1 GByte).
 .TP

@@ -41,7 +41,7 @@ class Config {
 	char LogDirectory[MAXPATHLEN];
 	int LogStyle;
 	char SpoolDirectory[MAXPATHLEN];
-	int SpoolSize;
+	long long SpoolSize;	// KBytes
 	char PrefetchFile[MAXPATHLEN];
 	char PidFile[MAXPATHLEN];
 

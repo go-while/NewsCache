@@ -426,6 +426,76 @@ func TestSpoolDirectoryTooLong(t *testing.T) {
 	})
 }
 
+// TestSpoolSizeLarge: SpoolSize was an int read with atoi. From 1 TByte
+// (1073741824 KBytes) on, newscacheclean's limit in 512-byte blocks
+// (SpoolSize * 2) wrapped negative and every run deleted the whole spool;
+// values from 2^31 on were mangled by atoi. It is a 64-bit number now, and
+// anything but a plain number is a config error.
+func TestSpoolSizeLarge(t *testing.T) {
+	clean := filepath.Join(filepath.Dir(binPath(t)), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to the newscache binary")
+	}
+	spoolFiles := func(dir string) (names []string) {
+		filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+			if err == nil && !fi.IsDir() {
+				names = append(names, strings.TrimPrefix(p, dir))
+			}
+			return nil
+		})
+		return
+	}
+	for _, sz := range []string{"1073741824", "2147483648", "4294967296", "9007199254740991"} {
+		t.Run(sz, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = "SpoolSize " + sz
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), "\nSpoolSize "+sz+"\n") {
+				t.Errorf("newscache -p prints %q, want SpoolSize %s", grepLines(string(out), "SpoolSize"), sz)
+			}
+			e.addArticles("test.alpha", 3)
+			c := e.session()
+			c.Cmd("GROUP test.alpha")
+			for i := 1; i <= 3; i++ {
+				if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
+					t.Fatalf("ARTICLE %d: %q", i, line)
+				}
+				c.ReadDotLines()
+			}
+			c.Cmd("QUIT")
+			time.Sleep(200 * time.Millisecond)
+			before := spoolFiles(e.Spool)
+			if !strings.Contains(strings.Join(before, " "), ".db") {
+				t.Fatalf("no group database in the spool: %q", before)
+			}
+			if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
+				t.Fatalf("newscacheclean: %v\n%s", err, out)
+			}
+			if after := spoolFiles(e.Spool); len(after) != len(before) {
+				t.Errorf("SpoolSize %s: newscacheclean removed files from a tiny spool: %q -> %q", sz, before, after)
+			}
+		})
+	}
+	for _, sz := range []string{"-1", "1T", "1e9", "9007199254740992", "99999999999999999999"} {
+		t.Run(sz, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = "SpoolSize " + sz
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err == nil {
+				t.Fatalf("newscache -p accepted SpoolSize %s: %q", sz, grepLines(string(out), "SpoolSize"))
+			}
+			if !strings.Contains(string(out), "SpoolSize expects a size in KBytes") {
+				t.Errorf("SpoolSize %s: error %q", sz, strings.TrimSpace(string(out)))
+			}
+		})
+	}
+}
+
 // dirOfLength creates a directory under base whose path is exactly n
 // characters long.
 func dirOfLength(t *testing.T, base string, n int) string {

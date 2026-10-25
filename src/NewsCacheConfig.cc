@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -137,8 +138,22 @@ void Config::read(const char *fn)
 			    else
 			HANDLESTRGARG(Hostname)
 			    else
-			HANDLEINTARG(SpoolSize)
-			    else
+		if (tok == "SpoolSize") {
+			char *e;
+			long long v;
+
+			// KBytes; newscacheclean works in 512-byte blocks and
+			// st_blocks, so no int (it wrapped from 1 TByte on)
+			a1 = lex.getToken();
+			errno = 0;
+			v = strtoll(a1.c_str(), &e, 10);
+			if (!isdigit((unsigned char) a1[0]) || *e || errno
+			    || v > LLONG_MAX / 1024)
+				throw SyntaxError(lex,
+						  "SpoolSize expects a size in KBytes",
+						  ERROR_LOCATION);
+			SpoolSize = v;
+		} else
 			HANDLEINTARG(ClientTimeout)
 			    else
 			HANDLEINTARG(MaxConnections)

@@ -74,7 +74,7 @@ Config Cfg;
 
 class Entry {
   public:
-	Entry (const char *path, time_t time, long blocks) 
+	Entry (const char *path, time_t time, long long blocks) 
 		: Path(path), atime(time), blocks(blocks)
 	{ }
 
@@ -85,7 +85,7 @@ class Entry {
 	
 	string Path;
 	time_t atime;
-	long blocks;
+	long long blocks;
 };
 
 
@@ -112,11 +112,11 @@ struct cache_statistic {
 	size_t stOutArtSize;	/* overall outdated .art filesize before p. */
 };
 
-long _blocks = 0;
-long _history_blocks = 0;	// of them, the history's shard files
+long long _blocks = 0;
+long long _history_blocks = 0;	// of them, the history's shard files
 
 static void print_statistic(ostream &out, struct cache_statistic *pS);
-void remove_elements(long max_blocks, struct cache_statistic *pS);
+void remove_elements(long long max_blocks, struct cache_statistic *pS);
 
 static void print_statistic(ostream &out, struct cache_statistic *pS)
 {
@@ -146,7 +146,7 @@ bool sort_entries (const Entry *l, const Entry *r)
 }
 
 
-void remove_elements(long max_blocks, struct cache_statistic *pS)
+void remove_elements(long long max_blocks, struct cache_statistic *pS)
 {
 	int isDb;
 	char cBuffer[MAXPATHLEN];
@@ -246,7 +246,7 @@ static void scan_history(void)
  * SpoolSize (max_blocks): its files never shrink, and it is only a cache
  * of what the spool holds, filled again as clients read.
  */
-static bool clean_history(long max_blocks)
+static bool clean_history(long long max_blocks)
 {
 	const char *why;
 
@@ -264,7 +264,7 @@ static bool clean_history(long max_blocks)
 		unlink(buf);
 	}
 	slog.p(Logger::Notice) << "history: removed ("
-	    << (unsigned long) (_history_blocks / 2) << "K), " << why << "\n";
+	    << (_history_blocks / 2) << "K), " << why << "\n";
 	_blocks -= _history_blocks;
 	_history_blocks = 0;
 	return true;
@@ -611,8 +611,10 @@ int main(int argc, char **argv)
 		cout << "---------------- Purge table ----------------" << endl;
 	}
 	if (!try_flag) {
-		bool hist_removed = clean_history(Cfg.SpoolSize * 2);
-		remove_elements(Cfg.SpoolSize * 2, &Stat);
+		// in 512-byte blocks, as st_blocks counts
+		long long max_blocks = Cfg.SpoolSize * 2;
+		bool hist_removed = clean_history(max_blocks);
+		remove_elements(max_blocks, &Stat);
 		// the history's entries of groups whose database is gone
 		if (!hist_removed) {
 			map < string, bool > dbs;
@@ -627,7 +629,7 @@ int main(int argc, char **argv)
 	}
 
 	slog.p(Logger::Info) << "|SpoolDirectory|="
-	    << (unsigned int) (_blocks / 2) << "K\n";
+	    << (_blocks / 2) << "K\n";
 	return 0;
 }
 
