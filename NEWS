@@ -262,6 +262,13 @@ Bug fixes:
   killer, a power loss) left the spool saying the article was complete,
   and the cut-off file was served from then on. The article now counts
   as stored only after its file is written.
+* LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS read the active list
+  without a lock. When another session added groups meanwhile (a refresh
+  of the active list), a client that read its list slowly got only part
+  of it, ending in "." as if complete; the sound active database was
+  moved to .active64.bad and fetched again, so NEWGROUPS then listed
+  every group as new. The list is now collected under the lock and sent
+  after it is released.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

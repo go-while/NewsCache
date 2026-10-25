@@ -215,9 +215,14 @@ void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 			cand.push_back(*w);
 		} else {
 			if (!have_all) {
-				for (Iter < GroupInfo > i = active->begin(), e =
-				     active->end(); i != e; ++i)
-					all.push_back(i->name());
+				{
+					// (under the lock: sessions add groups)
+					ActiveDBLock lck(active);
+					for (Iter < GroupInfo > i =
+					     active->begin(), e = active->end();
+					     i != e; ++i)
+						all.push_back(i->name());
+				}
 				sort(all.begin(), all.end());
 				have_all = true;
 			}

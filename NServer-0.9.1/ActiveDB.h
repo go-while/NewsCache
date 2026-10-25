@@ -53,8 +53,39 @@ class ActiveDB {
 	virtual void setmtime(unsigned long tm, int force = 0) = 0;
 	virtual void getmtime(unsigned long *tm) = 0;
 
+	virtual int lock(int command, int block = NVcontainer::Block) = 0;
+
+	/* begin(), end()
+	 * The iterator takes no lock and follows offsets in this process's
+	 * mapping of the file: walk it only under a lock (ActiveDBLock),
+	 * or a session that adds groups meanwhile grows the file, and the
+	 * walk takes the sound file for damaged.
+	 */
 	virtual Iter < GroupInfo > begin() = 0;
 	virtual Iter < GroupInfo > end() = 0;
+};
+
+/* ActiveDBLock
+ * Holds a lock on the active database for the lifetime of the object.
+ */
+class ActiveDBLock {
+	ActiveDB *_db;
+	ActiveDBLock(const ActiveDBLock &);
+	ActiveDBLock & operator=(const ActiveDBLock &);
+  public:
+	ActiveDBLock(ActiveDB * db, int how = NVcontainer::ShrdLock)
+	:_db(db) {
+		_db->lock(how);
+	}
+	~ActiveDBLock() {
+		try {
+			_db->lock(NVcontainer::UnLock);
+		}
+		catch(...) {
+			// (a destructor must not throw; corrupt() may have
+			// taken the lock stack down already)
+		}
+	}
 };
 
 #endif

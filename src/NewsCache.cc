@@ -112,6 +112,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -136,6 +137,7 @@ using std::ios;
 using std::istream;
 using std::ofstream;
 using std::ostream;
+using std::ostringstream;
 using std::map;
 using std::string;
 using std::vector;
@@ -1844,6 +1846,21 @@ template < class Format > class active_filter_time {
 	}
 };
 
+/*
+ * Runs fn over every group of the active database under a shared lock.
+ * The walk follows offsets through this process's mapping of the file:
+ * without the lock, a session that adds groups meanwhile grows the file,
+ * and the walk took the sound file for damaged (moved to .bad, every
+ * group new for NEWGROUPS) and ended the list early. fn writes to a
+ * buffer; the caller sends it after the lock is released, so that a slow
+ * client doesn't hold up the sessions that update the list.
+ */
+template < class Fn > static void collect_active(ActiveDB * active, Fn fn)
+{
+	ActiveDBLock lck(active);
+	for_each(active->begin(), active->end(), fn);
+}
+
 /* List [active|newsgroups|overview.fmt]
  * List the specified data
  */
@@ -1912,45 +1929,31 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 		if (argc == 1 || strcasecmp(argv[1], "active") == 0) {
 			ActiveDB *active;
 			active = clt->srvr->active();
+			NewsgroupFilter filter(clt->access_entry->list);
+			if (argc == 3)
+				filter.setWildmat(argv[2]);
+			// collected under the lock, sent after it (see
+			// collect_active)
+			ostringstream lines;
+			collect_active(active, active_filter_group <
+				       print_list_active > (lines, filter));
 			(*clt->
 			 co) <<
-		      "215 List of newsgroups (Group High Low Flags) follows\r\n";
-			try {
-				NewsgroupFilter filter(clt->access_entry->
-						       list);
-				if (argc == 3)
-					filter.setWildmat(argv[2]);
-				for_each(active->begin(),
-					 active->end(),
-					 active_filter_group <
-					 print_list_active > (*clt->co,
-							      filter));
-			}
-			catch(const SystemError & se) {
-				return -2;
-			}
-			(*clt->co) << ".\r\n";
+		      "215 List of newsgroups (Group High Low Flags) follows\r\n"
+			    << lines.str() << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "active.times") == 0) {
 			ActiveDB *active;
 			active = clt->srvr->active();
-			(*clt->co) << "215 information follows\r\n";
-			try {
-				NewsgroupFilter filter(clt->access_entry->
-						       list);
-				if (argc == 3)
-					filter &= NewsgroupFilter(argv[2]);
-
-				for_each(active->begin(),
-					 active->end(),
-					 active_filter_group <
-					 print_list_active_times >
-					 (*clt->co, filter));
-			}
-			catch(const SystemError & se) {
-				return -2;
-			}
-			(*clt->co) << ".\r\n";
+			NewsgroupFilter filter(clt->access_entry->list);
+			if (argc == 3)
+				filter &= NewsgroupFilter(argv[2]);
+			ostringstream lines;
+			collect_active(active, active_filter_group <
+				       print_list_active_times > (lines,
+								  filter));
+			(*clt->co) << "215 information follows\r\n"
+			    << lines.str() << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "newsgroups") == 0) {
 			// LIST NEWSGROUPS [wildmat] (RFC 3977 7.6.6): only the
@@ -2205,21 +2208,14 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "410 operation failed\r\n";
 		return -1;
 	}
-	(*clt->co) << "231 list of new groups follows " << lt << "\r\n";
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
-	try {
-		for_each(active->begin(),
-			 active->end(),
-			 active_filter_group_time <
-			 print_list_active > (*clt->co,
-						    clt->access_entry->
-						    list, lt));
-	}
-	catch(const SystemError & se) {
-		return -2;
-	}
-	(*clt->co) << ".\r\n";
+	ostringstream lines;
+	collect_active(active, active_filter_group_time <
+		       print_list_active > (lines,
+					    clt->access_entry->list, lt));
+	(*clt->co) << "231 list of new groups follows " << lt << "\r\n"
+	    << lines.str() << ".\r\n";
 	return 0;
 }
 

@@ -1,8 +1,15 @@
 package e2e
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // TestLongGroupName: the upstream offers a group whose name is longer than
@@ -70,4 +77,84 @@ func TestLongReadPattern(t *testing.T) {
 	if !containsLine(e.Upstream.Lines(), want) {
 		t.Errorf("the upstream didn't get the whole LIST ACTIVE command")
 	}
+}
+
+// TestActiveListGrowsDuringList: a client reads its LIST ACTIVE slowly
+// while another session refreshes the active list and new groups make the
+// file grow. The list walked the database without a lock, ran into the
+// new records past its mapping and took the sound file for damaged: the
+// slow client got part of the list ending in "." as if complete, the file
+// was moved to .active64.bad, and NEWGROUPS then listed every group as
+// new.
+func TestActiveListGrowsDuringList(t *testing.T) {
+	const n = 20000
+	e := newEnv(t)
+	e.Extra += "Timeouts 1 3600\n"
+	for i := 0; i < n; i++ {
+		e.Store.AddGroup(fmt.Sprintf("test.first.group%05d", i), "g")
+	}
+	s0 := e.session()
+	s0.Deadline = 60 * time.Second
+	if code, line := s0.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	s0.ReadDotLines()
+	s0.Cmd("QUIT")
+	// NEWGROUPS has second resolution: the second groups come later
+	time.Sleep(2 * time.Second)
+	since := time.Now().UTC()
+	time.Sleep(1100 * time.Millisecond)
+
+	// A asks for the list and doesn't read it yet
+	pa := proc.StartStdio(t, e.procOpts("-i"))
+	a := client.New(t, pa.Conn())
+	a.Deadline = 60 * time.Second
+	if _, err := a.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Send("LIST ACTIVE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+
+	// B: the list is due again (Timeouts 1); the new groups grow the file
+	for i := 0; i < n; i++ {
+		e.Store.AddGroup(fmt.Sprintf("test.second.group%05d", i), "g")
+	}
+	b := e.session()
+	b.Deadline = 60 * time.Second
+	if code, line := b.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("B: LIST ACTIVE: %q", line)
+	}
+	if l := b.ReadDotLines(); len(l) != 2*n {
+		t.Errorf("B: LIST ACTIVE: %d groups, want %d", len(l), 2*n)
+	}
+	b.Cmd("QUIT")
+
+	if code, line, err := a.ReadStatus(); code != 215 {
+		t.Fatalf("A: LIST ACTIVE: %d %q %v", code, line, err)
+	}
+	l, err := a.TryReadDotLines()
+	if err != nil {
+		t.Fatalf("A: LIST ACTIVE: %v after %d groups", err, len(l))
+	}
+	if len(l) != n {
+		t.Errorf("A: LIST ACTIVE: %d groups, want %d (the list before B's refresh)", len(l), n)
+	}
+	a.Cmd("QUIT")
+
+	if _, err := os.Stat(filepath.Join(e.Spool, ".active64.bad")); err == nil {
+		t.Errorf("the sound active database was moved to .active64.bad")
+	}
+	c := e.session()
+	c.Deadline = 60 * time.Second
+	code, line := c.Cmd("NEWGROUPS %s GMT", since.Format("20060102 150405"))
+	if code != 231 {
+		t.Fatalf("NEWGROUPS: %q", line)
+	}
+	if l := c.ReadDotLines(); len(l) != n || !containsPrefix(l, "test.second.") ||
+		containsPrefix(l, "test.first.") {
+		t.Errorf("NEWGROUPS since the first list: %d groups, want the %d added later", len(l), n)
+	}
+	c.Cmd("QUIT")
 }
