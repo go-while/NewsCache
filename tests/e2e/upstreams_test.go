@@ -445,3 +445,52 @@ func TestUpstreamMovedToOtherServer(t *testing.T) {
 		})
 	}
 }
+
+// TestXrefTrailingBlank: an upstream Xref with blanks after the last entry
+// ("Xref: host group:1 ", or a tab) is filtered like any other. The filter
+// that drops other servers' entries (since #72 also for overview records)
+// looped for ever on it, at full CPU while holding the group's lock: the
+// client got no answer, and every other session on the group hung too.
+func TestXrefTrailingBlank(t *testing.T) {
+	const group = "test.ws"
+	e := newEnv(t)
+	e.Store.AddGroup(group, "trailing blanks in Xref")
+	for i, tail := range []string{" ", "\t", "  \t "} {
+		n := int64(i + 1)
+		e.Store.AddArticle(group, fakeserver.Article{
+			Number:    n,
+			MessageID: fmt.Sprintf("<ws.%d@upstream.test>", n),
+			Headers: []string{
+				"From: poster@upstream.test",
+				fmt.Sprintf("Subject: article %d", n),
+				"Newsgroups: " + group,
+				fmt.Sprintf("Xref: upstream.test %s:%d%s", group, n, tail),
+			},
+			Body: []string{"body"},
+		})
+	}
+	c := e.session()
+	c.Deadline = 5 * time.Second
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("XOVER 1-3"); code != 224 {
+		t.Fatalf("XOVER: %q, want 224", line)
+	} else if lines := c.ReadDotLines(); len(lines) != 3 {
+		t.Errorf("XOVER: %d records, want 3: %q", len(lines), lines)
+	}
+	for n := 1; n <= 3; n++ {
+		if code, line := c.Cmd("ARTICLE %d", n); code != 220 {
+			t.Fatalf("ARTICLE %d: %q, want 220", n, line)
+		}
+		c.ReadDotLines()
+	}
+	// a second session on the same group isn't blocked
+	c2 := e.session()
+	c2.Deadline = 5 * time.Second
+	c2.Cmd("GROUP %s", group)
+	if code, line := c2.Cmd("HEAD 2"); code != 221 {
+		t.Fatalf("second session HEAD 2: %q, want 221", line)
+	}
+	c2.ReadDotLines()
+}

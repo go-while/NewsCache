@@ -1444,6 +1444,10 @@ bool CServer::filter_xref_value(std::string & xref, MPListEntry *server,
 			} else {
 				end_entry = std::string::npos;
 			}
+		} else {
+			// only blanks after the last entry ("... a.b:1 "): done.
+			// end_entry stayed the same, and the loop ran for ever.
+			end_entry = std::string::npos;
 		}
 	}
 

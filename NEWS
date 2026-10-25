@@ -15,6 +15,10 @@ Bug fixes:
   LIST ACTIVE.TIMES; with glibc's checks the session aborted, without them
   the buffer was overrun. Long patterns in the config and the auth files
   went the same way. Patterns now have no length limit.
+* An Xref header (or Xref overview field) from the upstream with a blank
+  after its last entry made the session loop for ever at full CPU while
+  it held the group's lock: the client got no answer, every other session
+  on that group hung, and only SIGKILL ended it.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
