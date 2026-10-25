@@ -2,14 +2,35 @@
 #include<stdio.h>
 #include<string.h>
 #ifndef WITH_SYSLOG
+#include<errno.h>
+#include<fcntl.h>
 #include<unistd.h>
 #include<time.h>
+#include<sys/stat.h>
 #include<sys/time.h>
 #endif
 
 #include"Logger.h"
 
 using namespace std;
+
+#ifndef WITH_SYSLOG
+static void write_all(int fd, const char *s)
+{
+	size_t len = strlen(s);
+
+	while (fd >= 0 && len > 0) {
+		ssize_t n = ::write(fd, s, len);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			return;
+		}
+		s += n;
+		len -= n;
+	}
+}
+#endif
 
 // private:
 int Logger::bufresize(int sz)
@@ -65,7 +86,12 @@ void Logger::print()
 				 t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 		else
 			snprintf(tbuf, sizeof(tbuf), "%d ", _priority);
-		log << tbuf << buf << endl;
+		// One write() per line: with O_APPEND, only a single write
+		// keeps the lines of parallel sessions apart
+		string line(tbuf);
+		line += buf;
+		line += '\n';
+		write_all(logfd, line.c_str());
 #endif
 
 		// Move remaining string to the beginning
@@ -115,6 +141,7 @@ Logger::Logger(const char *fn, int option)
 	buf[0] = '\0';
 	buflen = 0;
 	_priority = Debug;
+	logfd = -1;
 
 	open(fn);
 }
@@ -125,25 +152,62 @@ Logger::~Logger()
 	free(buf);
 }
 
+/*
+ * The programs open their log as root, before setugid, and the directory
+ * may be writable for Username: don't follow a symlink there or write into
+ * a hard link (either could reach any file), only a regular file with one
+ * link is used. A symlink to our own stderr, as in the container image,
+ * means stderr.
+ */
 void Logger::open(const char *fn)
 {
-	if (fn) {
-		log.open(fn, ios::app);
-		log.setf(ios::unitbuf);
+	struct stat st, est;
+	const char *err = NULL;
+
+	if (!fn)
+		return;
+	close();
+	logfd = ::open(fn, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW |
+		       O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0644);
+	if (logfd < 0) {
+		// ELOOP for a symlink, but EMLINK on FreeBSD
+		int e = errno;
+		if (lstat(fn, &st) == 0 && S_ISLNK(st.st_mode)) {
+			if (stat(fn, &st) == 0 && fstat(STDERR_FILENO, &est) == 0 &&
+			    st.st_dev == est.st_dev && st.st_ino == est.st_ino) {
+				logfd = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 3);
+				if (logfd >= 0)
+					return;
+				err = strerror(errno);
+			} else
+				err = "a symbolic link (only one to stderr is used)";
+		} else
+			err = strerror(e);
+	} else if (fstat(logfd, &st) < 0)
+		err = strerror(errno);
+	else if (!S_ISREG(st.st_mode) || st.st_nlink != 1)
+		err = "not a regular file with one link, left alone";
+	if (err) {
+		cerr << "cannot open log file " << fn << ": " << err << "\n";
+		close();
 	}
 }
 
 void Logger::close()
 {
-	log.close();
+	if (logfd >= 0)
+		::close(logfd);
+	logfd = -1;
 }
 #endif
 
 Logger & Logger::priority(int p)
 {
-	_priority = p;
+	// a line left without "\n" goes out at its own priority, before the
+	// new one applies
 	if (buflen && buf[buflen - 1] != '\n')
 		write("\n");
+	_priority = p;
 	return *this;
 }
 

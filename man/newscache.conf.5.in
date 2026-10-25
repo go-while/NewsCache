@@ -131,7 +131,17 @@ The maximum size of the spool area. This is controlled by the
 The default value is 1048576 KBytes (1 GByte).
 .TP
 .I "LogDirectory directory"
-Directory, where all the log-files should go. No default value.
+Directory, where all the log-files should go. No default value. Only
+used when NewsCache is built with \-\-without\-syslog. The programs open
+their log file (newscache.log, newscache_newscacheclean.log,
+newscache_updatenews.log) before they switch to
+.IR Username ,
+so a directory only root can write is enough when they start as root.
+Only a regular file with one link is written: a symbolic link, a hard
+link or anything else at that name is refused with an error on stderr,
+so that a user who can write the directory can't make root write to
+another file. The one exception is a symbolic link to the program's own
+stderr (such as /dev/stderr), which the container image uses.
 .TP
 .I "LogStyle [strict-inn][hostname][ip-address]
 StrictINN style logging; log client's hostname and or IP-address.

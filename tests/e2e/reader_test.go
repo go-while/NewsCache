@@ -834,3 +834,38 @@ func TestOverNoCurrentArticle(t *testing.T) {
 		}
 	}
 }
+
+// TestNewgroupsFormat: NEWGROUPS lists the new groups in the format of
+// LIST ACTIVE, "group high low status" (RFC 3977 7.3.2, also RFC 977).
+// NewsCache printed the LIST ACTIVE.TIMES format, "group time creator".
+func TestNewgroupsFormat(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	c := e.session()
+	if code, line := c.Cmd("LIST ACTIVE test.alpha"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	active := c.ReadDotLines()
+	code, line := c.Cmd("NEWGROUPS 20000101 000000 GMT")
+	if code != 231 {
+		t.Fatalf("NEWGROUPS: %q, want 231", line)
+	}
+	lines := c.ReadDotLines()
+	found := false
+	for _, l := range lines {
+		f := strings.Fields(l)
+		if len(f) != 4 || strings.Trim(f[1]+f[2], "0123456789") != "" {
+			t.Errorf("NEWGROUPS line %q, want \"group high low status\"", l)
+			continue
+		}
+		if f[0] == "test.alpha" {
+			found = true
+			if len(active) != 1 || l != active[0] {
+				t.Errorf("NEWGROUPS line %q, LIST ACTIVE %q: want the same", l, active)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("NEWGROUPS since 2000 doesn't list test.alpha: %q", lines)
+	}
+}

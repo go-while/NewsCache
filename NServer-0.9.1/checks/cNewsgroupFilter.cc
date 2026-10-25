@@ -99,6 +99,36 @@ class CheckOR {
 	}
 };
 
+// Fill the stack below the caller with non-NUL bytes, so that a read past
+// the end of an empty std::string (whose buffer is on the stack) goes on
+// instead of stopping at a stray NUL; ASan then reports it.
+__attribute__((noinline)) static void dirty_stack()
+{
+	volatile char b[4096];
+	for (int i = 0; i < (int) sizeof(b); i++)
+		b[i] = 'x';
+}
+
+// f1 op f2 must give want.
+__attribute__((noinline)) static void check_combine(const char *f1, char op,
+						    const char *f2,
+						    const char *want)
+{
+	NewsgroupFilter f(f1);
+	if (op == '|')
+		f |= NewsgroupFilter(f2);
+	else
+		f &= NewsgroupFilter(f2);
+	if (f.getRulelist() == want) {
+		cout << "+" << flush;
+	} else {
+		cout << "-" << flush;
+		V(cout << " {" << f1 << "} " << op << "= {" << f2 << "} gave {"
+		  << f << "}, want {" << want << "} ");
+		ef++;
+	}
+}
+
 template < class Check > void combine_filters(Check check)
 {
 	for (int i = 0; i < filters_n; i++) {
@@ -146,6 +176,29 @@ int main(int argc, char *argv[])
 			cout << "-" << endl;
 			ef++;
 		}
+	}
+
+	// An empty rule (an empty filter, "a,,b", a trailing comma) added to
+	// a list that was still empty read past both strings in
+	// add_rule_to_rulelist: e.g. "LIST ACTIVE.TIMES ," with List *, or a
+	// login whose auth-file line has empty List/Read/PostTo fields.
+	cout << "empty rules: " << flush;
+	{
+		static const struct {
+			const char *f1, op, *f2, *want;
+		} c[] = {
+			{ "", '|', "", "" },
+			{ "*", '&', ",", "" },
+			{ "a,", '&', ",", "" },
+			{ "at.*", '|', "", "at.*" },
+			{ "", '|', "at.*,,comp.*,", "at.*,comp.*" },
+			{ "at.*,,!at.x.*", '&', "*", "at.*,!at.x.*" },
+		};
+		for (size_t i = 0; i < sizeof(c) / sizeof(c[0]); i++) {
+			dirty_stack();
+			check_combine(c[i].f1, c[i].op, c[i].f2, c[i].want);
+		}
+		cout << endl;
 	}
 
 	// Malformed wildmat patterns read past their end (seen with ASan on

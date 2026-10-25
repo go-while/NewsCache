@@ -1829,7 +1829,7 @@ int CServer::post(Article * article)
 
 	gettimeofday(&tv, NULL);
 
-	ssprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
+	snprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
 	fs.open(fn, ios::app);
 	fs << getpid() << " " << tv.tv_sec << endl;
 	article->write(fs, Article::Head);
@@ -1851,7 +1851,7 @@ void CServer::spoolarticle(Article * article)
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::spoolarticle: catched\
-		unknown error while spooling article";
+		unknown error while spooling article\n";
 		throw;
 	}
 }
@@ -2008,8 +2008,8 @@ void CServer::overviewdb(Newsgroup * ng, artnum_t fst,
  *   SystemError ... if the connection to the news server fails
  *   NoNewsServerError ... if no news server is configured for this group
  *   NoSuchGroupError ... if the group does not exist
- *   NoSuchArticleError ... if the requested article does not exist
- *   NSError ... if in offline mode
+ *   NoSuchArticleError ... if the requested article does not exist, or
+ *     in offline mode
  */
 void CServer::article(const char *gname, artnum_t nbr, Article * art)
 {
@@ -2017,9 +2017,10 @@ void CServer::article(const char *gname, artnum_t nbr, Article * art)
 	MPListEntry *mpe;
 
 	mpe = _ServerList->server(gname);
+	// (not available, as for an article by message-ID: 423, no error)
 	if (mpe->flags & MPListEntry::F_OFFLINE)
-		throw NSError("cannot retrieve articles in offline mode",
-			      ERROR_LOCATION);
+		throw NoSuchArticleError("cannot retrieve articles in offline mode",
+					 ERROR_LOCATION);
 
 	RServer::article(gname, nbr, art);
 	filter_xref(art, mpe, gname);

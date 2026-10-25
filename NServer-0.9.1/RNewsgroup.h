@@ -79,15 +79,26 @@ class RNewsgroup:public Newsgroup {
 		return load(i) && _OverviewDB.find(i) != _OverviewDB.end();
 	}
 
+	// NULL only when the article doesn't exist; any other failure (the
+	// news server timed out or cut the article off) reaches the command
+	// loop, which logs it and answers 503 instead of 423.
 	virtual Article *getarticle(artnum_t nbr) {
 		Article *a = new Article;
 		try {
 			_RemoteServer->article(_NewsgroupName, nbr, a);
 			return a;
 		}
-		catch(...) {
+		catch(const NoSuchArticleError &) {
 			delete a;
 			return NULL;
+		}
+		catch(const NoSuchGroupError &) {
+			delete a;
+			return NULL;
+		}
+		catch(...) {
+			delete a;
+			throw;
 		}
 	}
 

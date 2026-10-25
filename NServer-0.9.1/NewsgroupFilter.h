@@ -97,9 +97,14 @@ class NewsgroupFilter {
 	void add_rule_to_rulelist(std::string & rulelist, const char *rule) {
 		const char *p = rulelist.c_str(), *q;
 
+		// An empty rule (from "", "a,,b" or "a,") matches no group.
+		// With an empty list, the compare below used to run past both
+		// strings.
+		if (*rule == '\0')
+			return;
 		do {
 			q = rule;
-			while (*p == *q) {
+			while (*q && *p == *q) {
 				++p;
 				++q;
 			}

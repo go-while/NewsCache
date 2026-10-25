@@ -68,7 +68,7 @@ const char * const ConfigurationOptions[] = {
 	"--with-syslog",
 #endif
 #ifdef ENABLE_HEADERLOG
-	"--enable_headerlog",
+	"--enable-headerlog",
 #endif
 #ifdef ENABLE_DEBUG
 	"--enable-debug",
@@ -2113,11 +2113,13 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	(*clt->co) << "231 list of new groups follows " << lt << "\r\n";
+	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
+	// ACTIVE.TIMES
 	try {
 		for_each(active->begin(),
 			 active->end(),
 			 active_filter_group_time <
-			 print_list_active_times > (*clt->co,
+			 print_list_active > (*clt->co,
 						    clt->access_entry->
 						    list, lt));
 	}

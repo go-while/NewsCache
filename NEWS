@@ -121,6 +121,42 @@ Bug fixes:
   logged at level notice ("authenticated as <user>"). The client's
   password is also cleared from memory right after the check instead of
   being kept for the whole session.
+* Built with --without-syslog, newscache, newscacheclean and updatenews
+  opened their log file as root, following symbolic links, in a
+  directory the sample config said to make writable for the news user.
+  That user could replace the log with a link to any file, which root
+  then appended to (or created) with text partly chosen by clients. Now
+  only a regular file with one link is used, and the error goes to
+  stderr; a link to the program's own stderr, as in the container image,
+  still works. The directory doesn't need to be writable for the news
+  user when the programs start as root.
+* An empty element in a group list, such as "LIST ACTIVE.TIMES ," from
+  a client or empty List, Read or PostTo fields in the auth file, made
+  NewsCache read past the end of two strings when it combined the lists
+  (seen with AddressSanitizer). Empty elements are now skipped.
+* Built with --without-syslog, the log lines of parallel sessions got
+  mixed up: each line went out in three writes (time stamp, text,
+  newline), and another session's line could land in between. Each line
+  is now written at once.
+* ARTICLE, HEAD and BODY by number answered "423 no such article" when
+  the news server failed to send the article (a timeout, the connection
+  closed in the middle, an article cut off), and some newsreaders then
+  take the article as gone. The client now gets "503 internal error",
+  the log says what went wrong, and 423 means the article doesn't exist.
+* In groups of a not-cached server, XOVER, XHDR and the LISTGROUP
+  fallback left out articles 1 to 9999 when the news server reported a
+  low water mark of 0 (as some sloppy servers do): the group looked
+  empty.
+* A log message without a line end went out with the priority of the
+  next message, which a syslog filter could drop: the error that
+  posting couldn't spool an article was logged at the next message's
+  level. It keeps its own priority now.
+* configure --enable-headerlog gave a build that didn't compile (a typo
+  since 2008), and newscache -o printed the option as
+  --enable_headerlog.
+* NEWGROUPS listed the new groups as "group time creator" (the format
+  of LIST ACTIVE.TIMES). RFC 3977 wants the format of LIST ACTIVE,
+  "group high low status", which newsreaders parse.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
