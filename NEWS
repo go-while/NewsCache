@@ -62,6 +62,15 @@ Bug fixes:
   locked for everyone. With ReadTimeout the connection is given up and
   opened again, also over TLS (where the wait was without limit even
   when closing the connection).
+* A header folded over several lines was read with the line breaks and
+  the white space that starts each continuation line removed: "Subject:
+  foo" followed by " bar" read "foobar" in HDR, XHDR and XPAT (by
+  message-ID, and by number once the article was in the spool), where
+  the overview from the news server says "foo bar". Unfolding now keeps
+  one space in place of the fold, as RFC 5322 says. For a Newsgroups
+  header this means a fold after the comma still separates two names,
+  and a fold instead of a comma is white space in a name, which is
+  refused, not a third group made of the two names joined.
 * The PostTo check and the posting read a Newsgroups header differently.
   The check split it on commas and matched each name against the PostTo
   list, but the matcher stopped at white space, so "Newsgroups: a b" was
