@@ -492,18 +492,17 @@ void RServer::readarticle(Article * art)
 
 void RServer::authenticate()
 {
-	char buf[1024];
-	string resp;
+	string cmd, resp;
 
 	_authenticating = 1;
 	try {
-		snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
-			 _CurrentServer->user.c_str());
-		resp = issue(buf, NULL);
+		// std::string: a fixed buffer cut long values off with their
+		// CRLF, and the server waited for the end of the line.
+		cmd = "authinfo user " + _CurrentServer->user + "\r\n";
+		resp = issue(cmd.c_str(), NULL);
 		if (resp[0] == '3') {
-			snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
-				 _CurrentServer->passwd.c_str());
-			resp = issue(buf, NULL);
+			cmd = "authinfo pass " + _CurrentServer->passwd + "\r\n";
+			resp = issue(cmd.c_str(), NULL);
 		}
 	}
 	catch(...) {
@@ -1101,11 +1100,13 @@ void RServer::article(const char *gname, artnum_t nbr, Article * art)
 void RServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::article(" << id << ")\n");
-	char buf[1024];
 	const char *p;
 	string resp;
 
-	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+	// Not a fixed buffer: a long message-ID cut the command off with its
+	// CRLF, and the server waited for the end of the line.
+	const string cmd = string("article ") + id + "\r\n";
+	const char * const buf = cmd.c_str();
 	if (_CurrentServer) {
 		resp = issue(buf, NULL);
 		p = resp.c_str();
@@ -1153,9 +1154,8 @@ void RServer::article(const char *id, Article * art)
 
 void RServer::post(MPListEntry * srvr, Article * article)
 {
-	string resp;
+	string resp, cmd;
 	const char *p;
-	char buf[513];
 
 	VERB(slog.p(Logger::Debug) << "RServer::post({"
 	     << srvr->hostname << "," << srvr->servicename << "}\n");
@@ -1170,8 +1170,9 @@ void RServer::post(MPListEntry * srvr, Article * article)
 
 	try {
 		resp = article->getfield("message-id:");
-		snprintf(buf, sizeof(buf), "stat %s\r\n", resp.c_str());
-		resp = issue(buf, NULL);
+		// not a fixed buffer, see RServer::article(id)
+		cmd = "stat " + resp + "\r\n";
+		resp = issue(cmd.c_str(), NULL);
 		p = resp.c_str();
 		if (strncmp(p, "223", 3) == 0) {
 			throw DuplicateArticleError("Response 223",
@@ -1187,7 +1188,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 				    "illegal response code to <stat <id>> request\n"
 				    << p;
 			} else {
-				string c(buf), e("223|430");
+				string c(cmd), e("223|430");
 				throw ResponseError(c, e, resp);
 			}
 		}
@@ -1932,14 +1933,15 @@ void CServer::article(const char *gname, artnum_t nbr, Article * art)
 void CServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::article(" << id << ")\n");
-	char buf[1024];
 	const char *p;
 	string resp;
 
 	const char * const gname =
 	  (_CurrentGroup.name()[0] != '\0') ? _CurrentGroup.name() : NULL;
 
-	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+	// Not a fixed buffer, see RServer::article(id)
+	const string cmd = string("article ") + id + "\r\n";
+	const char * const buf = cmd.c_str();
 	if (_CurrentServer
 	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)) {
 		resp = issue(buf, NULL);

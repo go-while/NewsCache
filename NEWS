@@ -19,6 +19,11 @@ Bug fixes:
 * An element of a server's Read list longer than 512 characters
   overwrote the stack at the first refresh of the active list (the
   session crashed or hung).
+* ARTICLE <message-id> with a message-ID of about 1000 characters, or a
+  POST whose Message-ID was longer than about 500, hung the session for
+  ReadTimeout (300 s): the command to the upstream server was cut off
+  together with its line end, and the server waited for the rest. The
+  same went for a very long upstream User or Password.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

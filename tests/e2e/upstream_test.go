@@ -667,3 +667,48 @@ func TestUpstreamCutOffArticle(t *testing.T) {
 		t.Errorf("the second ARTICLE 1 didn't go upstream: the cut-off article was stored")
 	}
 }
+
+// TestUpstreamLongCommand: the commands to the upstream were built in fixed
+// buffers (1024 bytes for ARTICLE <message-id>, 513 for the STAT <message-id>
+// before a POST), which cut a long message-ID off together with the CRLF.
+// The upstream waited for the end of the line and the session for the reply,
+// until ReadTimeout (default 300 s).
+func TestUpstreamLongCommand(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	c.Deadline = 15 * time.Second
+
+	// a client line of 1022 characters fits NewsCache's line buffer; the
+	// upstream command is 1024 with its CRLF
+	id := "<" + strings.Repeat("a", 1005) + "@x.test>"
+	code, line, err := c.TryCmd("ARTICLE %s", id)
+	if err != nil {
+		t.Fatalf("ARTICLE <%d characters>: %v", len(id), err)
+	}
+	if code != 430 {
+		t.Errorf("ARTICLE <%d characters>: %q, want 430", len(id), line)
+	}
+	if !containsLine(e.Upstream.Lines(), "article "+id) {
+		t.Errorf("the upstream didn't get the whole ARTICLE command")
+	}
+
+	id = "<" + strings.Repeat("p", 600) + "@newscache.test>"
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+		"Subject: long message-id\r\nMessage-ID: " + id + "\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	code, line, err = c.ReadStatus()
+	if err != nil {
+		t.Fatalf("POST with a Message-ID of %d characters: %v", len(id), err)
+	}
+	if code != 240 {
+		t.Errorf("POST with a Message-ID of %d characters: %q, want 240", len(id), line)
+	}
+	if !containsLine(e.Upstream.Lines(), "stat "+id) {
+		t.Errorf("the upstream didn't get the whole STAT command")
+	}
+}
