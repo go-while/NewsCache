@@ -8,6 +8,8 @@ Bug fixes:
   waits for STARTTLS, and MODE READER is sent again after the login,
   which also fixes servers that want the login before MODE READER (the
   connect failed on them with a second, refused login).
+* NEXT and LAST crashed the session at the first missing article number
+  in a group of a server with "Options not-cached".
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became
