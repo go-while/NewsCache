@@ -326,6 +326,12 @@ string Article::getfield(const char *ifld, int Full) const
 	return rfld;
 }
 
+// Replaces the header ifld (with its continuation lines) by field_data,
+// which ends with CRLF; an empty field_data removes it. A missing header
+// is added at the end of the head. The header's end is searched line by
+// line and stops at the end of the text: isspace() went over line ends
+// (an empty header took the next line along), and the continuation loop
+// had no check for the end of the text.
 void Article::setfield(const char *ifld, const char *field_data)
 {
 	const char *p, *fld;
@@ -339,37 +345,14 @@ void Article::setfield(const char *ifld, const char *field_data)
 	}
 	// We have found the header
 	p = fld + strlen(ifld);
-	while (isspace(*p))
-		p++;
-	while (*p && *p != '\r' && *p != '\n')
-		p++;
-	ASSERT(if (!(*p)) {
-	       slog.p(Logger::Error) << "Article without body.\n";}
-	       if (*p == '\r' && !(*(p + 1))) {
-	       slog.p(Logger::Error) << "Article ended with <CR><NULL>.\n";}
-	);
-	if (*p == '\n')
-		p++;
-	if (*p == '\r' && *(p + 1) == '\n')
-		p += 2;
-
-	// Multiline header?
-	while (isspace(*p) && *p != '\n' && *p != '\r') {
-		while (isspace(*p))
+	for (;;) {
+		while (*p && *p != '\n')
 			p++;
-		while (*p != '\r' && *p != '\n')
-			p++;
-		ASSERT(if (!(*p)) {
-		       slog.p(Logger::Error) << "Article without body.\n";}
-		       if (*p == '\r' && !(*(p + 1))) {
-		       slog.
-		       p(Logger::
-			 Error) << "Article ended with <CR><NULL>.\n";}
-		);
-		if (*p == '\n')
-			p++;
-		if (*p == '\r' && *(p + 1) == '\n')
-			p += 2;
+		if (!*p)
+			break;
+		p++;
+		if (*p != ' ' && *p != '\t')
+			break;	// no continuation line
 	}
 	_text.replace(fld - _ctext, p - fld, field_data);
 	_ctext = _text.c_str();

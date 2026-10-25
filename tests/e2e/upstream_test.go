@@ -633,6 +633,77 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 	}
 }
 
+// TestPostPostingHost: a daemon (not inetd) puts the client's host in
+// X-NNTP-Posting-Host with Article::setfield, which replaced only the
+// first such header (a forged second one stayed), took the next header
+// along when the client's was empty (here Newsgroups: the post was
+// refused), and read past the end of the article when the header had a
+// blank continuation line at the end (AddressSanitizer).
+func TestPostPostingHost(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+	for _, tc := range []struct {
+		name, head string
+		body       bool
+	}{
+		{"empty", "X-NNTP-Posting-Host:\r\nNewsgroups: test.alpha\r\n", true},
+		{"two", "Newsgroups: test.alpha\r\nX-NNTP-Posting-Host: one\r\n" +
+			"X-NNTP-Posting-Host: forged.example\r\n", true},
+		{"folded-last", "Newsgroups: test.alpha\r\nX-NNTP-Posting-Host: x\r\n \r\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(e.Upstream.Articles())
+			c := e.dial()
+			c.Strict = false
+			if code, line := c.Cmd("POST"); code != 340 {
+				t.Fatalf("POST: %q", line)
+			}
+			art := "From: a@b.test\r\nSubject: s\r\nMessage-ID: <host." + tc.name + "@client.test>\r\n" + tc.head
+			if tc.body {
+				art += "\r\nbody\r\n"
+			}
+			c.Send(art + ".\r\n")
+			code, line, err := c.ReadStatus()
+			if err != nil {
+				t.Fatalf("POST: no reply: %v", err)
+			}
+			if tc.body && code != 240 {
+				t.Errorf("POST: %q, want 240", line)
+			}
+			if code, line, err := c.TryCmd("DATE"); err != nil || code != 111 {
+				t.Errorf("DATE after POST: %d %q %v", code, line, err)
+			}
+			c.TryCmd("QUIT")
+			posted := e.Upstream.Articles()
+			if len(posted) == before {
+				if tc.body {
+					t.Errorf("nothing reached the upstream")
+				}
+				return
+			}
+			var hosts []string
+			newsgroups := false
+			for _, l := range posted[len(posted)-1] {
+				if l == "" {
+					break
+				}
+				if strings.HasPrefix(strings.ToLower(l), "x-nntp-posting-host:") {
+					hosts = append(hosts, l)
+				}
+				newsgroups = newsgroups || strings.HasPrefix(l, "Newsgroups: test.alpha")
+			}
+			if len(hosts) != 1 || strings.Contains(hosts[0], "forged") ||
+				strings.TrimSpace(strings.TrimPrefix(hosts[0], "X-NNTP-Posting-Host:")) == "" {
+				t.Errorf("X-NNTP-Posting-Host headers upstream: %q, want one with the client's host", hosts)
+			}
+			if !newsgroups {
+				t.Errorf("the article upstream lost its Newsgroups header: %q", posted[len(posted)-1])
+			}
+		})
+	}
+}
+
 // TestUpstreamCutOffArticle: the upstream closes the connection in the
 // middle of an article. The client must not get the cut-off article as if
 // it were complete, and it must not be stored: the next request goes

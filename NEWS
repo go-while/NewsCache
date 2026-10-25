@@ -243,6 +243,13 @@ Bug fixes:
   read past the end of an article that has a header starting with the
   same 511 characters, and send bytes from the session's memory to the
   client. Header names are now compared in full.
+* POST through the daemon: an empty X-NNTP-Posting-Host header from the
+  client made NewsCache drop the header after it as well (the post was
+  refused when that was Newsgroups), a second X-NNTP-Posting-Host from
+  the client went upstream next to NewsCache's own, and a header with a
+  blank continuation line at the end of an article without body was
+  read past its end. NewsCache now removes every X-NNTP-Posting-Host of
+  the client and adds its own.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry
