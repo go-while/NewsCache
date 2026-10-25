@@ -11,6 +11,9 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* Two sessions that started at the same time on a new spool could fail:
+  the second one couldn't create the spool directories (EEXIST) and
+  ended before its greeting.
 * Error messages in the log showed a random line number ("Line:
   808335154") for errors raised without a location.
 * A line of the upstream's active list without blanks (a group name

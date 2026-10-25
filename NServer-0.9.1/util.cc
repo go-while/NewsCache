@@ -17,33 +17,38 @@ int mkpdir(const char *dirname, int mode)
 {
 	struct stat s;
 	char buf[MAXPATHLEN];
-	char *p;
-	const char *q = dirname;
+	size_t i, n = strlen(dirname);
 
+	if (n >= sizeof(buf)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
 	if (stat(dirname, &s) < 0) {
 		if (errno != ENOENT)
 			return -1;
-		p = buf;
-		if (*q == '/')
-			*p++ = *q++;
-		while (*q) {
-			while (*q && *q != '/')
-				*p++ = *q++;
-			*p = '\0';
+		memcpy(buf, dirname, n + 1);
+		// create the missing components from the top down; another
+		// process may create one at the same time (two sessions on a
+		// new spool): EEXIST is fine, the stat below checks the rest
+		for (i = 1; i <= n; i++) {
+			if (buf[i] != '/' && buf[i] != '\0')
+				continue;
+			if (buf[i - 1] == '/')
+				continue;
+			buf[i] = '\0';
 			if (stat(buf, &s) < 0) {
 				if (errno != ENOENT)
 					return -1;
-				if (mkdir(buf, mode) < 0)
+				if (mkdir(buf, mode) < 0 && errno != EEXIST)
 					return -1;
-			} else {
-				if (!(S_ISDIR(s.st_mode))) {
-					errno = ENOTDIR;
-					return -1;
-				}
+			} else if (!S_ISDIR(s.st_mode)) {
+				errno = ENOTDIR;
+				return -1;
 			}
-			while (*q == '/')
-				*p++ = *q++;
+			buf[i] = dirname[i];
 		}
+		if (stat(dirname, &s) < 0)
+			return -1;
 	}
 	if (!(S_ISDIR(s.st_mode))) {
 		errno = ENOTDIR;
