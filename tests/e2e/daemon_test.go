@@ -383,3 +383,26 @@ func TestClientPostStall(t *testing.T) {
 		t.Errorf("upstream got %d posted articles, want none", n)
 	}
 }
+
+// TestStandaloneSpoolUnavailable: when a session can't open the spool, the
+// client gets "400 ... service not available" before the connection is
+// closed. In standalone mode the reply stayed in the socket stream's
+// buffer (the session exited without flushing it), so the client saw only
+// the connection close.
+func TestStandaloneSpoolUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.standalone()
+	if err := os.RemoveAll(e.Spool); err != nil {
+		t.Fatal(err)
+	}
+	nc, err := net.DialTimeout("tcp", e.Listen, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	nc.SetDeadline(time.Now().Add(10 * time.Second))
+	line, err := bufio.NewReader(nc).ReadString('\n')
+	if !strings.HasPrefix(line, "400 ") {
+		t.Fatalf("greeting without a spool: %q, %v; want 400", line, err)
+	}
+}

@@ -3058,6 +3058,9 @@ void nnrpd(int fd)
 		(*clt.
 		 co) << "400 " PACKAGE " " VERSION
 	       ", service not available\r\n";
+		// exit() doesn't flush the socket stream (it does stdout in
+		// inetd mode): without this the client got no reply
+		clt.co->flush();
 		exit(1);
 	}
 
