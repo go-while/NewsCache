@@ -1,11 +1,15 @@
 package e2e
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
@@ -267,5 +271,38 @@ func TestHeaderByMessageIDReadRights(t *testing.T) {
 		if got := c.ReadDotLines(); len(got) != 1 {
 			t.Errorf("%s: %q, want one line", tc.cmd, got)
 		}
+	}
+}
+
+// TestPostCutOff: an article whose input ends before the final "." (the
+// client disconnects in the middle) is not posted. It went upstream cut
+// off: the reading stopped at the end of the input without an error.
+func TestPostCutOff(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+	conn, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	r := bufio.NewReader(conn)
+	if l, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(l, "200") {
+		t.Fatalf("greeting: %q %v", l, err)
+	}
+	io.WriteString(conn, "POST\r\n")
+	if l, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(l, "340") {
+		t.Fatalf("POST: %q %v", l, err)
+	}
+	io.WriteString(conn, "Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"+
+		"Subject: cut off\r\nMessage-ID: <cutoff@newscache.test>\r\n\r\nfirst line of the body\r\n")
+	conn.(*net.TCPConn).CloseWrite()
+	if l, err := r.ReadString('\n'); err == nil && !strings.HasPrefix(l, "441") {
+		t.Errorf("reply to a cut-off article: %q, want 441 or none", l)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := len(e.Store.Posted()); n != 0 {
+		t.Errorf("upstream got %d posted articles, want none (the article was cut off)", n)
 	}
 }
