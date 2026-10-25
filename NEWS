@@ -452,6 +452,12 @@ Bug fixes:
   login that is required or that would add the post right. Behaviour
   change: such clients get 201 instead of 200 in the greeting; after
   the login, CAPABILITIES says whether POST is available.
+* Where a login is required ("Authentication unix" without fields),
+  CAPABILITIES listed READER, HDR, OVER, LIST and POST before the
+  login, although all of them got "480 Authentication required" then.
+  It now lists only what the client may do at that moment (RFC 3977,
+  RFC 4643): AUTHINFO USER before the login, the reading commands and
+  POST after it.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

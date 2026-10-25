@@ -4,12 +4,16 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // secretHash is crypt("secret") with SHA-512 ($6$), which glibc and libxcrypt
@@ -480,6 +484,60 @@ func TestAuthUnixShadowNotReadable(t *testing.T) {
 	if log := e.logFile(); !strings.Contains(log, "cannot read the shadow password of "+u.Username) {
 		t.Errorf("log does not say why the login failed:\n%s", log)
 	}
+}
+
+// unixUser is the account unixSession adds to its /etc/passwd, with the
+// password "secret" (md5Hash).
+const unixUser = "nc-e2e-unix-tester"
+
+// unixSession starts an inetd session for e in which "Authentication unix"
+// can log in as unixUser: newscache runs in a user and mount namespace
+// with an /etc/passwd of the test's own bind-mounted over the system's
+// (skipped where the system doesn't allow one). It runs as root of the
+// namespace, so Username and Groupname are left out.
+func unixSession(t *testing.T, e *env) *client.Conn {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux namespaces")
+	}
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
+	}
+	b, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = append(b, unixUser+":"+md5Hash+":4242:4242::/nonexistent:/bin/false\n"...)
+	passwd := filepath.Join(e.Dir, "passwd")
+	if err := os.WriteFile(passwd, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.writeConf()
+	conf, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(conf), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			lines = append(lines, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "PASSWD="+passwd)
+	o.Args = append([]string{"-rm", "/bin/sh", "-c",
+		`mount --bind "$PASSWD" /etc/passwd || exit 99
+exec "$@"`, "nc", o.Path}, o.Args...)
+	o.Path = "unshare"
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatalf("greeting: %v", err)
+	}
+	return c
 }
 
 // hasShadowPassword reports whether name's password field in /etc/passwd is

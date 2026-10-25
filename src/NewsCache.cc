@@ -2755,10 +2755,10 @@ int ns_xdebug(ClientData * clt, int argc, char *argv[])
  */
 int ns_capabilities(ClientData * clt, int argc, char *argv[])
 {
-	// What this client can do now (RFC 3977 5.2): the reading commands
-	// and POST only with those rights, AUTHINFO only before a login
-	// (RFC 4643 2.2).
-	unsigned int rights = clt->access_entry->access_flags;
+	// What this client can do now (RFC 3977 3.3.1, 5.2): the reading
+	// commands and POST only with those rights and not before a
+	// required login, AUTHINFO only before a login (RFC 4643 2.2).
+	unsigned int rights = current_rights(clt);
 
 	(*clt->co) << "101 Capability list:\r\n";
 	(*clt->co) << "VERSION 2\r\n";
