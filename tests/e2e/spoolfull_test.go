@@ -124,11 +124,12 @@ func TestSpoolFewFiles(t *testing.T) {
 }
 
 // fileSizeLimit makes the session's writes to a file beyond blocks fail
-// with EFBIG (SIGXFSZ ignored), as writes fail on a full disk.
+// with EFBIG, as writes fail on a full disk. SIGXFSZ keeps its default
+// action (end the process) unless NewsCache ignores it; the test used to
+// ignore it for NewsCache, which hid that a session under ulimit -f died
+// at the first write beyond the limit.
 func fileSizeLimit(blocks int) func(*proc.Options) {
 	return func(o *proc.Options) {
-		o.Args = append([]string{"-c", `trap '' XFSZ; exec "$0" "$@"`, o.Path}, o.Args...)
-		o.Path = "/bin/sh"
 		o.Ulimit = []string{fmt.Sprintf("-f %d", blocks)}
 	}
 }

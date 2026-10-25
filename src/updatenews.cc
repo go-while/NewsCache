@@ -438,6 +438,9 @@ int main(int argc, char **argv)
 	signal(SIGUSR1, catchsignal);
 	signal(SIGUSR2, catchsignal);
 #endif
+	// beyond the file size limit (ulimit -f) a write fails with EFBIG,
+	// which the spool handles, instead of ending the process
+	signal(SIGXFSZ, SIG_IGN);
 
 #ifdef WITH_SYSLOG
 	slog.open(PACKAGE, LOG_NDELAY | LOG_PID, LOG_NEWS);

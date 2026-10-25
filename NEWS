@@ -103,6 +103,10 @@ Bug fixes:
   the file grew) was mapped into memory again, with a "wrong database
   size" log line at level Critical, at every lock in every session until
   the file grew again. It is now mapped once.
+* Under a file size limit (ulimit -f, LimitFSIZE=), a session died with
+  SIGXFSZ (and a core dump) the first time a spool file would grow past
+  it, instead of passing the article on as on a full disk. newscache and
+  updatenews ignore SIGXFSZ now, so the write fails and is handled.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
