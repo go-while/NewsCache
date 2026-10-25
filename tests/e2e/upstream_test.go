@@ -590,3 +590,44 @@ func TestUpstreamClosedNoDiscontinue(t *testing.T) {
 		t.Fatalf("DATE after the upstream reset its connection: %q, want 111", line)
 	}
 }
+
+// TestUpstreamConnectRefusals: refusals of the commands NewsCache sends
+// while it sets up a connection. LIST OVERVIEW.FMT answered with 503 (INN
+// for data it doesn't keep) or 400 made issue() reconnect from inside
+// connect(), which sent it again: thousands of upstream connections, then
+// a stack overflow (SIGSEGV). Answered with 500 (old servers), issue()
+// threw: the fallback to the standard overview format never ran and the
+// first command of every session failed (GROUP 411).
+func TestUpstreamConnectRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+		resp string
+	}{
+		{"overview.fmt 503", "list overview.fmt", "503 Not supported"},
+		{"overview.fmt 500", "list overview.fmt", "500 What?"},
+		{"overview.fmt 400", "list overview.fmt", "400 Not now"},
+		{"mode reader 503", "mode reader", "503 Not supported"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 3)
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				OverrideLine: map[string][]string{tc.line: {tc.resp}},
+			}})
+			c := e.session()
+			c.Deadline = 20 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q, want 211", line)
+			}
+			if code, line := c.Cmd("XOVER 1-3"); code != 224 {
+				t.Fatalf("XOVER: %q, want 224", line)
+			} else if lines := c.ReadDotLines(); len(lines) != 3 {
+				t.Errorf("XOVER: %d records, want 3", len(lines))
+			}
+			if n := e.Upstream.Count("MODE"); n > 5 {
+				t.Errorf("%d upstream connections (MODE READER), want a few at most", n)
+			}
+		})
+	}
+}
