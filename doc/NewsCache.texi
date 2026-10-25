@@ -218,7 +218,11 @@ doesn't support. When the current group can't be opened (its database
 in the spool can't be opened), the commands for the current group
 (@code{article} by number, @code{next}, @code{xover}, @code{listgroup},
 ...) answer @samp{403 operation failed}; they answered @samp{412}, which
-means that no group is selected.
+means that no group is selected. @code{group} and @code{listgroup}
+answer @samp{411} only for a group that doesn't exist (the news server
+says so, or no news server carries it). When the news server fails for
+a group the spool doesn't know yet, they answer @samp{403}; a group the
+spool knows is served with its stored numbers.
 
 @c *** 
 @c *** General Options

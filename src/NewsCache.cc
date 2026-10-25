@@ -1066,12 +1066,14 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	if (strlen(group) >= sizeof(clt->groupname))
 		return NULL;
 
+	// NULL (411) only for a group that doesn't exist or that no news
+	// server carries. Any other error (the news server can't be reached
+	// or doesn't answer, the spool fails) goes to the command loop, which
+	// answers 403 (RFC 3977 3.2.1): 411 told the client that the group
+	// doesn't exist.
 	try {
 		gi = clt->srvr->groupinfo(group);
-	} catch(const NSError & nse) {
-		return NULL;
-	}
-	catch(...) {
+	} catch(const NoSuchGroupError & nsge) {
 		return NULL;
 	}
 	// Reset Article Pointer

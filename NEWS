@@ -477,6 +477,12 @@ Bug fixes:
   for an offline news server couldn't be spooled). All three are 441
   now; the first says "authentication required" in its text. A client
   that waited for 480 there to offer a login will show the 441 instead.
+* GROUP and LISTGROUP answered "411 no such news group" also when the
+  news server couldn't be reached or answered GROUP with an error, for a
+  group the spool didn't know yet: the group looked as if it didn't
+  exist. They now answer "403 internal error" then (RFC 3977); 411 is
+  left for groups that don't exist. A group the spool knows is still
+  served from it while the news server is down.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

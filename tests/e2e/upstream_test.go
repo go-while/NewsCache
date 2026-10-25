@@ -1041,3 +1041,78 @@ func TestUpstreamLowZero(t *testing.T) {
 		})
 	}
 }
+
+// TestGroupUpstreamFault403: GROUP and LISTGROUP answered "411 no such
+// news group" whenever the group's numbers couldn't be had, also when the
+// news server couldn't be reached or answered GROUP with an error. 411
+// tells the client that the group doesn't exist; a failure of the server
+// is 403 (RFC 3977 3.2.1). A group the upstream doesn't have still gets
+// 411, and a group the spool knows is still served from it while the
+// upstream is down.
+func TestGroupUpstreamFault403(t *testing.T) {
+	_, deadPort, err := net.SplitHostPort(freeAddr(t)) // nothing listens there
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []struct {
+		name  string
+		setup func(e *env)
+	}{
+		{"unreachable", func(e *env) {
+			e.ServerHost = "127.0.0.1"
+			e.ServerPort = deadPort
+		}},
+		{"error reply", func(e *env) {
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				OverrideLine: map[string][]string{"GROUP test.alpha": {"403 Archive server temporarily offline"}},
+			}})
+		}},
+	} {
+		t.Run(f.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 3)
+			f.setup(e)
+			c := e.session()
+			c.Deadline = 30 * time.Second
+			for _, cmd := range []string{"GROUP test.alpha", "LISTGROUP test.alpha"} {
+				code, line := c.Cmd("%s", cmd)
+				if code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+					c.ReadDotLines()
+				}
+				if code != 403 {
+					t.Errorf("%s with the upstream failing: %q, want 403", cmd, line)
+				}
+			}
+			if code, line := c.Cmd("DATE"); code != 111 {
+				t.Fatalf("DATE: %q, want 111", line)
+			}
+		})
+	}
+
+	t.Run("unchanged", func(t *testing.T) {
+		e := newEnv(t)
+		e.addArticles("test.alpha", 3)
+		c := e.session()
+		if code, line := c.Cmd("GROUP no.such.group"); code != 411 {
+			t.Errorf("GROUP of a group the upstream doesn't have: %q, want 411", line)
+		}
+		if code, line := c.Cmd("LISTGROUP no.such.group"); code != 411 {
+			if code == 211 {
+				c.ReadDotLines()
+			}
+			t.Errorf("LISTGROUP of a group the upstream doesn't have: %q, want 411", line)
+		}
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP test.alpha: %q", line)
+		}
+		c.Cmd("QUIT")
+		// known to the spool: its numbers from there, upstream or not
+		e.ServerHost = "127.0.0.1"
+		e.ServerPort = deadPort
+		c = e.session()
+		c.Deadline = 30 * time.Second
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP test.alpha (in the spool) with the upstream down: %q, want 211", line)
+		}
+	})
+}
