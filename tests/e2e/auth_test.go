@@ -506,3 +506,42 @@ func TestAuthPamFileRights(t *testing.T) {
 		}
 	})
 }
+
+// TestAuthFileLockedAndHashAsPassword: a locked auth-file line (password
+// field "*" or "!...") never lets anyone in, and a hash doesn't work as its
+// own password. Built with --enable-plainpass, the password was first
+// compared as plain text: "*" logged in to a locked line, and the hash
+// string to any line.
+func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
+	e := authEnv(t, `allow authentication
+    List !*
+    Read !*
+    PostTo !*`, "locked:*", "banned:!"+secretHash, "tester:"+secretHash, "md5:"+md5Hash)
+	e.Extra = "AuthFailureDelay 0"
+	try := func(user, pass string) int {
+		c := e.session()
+		defer c.Cmd("QUIT")
+		c.Cmd("AUTHINFO USER %s", user)
+		code, _ := c.Cmd("AUTHINFO PASS %s", pass)
+		return code
+	}
+	for _, tc := range []struct{ user, pass string }{
+		{"locked", "*"},
+		{"banned", "!" + secretHash},
+		{"banned", "secret"},
+		{"tester", secretHash},
+		{"md5", md5Hash},
+	} {
+		if code := try(tc.user, tc.pass); code == 281 {
+			t.Errorf("AUTHINFO %s / %q: logged in, want a refusal", tc.user, tc.pass)
+		}
+	}
+	if runtime.GOOS != "darwin" {
+		if code := try("tester", "secret"); code != 281 {
+			t.Errorf("AUTHINFO tester / the right password: %d, want 281", code)
+		}
+	}
+	if code := try("md5", "secret"); code != 281 {
+		t.Errorf("AUTHINFO md5 / the right password: %d, want 281", code)
+	}
+}

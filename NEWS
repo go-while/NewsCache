@@ -6,6 +6,11 @@ New option:
   read and write; default 300, 0 waits for ever).
 
 Bug fixes:
+* Built with --enable-plainpass, a locked auth-file line ("user:*",
+  "user:!...") let in whoever sent the field itself as the password, and
+  a hash worked as its own password: the plain-text comparison came
+  first. The hash is now checked first, the plain comparison only for a
+  field that is no hash, and a locked or empty field never matches.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

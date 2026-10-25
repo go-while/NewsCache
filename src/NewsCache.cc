@@ -550,12 +550,45 @@ int auto_cryptcheck(const char *key, const char *pass)
 #ifdef MD5_AUTO
 	} else {
 #endif
-		return strcmp(pass, (const char *) crypt(key, pass));
+		{
+			// crypt() returns NULL for a format it doesn't know
+			// on some systems (FreeBSD, macOS)
+			const char *c = crypt(key, pass);
+			return c ? strcmp(pass, c) : -1;
+		}
 #ifdef MD5_AUTO
 	}
 #endif				/*MD5_AUTO */
 	return 0;
 }
+
+#ifdef PLAIN_TEXT_PASSWORDS
+/*
+ * Whether an auth-file password field may be compared as plain text: not
+ * when it is a hash ($id$..., 13 characters of DES crypt, or the 24 of an
+ * MD5 hash ending in "=="), nor a locked or empty field ("*", "!...").
+ * Otherwise a locked line accepted the password "*", and any hash worked
+ * as its own password.
+ */
+static bool plain_password_field(const char *f)
+{
+	size_t n = strlen(f), i;
+
+	if (n == 0 || f[0] == '*' || f[0] == '!' || f[0] == '$')
+		return false;
+	if (n == 24 && f[22] == '=' && f[23] == '=')
+		return false;
+	if (n == 13) {
+		for (i = 0; i < n; i++)
+			if (!isalnum((unsigned char) f[i]) && f[i] != '.'
+			    && f[i] != '/')
+				break;
+		if (i == n)
+			return false;
+	}
+	return true;
+}
+#endif
 
 int check_auth_unix (ClientData *clt)
 {
@@ -659,11 +692,16 @@ int check_auth_file (ClientData *clt)
 	if (authc < 2)
 		return -1;
 
+	// a locked or empty field never matches
+	if (authv[1][0] == '\0' || authv[1][0] == '*' || authv[1][0] == '!')
+		return -1;
+	passf = auto_cryptcheck(clt->auth_pass, authv[1]);
 #ifdef PLAIN_TEXT_PASSWORDS
-	passf=strcmp(clt->auth_pass, authv[1]);
+	// (only for a field that is no hash; the plain comparison came
+	// first and accepted a hash as its own password)
+	if (passf && plain_password_field(authv[1]))
+		passf = strcmp(clt->auth_pass, authv[1]);
 #endif
-	if (passf)
-		passf=auto_cryptcheck(clt->auth_pass, authv[1]);
 	if (passf)
 		return -1;
 
