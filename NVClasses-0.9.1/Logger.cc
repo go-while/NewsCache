@@ -86,9 +86,12 @@ void Logger::print()
 				 t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 		else
 			snprintf(tbuf, sizeof(tbuf), "%d ", _priority);
-		write_all(logfd, tbuf);
-		write_all(logfd, buf);
-		write_all(logfd, "\n");
+		// One write() per line: with O_APPEND, only a single write
+		// keeps the lines of parallel sessions apart
+		string line(tbuf);
+		line += buf;
+		line += '\n';
+		write_all(logfd, line.c_str());
 #endif
 
 		// Move remaining string to the beginning

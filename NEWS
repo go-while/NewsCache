@@ -134,6 +134,10 @@ Bug fixes:
   a client or empty List, Read or PostTo fields in the auth file, made
   NewsCache read past the end of two strings when it combined the lists
   (seen with AddressSanitizer). Empty elements are now skipped.
+* Built with --without-syslog, the log lines of parallel sessions got
+  mixed up: each line went out in three writes (time stamp, text,
+  newline), and another session's line could land in between. Each line
+  is now written at once.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
