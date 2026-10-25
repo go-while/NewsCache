@@ -31,8 +31,10 @@ ObjLock::ObjLock(const std::string & name)
 	fd = open(name.c_str(), O_RDWR | O_CREAT | O_NONBLOCK,
 		  S_IWUSR | S_IRUSR);
 	if (fd == -1)
-		throw(SystemError("Error in ObjLock constructor (open)"),
-		      errno);
+		// (a comma after the SystemError made this throw errno, an
+		// int, which nothing catches: the session aborted)
+		throw SystemError("Error in ObjLock constructor (open)",
+				  errno, ERROR_LOCATION);
 #ifndef USE_FLOCK
 	memset((void *) &l, 0, sizeof(struct flock));
 	l.l_whence = SEEK_SET;
@@ -41,7 +43,13 @@ ObjLock::ObjLock(const std::string & name)
 
 ObjLock::~ObjLock()
 {
-	unlock();
+	// unlock() throws on failure; an exception must not leave a
+	// destructor (it would abort the process)
+	try {
+		unlock();
+	}
+	catch(...) {
+	}
 	close(fd);
 }
 

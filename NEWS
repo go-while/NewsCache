@@ -53,6 +53,10 @@ Bug fixes:
   by MaxArticleSize, and lines outside articles (status lines, overview
   records, the active list, LISTGROUP) to 16 KiB; more is an error, and
   the connection to the server is closed.
+* With very few free file descriptors (ulimit -n 5 on Linux, 6 on FreeBSD),
+  or a spool where the lock file can't be created, a session aborted
+  before the greeting instead of answering 400: the lock class threw a
+  plain number that nothing caught.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
