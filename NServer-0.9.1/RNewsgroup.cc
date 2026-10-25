@@ -157,16 +157,6 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 	}
 }
 
-void RNewsgroup::printarticle(std::ostream & os, artnum_t nbr)
-{
-	try {
-		Article article;
-		_RemoteServer->article(_NewsgroupName, nbr, &article);
-		os << article;
-	} catch(...) {
-	}
-}
-
 /*
  * Local Variables:
  * mode: c++

@@ -96,7 +96,6 @@ class RNewsgroup:public Newsgroup {
 	}
 	virtual void setarticle(Article * art) {
 	}
-	virtual void printarticle(std::ostream & os, artnum_t nbr);
 
 	virtual const char *getover(artnum_t nbr);
 

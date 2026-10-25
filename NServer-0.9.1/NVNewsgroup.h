@@ -157,7 +157,6 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	}
 	virtual void setarticle(Article * art);
 	void storearticle(Article * art);
-	virtual void printarticle(std::ostream & os, artnum_t nbr);
 	virtual void prefetchGroup(int lockgrp = 1) {
 	}
 	virtual void prefetchOverview(void) {

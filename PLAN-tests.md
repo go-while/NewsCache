@@ -67,7 +67,7 @@ These need the internal classes, so they stay in C++ and use the same
   first remap, close, reopen, read back; hash collisions; the hash size stored
   in the file is used on reopen.
 - **Newsgroup storage** (`NServer-0.9.1/checks/`): write articles below and
-  above the inline limit, read back `getarticle`, `printarticle`,
+  above the inline limit, read back `getarticle` and
   `sprintover`. Check every record type, including a spool where every article
   is a `bigarticle` record, and a mixed spool. This is the safety net for the
   `InlineArticleSize` change.

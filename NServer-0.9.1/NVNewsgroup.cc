@@ -705,41 +705,6 @@ void NVNewsgroup::setarticle(Article * art)
 	ASSERT2(testdb());
 }
 
-void NVNewsgroup::printarticle(ostream & os, artnum_t nbr)
-{
-	char *data;
-	size_t szdata;
-	unsigned long f, l;
-
-	NVArray::lock(NVcontainer::ShrdLock);
-	NVArray::getsize(&f, &l);
-	if (nbr >= f && nbr <= l) {
-		NVArray::sget(nbr, &data, &szdata);
-		if (data) {
-			if (*data == article) {
-				os << data + sizeof(char);
-			} else if (*data == bigarticle) {
-				Article art(nbr);
-				char fn[MAXPATHLEN];
-				ifstream fs;
-				artfile(fn, sizeof(fn), nbr);
-				fs.open(fn);
-				art.read(fs);
-				fs.close();
-				os << art;
-			} else {
-				// Article not available
-				Article *art;
-				if ((art = retrievearticle(nbr)) != NULL)
-					setarticle(art);
-				os << *art;
-				delete art;
-			}
-		}
-	}
-	NVArray::lock(NVcontainer::UnLock);
-}
-
 //FIX! Possibly, we should throw an exception, if the overview record
 //FIX! cannot be found.
 const char *NVNewsgroup::getover(artnum_t nbr)

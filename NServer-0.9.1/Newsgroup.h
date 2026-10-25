@@ -128,7 +128,6 @@ class Newsgroup {
 	virtual Article *getarticle(artnum_t nbr) = 0;
 	virtual void freearticle(Article * artp) = 0;
 	virtual void setarticle(Article * art) = 0;
-	virtual void printarticle(std::ostream & os, artnum_t nbr) = 0;
 	virtual void prefetchGroup(int lockgrp = 1) = 0;
 	virtual void prefetchOverview(void) = 0;
 
