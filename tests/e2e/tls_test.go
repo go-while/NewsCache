@@ -98,6 +98,7 @@ type tlsProxy struct {
 	cfg      *tls.Config
 	starttls bool // plain greeting first, TLS after STARTTLS
 	refuse   bool // answer STARTTLS with 502, as an attacker in the middle would
+	drop     int  // close this many connections right after the TLS handshake (no greeting)
 
 	mu        sync.Mutex
 	plain     []string // client lines seen in plain text
@@ -155,7 +156,11 @@ func (p *tlsProxy) handle(c net.Conn) {
 		}
 		p.mu.Lock()
 		p.handshake++
+		drop := p.handshake <= p.drop
 		p.mu.Unlock()
+		if drop {
+			return
+		}
 		relay(tc, up)
 		return
 	}
@@ -438,5 +443,26 @@ func TestUpstreamQuit(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 			}
 		})
+	}
+}
+
+// TestTLSConnectRetry: the server closes the connection after the TLS
+// handshake, before the greeting (an overloaded server), and answers the
+// next one. connect() tried again with the same stream: with Options ssl
+// its GnuTLS session, which had done its handshake on the old connection,
+// so every retry failed.
+func TestTLSConnectRetry(t *testing.T) {
+	e, ca, p := tlsEnv(t, []string{"localhost"}, validFrom, validUntil, false, false)
+	p.mu.Lock()
+	p.drop = 1
+	p.mu.Unlock()
+	e.ServerLines = "    TLSCAFile " + ca.file + "\n    Retries 2"
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha after a connection closed before the greeting: %q, want 211", line)
+	}
+	if _, n, _ := p.state(); n != 2 {
+		t.Errorf("%d TLS handshakes, want 2", n)
 	}
 }

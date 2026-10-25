@@ -12,6 +12,10 @@ Bug fixes:
   alone) was read past its end, up to 512 bytes, before it was skipped.
 * Over TLS, NewsCache didn't send QUIT to the upstream server when it
   closed the connection: the command stayed in the buffer.
+* With "Options ssl", a server that closed the connection after the TLS
+  handshake, before its greeting (an overloaded server), was never
+  reached again in that attempt: the retries reused the TLS session of
+  the closed connection, and every one of them failed.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

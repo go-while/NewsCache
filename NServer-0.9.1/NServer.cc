@@ -219,8 +219,13 @@ void RServer::init(MPList * serverlist)
 		_ActiveDB = NULL;
 }
 
+// A retry starts with a new stream: with Options ssl the old one's GnuTLS
+// session had done its handshake on the old connection, and a handshake
+// with it on the new one failed every time.
 #define RSERVER_CONNECT_CHECK_CONNECTION(errstrg) \
     if(!_pServerStream->good()) { \
+      delete _pServerStream; \
+      _pServerStream = NULL; \
       if(i) { \
 	i--; \
 	sleep(1); \
@@ -280,14 +285,14 @@ void RServer::connect()
 				  ERROR_LOCATION);
 	}
 #endif
-	_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
-	_pServerStream->set_tls(!(_CurrentServer->flags & MPListEntry::F_TLS_NOVERIFY),
-				_CurrentServer->tlsCAFile);
 
 	for (;;) {
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
+		_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
+		_pServerStream->set_tls(!(_CurrentServer->flags & MPListEntry::F_TLS_NOVERIFY),
+					_CurrentServer->tlsCAFile);
 		_CurrentServer->connectFailed = time(NULL);
 
 		const struct sockaddr *bindFrom =
