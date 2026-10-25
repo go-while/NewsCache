@@ -479,6 +479,11 @@ Documentation:
   https://www.gnu.org/licenses/ instead of the FSF's old postal address
   (Fedora's packaging checks flag the old address). The license is
   unchanged: GPL version 2 or later.
+* The example "Multiple Upstream NewsServer" in newscache.conf(5) gave
+  the client "allow authentication" with "Authentication none", so it
+  could do nothing (every command got 500), and put the other servers
+  in a second NewsServerList inside the first one. It now has "allow
+  read post" and one NewsServerList.
 
 Other changes:
 * NewsCache builds on Debian GNU/Hurd: configure defines MAXPATHLEN

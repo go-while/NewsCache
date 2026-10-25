@@ -507,7 +507,7 @@ ConfigVersion 5
 ListenTo DEFAULT
 AccessList {
 	Client 127.0.0.1/255.255.255.255 {
-		allow authentication
+		allow read post
 		List *
 		Read *
 		PostTo *
@@ -524,28 +524,27 @@ NewsServerList {
 		GroupTimeout 1200
 		Options cached
 	}
-	NewsServerList {
-  		Server news.redhat.com nntp {
-	    	Retries 3
-	    	Read gated.*
-	    	PostTo gated.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
-  	Server nntp.perl.org nntp {
-    		Retries 3
-	   	Read perl.*
-	    	PostTo perl.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
-  	Server news.php.net nntp {
-    		Retries 3
-	    	Read php.*
-	    	PostTo php.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
+	Server news.redhat.com nntp {
+		Retries 3
+		Read gated.*
+		PostTo gated.*
+		GroupTimeout 1200
+		Options cached
+	}
+	Server nntp.perl.org nntp {
+		Retries 3
+		Read perl.*
+		PostTo perl.*
+		GroupTimeout 1200
+		Options cached
+	}
+	Server news.php.net nntp {
+		Retries 3
+		Read php.*
+		PostTo php.*
+		GroupTimeout 1200
+		Options cached
+	}
 }
 
 .fi
