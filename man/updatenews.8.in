@@ -40,7 +40,9 @@ Only prefetch the overview database (of the newest 10000000 article numbers of e
 Always  lock  the newsgroup while prefetching it. This improves the performance of update- news slightly, but nobody else can read this newsgroup while prefetching.
 .TP
 .B \-w, \-\-workers #
-Use # workers for prefetching. Each worker is assigned its own newsgroup to prefetch.
+Accepted for old command lines and ignored (with a log line): updatenews
+prefetches one newsgroup at a time. Older versions refused the option
+with the usage text, so updatenews did nothing.
 
 .SH PREFETCH FILE
 Each line of the PrefetchFile is one of:

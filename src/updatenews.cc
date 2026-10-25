@@ -68,6 +68,7 @@ Config Cfg;
 int opt_flags = 0;
 int opt_workers = 0;
 int Xsignal;
+sig_atomic_t alarmed = 0;
 
 void catchsignal(int num)
 {
@@ -112,6 +113,22 @@ void doprefetch(CServer * cs, const char *group)
 		}
 	}
 	slog.p(Logger::Error) << "prefetching " << group << " failed\n";
+}
+
+// SIGALRM ends a connect() after ConnectTimeout (see sockstream.cc)
+void catchsigalarm(int num)
+{
+	alarmed = 1;
+#ifdef HAVE_SIGACTION
+	/* Reinstall the signal handler */
+	struct sigaction action;
+	action.sa_handler = catchsigalarm;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(num, &action, NULL);
+#else
+	signal(num, catchsigalarm);
+#endif
 }
 
 int create_worker(CServer * cs, const char *group)
@@ -165,14 +182,16 @@ void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 
 	for (; Xsignal < 0;) {
 		nlreadline(ifs, line, 0);
-		if (ifs.eof())
-			break;
 		if (ifs.bad()) {
 			slog.
 			    p(Logger::Error) << "cannot read from " << Cfg.
 			    PrefetchFile << "\n";
 			break;
 		}
+		// fail() only when nothing was read: a last line without a
+		// newline sets just eof() and still counts
+		if (ifs.fail())
+			break;
 		string::size_type b = line.find_first_not_of(" \t\r\n");
 		if (b == string::npos || line[b] == '#')
 			continue;
@@ -293,11 +312,11 @@ void update(void)
 "       -o --over\n"\
 "              Prefetch overview database.\n"\
 "\n"\
-"       -l --lock-groups\n"\
+"       -l --lock-group\n"\
 "              Lock newsgroup, when prefetching.\n"\
 "\n"\
-"       -w --workers\n"\
-"              Prefetch # newsgroups at once.\n"\
+"       -w --workers #\n"\
+"              Ignored (accepted for old command lines).\n"\
 
 int main(int argc, char **argv)
 {
@@ -308,6 +327,7 @@ int main(int argc, char **argv)
 #endif
 	char conffile[MAXPATHLEN];
 	int opt_flagsset = 0;
+	int workers_ignored = 0;
 	int c, aerr = 0;
 
 	snprintf(conffile, sizeof(conffile), "%s/newscache.conf", SYSCONFDIR);
@@ -323,6 +343,7 @@ int main(int argc, char **argv)
 			{"group", 0, 0, 'g'},
 			{"over", 0, 0, 'o'},
 			{"lock-group", 0, 0, 'l'},
+			{"lock-groups", 0, 0, 'l'},	// as the usage said
 			{"workers", 1, 0, 'w'},
 			{"configuration", 1, 0, 'c'},
 			{0, 0, 0, 0}
@@ -366,6 +387,19 @@ int main(int argc, char **argv)
 			case 'l':
 				opt_flags |= F_PREFETCH_LOCKGROUP;
 				opt_flagsset = 1;
+				break;
+
+			case 'w':
+				// accepted, so old command lines work, but ignored:
+				// the workers would share one upstream connection
+				// and the parent doesn't wait for them
+				if (strspn(optarg, "0123456789") != strlen(optarg) ||
+				    !*optarg) {
+					cerr << cmnd << ": -w needs a number\n";
+					aerr = 1;
+				} else {
+					workers_ignored = 1;
+				}
 				break;
 
 			case 'c':
@@ -412,7 +446,8 @@ int main(int argc, char **argv)
 		Cfg.srvrs.entries[i].groupTimeout = 0;
 	}
 
-	// signal
+	// signal; without the alarm indicator ConnectTimeout never applied
+	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
 #ifdef HAVE_SIGACTION
 	struct sigaction action;
@@ -422,21 +457,26 @@ int main(int argc, char **argv)
 	action.sa_flags = 0;
 	sigaction(SIGHUP, &action, NULL);
 	sigaction(SIGINT, &action, NULL);
-	sigaction(SIGPIPE, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
-
-	sigaction(SIGALRM, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
 	sigaction(SIGUSR2, &action, NULL);
+
+	action.sa_handler = catchsigalarm;
+	sigaction(SIGALRM, &action, NULL);
+
+	// as in newscache: a write to a connection the server has closed
+	// fails with EPIPE, and the connection is opened again; as a
+	// termination signal it ended the prefetch
+	action.sa_handler = SIG_IGN;
+	sigaction(SIGPIPE, &action, NULL);
 #else
 	signal(SIGHUP, catchsignal);
-	signal(SIGPIPE, catchsignal);
 	signal(SIGINT, catchsignal);
-	signal(SIGPIPE, catchsignal);
 	signal(SIGTERM, catchsignal);
-	signal(SIGALRM, catchsignal);
+	signal(SIGALRM, catchsigalarm);
 	signal(SIGUSR1, catchsignal);
 	signal(SIGUSR2, catchsignal);
+	signal(SIGPIPE, SIG_IGN);
 #endif
 	// beyond the file size limit (ulimit -f) a write fails with EFBIG,
 	// which the spool handles, instead of ending the process
@@ -452,6 +492,9 @@ int main(int argc, char **argv)
 	}
 	slog.open (logfile);
 #endif
+	if (workers_ignored)
+		slog.p(Logger::Notice) << "-w ignored, prefetching one group "
+		    "at a time\n";
 
 	// Check the queue in each server-directory and send it off to the 
 	// news server
@@ -459,7 +502,21 @@ int main(int argc, char **argv)
 		setugid(Cfg.Username, Cfg.Groupname);
 	if (Cfg.HistoryEnabled)
 		History::setspooldir(Cfg.SpoolDirectory);
-	update();
+	// log an error (spool not writable, ...) and exit 1, instead of
+	// std::terminate: SIGABRT, a core dump and no log line
+	try {
+		update();
+	}
+	catch(const Error & e) {
+		slog.p(Logger::Error) << "updatenews: " << e._errtext << "\n";
+		cerr << cmnd << ": " << e._errtext << "\n";
+		return 1;
+	}
+	catch(...) {
+		slog.p(Logger::Error) << "updatenews: unexpected exception\n";
+		cerr << cmnd << ": unexpected exception\n";
+		return 1;
+	}
 	return 0;
 }
 

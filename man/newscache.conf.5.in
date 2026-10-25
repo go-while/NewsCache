@@ -89,7 +89,9 @@ No default value.
 The email address of this NewsCache's administrator.
 .TP
 .I "AccessList { AccessSpec AccessSpec ... }"
-Client access configuration.
+Client access configuration. The first AccessSpec that matches the client
+is used, in the order of the file, so put narrower entries before broader
+ones and the Default entry last; an entry after Default is never used.
 .TP
 .I "NewsServerList { ServerSpec ServerSpec ... }"
 Defines a list of news servers and the newsgroups to retrieve from which

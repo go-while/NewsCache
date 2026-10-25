@@ -1,12 +1,18 @@
 package e2e
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
@@ -280,5 +286,201 @@ func TestPostSpooledKeepNoMessageID(t *testing.T) {
 		if subjects[s] != 1 {
 			t.Errorf("%q posted %d times, want once (posted: %v)", s, subjects[s], subjects)
 		}
+	}
+}
+
+// TestPrefetchLastLineNoNewline: the last line of the prefetch file counts
+// when the file doesn't end with a newline. updatenews used to drop it, so a
+// final "!pattern" was ignored and the excluded groups were prefetched.
+func TestPrefetchLastLineNoNewline(t *testing.T) {
+	for _, tc := range []struct {
+		name, file string
+		want       []string
+	}{
+		{"exclusion", "de.*\n!de.alt.*", []string{"de.test"}},
+		{"group", "de.test\nat.test", []string{"de.test", "at.test"}},
+		{"pattern", "de.test\nat.*", []string{"de.test", "at.test"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			for _, g := range []string{"de.test", "de.alt.binaries.x", "at.test"} {
+				e.Store.AddGroup(g, g)
+				e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+			}
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte(tc.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+
+			out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews -o: %v\n%s", err, out)
+			}
+			if got := prefetched(e); strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("prefetch file %q:\n  got  %q\n  want %q", tc.file, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUpdatenewsSpoolError: when the spool can't be created, updatenews
+// logs the error and exits 1. The exception wasn't caught, so it died with
+// SIGABRT ("terminate called after throwing an instance of 'SystemError'")
+// and a core dump, from cron, without a log line.
+func TestUpdatenewsSpoolError(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("de.test", "de.test")
+	// a regular file in the path: not even root can create the spool
+	notDir := filepath.Join(e.Dir, "notadir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Spool = filepath.Join(notDir, "spool")
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte("de.test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || !ee.Exited() || ee.ExitCode() != 1 {
+		t.Fatalf("updatenews -o with the spool under a file: %v, want exit status 1\n%s", err, out)
+	}
+	if strings.Contains(string(out), "terminate called") {
+		t.Errorf("updatenews output:\n%s", out)
+	}
+}
+
+// TestUpdatenewsSigpipe: SIGPIPE doesn't end the prefetch. updatenews took
+// it as a termination signal (newscache already ignores it), so a
+// write to an upstream connection the server had closed ended the run after
+// the current group, with exit status 0. Here the signal is sent directly.
+func TestUpdatenewsSigpipe(t *testing.T) {
+	e := newEnv(t)
+	groups := []string{"test.a", "test.b", "test.c", "test.d"}
+	for _, g := range groups {
+		e.Store.AddGroup(g, g)
+		e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+	}
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"GROUP": 500 * time.Millisecond},
+	}})
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(strings.Join(groups, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	cmd := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o")
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(prefetched(e)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := cmd.Process.Signal(syscall.SIGPIPE); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("updatenews -o: %v\n%s", err, out.String())
+	}
+	if got := prefetched(e); strings.Join(got, " ") != strings.Join(groups, " ") {
+		t.Errorf("prefetched groups after SIGPIPE:\n  got  %q\n  want %q", got, groups)
+	}
+}
+
+// TestUpdatenewsConnectTimeout: ConnectTimeout applies to updatenews. It
+// never set the alarm indicator of the socket code, so a server that
+// doesn't answer the SYN held each connect for the kernel's timeout (about
+// two minutes on Linux) instead of ConnectTimeout seconds.
+func TestUpdatenewsConnectTimeout(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux: a full listen backlog drops the SYN")
+	}
+	e := newEnv(t)
+	// a listener with backlog 0 that never accepts: once one connection
+	// waits in its queue, the kernel drops further SYNs
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Listen(fd, 0); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := net.JoinHostPort("127.0.0.1", fmt.Sprint(sa.(*syscall.SockaddrInet4).Port))
+	full := false
+	for i := 0; i < 8 && !full; i++ {
+		c, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err != nil {
+			full = true
+			break
+		}
+		t.Cleanup(func() { c.Close() })
+	}
+	if !full {
+		t.Skip("the listen backlog doesn't fill up here")
+	}
+	e.ServerHost = "127.0.0.1"
+	e.ServerPort = fmt.Sprint(sa.(*syscall.SockaddrInet4).Port)
+	e.ServerLines = "    ConnectTimeout 2"
+	e.writeConf()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	start := time.Now()
+	out, _ := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a").CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("updatenews -a still connecting after %v (ConnectTimeout 2)\n%s", time.Since(start).Round(time.Second), out)
+	}
+	t.Logf("updatenews -a gave up after %v", time.Since(start).Round(100*time.Millisecond))
+}
+
+// TestUpdatenewsWorkersOption: -w N and --workers=N (in the man page and the
+// usage text) are accepted, and --lock-groups as the usage text spelled it.
+// -w was never handled: updatenews printed the usage and exited 1 without
+// doing anything. It is ignored; the groups are prefetched one at a time.
+func TestUpdatenewsWorkersOption(t *testing.T) {
+	for _, args := range [][]string{{"-w", "2", "-o"}, {"--workers=2", "-o"}, {"-o", "--lock-groups"}, {"-o", "--lock-group"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e := newEnv(t)
+			for _, g := range []string{"de.test", "at.test"} {
+				e.Store.AddGroup(g, g)
+				e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+			}
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte("de.test\nat.test\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+			out, err := exec.Command(updatenewsBin(t, e), append([]string{"-c", e.Conf}, args...)...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews %v: %v\n%s", args, err, out)
+			}
+			if got := prefetched(e); strings.Join(got, " ") != "de.test at.test" {
+				t.Errorf("updatenews %v prefetched %q, want [de.test at.test]", args, got)
+			}
+		})
+	}
+	e := newEnv(t)
+	e.writeConf()
+	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-w", "x").CombinedOutput(); err == nil {
+		t.Errorf("updatenews -w x: accepted\n%s", out)
 	}
 }

@@ -515,7 +515,9 @@ option to specify the password for the above mentioned username.
 it; they print the comment @samp{# Password set, not shown} instead.
 @item ConnectTimeout
 @cdindex ConnectTimeout
-Limit the timeout for connections to upstream servers.
+Limit the timeout for connections to upstream servers, in seconds, in
+@command{newscache} and @command{updatenews}; 0 (the default) leaves it
+to the system, which can take minutes for a server that doesn't answer.
 @item ReadTimeout
 @cdindex ReadTimeout
 How long NewsCache waits for the server to send (or accept) anything on
@@ -923,8 +925,9 @@ default: a client gets @samp{502 You have no permission to talk} unless
 an entry allows it. Each @code{Client} entry names an address, a
 network (@samp{192.0.2.0/24}, @samp{2001:db8::/32}), a host or domain
 name, or @samp{stdin} for @code{newscache -i}; the @code{Default} entry
-applies to every other client. NewsCache uses the most specific entry
-that matches.
+matches every client. NewsCache uses the first entry that matches, in
+the order of the file, so put narrower entries before broader ones and
+@code{Default} last: an entry after @code{Default} is never used.
 
 An entry gives rights (@code{allow read post debug}, or
 @code{allow authentication} for a login only), the groups the client
