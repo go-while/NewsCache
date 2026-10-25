@@ -414,10 +414,15 @@ void RServer::connect()
 
 		if (_CurrentServer->
 		    nntpflags & MPListEntry::F_LIST_OVERVIEW_FMT) {
-			resp = issue("list overview.fmt\r\n", "215");
-			_OverviewFormat->readxoin(*_pServerStream);
-			if (resp[0] != '2' || resp[1] != '1'
-			    || resp[2] != '5') {
+			// (no expected code: issue() threw on any other reply,
+			// so the fallback below never ran and connect() was
+			// left half done; the list is read only after a 215)
+			resp = issue("list overview.fmt\r\n", NULL);
+			RSERVER_CONNECT_CHECK_CONNECTION
+			    ("Cannot read data from %s:%s");
+			if (resp[0] == '2' && resp[1] == '1' && resp[2] == '5') {
+				_OverviewFormat->readxoin(*_pServerStream);
+			} else {
 				slog.
 				    p(Logger::
 				      Warning) <<
@@ -537,8 +542,18 @@ string RServer::issue(const char *command, const char *expresp)
 			      Error) <<
 			    "RServer::issue: error in command readline\n";
 		}
-		// If the remote server closed the connection (400), reconnect
-		if (!_pServerStream->good()) {
+		// If the remote server closed the connection (400), reconnect,
+		// but not while connect() itself sets the connection up: its
+		// commands get the reply as it is (connect() checks them), or a
+		// 400/503 to MODE READER or LIST OVERVIEW.FMT reconnected, which
+		// sent them again, recursing until the stack overflowed (with a
+		// new upstream connection each time).
+		if (_connecting) {
+			if (!_pServerStream->good())
+				slog.p(Logger::Warning) << "RServer::issue: no "
+				    "connection to news server while connecting\n";
+			break;
+		} else if (!_pServerStream->good()) {
 			slog.
 			    p(Logger::
 			      Warning) <<

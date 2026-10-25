@@ -15,6 +15,13 @@ Bug fixes:
   balancer timeout), the client's session ended with "400 ... service
   discontinued" after its next command, although NewsCache had already
   reconnected: SIGPIPE was handled like SIGTERM. It is ignored now.
+* An upstream server that answered 503 (as INN does for data it doesn't
+  keep) or 400 to LIST OVERVIEW.FMT or MODE READER made NewsCache
+  reconnect again and again, thousands of times per session, until the
+  session crashed. One that answered 500 to LIST OVERVIEW.FMT (old
+  servers) made the first command of every session fail ("411 no such
+  news group"). NewsCache now uses the standard overview format then, as
+  it was meant to.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
