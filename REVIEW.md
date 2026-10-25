@@ -23,13 +23,13 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 | # | Area | Files | Lines | What to look at | Status |
 |---|---|---|---|---|---|
 | 0 | Top-level files and docs | `README`, `INSTALL`, `man/`, `doc/` (incl. `NewsCache.texi`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | Old `TODO` sorted and removed (#13), dead links (#12), `stamp-h.in` (#11) | reviewed (2026-10-20) |
-| 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | not started |
-| 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | not started |
-| 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | not started |
+| 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | reviewed (2026-10-24) |
+| 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | reviewed (2026-10-24) |
+| 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | reviewed (2026-10-24) |
 | 4 | Access list | `src/AccessList.{h,cc}` (matching, parsing) | ~500 | Address and name matching, IPv4/IPv6, prefix parsing, default entry | in progress (fixes in #20) |
 | 5 | Daemon | `src/NewsCache.cc`: `nntpd()`, signal handlers, `main()`; `src/setugid.{h,cc}` | ~650 | Accept loop, fork, `MaxConnections` accounting, signal safety, privilege drop order (`setgroups`), pid file | not started |
 | 6 | Configuration | `src/NewsCacheConfig.{h,cc}`, `NServer-0.9.1/Lexer.h`, `MPList.{h,cc}` | ~1,000 | Parser limits, fixed-size fields, error reporting, reload | not started |
-| 7 | Upstream connections | `NServer-0.9.1/NServer.{h,cc}`, `sockstream.{h,cc}`, `readline.{h,cc}` | ~3,100 | Parsing replies from an untrusted server, buffer sizes, timeouts and reconnects, TLS, posting | in progress (TLS in #16) |
+| 7 | Upstream connections | `NServer-0.9.1/NServer.{h,cc}`, `sockstream.{h,cc}`, `readline.{h,cc}` | ~3,100 | Parsing replies from an untrusted server, buffer sizes, timeouts and reconnects, TLS, posting | reviewed (2026-10-24; TLS in #16) |
 | 8 | Articles and overview | `Article.{h,cc}`, `OverviewFmt.{h,cc}`, `ArtSpooler.{h,cc}` | ~1,100 | Header parsing, `Xref` filtering, overview fields, large articles | not started |
 | 9 | Spool and databases | `NVClasses-0.9.1/NV*.{h,cc}`, `NServer-0.9.1/NVNewsgroup.*`, `NVActiveDB.*`, `CNewsgroup.*`, `ObjLock.*` | ~3,650 | `mmap` growth and remap, corrupt files, size and offset overflow, locking between processes | not started |
 | 10 | Groups and filters | `Newsgroup.*`, `RNewsgroup.*`, `GroupInfo.*`, `ActiveDB.*`, `NewsgroupFilter.*`, `wildmat.*`, `VirtualIterator.h` | ~1,300 | Pattern matching, group lists, article number ranges | not started |
@@ -43,8 +43,10 @@ Line counts are approximate, from 2026-10-20.
 
 ## Findings
 
-Fixed so far. Most were found by the tests in `tests/e2e`, by CodeQL or by
-CI, not yet by the systematic review.
+Fixed so far. Up to 1.3.22 most were found by the tests in `tests/e2e`, by
+CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
+2026-10-24) found 47 problems; those fixed are below, the rest are under
+[Open points](#open-points).
 
 | Finding | Area | Found by | Fixed in |
 |---|---|---|---|
@@ -139,6 +141,34 @@ that it stays as it is.
 | Point | Area | Found by | Test |
 |---|---|---|---|
 | FreeBSD only: started with 6 file descriptors (`ulimit -n 6`, 3 free), newscache aborts before the greeting with "Terminating due to uncaught exception ... of type int". NewsCache's own code throws no int, so it likely comes from a library or the C++ runtime; not reproducible on Linux. With 8 or more descriptors it answers | 9 | e2e tests (FreeBSD CI, #74) | `TestSpoolFewFiles/6` (known bug `fewfiles-freebsd`) |
+| The client's password is logged when the AUTHINFO line starts with a blank: the log masking tests the raw line, the argument split skips leading blanks | 1, 3 | review (areas 1, 3) | e2e: " AUTHINFO PASS x" must not appear in the log |
+| With `LogStyle strict-inn` the connection isn't closed after three failed logins: the check sits inside the LogINN block | 1, 3 | review (areas 1, 3) | e2e with strict-inn: the 4th AUTHINFO PASS gets no answer |
+| AUTHINFO is accepted again after a successful login (RFC 4643: 502), and the rights of both users add up; a failed second login keeps the first one's | 1, 3 | review (areas 1, 3) | e2e: second AUTHINFO USER after 281 gets 502 |
+| With a login required, CAPABILITIES, MODE READER and unknown commands get 480 instead of their answer (RFC 3977/4643) | 1 | review (area 1) | e2e: CAPABILITIES before login lists AUTHINFO USER |
+| SIGTERM doesn't end an idle session, or one blocked in send (the EINTR loops only stop on the alarm); `nntpd` exits without signalling its children | 1, 5 | review (area 1) | e2e: SIGTERM to the daemon ends open sessions |
+| A command line of 1023 characters or more closes the connection without a reply | 1 | review (area 1) | e2e: a 2000-byte line gets 501 and the session goes on |
+| In standalone mode the "400 service not available" sent when CServer fails is lost (`exit(1)` without a flush) | 1 | review (area 1) | e2e: unwritable spool, the client gets 400 |
+| Client host names of 64 characters or more are never used on Linux (`client_name[MAXHOSTNAMELEN]`, the result of `getnameinfo` isn't checked) | 1 | review (area 1) |  |
+| In inetd mode the access list is matched against an uninitialized `clt.sock` | 1 | review (area 1) |  |
+| POST has no size limit: an endless article or line grows memory until the OOM killer (the timeout part is fixed: ClientTimeout covers the article) | 2 | review (areas 1, 2) | e2e: a POST above a limit gets 441 |
+| LIST NEWSGROUPS ignores a wildmat and the client's List filter | 2 | review (area 2) | e2e: LIST NEWSGROUPS shows no group outside List |
+| OVER/XOVER and HDR without an argument and without a current article answer an empty 224/225 instead of 420 | 2 | review (area 2) |  |
+| `xdebug dump <unknown>` sends no reply; xdebug answers with the code `xxx`; `ns_xmotd` is dead code | 2 | review (areas 1, 2) |  |
+| Upstream error replies reach the client as they are (`fetch_readable` passes a ResponseError's text on): a stray `220` or `381` without data | 2, 7 | review (area 7) |  |
+| A failed AUTHINFO PASS answers 502; RFC 4643 says 481 (three e2e tests expect 502) | 3 | review (area 3) |  |
+| "No such user" and "wrong password" can be told apart by the time the answer takes | 3 | review (area 3) |  |
+| MD5 auth-file hashes are wrong on big-endian hosts: `HIGHFIRST` is never defined | 3 | review (area 3) | unit check of md5 on a big-endian build |
+| Auth-file lines over 1023 bytes are split silently; the rest is parsed as another line | 3 | review (area 3) | e2e: a long line doesn't create a second user |
+| A successful login isn't logged with the user name; `auth_pass` isn't cleared from memory | 3 | review (area 3) |  |
+| `src/crypt.cc` doesn't compile and nothing builds it (dead code); the man page recommends htpasswd, whose default `$apr1$` hashes libxcrypt can't check | 3, 0 | review (area 3) |  |
+| A multi-line upstream reply left unread after an exception (CorruptDBError) leaves the connection out of step | 7 | review (area 7) |  |
+| No limit on the size of an upstream line, reply or article | 7 | review (area 7) | nntp-testkit LongLine, Endless |
+| Commands cut short in fixed buffers lose their CRLF (`article <id>`, `stat <id>` with long message-IDs) | 7 | review (area 7) |  |
+| The retry loop in `connect()` reuses the stream, with `Options ssl` the old GnuTLS session, so retries of TLS servers can't succeed | 7 | review (area 7) |  |
+| `RServer::active` copies each Read pattern into a 513-byte stack buffer without a bound (config input) | 7 | review (area 7) |  |
+| `CServer::postspooled` loses a spooled article without a Message-ID when posting it fails again | 7 | review (area 7) |  |
+| `CServer::article(<id>)` stops searching at the first unreachable server; a failed MODE READER can clear the posting flag; QUIT isn't sent over TLS | 7 | review (area 7) |  |
+| `GroupInfo::set` reads past the end of an upstream active line without blanks; `NVActiveDB::read` and `readoverdb` set the mtime after a list cut off (the RServer side checks the stream now); errors built without a location log a garbage line number; `underflow` returns a 0xFF byte as EOF when the buffer isn't empty | 10, 9, 13, 7 | review (areas 1, 7) |  |
 
 ## CodeQL dismissals
 
