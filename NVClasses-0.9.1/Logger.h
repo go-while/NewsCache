@@ -31,7 +31,7 @@
 class Logger {
 
 #ifndef WITH_SYSLOG
-	std::ofstream log;
+	int logfd;
 #endif
 
 	int _priority;

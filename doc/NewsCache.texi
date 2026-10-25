@@ -384,6 +384,14 @@ If you are using log files you have to set the log directory using the
 @code{LogDirectory} command. If you are using syslogd, this statement
 has no effect. @emph{Before starting NewsCache, check that this
 directory exists and that NewsCache has read and write permissions.}
+The programs open their log file before they switch to @code{Username},
+so a directory only root can write is enough when they start as root.
+Only a regular file with one link is written: a symbolic link, a hard
+link or anything else at the log file's name is refused with an error
+on stderr, so that a user who can write the directory can't make root
+write to another file. The one exception is a symbolic link to the
+program's own stderr (such as @file{/dev/stderr}), which the container
+image uses.
 
 @example
 LogDirectory /lhome/newscache/log

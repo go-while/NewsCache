@@ -121,6 +121,15 @@ Bug fixes:
   logged at level notice ("authenticated as <user>"). The client's
   password is also cleared from memory right after the check instead of
   being kept for the whole session.
+* Built with --without-syslog, newscache, newscacheclean and updatenews
+  opened their log file as root, following symbolic links, in a
+  directory the sample config said to make writable for the news user.
+  That user could replace the log with a link to any file, which root
+  then appended to (or created) with text partly chosen by clients. Now
+  only a regular file with one link is used, and the error goes to
+  stderr; a link to the program's own stderr, as in the container image,
+  still works. The directory doesn't need to be writable for the news
+  user when the programs start as root.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

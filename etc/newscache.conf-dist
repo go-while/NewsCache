@@ -364,8 +364,11 @@ SpoolSize 3300000
 # All the log files go here, if syslogd is not being used. This
 # depends on how NewsCache has been configured: by default it logs to
 # syslog and ignores LogDirectory; built with --without-syslog, it
-# writes newscache.log here (the directory must be writable for
-# Username).
+# writes newscache.log here. The programs open their log before they
+# switch to Username, so a directory only root can write is enough when
+# they start as root; started as Username, that user must be able to
+# write the files. Only a regular file with one link is used, not a
+# symbolic or hard link (except a symbolic link to stderr).
 LogDirectory /var/log/newscache
 
 # Log Style
