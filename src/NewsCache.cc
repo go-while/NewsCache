@@ -110,6 +110,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 
 #include <iostream>
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -2762,6 +2763,7 @@ void nnrpd(int fd)
 	char req[1024], oreq[1024], *rp;
 	char *argv[256];
 	int argc;
+	bool too_long;
 	const char *cmd;
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
@@ -3034,6 +3036,17 @@ void nnrpd(int fd)
 		alarmed = 0;
 		alarm (Cfg.ClientTimeout);
 		clt.ci->getline(req, sizeof(req), '\n');
+		too_long = false;
+		if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
+		    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {
+			// The line doesn't fit into req: skip the rest of it
+			// and answer 501 (RFC 3977 3.2.1). The failed getline
+			// used to end the session without a reply.
+			too_long = true;
+			clt.ci->clear();
+			clt.ci->ignore(std::numeric_limits < std::streamsize >::max(),
+				       '\n');
+		}
 		alarm (0);
 		if (alarmed) {
 			alarmed = 0;
@@ -3053,6 +3066,13 @@ void nnrpd(int fd)
 		if (!clt.ci->good()) {
 			slog.p(Logger::Debug) << "NewsCache.cc input stream not good!\n";
 			break;
+		}
+		if (too_long) {
+			// (not logged: it may be an AUTHINFO line)
+			slog.p(Logger::Notice) << clt.client_logname
+			    << " command line too long\n";
+			(*clt.co) << "501 Line too long\r\n";
+			continue;
 		}
 		rp = req + strlen(req);
 		while (rp > req) {
@@ -3085,7 +3105,7 @@ void nnrpd(int fd)
 		if (!argc)
 			continue;
 		if (argc == 256) {
-			(*clt.co) << "500 Line too long\r\n";
+			(*clt.co) << "501 Line too long\r\n";
 			continue;
 		}
 		// Call function for command

@@ -780,3 +780,35 @@ func TestOverviewHeaderTab(t *testing.T) {
 		t.Errorf("STAT 1: %q, want 223 1 %s", line, id)
 	}
 }
+
+// TestCommandLineTooLong: a command line longer than NewsCache's buffer
+// (1024 bytes) gets 501 (RFC 3977 3.2.1), and the session goes on with
+// the next line. It closed the connection without a reply.
+func TestCommandLineTooLong(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	for _, n := range []int{1100, 5000} {
+		if code, line := c.Cmd("XPAT Subject 1- %s", strings.Repeat("x", n)); code != 501 {
+			t.Fatalf("XPAT with a %d-byte pattern: %q, want 501", n, line)
+		}
+		if code, line := c.Cmd("DATE"); code != 111 {
+			t.Fatalf("DATE after the long line: %q, want 111", line)
+		}
+	}
+	// the long line and the next one in one write: only the long one
+	// is skipped
+	if err := c.Send("GROUP " + strings.Repeat("y", 3000) + "\r\nGROUP test.alpha\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 501 {
+		t.Fatalf("long GROUP line: %q, %v; want 501", line, err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 211 {
+		t.Fatalf("GROUP test.alpha after it: %q, %v; want 211", line, err)
+	}
+	// 256 arguments: also too long, also 501
+	if code, line := c.Cmd("XPAT Subject 1-%s", strings.Repeat(" a", 254)); code != 501 {
+		t.Fatalf("XPAT with 256 words: %q, want 501", line)
+	}
+}

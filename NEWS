@@ -75,6 +75,10 @@ Bug fixes:
 * newscacheclean used NiceServer for its priority instead of NiceClean,
   which had no effect. It uses NiceClean now (default 3), as
   newscache.conf(5) says; check the value if you set NiceServer.
+* A command line of more than about 1020 characters closed the
+  connection without a reply. It now gets "501 Line too long" and the
+  session goes on; a line of 256 words or more gets 501 too, instead of
+  500 (RFC 3977).
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
