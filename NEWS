@@ -483,6 +483,14 @@ Bug fixes:
   exist. They now answer "403 internal error" then (RFC 3977); 411 is
   left for groups that don't exist. A group the spool knows is still
   served from it while the news server is down.
+* A 503 reply of the news server was taken for a closed connection, and
+  the command was sent again on a new connection, up to Retries times,
+  before it failed. In RFC 3977, 503 means "feature not supported": a
+  news server that answered OVER with 503 cost several connections for
+  every overview request, and NewsCache never fell back to XOVER. A 503
+  is now an ordinary reply, except when the server has closed the
+  connection behind it, as old INN versions did with "503 Timeout" on
+  an idle connection.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

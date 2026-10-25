@@ -260,6 +260,20 @@ void sockstream::sockstreambuf::setnodelay(bool fl)
   }
 }
 
+bool sockstream::input_pending()
+{
+  if (rdbuf()->in_avail() > 0)
+    return true;
+  if (_buf.fd() < 0)
+    return true;
+  struct pollfd p;
+  p.fd = _buf.fd();
+  p.events = POLLIN;
+  p.revents = 0;
+  // readable at once: data, the end of the stream, or an error
+  return poll(&p, 1, 0) > 0;
+}
+
 
 int sockstream::sockstreambuf::overflow(int c)
 {

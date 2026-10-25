@@ -227,6 +227,11 @@ class sockstream
   inline void setnodelay(bool fl = true)
   { _buf.setnodelay(fl); }
 
+  // Whether input is waiting right now (or there is no connection).
+  // After a whole reply a news server sends nothing until the next
+  // command, so this means that it has closed the connection.
+  bool input_pending();
+
 #if defined(HAVE_GNUTLS)
   // Hands the socket to a new TLS stream and runs the handshake. Returns
   // NULL if there is nothing to upgrade; otherwise check connected() on

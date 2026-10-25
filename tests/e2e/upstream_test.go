@@ -1116,3 +1116,122 @@ func TestGroupUpstreamFault403(t *testing.T) {
 		}
 	})
 }
+
+// TestUpstream503Reply: in RFC 3977, 503 is "feature not supported", a
+// reply like any other. RServer::issue took it for a closed connection
+// (old INN closed idle connections with "503 Timeout") and sent the
+// command again on a new connection, up to Retries times, before it
+// failed. Here the upstream answers OVER with 503: NewsCache must use
+// XOVER instead, on the same connection, also over TLS (where only the
+// TLS layer's records could make the socket look readable).
+func TestUpstream503Reply(t *testing.T) {
+	t.Run("plain", func(t *testing.T) { testUpstream503Reply(t, false) })
+	t.Run("TLS", func(t *testing.T) { testUpstream503Reply(t, true) })
+}
+
+func testUpstream503Reply(t *testing.T, useTLS bool) {
+	e := newEnv(t)
+	if useTLS {
+		requireTLS(t, e.Bin)
+	}
+	e.addArticles("test.alpha", 3)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Override: map[string][]string{"OVER": {"503 Overview not available"}},
+	}})
+	if useTLS {
+		ca := newTestCA(t, e.Dir)
+		p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), false, false)
+		e.ServerHost = "localhost"
+		e.ServerPort = p.port()
+		e.ServerOptions = "ssl"
+		e.ServerLines = "    TLSCAFile " + ca.file
+	}
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	expectXover(t, c, 1, 3, 1, 2, 3)
+	if n := e.Upstream.Count("OVER"); n != 1 {
+		t.Errorf("upstream got OVER %d times, want once", n)
+	}
+	if n := e.Upstream.Accepted(); n != 1 {
+		t.Errorf("%d upstream connections, want 1", n)
+	}
+}
+
+// noticeProxy relays to upstream. On the first client connection, after
+// the reply to the first line that starts with prefix, it sends notice
+// unasked and closes the connection, as old INN did when it closed an
+// idle connection ("503 Timeout ...").
+func noticeProxy(t *testing.T, upstream, prefix, notice string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var first atomic.Bool
+	first.Store(true)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			once := first.Swap(false)
+			go func(c net.Conn) {
+				defer c.Close()
+				up, err := net.Dial("tcp", upstream)
+				if err != nil {
+					return
+				}
+				defer up.Close()
+				go io.Copy(c, up)
+				r := bufio.NewReader(c)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					io.WriteString(up, line)
+					if once && strings.HasPrefix(strings.ToLower(line), prefix) {
+						time.Sleep(200 * time.Millisecond) // the reply goes through
+						io.WriteString(c, notice+"\r\n")
+						return
+					}
+				}
+			}(c)
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	return port
+}
+
+// TestUpstream503TimeoutClose: old INN closed an idle connection with
+// "503 Timeout ..." (400 since RFC 3977). The next command NewsCache
+// sends reads that line; since the connection is closed behind it,
+// NewsCache must still connect again and send the command once more,
+// although a 503 is a plain reply now (TestUpstream503Reply).
+func TestUpstream503TimeoutClose(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	e.GroupTimeout = 3600 // no GROUP before the ARTICLE
+	e.ServerHost = "127.0.0.1"
+	e.ServerPort = noticeProxy(t, e.Upstream.Addr(), "over",
+		"503 Timeout after 1 seconds, closing connection")
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	expectXover(t, c, 1, 3, 1, 2, 3)
+	time.Sleep(time.Second)
+	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
+		t.Fatalf("ARTICLE 2 after the upstream closed with 503: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if n := e.Upstream.Accepted(); n != 2 {
+		t.Errorf("%d upstream connections, want 2", n)
+	}
+}

@@ -438,7 +438,11 @@ LogStyle ip-address strict-inn
 @cdindex Retries
 Whenever a News Server closes the connection, NewsCache retries to
 connect to the News Server and to issue the command again. After a
-certain number of retries, NewsCache gives up.
+certain number of retries, NewsCache gives up. A reply of @samp{400}
+counts as a closed connection; @samp{503} (``feature not supported'' in
+RFC 3977) only when the server has closed the connection behind it, as
+old INN versions did with @samp{503 Timeout} on an idle connection.
+Otherwise a @samp{503} is an ordinary error reply and isn't sent again.
 
 @example
 Retries 3

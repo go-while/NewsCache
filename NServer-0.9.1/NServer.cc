@@ -621,7 +621,15 @@ string RServer::issue(const char *command, const char *expresp)
 			      Warning) <<
 			    "RServer::issue: no connection to news server\n";
 		} else if (strncmp(resp.c_str(), "400", 3) == 0
-			   || strncmp(resp.c_str(), "503", 3) == 0) {
+			   || (strncmp(resp.c_str(), "503", 3) == 0
+			       && _pServerStream->input_pending())) {
+			// 400: the server closes the connection. 503 is "not
+			// supported" in RFC 3977, a reply like any other (it
+			// was taken for a close, and the command sent again
+			// up to Retries times); but old INN sent "503 Timeout"
+			// when it closed an idle connection, which the next
+			// command reads: that one has the end of the stream
+			// right behind it.
 			slog.
 			    p(Logger::
 			      Warning) <<
