@@ -438,6 +438,10 @@ Documentation:
   unchanged: GPL version 2 or later.
 
 Other changes:
+* NewsCache builds on Debian GNU/Hurd: configure defines MAXPATHLEN
+  (4096) and MAXHOSTNAMELEN (256) where the system has none, and the
+  unit check cCorruptDB skips its file-limit case where RLIMIT_NOFILE
+  isn't enforced. (The e2e tests need Go, which the Hurd lacks.)
 * The end-to-end tests use nntp-testkit 0.7.0 (still Go 1.26 or later).
 * TestSpoolDiskFullDaemon no longer fails on a busy machine (its client
   sat idle past ClientTimeout while the other client worked).
