@@ -11,6 +11,10 @@ Bug fixes:
   a hash worked as its own password: the plain-text comparison came
   first. The hash is now checked first, the plain comparison only for a
   field that is no hash, and a locked or empty field never matches.
+* When the upstream server reset an idle connection (a firewall or load
+  balancer timeout), the client's session ended with "400 ... service
+  discontinued" after its next command, although NewsCache had already
+  reconnected: SIGPIPE was handled like SIGTERM. It is ignored now.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

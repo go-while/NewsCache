@@ -3678,11 +3678,15 @@ int main(int argc, char **argv)
 	// signals indicating to terminate NewsCache
 	action.sa_handler = catchsignal;
 	sigaction(SIGINT, &action, NULL);
-	sigaction(SIGPIPE, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
 
-	// ignored signals
+	// ignored signals; SIGPIPE too: a write to a connection the other
+	// side has closed fails with EPIPE, which the streams handle (an
+	// upstream connection is opened again). As a termination signal it
+	// ended the client's session ("service discontinued") whenever an
+	// upstream connection had been reset.
 	action.sa_handler = SIG_IGN;
+	sigaction(SIGPIPE, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
 	sigaction(SIGUSR2, &action, NULL);
 
@@ -3693,7 +3697,7 @@ int main(int argc, char **argv)
 	signal(SIGALRM, catchsigalarm);
 	signal(SIGHUP, catchsighup);
 	signal(SIGINT, catchsignal);
-	signal(SIGPIPE, catchsignal);
+	signal(SIGPIPE, SIG_IGN);
 	signal(SIGTERM, catchsignal);
 
 	signal(SIGUSR1, SIG_IGN);
