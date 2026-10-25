@@ -102,6 +102,11 @@ Bug fixes:
   third failed login, as the manual says it is, so a client could try
   passwords for ever on one connection (with "AuthFailureDelay 0" at
   full speed).
+* AUTHINFO was accepted again after a successful login, and a second
+  login added the second user's rights to the first one's; a failed one
+  kept the first user's rights under the second user's name. It now gets
+  502, as RFC 4643 says. A client whose entry has no Authentication gets
+  502 at once too (it got 381, then 502 after the failure delay).
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

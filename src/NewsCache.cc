@@ -1268,6 +1268,18 @@ void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 //Authinfo
 int ns_authinfo(ClientData * clt, int argc, char *argv[])
 {
+	// No AUTHINFO after a login (RFC 4643 2.2: 502); a second login
+	// added that user's rights to the first one's. Entries without an
+	// Authentication start out in AUTH_OK: no login for them either.
+	if (clt->auth_state == AUTH_OK) {
+		if (clt->access_entry->authentication.getType() == "none")
+			(*clt->co) << REJECT_SEQUENCE
+			    " no authentication available\r\n";
+		else
+			(*clt->co) << REJECT_SEQUENCE
+			    " already authenticated\r\n";
+		return -1;
+	}
 	// check arguments
 	if (argc != 3)
 		goto ns_authinfo_error;

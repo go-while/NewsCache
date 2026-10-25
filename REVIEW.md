@@ -166,6 +166,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | `xdebug dump <unknown>` (and `xdebug <a> <b>`) sent no reply; xdebug answered with the code `xxx`, `xdebug help` with none; now 501 and 100. `ns_xmotd` was dead code (not in the command table): removed | 2 | review (areas 1, 2) | #109 |
 | The client's password was logged when its AUTHINFO line started with a blank or a tab (`" AUTHINFO PASS x"`): the log masking tested the raw line, the argument split skips leading blanks | 1, 3 | review (areas 1, 3) | #PR |
 | With `LogStyle strict-inn` the connection wasn't closed after three failed logins: the check sat inside the block that writes NewsCache's own log lines (`!(LogStyle & LogINN)`) | 1, 3 | review (areas 1, 3) | #PR |
+| AUTHINFO was accepted again after a successful login (RFC 4643 2.2: 502), and the `check_auth_*` functions added the second user's rights to the first one's; a failed second login kept the first one's under the second name. Entries without Authentication now get 502 at once too, not 381 and a failure delay | 1, 3 | review (areas 1, 3) | #PR |
 | `TestSpoolDiskFullDaemon` failed now and then, mostly in the `-race` pass on a busy machine: client 1 waits while client 2 works, which took longer than the default ClientTimeout (60 s), so NewsCache ended client 1's session as idle; and a reply deadline of 60 s was too short for 20000 overview records. Test timing only, not a NewsCache bug | 15 | e2e tests (Fedora 44, `go test -race`) | #83 |
 | With `Options starttls`, a 480 to MODE READER (sent before STARTTLS) made `issue()` log in at once (the re-login of #68): User and Password went out in plain text, which anyone in the middle could force by injecting the 480; this undid #16. Also, a server that wants the login before MODE READER got a second login (502) and the connect failed every time | 7 | review (area 7) | #85 |
 | NEXT and LAST crashed (SIGSEGV) at the first gap in a group that isn't cached (`Options not-cached`): `RNewsgroup::getover` returns NULL for a number without a record, and `ns_lastnext` read `o[0]` | 2 | review (area 2) | #86 |
@@ -189,7 +190,6 @@ that it stays as it is.
 
 | Point | Area | Found by | Test |
 |---|---|---|---|
-| AUTHINFO is accepted again after a successful login (RFC 4643: 502), and the rights of both users add up; a failed second login keeps the first one's | 1, 3 | review (areas 1, 3) | e2e: second AUTHINFO USER after 281 gets 502 |
 | With a login required, CAPABILITIES, MODE READER and unknown commands get 480 instead of their answer (RFC 3977/4643) | 1 | review (area 1) | e2e: CAPABILITIES before login lists AUTHINFO USER |
 | SIGTERM doesn't end an idle session, or one blocked in send (the EINTR loops only stop on the alarm); `nntpd` exits without signalling its children | 1, 5 | review (area 1) | e2e: SIGTERM to the daemon ends open sessions |
 | In standalone mode the "400 service not available" sent when CServer fails is lost (`exit(1)` without a flush) | 1 | review (area 1) | e2e: unwritable spool, the client gets 400 |

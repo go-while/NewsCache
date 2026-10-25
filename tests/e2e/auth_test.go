@@ -642,3 +642,39 @@ func TestAuthMaxFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthinfoAfterLogin: after a successful login AUTHINFO gets 502 (RFC
+// 4643 2.2). It was accepted, and a second login added the second user's
+// rights to the first one's; a failed second login kept the first one's
+// rights under the second user's name. Without an Authentication there is
+// no login at all: 502 at once, no 381, no failure delay.
+func TestAuthinfoAfterLogin(t *testing.T) {
+	t.Run("second login", func(t *testing.T) {
+		e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read",
+			"poster:"+md5Hash+":*:*:*:read,post")
+		c := e.session()
+		login(t, c)
+		for _, cmd := range []string{"AUTHINFO USER poster", "AUTHINFO PASS secret", "AUTHINFO USER tester"} {
+			if code, line := c.Cmd("%s", cmd); code != 502 {
+				t.Errorf("%s after the login: %q, want 502", cmd, line)
+			}
+		}
+		if code, line := c.Cmd("POST"); code != 500 {
+			if code == 340 {
+				c.Send(".\r\n")
+				c.ReadStatus()
+			}
+			t.Errorf("POST: %q, want 500 (tester has no post right)", line)
+		}
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP: %q, want 211 (tester's rights kept)", line)
+		}
+	})
+	t.Run("no Authentication", func(t *testing.T) {
+		e := newEnv(t)
+		c := e.session()
+		if code, line := c.Cmd("AUTHINFO USER tester"); code != 502 {
+			t.Errorf("AUTHINFO USER without Authentication: %q, want 502", line)
+		}
+	})
+}
