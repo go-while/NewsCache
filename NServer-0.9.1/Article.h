@@ -61,7 +61,13 @@ class Article {
 	Article(artnum_t artnbr, const char *text, int textlen = 0);
 	~Article();
 
-	void read(std::istream & is);
+	/**
+	* Reads the text up to the "." line.
+	* \param max Largest text in bytes (0: no limit).
+	* \return -1 when the text is larger than max (it is empty then,
+	* 	and the rest is unread), else 0.
+	*/
+	int read(std::istream & is, size_t max = 0);
 
 	void setnbr(artnum_t nbr);
 	

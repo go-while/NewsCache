@@ -307,11 +307,21 @@ func TestPostCutOff(t *testing.T) {
 	}
 }
 
-// TestPostSizeLimit: POST takes articles up to 1 MB; a larger one is
-// refused with 441, read to its "." line (the session goes on) and not
-// posted. There was no limit: an endless article took all the memory.
+// TestPostSizeLimit: POST takes articles up to MaxPostSize (1 MiB by
+// default); a larger one is refused with 441, read to its "." line (the
+// session goes on) and not posted. There was no limit: an endless article
+// took all the memory.
 func TestPostSizeLimit(t *testing.T) {
+	t.Run("default", func(t *testing.T) { testPostSizeLimit(t, "", 1100, 900) })
+	// MaxPostSize sets the limit (in bytes)
+	t.Run("MaxPostSize 100000", func(t *testing.T) { testPostSizeLimit(t, "MaxPostSize 100000", 100, 90) })
+}
+
+// testPostSizeLimit posts an article of tooLarge KB, which must get 441,
+// and then one of fits KB, which must be posted.
+func testPostSizeLimit(t *testing.T, extra string, tooLarge, fits int) {
 	e := newEnv(t)
+	e.Extra = extra
 	e.addArticles("test.alpha", 1)
 	c := e.session()
 	c.Deadline = 60 * time.Second
@@ -336,17 +346,17 @@ func TestPostSizeLimit(t *testing.T) {
 		}
 		return code, reply
 	}
-	if code, line := post(1, 1100); code != 441 {
-		t.Errorf("POST of 1.1 MB: %q, want 441", line)
+	if code, line := post(1, tooLarge); code != 441 {
+		t.Errorf("POST of %d KB: %q, want 441", tooLarge, line)
 	}
-	if code, line := post(2, 900); code != 240 {
-		t.Errorf("POST of 900 KB: %q, want 240", line)
+	if code, line := post(2, fits); code != 240 {
+		t.Errorf("POST of %d KB: %q, want 240", fits, line)
 	}
 	if code, line := c.Cmd("DATE"); code != 111 {
 		t.Errorf("DATE after the posts: %q, want 111", line)
 	}
 	if n := len(e.Store.Posted()); n != 1 {
-		t.Errorf("upstream got %d posted articles, want 1 (the 900 KB one)", n)
+		t.Errorf("upstream got %d posted articles, want 1 (the %d KB one)", n, fits)
 	}
 }
 

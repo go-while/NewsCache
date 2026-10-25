@@ -12,7 +12,7 @@ void OverviewFmt::readxoin(istream & is)
 	}
 
 	for (;;) {
-		nlreadline(is, field, 0);
+		nlreadline(is, field, 0, NNTP_MAXLINE);
 		if (field == "." || is.eof())
 			break;
 		// RFC 3977 (8.4) names the size fields ":bytes" and ":lines";

@@ -789,7 +789,7 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 
 	NVLock guard(*this, NVcontainer::ExclLock);
 	for (;;) {
-		nlreadline(is, line1, 0);
+		nlreadline(is, line1, 0, NNTP_MAXLINE);
 		if (line1 == "." || is.eof())
 			break;
 		if ((n = leading_artnum(line1.c_str())) > high)

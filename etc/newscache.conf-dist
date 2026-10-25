@@ -338,6 +338,14 @@ ClientTimeout 600
 # article, using a history in SpoolDirectory/.history (default off)
 # History on
 
+# The largest article (bytes) taken from a news server; a larger one is
+# refused, and the connection to that server closed (default 1048576)
+# MaxArticleSize 1048576
+
+# The largest article (bytes) a client may post; a larger one is refused
+# with 441 (default 1048576)
+# MaxPostSize 1048576
+
 # Do not allow more than 16 simultaneous connections
 # This switch works only in standalone mode
 MaxConnections 16

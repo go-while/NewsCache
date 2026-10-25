@@ -65,6 +65,30 @@ class ArtSpooler {
 	 */
 	Article *getSpooledArt(void);
 
+	/**
+	 * Get one article from the spool without removing it (don't
+	 * forget delete); name is set to its file. Remove it with
+	 * removeSpooledArt once it is posted or stored elsewhere.
+	 * Files that can't be opened are logged and skipped.
+	 * \return A pointer to the article or NULL.
+	 * \throw SystemError The spool directory can't be read.
+	 */
+	Article *nextSpooledArt(std::string & name);
+
+	/**
+	 * Remove the spool file name from nextSpooledArt.
+	 * \throw SystemError The file can't be removed.
+	 */
+	void removeSpooledArt(const std::string & name);
+
+	/**
+	 * Only one process at a time may post the spool, since an
+	 * article stays in it until it is posted.
+	 * \return true if this process may post now.
+	 */
+	bool lockPosting(void);
+	void unlockPosting(void);
+
 
 	/**
 	 * Store the article in the "Bad Article Store".
@@ -99,6 +123,7 @@ class ArtSpooler {
 	std::string artSpool;
 	std::string badArticles;
 	ObjLock *pLock;
+	ObjLock *pPostLock;
 };
 
 

@@ -36,7 +36,9 @@ class Error {
 	std::string _file;
 	std::string _function;
 	int _line;
-	 Error(const char *txt = "unknown"):_errtext(txt) {
+	// _line 0 without a location: it was left uninitialized, and the
+	// log showed a garbage line number
+	 Error(const char *txt = "unknown"):_errtext(txt), _line(0) {
 		VERB(slog.p(Logger::Debug);
 		     print());
 	} Error(const char *txt, const char *file, const char *function,
@@ -45,7 +47,7 @@ class Error {
 		VERB(slog.p(Logger::Debug);
 		     print());
 	}
-	Error(const std::string & txt):_errtext(txt) {
+	Error(const std::string & txt):_errtext(txt), _line(0) {
 		VERB(slog.p(Logger::Debug);
 		     print());
 	}

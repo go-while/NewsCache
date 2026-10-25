@@ -68,12 +68,17 @@ Article::~Article ()
 {
 }
 
-void Article::read(std::istream & is)
+int Article::read(std::istream & is, size_t max)
 {
 	DEBUG(slog.p(Logger::Debug) << "Article::read(&is)\n");
+	int r;
+
 	_text = "";
-	readtext(is, _text);
+	r = readtext(is, _text, 1, ".\r\n", max);
+	if (r < 0)
+		std::string().swap(_text);
 	_ctext = _text.c_str();
+	return r < 0 ? -1 : 0;
 }
 
 void Article::setnbr(artnum_t nbr)

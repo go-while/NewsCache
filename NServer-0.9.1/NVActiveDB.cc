@@ -208,7 +208,7 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 	while (!is.eof()) {
 		// Each line has the following form
 		// GroupName Last First Flags
-		nlreadline(is, line, 0);
+		nlreadline(is, line, 0, NNTP_MAXLINE);
 		if (line == ".")
 			break;
 

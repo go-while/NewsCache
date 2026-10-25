@@ -434,6 +434,9 @@ void sockstream::sslstreambuf::disconnect()
   {
     return;
   }
+  // what is still buffered first, as the plain sockstreambuf does: the
+  // QUIT of RServer::disconnect was dropped
+  sync();
   _connected = false;
 
   // Only our close_notify: waiting for the server's (SHUT_RDWR) could

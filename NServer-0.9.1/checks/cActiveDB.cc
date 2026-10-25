@@ -1,13 +1,15 @@
 // Checks the active database with 64-bit article numbers, and
 // NVActiveDB::convert_v1: a database written with 32-bit numbers
 // (NewsCache 1.3.21 and older) is converted, and each group keeps its
-// numbers, flag and creation time.
+// numbers, flag and creation time. Also GroupInfo::set on upstream active
+// lines that end early.
 
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 
 #include <iostream>
@@ -59,6 +61,31 @@ class OldActiveDB:public NVActiveDB {
 	}
 };
 
+// GroupInfo::set on a line that ends right before an unreadable page:
+// it must not read past the terminating NUL. Returns 1 if set threw (the
+// line is refused), 0 if it took the line.
+static int set_at_page_end(GroupInfo & gi, const char *line)
+{
+	const size_t pg = sysconf(_SC_PAGESIZE), len = strlen(line) + 1;
+	char *m = (char *) mmap(NULL, 2 * pg, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANON, -1, 0);
+	if (m == MAP_FAILED || mprotect(m + pg, pg, PROT_NONE) != 0) {
+		perror("mmap");
+		exit(1);
+	}
+	char *p = m + pg - len;
+	memcpy(p, line, len);
+	int thrown = 0;
+	try {
+		gi.set(p);
+	}
+	catch(const Error &) {
+		thrown = 1;
+	}
+	munmap(m, 2 * pg);
+	return thrown;
+}
+
 static int exists(const string & fn)
 {
 	struct stat st;
@@ -82,6 +109,15 @@ int main()
 	CHECK(gi.first() == 67000000000ULL);
 	CHECK(gi.n() == 486767816ULL);
 	CHECK(gi.flags() == 'y');
+
+	// An upstream active line without blanks, or without numbers, is
+	// refused; reading it ran past its end (SIGSEGV here)
+	CHECK(set_at_page_end(gi, "no.blanks") == 1);
+	CHECK(set_at_page_end(gi, "") == 1);
+	CHECK(set_at_page_end(gi, "group.only ") == 1);
+	CHECK(set_at_page_end(gi, "de.test 20 10") == 0);
+	CHECK(strcmp(gi.name(), "de.test") == 0);
+	CHECK(gi.first() == 10 && gi.last() == 20 && gi.flags() == 'y');
 
 	{
 		OldActiveDB old(oldfn.c_str());

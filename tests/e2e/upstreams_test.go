@@ -3,6 +3,7 @@ package e2e
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -493,4 +494,35 @@ func TestXrefTrailingBlank(t *testing.T) {
 		t.Fatalf("second session HEAD 2: %q, want 221", line)
 	}
 	c2.ReadDotLines()
+}
+
+// TestArticleIDServerDown: ARTICLE <message-id> asks one server after the
+// other until one has the article. A server that couldn't be reached
+// ended the search with 503, although the next one had the article.
+func TestArticleIDServerDown(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	st := fakeserver.NewStore()
+	st.AddGroup("test.gamma", "on C")
+	st.AddArticle("test.gamma", groupArticle("test.gamma", 1, []string{"body on C"}))
+	c3 := fakeserver.New(t, fakeserver.Options{Store: st})
+	host, port, err := net.SplitHostPort(freeAddr(t)) // nothing listens there
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.ExtraServers = fmt.Sprintf("  Server %s %s {\n    Read test.beta\n    PostTo test.beta\n  }\n", host, port) +
+		serverBlock(c3, "test.gamma")
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	id := "<test-gamma.1@upstream.test>"
+	if code, line := c.Cmd("ARTICLE %s", id); code != 220 {
+		t.Fatalf("ARTICLE %s (on the third server, the second down): %q, want 220", id, line)
+	}
+	if lines := c.ReadDotLines(); !containsLine(lines, "body on C") {
+		t.Errorf("ARTICLE %s: %q, want the third server's article", id, lines)
+	}
+	// none has it: 430 only if every server could be asked
+	if code, line := c.Cmd("ARTICLE <none@upstream.test>"); code != 503 {
+		t.Errorf("ARTICLE <none@upstream.test> with a server down: %q, want 503", line)
+	}
 }

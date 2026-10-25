@@ -2090,9 +2090,6 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 
 #undef DD2INT
 
-// The largest article a client may post (bytes, with CRLF line ends).
-#define MAX_POST_SIZE (1024 * 1024)
-
 /*
  * Reads a posted article up to its "." line into text, as readtext does
  * (lines end with "\r\n", the "." line not included). Returns 0; 1 when
@@ -2165,7 +2162,8 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "340 send article to be posted.\r\n";
 		clt->co->flush();
 		string text;
-		int r = read_post_article(*clt->ci, text, MAX_POST_SIZE);
+		int r = read_post_article(*clt->ci, text,
+					  (size_t) Cfg.MaxPostSize);
 		if (r < 0) {
 			// the input ended (or failed) before the "." line:
 			// the article is cut off and must not be posted
@@ -2177,10 +2175,10 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		}
 		if (r > 0) {
 			slog.p(Logger::Notice) << clt->client_logname
-			    << " POST: article larger than " << MAX_POST_SIZE
+			    << " POST: article larger than " << Cfg.MaxPostSize
 			    << " bytes, not posted\n";
 			(*clt->co) << "441 article too large (at most "
-			    << MAX_POST_SIZE << " bytes)\r\n";
+			    << Cfg.MaxPostSize << " bytes)\r\n";
 			return -1;
 		}
 		art.settext(text);
@@ -3008,6 +3006,7 @@ void nnrpd(int fd)
 	try {
 		clt.srvr = new CServer(Cfg.SpoolDirectory, &(Cfg.srvrs));
 		clt.srvr->setttl(Cfg.ttl_list, Cfg.ttl_desc);
+		clt.srvr->setmaxarticlesize(Cfg.MaxArticleSize);
 	}
 	catch(const SystemError & se) {
 		slog.

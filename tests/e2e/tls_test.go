@@ -98,6 +98,7 @@ type tlsProxy struct {
 	cfg      *tls.Config
 	starttls bool // plain greeting first, TLS after STARTTLS
 	refuse   bool // answer STARTTLS with 502, as an attacker in the middle would
+	drop     int  // close this many connections right after the TLS handshake (no greeting)
 
 	mu        sync.Mutex
 	plain     []string // client lines seen in plain text
@@ -155,7 +156,11 @@ func (p *tlsProxy) handle(c net.Conn) {
 		}
 		p.mu.Lock()
 		p.handshake++
+		drop := p.handshake <= p.drop
 		p.mu.Unlock()
+		if drop {
+			return
+		}
 		relay(tc, up)
 		return
 	}
@@ -406,5 +411,58 @@ func TestSTARTTLSNoLoginBeforeTLS(t *testing.T) {
 	}
 	if n := e.Upstream.Count("MODE"); n < 2 {
 		t.Errorf("MODE READER sent %d times, want it again after the login", n)
+	}
+}
+
+// TestUpstreamQuit: at the end of a session NewsCache sends QUIT to the
+// upstream. Over TLS it was dropped: RServer::disconnect writes it into
+// the stream without a flush, and the TLS stream sent its close_notify
+// without writing what it still held.
+func TestUpstreamQuit(t *testing.T) {
+	for _, useTLS := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "TLS"}[useTLS], func(t *testing.T) {
+			var e *env
+			if useTLS {
+				var ca *testCA
+				e, ca, _ = tlsEnv(t, []string{"localhost"}, validFrom, validUntil, false, false)
+				e.ServerLines = "    TLSCAFile " + ca.file
+			} else {
+				e = newEnv(t)
+				e.addArticles("test.alpha", 1)
+			}
+			c := e.session()
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP test.alpha: %q", line)
+			}
+			c.Cmd("QUIT")
+			deadline := time.Now().Add(10 * time.Second)
+			for e.Upstream.Count("QUIT") == 0 {
+				if time.Now().After(deadline) {
+					t.Fatalf("the upstream got no QUIT")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		})
+	}
+}
+
+// TestTLSConnectRetry: the server closes the connection after the TLS
+// handshake, before the greeting (an overloaded server), and answers the
+// next one. connect() tried again with the same stream: with Options ssl
+// its GnuTLS session, which had done its handshake on the old connection,
+// so every retry failed.
+func TestTLSConnectRetry(t *testing.T) {
+	e, ca, p := tlsEnv(t, []string{"localhost"}, validFrom, validUntil, false, false)
+	p.mu.Lock()
+	p.drop = 1
+	p.mu.Unlock()
+	e.ServerLines = "    TLSCAFile " + ca.file + "\n    Retries 2"
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha after a connection closed before the greeting: %q, want 211", line)
+	}
+	if _, n, _ := p.state(); n != 2 {
+		t.Errorf("%d TLS handshakes, want 2", n)
 	}
 }

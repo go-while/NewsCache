@@ -228,6 +228,7 @@ void update(void)
 	int wi = opt_workers ? 0 : -1;
 
 	cs.setttl(Cfg.ttl_list, Cfg.ttl_desc);
+	cs.setmaxarticlesize(Cfg.MaxArticleSize);
 
 	slog.p(Logger::Info) << "posting spooled articles\n";
 	cs.postspooled();

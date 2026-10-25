@@ -111,6 +111,12 @@ After a failed login (AUTHINFO PASS), wait this many seconds before answering, m
 .I "History on|off"
 With on, keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
 .TP
+.I "MaxArticleSize bytes"
+The largest article NewsCache takes from a news server. A larger one is an error: NewsCache closes the connection to that server (the rest of the article is unread on it), the client gets an error, nothing is stored, and the log says so. The default is 1048576 (1 MiB), the range 1024 to 1073741824. A session holds an article in memory as a whole. Lines from a news server outside articles (status lines, overview records, the active list, LISTGROUP) are limited to 16384 bytes each, with the same effect; lines in articles count only towards MaxArticleSize.
+.TP
+.I "MaxPostSize bytes"
+The largest article a client may post (counted with CRLF line ends). A larger one is read to its final "." and refused with 441; the session goes on. The default is 1048576 (1 MiB), the range 1024 to 1073741824.
+.TP
 .I "MaxConnections number"
 Maximal number of simultanous connections. This Parameter works only in standalone mode. The default number is 32.
 .TP

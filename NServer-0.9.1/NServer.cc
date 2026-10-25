@@ -197,6 +197,7 @@ int LServer::post(Article * article)
 RServer::RServer(MPList * serverlist)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::RServer/1\n");
+	_MaxArticleSize = 1024 * 1024;
 	init(serverlist);
 }
 
@@ -219,8 +220,13 @@ void RServer::init(MPList * serverlist)
 		_ActiveDB = NULL;
 }
 
+// A retry starts with a new stream: with Options ssl the old one's GnuTLS
+// session had done its handshake on the old connection, and a handshake
+// with it on the new one failed every time.
 #define RSERVER_CONNECT_CHECK_CONNECTION(errstrg) \
     if(!_pServerStream->good()) { \
+      delete _pServerStream; \
+      _pServerStream = NULL; \
       if(i) { \
 	i--; \
 	sleep(1); \
@@ -280,14 +286,14 @@ void RServer::connect()
 				  ERROR_LOCATION);
 	}
 #endif
-	_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
-	_pServerStream->set_tls(!(_CurrentServer->flags & MPListEntry::F_TLS_NOVERIFY),
-				_CurrentServer->tlsCAFile);
 
 	for (;;) {
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
+		_pServerStream = new sockstream(_CurrentServer->flags & MPListEntry::F_SSL);
+		_pServerStream->set_tls(!(_CurrentServer->flags & MPListEntry::F_TLS_NOVERIFY),
+					_CurrentServer->tlsCAFile);
 		_CurrentServer->connectFailed = time(NULL);
 
 		const struct sockaddr *bindFrom =
@@ -321,7 +327,7 @@ void RServer::connect()
 		//FIXME! groupname to send correct passwd to correct server/group
 		//FIXME! RECONNECT/RETRY? HOW IMPLEMENT? What happens if module 
 		//FIXME! cannot handle this?!?
-		nlreadline(*_pServerStream, grt, 0);
+		nlreadline(*_pServerStream, grt, 0, NNTP_MAXLINE);
 		slog.p(Logger::Info) << grt << "\n";
 
 		RSERVER_CONNECT_CHECK_CONNECTION
@@ -422,6 +428,10 @@ void RServer::connect()
 			    ("Cannot read data from %s:%s");
 			if (resp[0] == '2' && resp[1] == '1' && resp[2] == '5') {
 				_OverviewFormat->readxoin(*_pServerStream);
+				// (a list cut off, or a line too long: else
+				// the next command reconnected, nested)
+				RSERVER_CONNECT_CHECK_CONNECTION
+				    ("Cannot read data from %s:%s");
 			} else {
 				slog.
 				    p(Logger::
@@ -466,15 +476,48 @@ void RServer::disconnect()
 }
 
 /*
+ * An exception left the rest of a multi-line reply (an article, an
+ * overview, the active list) unread, e.g. a CorruptDBError of the spool
+ * while storing it: the next command would read that rest as its reply,
+ * and every command after it too. The connection is closed instead.
+ */
+void RServer::reply_unread()
+{
+	if (_CurrentServer)
+		slog.p(Logger::Warning) << "error while reading a reply of "
+		    << "news server " << _CurrentServer->hostname
+		    << ", closing the connection\n";
+	disconnect();
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
  * stored as if it were complete (readtext stops at the end of the input
- * without telling).
+ * without telling). The same for an article larger than MaxArticleSize.
  */
 void RServer::readarticle(Article * art)
 {
-	art->read(*_pServerStream);
+	int r;
+
+	try {
+		r = art->read(*_pServerStream, _MaxArticleSize);
+	}
+	catch(...) {
+		reply_unread();
+		throw;
+	}
+	if (r < 0) {
+		// the rest of it is unread: the connection is out of step
+		slog.p(Logger::Warning) << "news server "
+		    << _CurrentServer->hostname
+		    << " sent an article larger than MaxArticleSize ("
+		    << _MaxArticleSize << " bytes), closing the connection\n";
+		disconnect();
+		throw SystemError("article larger than MaxArticleSize", -1,
+				  ERROR_LOCATION);
+	}
 	if (!_pServerStream->good()) {
 		slog.p(Logger::Warning) << "news server "
 		    << _CurrentServer->hostname
@@ -487,18 +530,17 @@ void RServer::readarticle(Article * art)
 
 void RServer::authenticate()
 {
-	char buf[1024];
-	string resp;
+	string cmd, resp;
 
 	_authenticating = 1;
 	try {
-		snprintf(buf, sizeof(buf), "authinfo user %s\r\n",
-			 _CurrentServer->user.c_str());
-		resp = issue(buf, NULL);
+		// std::string: a fixed buffer cut long values off with their
+		// CRLF, and the server waited for the end of the line.
+		cmd = "authinfo user " + _CurrentServer->user + "\r\n";
+		resp = issue(cmd.c_str(), NULL);
 		if (resp[0] == '3') {
-			snprintf(buf, sizeof(buf), "authinfo pass %s\r\n",
-				 _CurrentServer->passwd.c_str());
-			resp = issue(buf, NULL);
+			cmd = "authinfo pass " + _CurrentServer->passwd + "\r\n";
+			resp = issue(cmd.c_str(), NULL);
 		}
 	}
 	catch(...) {
@@ -554,7 +596,7 @@ string RServer::issue(const char *command, const char *expresp)
 		// loop throws ResponseError.
 		rs = 0;
 		try {
-			rs = nlreadline(*_pServerStream, resp, 0);
+			rs = nlreadline(*_pServerStream, resp, 0, NNTP_MAXLINE);
 		}
 		catch(...) {
 			slog.
@@ -751,7 +793,9 @@ ActiveDB *RServer::active()
 {
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
 	unsigned int i, flags;
-	char cgroup[MAXGROUPNAMELEN + 1], *cgp, buf[1024];
+	// std::string: a Read element of the config has no length limit
+	// (it overflowed a 513-byte buffer)
+	string cgroup, cmd;
 	char c;
 
 	ASSERT(if (!_ServerList) {
@@ -790,22 +834,26 @@ ActiveDB *RServer::active()
 					  _CurrentServer->read.end();
 					do {
 						// Extract a newsgroup-expression
-						cgp = cgroup;
+						cgroup.clear();
 						while (sp != end &&
 						       (c = *sp++) != ',')
-							*cgp++ = c;
-						*cgp = '\0';
-						snprintf(buf, sizeof(buf),
-							 "list active %s\r\n",
-							 cgroup);
-						issue(buf, "215");
+							cgroup += c;
+						cmd = "list active " + cgroup +
+						    "\r\n";
+						issue(cmd.c_str(), "215");
 						// read active database and filter unwanted groups
-						_ActiveDB->
-						    read(*_pServerStream,
-							 _ServerList->
-							 makeFilter(i,
-								    cgroup).c_str(),
-							 flags);
+						try {
+							_ActiveDB->
+							    read(*_pServerStream,
+								 _ServerList->
+								 makeFilter(i,
+									    cgroup.c_str()).c_str(),
+								 flags);
+						}
+						catch(...) {
+							reply_unread();
+							throw;
+						}
 					} while (sp != end);
 				}
 				catch(ResponseError & re) {
@@ -826,10 +874,16 @@ ActiveDB *RServer::active()
 			     nntpflags & MPListEntry::
 			     F_LIST_ACTIVE_WILDMAT)) {
 				issue("list active\r\n", "215");
-				_ActiveDB->read(*_pServerStream,
-						_ServerList->makeFilter(i,
-									"*").c_str(),
-						flags);
+				try {
+					_ActiveDB->read(*_pServerStream,
+							_ServerList->makeFilter(i,
+										"*").c_str(),
+							flags);
+				}
+				catch(...) {
+					reply_unread();
+					throw;
+				}
 				if (!_pServerStream->good()) {
 					disconnect();
 					throw SystemError("active list cut off "
@@ -924,13 +978,15 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		}
 
 		for (;;) {
-			nlreadline(*_pServerStream, line);
+			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
 			if (line == ".\r\n")
 				break;
-			if (!_pServerStream->good())
+			if (!_pServerStream->good()) {
+				disconnect();
 				throw
 					SystemError("error while reading from server",
 						    errno, ERROR_LOCATION);
+			}
 			i = leading_artnum(line.data());
 			if (f <= i && i <= l)
 				lstgrp[i - f] = 1;
@@ -965,12 +1021,14 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 		throw ResponseError(c, e, resp);
 	}
 	for (;;) {
-		nlreadline(*_pServerStream, line);
+		nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
 		if (line == ".\r\n")
 			break;
-		if (!_pServerStream->good())
+		if (!_pServerStream->good()) {
+			disconnect();
 			throw SystemError("error while reading from server",
 					  errno, ERROR_LOCATION);
+		}
 		// read to the end even when the client has gone, the
 		// connection to the news server stays in use
 		i = leading_artnum(line.data());
@@ -1035,7 +1093,14 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
-			artnum_t r = ng->readoverdb(*_pServerStream);
+			artnum_t r;
+			try {
+				r = ng->readoverdb(*_pServerStream);
+			}
+			catch(...) {
+				reply_unread();
+				throw;
+			}
 			if (!_pServerStream->good()) {
 				// cut off: the range isn't complete
 				disconnect();
@@ -1096,11 +1161,13 @@ void RServer::article(const char *gname, artnum_t nbr, Article * art)
 void RServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::article(" << id << ")\n");
-	char buf[1024];
 	const char *p;
 	string resp;
 
-	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+	// Not a fixed buffer: a long message-ID cut the command off with its
+	// CRLF, and the server waited for the end of the line.
+	const string cmd = string("article ") + id + "\r\n";
+	const char * const buf = cmd.c_str();
 	if (_CurrentServer) {
 		resp = issue(buf, NULL);
 		p = resp.c_str();
@@ -1148,9 +1215,8 @@ void RServer::article(const char *id, Article * art)
 
 void RServer::post(MPListEntry * srvr, Article * article)
 {
-	string resp;
+	string resp, cmd;
 	const char *p;
-	char buf[513];
 
 	VERB(slog.p(Logger::Debug) << "RServer::post({"
 	     << srvr->hostname << "," << srvr->servicename << "}\n");
@@ -1165,8 +1231,9 @@ void RServer::post(MPListEntry * srvr, Article * article)
 
 	try {
 		resp = article->getfield("message-id:");
-		snprintf(buf, sizeof(buf), "stat %s\r\n", resp.c_str());
-		resp = issue(buf, NULL);
+		// not a fixed buffer, see RServer::article(id)
+		cmd = "stat " + resp + "\r\n";
+		resp = issue(cmd.c_str(), NULL);
 		p = resp.c_str();
 		if (strncmp(p, "223", 3) == 0) {
 			throw DuplicateArticleError("Response 223",
@@ -1182,7 +1249,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 				    "illegal response code to <stat <id>> request\n"
 				    << p;
 			} else {
-				string c(buf), e("223|430");
+				string c(cmd), e("223|430");
 				throw ResponseError(c, e, resp);
 			}
 		}
@@ -1203,7 +1270,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			throw ResponseError("post\r\n", "[34]40", resp);
 		}
 		*_pServerStream << *article << ".\r\n" << flush;
-		nlreadline(*_pServerStream, resp);
+		nlreadline(*_pServerStream, resp, 1, NNTP_MAXLINE);
 		if (_pServerStream->good())
 			break;
 
@@ -1785,28 +1852,49 @@ void CServer::spoolarticle(Article * article)
 	}
 }
 
+// The Message-ID for the log. A spooled article may have none (servers
+// with dontgenmsgid): getfield threw NoSuchFieldError, and postspooled
+// lost the article, whose spool file getSpooledArt had removed already.
+static string logged_msgid(Article * a)
+{
+	return a->has_field("message-id:") ? a->getfield("message-id:") :
+	    string("(none)");
+}
+
 void CServer::postspooled(void)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::postspooled()\n");
 
 	Article *pA;
+	string name;
 	int s;
 
+	// An article stays in .artSpool until it is posted or moved to
+	// .badArticles, so only one process may post at a time.
+	if (!pSpool->lockPosting()) {
+		slog.p(Logger::Notice) << "another process posts the spooled"
+		    " articles\n";
+		return;
+	}
 	try {
-		for (pA = pSpool->getSpooledArt(); pA != NULL;
-		     pA = pSpool->getSpooledArt()) {
+		for (pA = pSpool->nextSpooledArt(name); pA != NULL;
+		     pA = pSpool->nextSpooledArt(name)) {
 			try {
 				s = RServer::post(pA);
 				if (s == -1) {
-					slog.p(Logger::Debug)
-					    << "CServer::postspooled():\
-					RServer::post returns Spooling\
-					necessary; ID:" << pA->getfield("message-id") << "\n";
-					pSpool->storeBadArt(*pA);
+					// No news server reached (or offline):
+					// this article and the rest stay for
+					// the next run (they used to go to
+					// .badArticles, which nothing posts)
+					slog.p(Logger::Notice)
+					    << "news server not reached, spooled"
+					    " articles kept for the next run\n";
+					delete pA;
+					break;
 				} else if (s == -2) {
 					slog.p(Logger::Error)
 					    << "CServer::postspooled():\
-					RServer::post returns -2; ID:" << pA->getfield("message-id") << "\n";
+					RServer::post returns -2; ID:" << logged_msgid(pA) << "\n";
 					pSpool->storeBadArt(*pA);
 				}
 			}
@@ -1814,22 +1902,31 @@ void CServer::postspooled(void)
 				slog.p(Logger::Error)
 				    << "CServer::postspooled(): RServer::post\
 				throw InvalidArticleError; ID: "
-				    << pA->getfield("message-id") << "\n";
+				    << logged_msgid(pA) << "\n";
 				pSpool->storeBadArt(*pA);
 			}
+			catch(...) {
+				// the article stays in the spool
+				delete pA;
+				throw;
+			}
+			pSpool->removeSpooledArt(name);
 			delete pA;
 		}
 	}
 	catch(const SystemError &) {
 		slog.p(Logger::Error) << "CServer::postspooled():\
 			Error posting articles from spool\n";
+		pSpool->unlockPosting();
 		throw;
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::postspooled();\
 			Unknown error while posting articles\n";
+		pSpool->unlockPosting();
 		throw;
 	}
+	pSpool->unlockPosting();
 }
 
 void CServer::listgroup(const char *gname, char *lstgrp,
@@ -1924,20 +2021,50 @@ void CServer::article(const char *gname, artnum_t nbr, Article * art)
 	filter_xref(art, mpe, gname);
 }
 
+/*
+ * Sends cmd (ARTICLE <id>) to the current server and returns 1 with its
+ * reply in resp, or 0 (and sets unreachable) if the server can't be
+ * reached or the connection fails.
+ */
+int CServer::ask_article(const char *cmd, string & resp, bool & unreachable)
+{
+	try {
+		connect();
+		resp = issue(cmd, NULL);
+		return 1;
+	}
+	catch(const SystemError &) {
+	}
+	catch(const ResponseError &) {
+	}
+	slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
+	    << ":" << _CurrentServer->servicename
+	    << " unreachable for a message-ID, trying the others\n";
+	unreachable = true;
+	return 0;
+}
+
 void CServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::article(" << id << ")\n");
-	char buf[1024];
 	const char *p;
 	string resp;
 
 	const char * const gname =
 	  (_CurrentGroup.name()[0] != '\0') ? _CurrentGroup.name() : NULL;
 
-	snprintf(buf, sizeof(buf), "article %s\r\n", id);
+	// Not a fixed buffer, see RServer::article(id)
+	const string cmd = string("article ") + id + "\r\n";
+	const char * const buf = cmd.c_str();
+
+	// A server that can't be reached is skipped, not the end of the
+	// search: the article may be on one of the others. Only if none of
+	// them has it is that passed on (503), instead of 430.
+	bool unreachable = false;
+
 	if (_CurrentServer
-	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)) {
-		resp = issue(buf, NULL);
+	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)
+	    && ask_article(buf, resp, unreachable)) {
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			readarticle(art);
@@ -1964,8 +2091,8 @@ void CServer::article(const char *id, Article * art)
 		    _ServerList->entries[i].flags & MPListEntry::F_OFFLINE)
 			continue;
 		setserver(&(_ServerList->entries[i]));
-		connect();
-		resp = issue(buf, NULL);
+		if (!ask_article(buf, resp, unreachable))
+			continue;
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
 			readarticle(art);
@@ -1980,6 +2107,9 @@ void CServer::article(const char *id, Article * art)
 			    << p;
 		}
 	}
+	if (unreachable)
+		throw SystemError("article not found, a news server was "
+				  "unreachable", -1, ERROR_LOCATION);
 	throw NoSuchArticleError(resp, ERROR_LOCATION);
 }
 

@@ -46,3 +46,28 @@ func containsPrefix(lines []string, prefix string) bool {
 	}
 	return false
 }
+
+// TestLongReadPattern: RServer::active copied each element of a server's
+// Read list into a 513-byte stack buffer without a length check, at the
+// first LIST ACTIVE <wildmat> to the upstream. A Read element of 2000
+// characters overwrote the stack (the session aborted).
+func TestLongReadPattern(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    Read test.*," + strings.Repeat("x", 2000) + ".*"
+	c := e.session()
+	code, line := c.Cmd("LIST")
+	if code != 215 {
+		t.Fatalf("LIST with a Read element of 2000 characters: %q", line)
+	}
+	if lines := c.ReadDotLines(); !containsPrefix(lines, "test.alpha ") {
+		t.Errorf("LIST lacks test.alpha (%d lines)", len(lines))
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha: %q", line)
+	}
+	want := "list active " + strings.Repeat("x", 2000) + ".*"
+	if !containsLine(e.Upstream.Lines(), want) {
+		t.Errorf("the upstream didn't get the whole LIST ACTIVE command")
+	}
+}

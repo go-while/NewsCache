@@ -1,11 +1,58 @@
 Unreleased:
 
-New option:
+New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
   server when it sends or accepts nothing for this many seconds (each
   read and write; default 300, 0 waits for ever).
+* MaxArticleSize: the largest article (bytes) taken from a news server
+  (default 1048576). A larger one is refused: the client gets an error,
+  nothing is stored and the connection to that server is closed.
+* MaxPostSize: the largest article (bytes) a client may post (default
+  1048576); a larger one gets 441.
 
 Bug fixes:
+* Error messages in the log showed a random line number ("Line:
+  808335154") for errors raised without a location.
+* A line of the upstream's active list without blanks (a group name
+  alone) was read past its end, up to 512 bytes, before it was skipped.
+* Over TLS, NewsCache didn't send QUIT to the upstream server when it
+  closed the connection: the command stayed in the buffer.
+* With "Options ssl", a server that closed the connection after the TLS
+  handshake, before its greeting (an overloaded server), was never
+  reached again in that attempt: the retries reused the TLS session of
+  the closed connection, and every one of them failed.
+* An element of a server's Read list longer than 512 characters
+  overwrote the stack at the first refresh of the active list (the
+  session crashed or hung).
+* ARTICLE <message-id> with a message-ID of about 1000 characters, or a
+  POST whose Message-ID was longer than about 500, hung the session for
+  ReadTimeout (300 s): the command to the upstream server was cut off
+  together with its line end, and the server waited for the rest. The
+  same went for a very long upstream User or Password.
+* With several upstream servers, ARTICLE <message-id> answered "503
+  operation failed" when one of the servers asked before the one that
+  had the article couldn't be reached. Such a server is now skipped.
+* A damaged group database found while an overview reply from the
+  upstream server was being stored left the rest of that reply unread:
+  the following commands read those lines as their replies, so articles
+  the server had were answered 423 and the session stayed out of step
+  with the server. The connection is now closed and opened again.
+* updatenews lost a spooled article without a Message-ID (servers with
+  "Options dontgenmsgid") when the upstream server refused it or
+  couldn't take it: logging its Message-ID failed, the run aborted, and
+  the article was neither posted nor kept in .badArticles. An article
+  whose posting fails with an unexpected error now stays in the spool.
+* Posts kept for later (news server offline or unreachable) were moved
+  to the spool's .badArticles directory, and never sent, when updatenews
+  ran while the news server still couldn't be reached. They now stay in
+  .artSpool until the server takes them; only articles the server
+  refuses go to .badArticles. A spooled article is also no longer lost
+  when updatenews is stopped while posting it.
+* An upstream server could send an endless line or article, and the
+  session read it until it ran out of memory. Articles are now limited
+  by MaxArticleSize, and lines outside articles (status lines, overview
+  records, the active list, LISTGROUP) to 16 KiB; more is an error, and
+  the connection to the server is closed.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
