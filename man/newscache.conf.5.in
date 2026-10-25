@@ -140,6 +140,9 @@ Specifies the number of retries for connecting to the news server.
 If this limit is exceded NewsCache assumes that the news server is
 unreachable. 
 .TP
+.I "ReadTimeout seconds"
+Give up the connection to the news server when it sends (or accepts) nothing for this long: each read and write, not a whole reply. NewsCache connects again (up to Retries times) or gives the client an error. The default is 300; 0 waits for ever.
+.TP
 .I "PrefetchFile filename"
 Specifies the file that lists the newsgroups updatenews prefetches, one
 per line. A line may also be a wildmat pattern

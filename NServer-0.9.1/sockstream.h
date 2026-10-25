@@ -69,8 +69,15 @@ class sockstream
     static sig_atomic_t *_alarm_indicator;
 
     int _fd;
+    unsigned int _io_timeout;	// seconds per send/recv, 0 = none
     char _gbuf[4096];
     char _pbuf[4096];
+
+    void apply_io_timeout();
+
+    // Waits until the socket can be read (or written), at most the I/O
+    // timeout (no limit without one); false when the time ran out.
+    bool wait_io(bool for_write);
 
    public:
     static inline void alarm_indicator(sig_atomic_t &var)
@@ -79,7 +86,7 @@ class sockstream
     }
 
     inline sockstreambuf()
-      : _fd(-1)
+      : _fd(-1), _io_timeout(0)
     {
       setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
       setp(_pbuf, _pbuf + sizeof(_pbuf));
@@ -109,6 +116,15 @@ class sockstream
 
     void setkeepalive(bool fl = true);
     void setnodelay(bool fl = true);
+
+    // A send or recv that waits longer fails (the stream goes bad); also
+    // for a socket connected later.
+    void set_io_timeout(unsigned int seconds)
+    {
+      _io_timeout = seconds;
+      if (_fd >= 0)
+	apply_io_timeout();
+    }
 
     virtual int overflow(int c = traits_type::eof());
     virtual int sync();
@@ -172,6 +188,13 @@ class sockstream
     _buf.connect(name, service, NULL, 0, timeout);
     if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile);
     clear(connected() ? std::ios::goodbit : std::ios::badbit);
+  }
+
+  // Seconds a send or recv on the connection may wait (0 = no limit);
+  // set before connect(), it covers the TLS handshake too.
+  inline void set_io_timeout(unsigned int seconds)
+  {
+    _buf.set_io_timeout(seconds);
   }
 
   // TLS settings for connect() and starttls(); see sslstreambuf::connect.

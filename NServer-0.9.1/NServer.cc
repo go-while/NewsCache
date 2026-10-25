@@ -294,6 +294,10 @@ void RServer::connect()
 		  (_CurrentServer->bindFrom.ss_family == AF_UNSPEC) ?
 		  NULL : (const struct sockaddr *) &_CurrentServer->bindFrom;
 
+		// a server that stops answering (or reading) ends the
+		// connection after ReadTimeout instead of holding the
+		// session, and the locks it holds, for good
+		_pServerStream->set_io_timeout(_CurrentServer->readTimeout);
 		_pServerStream->connect(_CurrentServer->hostname.c_str(),
 					_CurrentServer->servicename.c_str(),
 					bindFrom,

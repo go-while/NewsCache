@@ -59,6 +59,7 @@ struct MPListEntry {
 	unsigned int retries;
 	unsigned int connectBackoff;
 	unsigned int connectTimeout;
+	unsigned int readTimeout;	// per read/write on the connection, 0 = none
 
 	mutable time_t connectFailed;
 
@@ -108,6 +109,7 @@ inline void MPListEntry::init(void)
 
 	connectBackoff = 0;
 	connectTimeout = 0;
+	readTimeout = 300;
 	connectFailed = 0;
 
 	flags = F_SETPOSTFLAG | F_CACHED;
