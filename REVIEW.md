@@ -167,6 +167,10 @@ the review is done.
   caching of headers.
 - Support for upstream servers without an overview database
   (`OVER`/`XOVER`), a known restriction in README.md.
+- NEWNEWS, COMPRESS. NEWNEWS (RFC 3977 7.4) isn't implemented; COMPRESS
+  DEFLATE (RFC 8054) neither, towards clients nor upstream. nntp-testkit
+  can test both: NEWNEWS in Store mode since v0.6.0, COMPRESS in its
+  client and fake server since v0.7.0.
 
 Done before 1.3.22: the message-ID database, so crossposted articles are
 fetched once and `ARTICLE <message-id>` is served from the spool (the
