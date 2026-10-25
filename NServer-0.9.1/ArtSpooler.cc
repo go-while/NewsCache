@@ -59,7 +59,7 @@ ArtSpooler::ArtSpooler(const string & spoolDir)
 	badArticles = spoolDir + "/.badArticles";
 	if (mkpdir(badArticles.c_str(), 0700) == -1) {
 		string errtxt("Error creating spoolDirectory");
-		errtxt += artSpool;
+		errtxt += badArticles;
 		throw(Error(errtxt.c_str(), ERROR_LOCATION));
 	}
 	tmp = spoolDir + "/.resourceSpooler.lock";
