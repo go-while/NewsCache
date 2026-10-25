@@ -1266,8 +1266,6 @@ int RServer::post(Article * article)
 	}
 
 	static int pc = 1;
-	const char *p, *q;
-	string cgroup;
 	char buf[MAXHOSTNAMELEN + 256];
 	// "Message-ID: <newscache$" + mid + ">\r\n"
 	char msgid[FQDN_BUFSIZE + 128];
@@ -1292,15 +1290,20 @@ int RServer::post(Article * article)
 				errno, ERROR_LOCATION);
 	}
 
-	q = newsgroups.c_str();
-	while (isspace(*q) || *q == ',')
-		q++;
-	do {
-		p = q;
-		while (*q && *q != ',' && !isspace(*q))
-			q++;
-		cgroup.assign(p, q - p);
-		c = _ServerList->postserver(cgroup.c_str());
+	// The same split as the PostTo check in NewsCache (split_newsgroups).
+	// This used to split on white space too, so "a b" went to the servers
+	// of both a and b while the check had only looked at a.
+	std::vector < std::string > groups;
+	if (!split_newsgroups(newsgroups, groups)) {
+		slog.p(Logger::Info) << "invalid newsgroups field: "
+		    << newsgroups << "\n";
+		free(mpe);
+		throw InvalidArticleError("invalid newsgroups field",
+					  ERROR_LOCATION);
+	}
+	for (std::vector < std::string >::size_type g = 0; g < groups.size();
+	     g++) {
+		c = _ServerList->postserver(groups[g].c_str());
 		if (c) {
 			i = 0;
 			while (i < sc && c != mpe[i])
@@ -1312,12 +1315,10 @@ int RServer::post(Article * article)
 			}
 		} else {
 			slog.p(Logger::Info)
-			    << "posting to unknown newsgroup: " << cgroup
+			    << "posting to unknown newsgroup: " << groups[g]
 			    << "\n";
 		}
-		while (isspace(*q) || *q == ',')
-			q++;
-	} while (*q);
+	}
 
 	if (!sc) {
 		slog.p(Logger::Info) << "no news server configured for "
