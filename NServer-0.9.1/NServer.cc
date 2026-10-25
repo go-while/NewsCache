@@ -1845,19 +1845,31 @@ void CServer::postspooled(void)
 	VERB(slog.p(Logger::Debug) << "CServer::postspooled()\n");
 
 	Article *pA;
+	string name;
 	int s;
 
+	// An article stays in .artSpool until it is posted or moved to
+	// .badArticles, so only one process may post at a time.
+	if (!pSpool->lockPosting()) {
+		slog.p(Logger::Notice) << "another process posts the spooled"
+		    " articles\n";
+		return;
+	}
 	try {
-		for (pA = pSpool->getSpooledArt(); pA != NULL;
-		     pA = pSpool->getSpooledArt()) {
+		for (pA = pSpool->nextSpooledArt(name); pA != NULL;
+		     pA = pSpool->nextSpooledArt(name)) {
 			try {
 				s = RServer::post(pA);
 				if (s == -1) {
-					slog.p(Logger::Debug)
-					    << "CServer::postspooled():\
-					RServer::post returns Spooling\
-					necessary; ID:" << logged_msgid(pA) << "\n";
-					pSpool->storeBadArt(*pA);
+					// No news server reached (or offline):
+					// this article and the rest stay for
+					// the next run (they used to go to
+					// .badArticles, which nothing posts)
+					slog.p(Logger::Notice)
+					    << "news server not reached, spooled"
+					    " articles kept for the next run\n";
+					delete pA;
+					break;
 				} else if (s == -2) {
 					slog.p(Logger::Error)
 					    << "CServer::postspooled():\
@@ -1873,29 +1885,27 @@ void CServer::postspooled(void)
 				pSpool->storeBadArt(*pA);
 			}
 			catch(...) {
-				// back into the spool for the next run: its
-				// file is gone already
-				try {
-					pSpool->spoolArt(*pA);
-				}
-				catch(...) {
-				}
+				// the article stays in the spool
 				delete pA;
 				throw;
 			}
+			pSpool->removeSpooledArt(name);
 			delete pA;
 		}
 	}
 	catch(const SystemError &) {
 		slog.p(Logger::Error) << "CServer::postspooled():\
 			Error posting articles from spool\n";
+		pSpool->unlockPosting();
 		throw;
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::postspooled();\
 			Unknown error while posting articles\n";
+		pSpool->unlockPosting();
 		throw;
 	}
+	pSpool->unlockPosting();
 }
 
 void CServer::listgroup(const char *gname, char *lstgrp,

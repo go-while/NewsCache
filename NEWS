@@ -36,8 +36,13 @@ Bug fixes:
   "Options dontgenmsgid") when the upstream server refused it or
   couldn't take it: logging its Message-ID failed, the run aborted, and
   the article was neither posted nor kept in .badArticles. An article
-  whose posting fails with an unexpected error now goes back into the
-  spool.
+  whose posting fails with an unexpected error now stays in the spool.
+* Posts kept for later (news server offline or unreachable) were moved
+  to the spool's .badArticles directory, and never sent, when updatenews
+  ran while the news server still couldn't be reached. They now stay in
+  .artSpool until the server takes them; only articles the server
+  refuses go to .badArticles. A spooled article is also no longer lost
+  when updatenews is stopped while posting it.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

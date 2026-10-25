@@ -16,7 +16,9 @@
 
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -62,6 +64,7 @@ ArtSpooler::ArtSpooler(const string & spoolDir)
 	}
 	tmp = spoolDir + "/.resourceSpooler.lock";
 	pLock = new ObjLock(tmp);
+	pPostLock = NULL;
 }
 
 ArtSpooler::~ArtSpooler()
@@ -69,6 +72,7 @@ ArtSpooler::~ArtSpooler()
 	VERB(slog.p(Logger::Debug) << "ArtSpooler::~ArtSpooler ()\n");
 
 	delete pLock;
+	delete pPostLock;
 }
 
 void ArtSpooler::spoolArt(Article & a)
@@ -126,23 +130,47 @@ Article *ArtSpooler::getSpooledArt(void)
 {
 	VERB(slog.p(Logger::Debug) << "ArtSpooler::getSpooledArt ()\n");
 	string an;
+	Article *pa;
+
+	pa = nextSpooledArt(an);
+	if (pa)
+		removeSpooledArt(an);
+	return pa;
+}
+
+// The file stays until removeSpooledArt: getSpooledArt removed it before
+// the article was posted, so it was lost when updatenews was killed or
+// crashed in between.
+Article *ArtSpooler::nextSpooledArt(string & name)
+{
+	VERB(slog.p(Logger::Debug) << "ArtSpooler::nextSpooledArt ()\n");
+	string an;
 	Article *pa = NULL;
 	ifstream is;
 	struct dirent *d;
 	DIR *dir;
+	int e;
 
 	pLock->lockExBlk();
 	dir = opendir(artSpool.c_str());
+	if (dir == NULL) {
+		e = errno;
+		pLock->unlock();
+		throw SystemError("cannot open " + artSpool, e, ERROR_LOCATION);
+	}
 	for (d = readdir(dir); d != NULL; d = readdir(dir)) {
 		if (strncmp("art_", d->d_name, 4) == 0) {
 			an = artSpool + "/" + d->d_name;
-			pa = new Article();
 			is.open(an.c_str());
-			// FIXME: check status
+			if (!is.is_open()) {
+				slog.p(Logger::Error) << "cannot open the spooled article "
+				    << an << ": " << strerror(errno) << "\n";
+				continue;
+			}
+			pa = new Article();
 			pa->read(is);
 			is.close();
-			unlink(an.c_str());
-			// FIXME: check status
+			name = an;
 			break;
 		}
 	}
@@ -150,6 +178,31 @@ Article *ArtSpooler::getSpooledArt(void)
 	pLock->unlock();
 
 	return pa;
+}
+
+void ArtSpooler::removeSpooledArt(const string & name)
+{
+	int e;
+
+	pLock->lockExBlk();
+	if (unlink(name.c_str()) != 0 && errno != ENOENT) {
+		e = errno;
+		pLock->unlock();
+		throw SystemError("cannot remove " + name, e, ERROR_LOCATION);
+	}
+	pLock->unlock();
+}
+
+bool ArtSpooler::lockPosting(void)
+{
+	if (!pPostLock)
+		pPostLock = new ObjLock(spoolDir + "/.postSpooler.lock");
+	return pPostLock->lockExNoBlk() == ObjLock::locked;
+}
+
+void ArtSpooler::unlockPosting(void)
+{
+	pPostLock->unlock();
 }
 
 string ArtSpooler::createID(void)

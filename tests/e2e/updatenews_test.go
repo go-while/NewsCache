@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,81 @@ func prefetched(e *env) []string {
 		}
 	}
 	return groups
+}
+
+// spooledIn returns the article files in a directory of the spool
+// (.artSpool: waiting to be posted, .badArticles: refused).
+func spooledIn(t *testing.T, e *env, dir string) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(e.Spool, dir, "art_*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// TestPostSpooledUnreachable: posts made while the news server is offline
+// are spooled, and updatenews posts them later. When the server still
+// couldn't be reached, postspooled moved every spooled article to
+// .badArticles, which nothing posts: they were lost although the clients
+// got "240 Article posted". They now stay in .artSpool until the server
+// takes them; only what it refuses goes to .badArticles.
+func TestPostSpooledUnreachable(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline"
+	post := func(n int) {
+		t.Helper()
+		c := e.session()
+		for i := 0; i < n; i++ {
+			if code, line := c.Cmd("POST"); code != 340 {
+				t.Fatalf("POST: %q", line)
+			}
+			c.Send(fmt.Sprintf("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"+
+				"Subject: spooled %d\r\nMessage-ID: <spooled.%d.%d@client.test>\r\n\r\nhello\r\n.\r\n",
+				i, n, i))
+			if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+				t.Fatalf("POST to an offline server: %q %v", line, err)
+			}
+		}
+		c.Cmd("QUIT")
+	}
+	updatenews := func(what string) {
+		t.Helper()
+		e.writeConf()
+		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+			t.Logf("updatenews (%s): %v\n%s", what, err, out)
+		}
+	}
+	check := func(what string, spooled, bad, posted int) {
+		t.Helper()
+		s, b := spooledIn(t, e, ".artSpool"), spooledIn(t, e, ".badArticles")
+		if len(s) != spooled || len(b) != bad || len(e.Store.Posted()) != posted {
+			t.Errorf("%s: %d spooled, %d in .badArticles, %d posted; want %d, %d, %d",
+				what, len(s), len(b), len(e.Store.Posted()), spooled, bad, posted)
+		}
+	}
+	post(2)
+	check("after the posts", 2, 0, 0)
+
+	e.ServerOptions = ""
+	e.ServerPort = "1" // nothing listens there
+	updatenews("server unreachable")
+	check("updatenews with the server unreachable", 2, 0, 0)
+
+	e.ServerPort = ""
+	updatenews("server up")
+	check("updatenews with the server up", 0, 0, 2)
+
+	// a refused article goes to .badArticles
+	e.ServerOptions = "offline"
+	post(1)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Override: map[string][]string{"POST": {"440 Posting not permitted"}},
+	}})
+	e.ServerOptions = ""
+	updatenews("server refuses")
+	check("updatenews with the server refusing", 0, 1, 2)
 }
 
 // TestPrefetchWildcards: lines of the prefetch file can be wildmat patterns,
@@ -94,17 +170,6 @@ func TestPrefetchLiteral(t *testing.T) {
 	}
 }
 
-// spoolFiles returns the article files in a directory of the spool
-// (.artSpool: waiting to be posted, .badArticles: refused).
-func spoolFiles(t *testing.T, e *env, dir string) []string {
-	t.Helper()
-	m, err := filepath.Glob(filepath.Join(e.Spool, dir, "art_*"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return m
-}
-
 // TestPostSpooledNoMessageID: an article posted while the server is
 // offline is spooled, and updatenews posts it later. With dontgenmsgid it
 // has no Message-ID. When the upstream refused it, postspooled logged its
@@ -126,7 +191,7 @@ func TestPostSpooledNoMessageID(t *testing.T) {
 		t.Fatalf("POST to an offline server: %q %v", line, err)
 	}
 	c.Cmd("QUIT")
-	if n := len(spoolFiles(t, e, ".artSpool")); n != 1 {
+	if n := len(spooledIn(t, e, ".artSpool")); n != 1 {
 		t.Fatalf("%d spooled articles, want 1", n)
 	}
 
@@ -139,10 +204,81 @@ func TestPostSpooledNoMessageID(t *testing.T) {
 	if err != nil {
 		t.Errorf("updatenews: %v\n%s", err, out)
 	}
-	if n := len(spoolFiles(t, e, ".artSpool")); n != 0 {
+	if n := len(spooledIn(t, e, ".artSpool")); n != 0 {
 		t.Errorf("%d articles still spooled, want 0", n)
 	}
-	if n := len(spoolFiles(t, e, ".badArticles")); n != 1 {
+	if n := len(spooledIn(t, e, ".badArticles")); n != 1 {
 		t.Errorf("%d articles in .badArticles, want the refused one", n)
+	}
+}
+
+// TestPostSpooledKeepNoMessageID: both postspooled fixes together. Two
+// posts are spooled for an offline dontgenmsgid server, one of them
+// without a Message-ID. While the server can't be reached, updatenews
+// keeps both in .artSpool (the one without a Message-ID used to abort the
+// run and get lost, both used to go to .badArticles); once it is up, each
+// is posted exactly once, and a further run posts nothing again.
+func TestPostSpooledKeepNoMessageID(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline dontgenmsgid"
+	c := e.session()
+	for _, a := range []string{
+		"Subject: keep with id\r\nMessage-ID: <keep.1@client.test>\r\n",
+		"Subject: keep without id\r\n",
+	} {
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+			a + "\r\nhello\r\n.\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+			t.Fatalf("POST to an offline server: %q %v", line, err)
+		}
+	}
+	c.Cmd("QUIT")
+
+	e.ServerOptions = "dontgenmsgid"
+	updatenews := func(what string) {
+		t.Helper()
+		e.writeConf()
+		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+			t.Errorf("updatenews (%s): %v\n%s", what, err, out)
+		}
+	}
+	check := func(what string, spooled, bad, posted int) {
+		t.Helper()
+		s, b := spooledIn(t, e, ".artSpool"), spooledIn(t, e, ".badArticles")
+		if len(s) != spooled || len(b) != bad || len(e.Store.Posted()) != posted {
+			t.Errorf("%s: %d spooled, %d in .badArticles, %d posted; want %d, %d, %d",
+				what, len(s), len(b), len(e.Store.Posted()), spooled, bad, posted)
+		}
+	}
+	check("after the posts", 2, 0, 0)
+
+	e.ServerPort = "1" // nothing listens there
+	updatenews("server unreachable")
+	check("updatenews with the server unreachable", 2, 0, 0)
+
+	e.ServerPort = ""
+	updatenews("server up")
+	check("updatenews with the server up", 0, 0, 2)
+	updatenews("again")
+	check("updatenews again", 0, 0, 2)
+
+	subjects := map[string]int{}
+	for _, a := range e.Store.Posted() {
+		for _, h := range a.Headers {
+			if strings.HasPrefix(strings.ToLower(h), "subject:") {
+				subjects[strings.TrimSpace(h[len("subject:"):])]++
+			}
+		}
+	}
+	for _, s := range []string{"keep with id", "keep without id"} {
+		if subjects[s] != 1 {
+			t.Errorf("%q posted %d times, want once (posted: %v)", s, subjects[s], subjects)
+		}
 	}
 }

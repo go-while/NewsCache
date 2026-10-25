@@ -7,6 +7,12 @@ updatenews \- post articles from outgoing spool directory and prefetch newsgroup
 .SH DESCRIPTION
 Updatenews  submits  all those articles that have been stored within NewsCache's outgoing-queue. If necessary the ActiveDB will be updated (see the -a option to force the update). Afterwards  retrieves all the articles from the newsgroups listed in the PrefetchFile (This can be configured in newscache.conf).  
 .PP
+The outgoing queue is the directory .artSpool in the spool. An article
+stays there until a news server takes it; when no news server can be
+reached, the rest of the queue is kept for the next run. Articles the
+news servers refuse are moved to .badArticles, for the administrator.
+Only one updatenews at a time posts the queue.
+.PP
 .\" TeX users may be more comfortable with the \fB<whatever>\fP and
 .\" \fI<whatever>\fP escape sequences to invode bold face and italics, 
 .\" respectively.
