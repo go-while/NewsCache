@@ -243,6 +243,7 @@ class RServer:virtual public NServer {
 
 	sockstream *_pServerStream;
 	int _authenticating;	// in authenticate(): no second login on a 480
+	int _connecting;	// in connect(): no login on a 480 (TLS may not be up yet)
 
 	/**
 	* Logs in with the server's User and Password (AUTHINFO USER/PASS).
@@ -263,6 +264,7 @@ class RServer:virtual public NServer {
 		_CurrentServer = NULL;
 		_pServerStream = NULL;
 		_authenticating = 0;
+		_connecting = 0;
 	}
 	void init(MPList * serverlist);
 

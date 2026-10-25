@@ -231,6 +231,21 @@ void RServer::init(MPList * serverlist)
 	       _CurrentServer->servicename.c_str()); \
       throw SystemError(buf,errno, ERROR_LOCATION); \
     }
+/*
+ * Sets a flag for its lifetime and restores the old value, also when an
+ * exception leaves the scope (connect() runs again, nested, when issue()
+ * reconnects).
+ */
+class FlagGuard {
+	int &flag;
+	int old;
+	bool active;
+  public:
+	explicit FlagGuard(int &f) : flag(f), old(f), active(true) { flag = 1; }
+	void release() { if (active) { flag = old; active = false; } }
+	~FlagGuard() { release(); }
+};
+
 void RServer::connect()
 {
 	VERB(slog.p(Logger::Debug) << "RServer::connect()\n");
@@ -246,6 +261,12 @@ void RServer::connect()
 	string grt, resp;
 	char buf[1024];
 	unsigned int i = _CurrentServer->retries;
+	// No login in issue() on a 480 until connect() has done STARTTLS and
+	// its own login: a 480 to MODE READER (from the server, or injected
+	// by anyone in the middle) used to send User and Password in plain
+	// text before STARTTLS.
+	FlagGuard connecting(_connecting);
+	int mode_reader_after_login = 0;
 #if !defined(HAVE_GNUTLS)
 	// Without GnuTLS, ssl and starttls can't be honoured; connecting in
 	// plain text instead would send the login unencrypted.
@@ -314,7 +335,12 @@ void RServer::connect()
 			resp = issue("mode reader\r\n", NULL);
 			RSERVER_CONNECT_CHECK_CONNECTION
 			    ("Cannot read data from %s:%s");
-			if (resp[0] != '2' || resp[1] != '0'
+			if (NNTP_ISCODE(resp.c_str(), "480")
+			    && _CurrentServer->user[0]) {
+				// the server wants the login first: again
+				// after STARTTLS and the login
+				mode_reader_after_login = 1;
+			} else if (resp[0] != '2' || resp[1] != '0'
 			    || (resp[2] != '0' && resp[2] != '1')) {
 				slog.
 				    p(Logger::
@@ -322,11 +348,9 @@ void RServer::connect()
 				    "mode reader failed, ignored\n";
 				_CurrentServer->nntpflags &=
 				    ~MPListEntry::F_MODE_READER;
+			} else {
+				grt = resp;
 			}
-			grt = resp;
-		}
-		if (grt[2] == '1') {
-			_CurrentServer->nntpflags &= ~MPListEntry::F_POST;
 		}
 
 #if defined(HAVE_GNUTLS)
@@ -366,6 +390,24 @@ void RServer::connect()
 		if (_CurrentServer->user[0])
 			authenticate();
 
+		if (mode_reader_after_login) {
+			resp = issue("mode reader\r\n", NULL);
+			RSERVER_CONNECT_CHECK_CONNECTION
+			    ("Cannot read data from %s:%s");
+			if (resp[0] != '2' || resp[1] != '0'
+			    || (resp[2] != '0' && resp[2] != '1')) {
+				slog.p(Logger::Warning)
+				    << "mode reader failed, ignored\n";
+				_CurrentServer->nntpflags &=
+				    ~MPListEntry::F_MODE_READER;
+			} else {
+				grt = resp;
+			}
+		}
+		if (grt[2] == '1') {
+			_CurrentServer->nntpflags &= ~MPListEntry::F_POST;
+		}
+
 		if (_CurrentServer->
 		    nntpflags & MPListEntry::F_LIST_OVERVIEW_FMT) {
 			resp = issue("list overview.fmt\r\n", "215");
@@ -391,6 +433,8 @@ void RServer::connect()
 			_OverviewFormat->readxoin(standardOverviewFmt);
 		}
 
+		// set up: from here a 480 may be answered with a new login
+		connecting.release();
 		if (_CurrentGroup.name()[0] != '\0') {
 			selectgroup(_CurrentGroup.name(), 1);
 		}
@@ -502,7 +546,8 @@ string RServer::issue(const char *command, const char *expresp)
 			      Warning) <<
 			    "RServer::issue: server closed connection---reconnecting\n";
 		} else if (NNTP_ISCODE(resp.c_str(), "480") && !relogin
-			   && !_authenticating && _CurrentServer->user[0]) {
+			   && !_authenticating && !_connecting
+			   && _CurrentServer->user[0]) {
 			// The server asks for the login again in the middle
 			// of a session (a login that timed out): log in and
 			// send the command once more.

@@ -1,6 +1,13 @@
 Unreleased:
 
 Bug fixes:
+* With "Options starttls", the upstream password could go out in plain
+  text: a 480 reply to MODE READER, which comes before STARTTLS, made
+  NewsCache log in right away (the re-login added in 1.3.22). Anyone in
+  the middle could force it by injecting the 480. The login now always
+  waits for STARTTLS, and MODE READER is sent again after the login,
+  which also fixes servers that want the login before MODE READER (the
+  connect failed on them with a second, refused login).
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became
