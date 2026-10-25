@@ -202,3 +202,40 @@ func TestSIGHUPBadConfig(t *testing.T) {
 		t.Errorf("log does not report the failed reload:\n%s", b)
 	}
 }
+
+// TestPostHeaderLog: built with --enable-headerlog, a posted article's
+// header goes to SpoolDirectory/.headerlog. That build failed to compile
+// (ssprintf, a typo for snprintf, since 2008), and newscache -o printed
+// the option as --enable_headerlog. Skipped in other builds.
+func TestPostHeaderLog(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-o").Output()
+	if err != nil {
+		t.Fatalf("newscache -o: %v", err)
+	}
+	if !strings.Contains(string(out), "--enable-headerlog") {
+		t.Skip("binary built without --enable-headerlog")
+	}
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+		"Subject: header log\r\nMessage-ID: <headerlog@newscache.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("posting: %q %v", line, err)
+	}
+	c.Cmd("QUIT")
+	b, err := os.ReadFile(filepath.Join(e.Spool, ".headerlog"))
+	if err != nil {
+		t.Fatalf("no .headerlog: %v", err)
+	}
+	if !strings.Contains(string(b), "Subject: header log") ||
+		strings.Contains(string(b), "hello") {
+		t.Errorf(".headerlog should hold the header only:\n%s", b)
+	}
+}

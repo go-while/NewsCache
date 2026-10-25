@@ -151,6 +151,9 @@ Bug fixes:
   next message, which a syslog filter could drop: the error that
   posting couldn't spool an article was logged at the next message's
   level. It keeps its own priority now.
+* configure --enable-headerlog gave a build that didn't compile (a typo
+  since 2008), and newscache -o printed the option as
+  --enable_headerlog.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

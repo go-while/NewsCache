@@ -68,7 +68,7 @@ const char * const ConfigurationOptions[] = {
 	"--with-syslog",
 #endif
 #ifdef ENABLE_HEADERLOG
-	"--enable_headerlog",
+	"--enable-headerlog",
 #endif
 #ifdef ENABLE_DEBUG
 	"--enable-debug",

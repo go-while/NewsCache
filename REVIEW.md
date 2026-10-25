@@ -191,6 +191,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | `RNewsgroup::getarticle` (not-cached) and `CNewsgroup::retrievearticle` caught every exception and returned NULL, which ARTICLE/HEAD/BODY by number answer with 423: an upstream timeout, an article cut off (#95), `bad_alloc` and `CorruptDBError` (which then skipped the command loop's retry) all became "no such article", and nothing was logged. Now only `NoSuchArticleError`/`NoSuchGroupError` (and offline mode) give NULL; the rest reaches the command loop, which logs it and answers 503 | 10, 13 | review (areas 10, 13) | #PR |
 | Not-cached groups: an upstream low water mark of 0 (not RFC conformant, seen with sloppy servers) made `RNewsgroup::printoverdb`, `printheaderdb` and the `printlistgroup` fallback start at 0; `load(0)` returns 0 (no article 0) and the loop moved on to the next chunk, so articles 1-9999 were left out of XOVER/XHDR/HDR. They start at 1 now | 10 | review (area 10) | #PR |
 | `Logger::priority` set the new priority before it flushed a pending line without `\n`, so that line went out at the next message's priority (a syslog filter could drop it): `CServer::spoolarticle`'s error for an unknown exception had no `\n`. Flushed first now, and the `\n` added | 13 | review (area 13) | #PR |
+| `--enable-headerlog` didn't compile: `CServer::post` called `ssprintf`, which exists nowhere (a typo for `snprintf` since the IPv6 commit of 2008); `newscache -o` printed the option as `--enable_headerlog` | 14 | review (area 13, seen elsewhere) | #PR |
 
 ## Open points
 

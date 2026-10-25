@@ -1829,7 +1829,7 @@ int CServer::post(Article * article)
 
 	gettimeofday(&tv, NULL);
 
-	ssprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
+	snprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
 	fs.open(fn, ios::app);
 	fs << getpid() << " " << tv.tv_sec << endl;
 	article->write(fs, Article::Head);
