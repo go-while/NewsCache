@@ -243,6 +243,7 @@ Permits client access to the specified newsgroups.
 Allow reading specified newsgroups. Same format as List.
 .IP "PostTo \fINGSpecification\fR"
 Allow posting to specified newsgroups. Same format as List.
+A post to another group is refused with 441 after the article has been sent (RFC 3977 allows only 240 or 441 there); while a login could add the group, the text says "authentication required".
 .IP "NGSpecification"
 is a comma seperated list of newsgroups, where the last part of 
 newsgroup may be substituted by * standing for any string.  Each 

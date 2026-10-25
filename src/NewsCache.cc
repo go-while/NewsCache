@@ -2360,16 +2360,18 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			(*clt->co) << "441 no newsgroups\r\n";
 			return -1;
 		}
+		// After the article, RFC 3977 6.3.1 allows only 240 and 441:
+		// a login that could add the group gets a hint in the text
+		// (it was a 480).
 		for (std::vector<std::string>::size_type i = 0;
 		     i < groups.size(); i++) {
 			if (clt->access_entry->postTo.
 			    matches(groups[i].c_str()) <= 0) {
-				if (clt->auth_state != AUTH_OK)
-					(*clt->co) <<
-					    "480 authentication required\r\n";
-				else
-					(*clt->co) << "441 posting to " <<
-					    groups[i] << " not allowed\r\n";
+				(*clt->co) << "441 posting to " << groups[i]
+				    << " not allowed"
+				    << (clt->auth_state != AUTH_OK ?
+					", authentication required" : "")
+				    << "\r\n";
 				return 0;
 			}
 		}
@@ -2394,11 +2396,14 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	catch(const NotAllowedError & nae) {
-		(*clt->co) << "440 posting not allowed\r\n";
+		// (440 is the reply to POST itself, before the article)
+		(*clt->co) << "441 posting not allowed\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "449 operation failed\r\n";
+		// e.g. the article can't be spooled for later; 449 isn't an
+		// NNTP reply
+		(*clt->co) << "441 posting failed\r\n";
 		return -1;
 	}
 }

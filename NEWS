@@ -413,7 +413,7 @@ Bug fixes:
   unreachable) was answered "240 Article posted" even when it could not
   be written to the spool (a full disk): the article was lost, or
   updatenews later posted it cut off. POST now answers with an error
-  (449), and nothing half written is left in the spool.
+  (441), and nothing half written is left in the spool.
 * XHDR, XPAT and HDR with a header name longer than 511 characters could
   read past the end of an article that has a header starting with the
   same 511 characters, and send bytes from the session's memory to the
@@ -470,6 +470,13 @@ Bug fixes:
 * DATE would answer "500 gmtime failed" if the system couldn't convert
   the time; 500 means "unknown command". It is "403 gmtime failed" now
   (RFC 3977: internal fault). This doesn't happen in practice.
+* POST answered with codes RFC 3977 doesn't allow after the article has
+  been sent, where only 240 and 441 are: "480 authentication required"
+  for a group outside PostTo while a login could add it, "440 posting
+  not allowed", and "449 operation failed" (for example, when a post
+  for an offline news server couldn't be spooled). All three are 441
+  now; the first says "authentication required" in its text. A client
+  that waited for 480 there to offer a login will show the 441 instead.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

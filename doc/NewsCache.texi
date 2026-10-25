@@ -979,6 +979,10 @@ without fields) or on an entry that allows only the login, it lists
 @samp{AUTHINFO USER} but not @samp{READER}, @samp{HDR}, @samp{OVER},
 @samp{LIST} or @samp{POST}; after the login it lists the rights the
 login gave.
+A post to a group outside @code{PostTo} is refused with @samp{441}
+after the article has been sent, the only failure reply RFC 3977
+allows there; while a login could add the group, the text says
+@samp{authentication required}.
 
 @example
 AccessList @{

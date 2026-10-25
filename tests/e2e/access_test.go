@@ -544,3 +544,40 @@ func TestInetdAddressEntries(t *testing.T) {
 		t.Errorf("GROUP: %q, want 211 (the stdin entry)", line)
 	}
 }
+
+// TestPostToDeniedSecondStage: once the article has been sent, POST may
+// only answer 240 or 441 (RFC 3977 6.3.1). A group outside PostTo got 480
+// there while a login could add it; now 441 with a hint in the text, and
+// the login still allows the post.
+func TestPostToDeniedSecondStage(t *testing.T) {
+	e, _, _ := readEnv(t, "tester:"+md5Hash+":*:test.alpha,test.secret:test.alpha,test.secret:read,post")
+	post := func(c interface {
+		Cmd(format string, args ...any) (int, string)
+		Send(string) error
+		ReadStatus() (int, string, error)
+	}, n int) (int, string) {
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send(fmt.Sprintf("Newsgroups: test.secret\r\nFrom: client@newscache.test\r\n"+
+			"Subject: second stage %d\r\nMessage-ID: <stage%d@newscache.test>\r\n\r\nhello\r\n.\r\n", n, n)); err != nil {
+			t.Fatal(err)
+		}
+		code, line, err := c.ReadStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, line
+	}
+	c := e.session()
+	if code, line := post(c, 1); code != 441 || !strings.Contains(line, "authentication required") {
+		t.Errorf("post to test.secret before the login: %q, want 441 ... authentication required", line)
+	}
+	login(t, c)
+	if code, line := post(c, 2); code != 240 {
+		t.Errorf("post to test.secret after the login: %q, want 240", line)
+	}
+	if n := len(e.Store.Posted()); n != 1 {
+		t.Errorf("upstream got %d posted articles, want 1", n)
+	}
+}
