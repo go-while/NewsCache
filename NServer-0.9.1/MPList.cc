@@ -65,6 +65,14 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	if (!tlsCAFile.empty()) {
 		*pOut << "\t\tTLSCAFile " << tlsCAFile << std::endl;
 	}
+	if (bindFrom.ss_family == AF_INET || bindFrom.ss_family == AF_INET6) {
+		char addr[INET6_ADDRSTRLEN];
+		socklen_t len = bindFrom.ss_family == AF_INET
+		    ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+		if (getnameinfo((const struct sockaddr *) &bindFrom, len,
+				addr, sizeof(addr), NULL, 0, NI_NUMERICHOST) == 0)
+			*pOut << "\t\tBindFrom " << addr << std::endl;
+	}
 	if (read[0] != '\0') {
 		*pOut << "\t\tRead "<< read << std::endl;
 	}

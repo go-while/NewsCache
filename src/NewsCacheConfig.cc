@@ -258,6 +258,7 @@ void Config::printParameters (ostream *pOut)
 		*pOut << "Groupname " << Groupname << endl;
 	}
 	*pOut << "Admin " << Admin << endl;
+	*pOut << "Hostname " << Hostname << endl;
 	*pOut << "ServerType ";
 	if (ServerType == inetd) {
 		*pOut << "inetd" << endl;

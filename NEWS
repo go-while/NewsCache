@@ -352,6 +352,8 @@ Bug fixes:
   with a newline: a final "MaxConnections 99" or "Username news" had no
   effect, without a message, and a final "}" gave a misleading syntax
   error. It is read like any other line now.
+* newscache -p left out Hostname and a server's BindFrom, so its output,
+  used as a config, lost them.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.

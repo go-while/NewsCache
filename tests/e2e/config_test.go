@@ -279,6 +279,29 @@ func TestPrintAllowAuthentication(t *testing.T) {
 	}
 }
 
+// TestPrintHostnameBindFrom: newscache -p left out Hostname and a server's
+// BindFrom, so its output read back as a config lost them (Message-IDs then
+// used the FQDN, upstream connections left from the default address).
+func TestPrintHostnameBindFrom(t *testing.T) {
+	e := newEnv(t)
+	e.ServerLines = "    BindFrom 127.0.0.1"
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	var got []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && (f[0] == "Hostname" || f[0] == "BindFrom") {
+			got = append(got, strings.Join(f, " "))
+		}
+	}
+	want := []string{"Hostname newscache.test", "BindFrom 127.0.0.1"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("newscache -p prints %q, want %q", got, want)
+	}
+}
+
 // TestAccessPrefixNeedsAddress: a /prefix after something that isn't an IP
 // address is a config error. It used to become a host name that never
 // matches, silently.
