@@ -716,3 +716,31 @@ func TestLoginRequiredCommands(t *testing.T) {
 		t.Errorf("AUTHINFO USER: %q, want 381", line)
 	}
 }
+
+// TestAuthFileLongLine: auth-file lines may be longer than 1024 bytes.
+// They were read in pieces of 1023 bytes: the line lost the fields after
+// the cut, and the rest was parsed as a line of its own, so text at that
+// place became another user.
+func TestAuthFileLongLine(t *testing.T) {
+	// a List field of about 2000 bytes; test.alpha is in it
+	var pad strings.Builder
+	for i := 0; pad.Len() < 2000; i++ {
+		fmt.Fprintf(&pad, "pad.group%04d,", i)
+	}
+	long := "tester:" + md5Hash + ":" + pad.String() + "test.alpha:test.alpha:*:read"
+	// a line whose byte 1024 starts what looks like a line for "bob"
+	head := "other:" + md5Hash + ":"
+	phantom := head + strings.Repeat("x", 1023-len(head)) + "bob:" + md5Hash + ":*:*:*:read"
+	e := loginOnlyEnv(t, long, phantom)
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	login(t, c)
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha after the login with the long line: %q, want 211", line)
+	}
+	c = e.session()
+	c.Cmd("AUTHINFO USER bob")
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code == 281 {
+		t.Errorf("login as bob, who has no line: %q, want a refusal", line)
+	}
+}

@@ -112,6 +112,10 @@ Bug fixes:
   of their answer, so a newsreader couldn't learn from CAPABILITIES that
   it may log in (RFC 3977, RFC 4643); unknown commands got 480 instead
   of 500.
+* Auth-file lines longer than 1023 bytes (a long List) were split
+  silently: the line lost its later fields, such as the flags, and the
+  rest was read as a line of its own, whose start was taken for a user
+  name. Lines may be of any length now.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

@@ -496,7 +496,10 @@ int pam_conv_func(int num_msg, const struct pam_message **msg, struct pam_respon
 char **seekfile(const char *filename, const char *username)
 {
 	FILE *F;
-	static char buf[1024];
+	// Lines of any length: fgets() into 1024 bytes split a longer
+	// line silently, and its rest was parsed as a line of its own.
+	static char *buf = NULL;
+	static size_t bufsize = 0;
 	char *p;
 	int i;
 
@@ -510,7 +513,7 @@ char **seekfile(const char *filename, const char *username)
 		return NULL;
 	}
 
-	while (fgets(buf, sizeof(buf), F) != NULL) {
+	while (getline(&buf, &bufsize, F) != -1) {
 		p = buf + strlen(buf) - 1;
 		while (p > buf && isspace(*p))
 			*p-- = '\0';
