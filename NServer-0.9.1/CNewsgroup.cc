@@ -390,14 +390,26 @@ Article *CNewsgroup::getarticle(artnum_t nbr)
 	return retrievearticle(nbr);
 }
 
+// NULL only when the article doesn't exist (as in RNewsgroup::getarticle):
+// other errors go on, so that the client isn't told "no such article"
+// when the news server failed.
 Article *CNewsgroup::retrievearticle(artnum_t nbr)
 {
 	Article *a = new Article;
 	try {
 		_RServer->article(_NewsgroupName, nbr, a);
-	} catch(...) {
+	}
+	catch(const NoSuchArticleError &) {
 		delete a;
 		return NULL;
+	}
+	catch(const NoSuchGroupError &) {
+		delete a;
+		return NULL;
+	}
+	catch(...) {
+		delete a;
+		throw;
 	}
 	return a;
 }
@@ -510,9 +522,10 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 			setmtime(nvtime(NULL));
 		}
 		catch(Error & e) {
-			slog.
-			    p(Logger::
-			      Error) << "updating the overview database failed\n";
+			// (also an article the news server failed to send:
+			// the next run goes on)
+			slog.p(Logger::Error) << "updating the overview database of "
+			    << name() << " failed: " << e._errtext << "\n";
 		}
 		catch(...) {
 			slog.p(Logger::Error)

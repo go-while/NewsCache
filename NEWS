@@ -138,6 +138,11 @@ Bug fixes:
   mixed up: each line went out in three writes (time stamp, text,
   newline), and another session's line could land in between. Each line
   is now written at once.
+* ARTICLE, HEAD and BODY by number answered "423 no such article" when
+  the news server failed to send the article (a timeout, the connection
+  closed in the middle, an article cut off), and some newsreaders then
+  take the article as gone. The client now gets "503 internal error",
+  the log says what went wrong, and 423 means the article doesn't exist.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

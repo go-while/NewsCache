@@ -908,3 +908,40 @@ func TestUpstreamArticleNULAndCR(t *testing.T) {
 		})
 	}
 }
+
+// TestUpstreamArticleErrorNot423: when the upstream fails to send an
+// article by number (here it closes the connection in the middle), the
+// client must get an error, not "423 no such article": RNewsgroup::getarticle
+// (not-cached) and CNewsgroup::retrievearticle turned every exception into
+// "no such article", and some newsreaders then mark the article as gone.
+// An article the upstream doesn't have is still 423.
+func TestUpstreamArticleErrorNot423(t *testing.T) {
+	for _, opts := range []string{"", "not-cached"} {
+		t.Run("options "+firstNonEmpty(opts, "default"), func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerOptions = opts
+			e.addArticles("test.alpha", 3)
+			e.Store.RemoveArticle("test.alpha", 2)
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				DropInMultiline: map[string]int{"ARTICLE": 9},
+			}})
+			c := e.session()
+			c.Deadline = 20 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q", line)
+			}
+			code, line := c.Cmd("ARTICLE 1")
+			if code == 220 {
+				c.ReadDotLines()
+			}
+			if code == 220 || code == 423 || code < 400 {
+				t.Errorf("ARTICLE 1 cut off by the upstream: %q, want an error other than 423", line)
+			} else {
+				t.Logf("ARTICLE 1 cut off by the upstream: %q", line)
+			}
+			if code, line := c.Cmd("ARTICLE 2"); code != 423 {
+				t.Errorf("ARTICLE 2 (not on the upstream): %q, want 423", line)
+			}
+		})
+	}
+}
