@@ -25,7 +25,19 @@ class NewsgroupFilter {
 
 	class RuleIterator {
 		const char *rulelist, *rulelistp;
-		char rule[1 + MAXNEWSGROUPNAMELEN];	// '!'+MAXNEWSGROUPNAMELEN
+		// The current rule. A string, not a fixed buffer: a rule
+		// comes from the config, the auth file or a client's
+		// argument (LIST ACTIVE.TIMES pattern) and has no length
+		// limit; it used to be copied into char[513] unchecked.
+		std::string rule;
+
+		void copy_rule() {
+			const char *e = rulelistp;
+			while (*e && *e != ',')
+				++e;
+			rule.assign(rulelistp, e - rulelistp);
+			rulelistp = e;
+		}
 
 	  public:
 		enum { iter_begin, iter_end };
@@ -33,37 +45,23 @@ class NewsgroupFilter {
 		RuleIterator()
 			: rulelist(NULL), rulelistp(NULL)
 		{
-			rule[0] = '\0';
 		}
 
 		RuleIterator(const char *rulelist, int pos)
 			: rulelist(rulelist)
 		{
 			if (pos == iter_begin) {
-				char *rulep = rule;
-				char c;
-				 rulelistp = rulelist;
-				while ((c = *rulelistp) && c != ',') {
-					*rulep = c;
-					++rulelistp;
-					++rulep;
-				} *rulep = '\0';
+				rulelistp = rulelist;
+				copy_rule();
 			} else {
 				rulelistp = NULL;
 			}
 		}
 
 		RuleIterator & operator++() {	//prefix
-			char *rulep = rule;
-			char c;
 			if (*rulelistp) {
 				++rulelistp;
-				while ((c = *rulelistp) && c != ',') {
-					*rulep = c;
-					++rulelistp;
-					++rulep;
-				}
-				*rulep = '\0';
+				copy_rule();
 			} else {
 				rulelistp = NULL;
 			}
@@ -72,7 +70,7 @@ class NewsgroupFilter {
 		}
 
 		const char *operator*() {
-			return rule;
+			return rule.c_str();
 		}
 
 		int operator==(const RuleIterator & iter2) {
@@ -85,7 +83,7 @@ class NewsgroupFilter {
 
 		const RuleIterator & operator=(const RuleIterator & iter2) {
 			rulelistp = iter2.rulelistp;
-			strcpy(rule, iter2.rule);
+			rule = iter2.rule;
 			return *this;
 		}
 	};

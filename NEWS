@@ -10,6 +10,11 @@ Bug fixes:
   without a line of their own now gets the rights of "*" and of their
   groups, as the manual says; if no line applies, the login is refused as
   before.
+* A newsgroup pattern longer than 512 bytes overflowed a stack buffer in
+  the group filter. A client that may connect could send one with
+  LIST ACTIVE.TIMES; with glibc's checks the session aborted, without them
+  the buffer was overrun. Long patterns in the config and the auth files
+  went the same way. Patterns now have no length limit.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
