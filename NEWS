@@ -60,6 +60,9 @@ Bug fixes:
 * updatenews ignored the last line of the prefetch file when the file
   didn't end with a newline. A final "!pattern" was lost, so the groups
   it should leave out were prefetched.
+* updatenews died with SIGABRT and a core dump, without a log line, when
+  its spool couldn't be created or written. It now logs the error and
+  exits with status 1.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

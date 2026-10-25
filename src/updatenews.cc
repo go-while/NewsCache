@@ -461,7 +461,21 @@ int main(int argc, char **argv)
 		setugid(Cfg.Username, Cfg.Groupname);
 	if (Cfg.HistoryEnabled)
 		History::setspooldir(Cfg.SpoolDirectory);
-	update();
+	// log an error (spool not writable, ...) and exit 1, instead of
+	// std::terminate: SIGABRT, a core dump and no log line
+	try {
+		update();
+	}
+	catch(const Error & e) {
+		slog.p(Logger::Error) << "updatenews: " << e._errtext << "\n";
+		cerr << cmnd << ": " << e._errtext << "\n";
+		return 1;
+	}
+	catch(...) {
+		slog.p(Logger::Error) << "updatenews: unexpected exception\n";
+		cerr << cmnd << ": unexpected exception\n";
+		return 1;
+	}
 	return 0;
 }
 

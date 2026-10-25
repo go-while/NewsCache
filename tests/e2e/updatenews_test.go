@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -316,5 +317,35 @@ func TestPrefetchLastLineNoNewline(t *testing.T) {
 				t.Errorf("prefetch file %q:\n  got  %q\n  want %q", tc.file, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestUpdatenewsSpoolError: when the spool can't be created, updatenews
+// logs the error and exits 1. The exception wasn't caught, so it died with
+// SIGABRT ("terminate called after throwing an instance of 'SystemError'")
+// and a core dump, from cron, without a log line.
+func TestUpdatenewsSpoolError(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("de.test", "de.test")
+	// a regular file in the path: not even root can create the spool
+	notDir := filepath.Join(e.Dir, "notadir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Spool = filepath.Join(notDir, "spool")
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte("de.test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || !ee.Exited() || ee.ExitCode() != 1 {
+		t.Fatalf("updatenews -o with the spool under a file: %v, want exit status 1\n%s", err, out)
+	}
+	if strings.Contains(string(out), "terminate called") {
+		t.Errorf("updatenews output:\n%s", out)
 	}
 }
