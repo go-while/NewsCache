@@ -234,6 +234,11 @@ Bug fixes:
   wrong byte and line counts, and STAT, NEXT and LAST answered with the
   Date instead of the message-ID. Tabs now become spaces, as RFC 3977
   says.
+* A post that NewsCache keeps for later (with the news server offline or
+  unreachable) was answered "240 Article posted" even when it could not
+  be written to the spool (a full disk): the article was lost, or
+  updatenews later posted it cut off. POST now answers with an error
+  (449), and nothing half written is left in the spool.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

@@ -413,3 +413,88 @@ func TestSpoolEmptyArticleFile(t *testing.T) {
 		t.Errorf(".art4 after the refetch: %v, size %v", err, st)
 	}
 }
+
+// spoolPost posts an article with a body of n lines through a session
+// started with mod (nil: none) and returns the reply code.
+func spoolPost(t *testing.T, e *env, mod func(*proc.Options), n int) int {
+	t.Helper()
+	e.writeConf()
+	o := e.procOpts("-i")
+	if mod != nil {
+		mod(&o)
+	}
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	c.Strict = false
+	c.Deadline = 10 * time.Second
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatalf("greeting: %v", err)
+	}
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	var b strings.Builder
+	b.WriteString("Newsgroups: test.alpha\r\nFrom: a@b.test\r\nSubject: spooled\r\n" +
+		"Message-ID: <spooled.1@client.test>\r\n\r\n")
+	for i := 1; i < n; i++ {
+		fmt.Fprintf(&b, "line %d of a body long enough to fill the spool file\r\n", i)
+	}
+	b.WriteString("LAST LINE\r\n.\r\n")
+	c.Send(b.String())
+	code, line, err := c.ReadStatus()
+	if err != nil {
+		t.Fatalf("POST: no reply: %v", err)
+	}
+	t.Logf("POST: %q", line)
+	c.TryCmd("QUIT")
+	p.Wait()
+	return code
+}
+
+// TestSpoolPostFileSizeLimit: with the news server unreachable (here
+// Options offline), a post goes to the outgoing spool (.artSpool) and
+// updatenews posts it later. The spool file was written without a check:
+// when the write failed (a full disk, here a file size limit), the client
+// got "240 Article posted" and updatenews posted the cut-off article.
+func TestSpoolPostFileSizeLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit func(*proc.Options)
+	}{{"spooled", nil}, {"write-fails", fileSizeLimit(8)}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerOptions = "offline"
+			c := e.session() // creates the spool before the limit
+			c.Cmd("GROUP test.alpha")
+			c.Cmd("QUIT")
+			code := spoolPost(t, e, tc.limit, 400)
+			ents, _ := os.ReadDir(filepath.Join(e.Spool, ".artSpool"))
+			var files []string
+			for _, en := range ents {
+				files = append(files, en.Name())
+			}
+			if tc.limit == nil {
+				if code != 240 || len(files) != 1 {
+					t.Errorf("POST: %d with %q in .artSpool, want 240 and one file", code, files)
+				}
+			} else if code == 240 || len(files) != 0 {
+				t.Errorf("POST that could not be spooled: %d with %q in .artSpool, want an error and nothing", code, files)
+			}
+			e.ServerOptions = ""
+			e.writeConf()
+			if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+				t.Errorf("updatenews: %v\n%s", err, out)
+			}
+			posted := e.Store.Posted()
+			for _, a := range posted {
+				if len(a.Body) != 400 || a.Body[len(a.Body)-1] != "LAST LINE" {
+					t.Errorf("updatenews posted a cut-off article: %d body lines", len(a.Body))
+				}
+			}
+			if want := map[bool]int{true: 1, false: 0}[tc.limit == nil]; len(posted) != want {
+				t.Errorf("updatenews posted %d articles, want %d", len(posted), want)
+			}
+		})
+	}
+}

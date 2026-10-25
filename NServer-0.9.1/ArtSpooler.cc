@@ -82,7 +82,12 @@ void ArtSpooler::spoolArt(Article & a)
 	int s;
 
 	pLock->lockExBlk();
-	s = storeArticle(artSpool, a);
+	try {
+		s = storeArticle(artSpool, a);
+	} catch(...) {
+		pLock->unlock();
+		throw;
+	}
 	pLock->unlock();
 
 	if (s != 0) {
@@ -98,27 +103,45 @@ void ArtSpooler::storeBadArt(Article & a)
 	int s;
 
 	pLock->lockExBlk();
-	s = storeArticle(badArticles, a);
+	try {
+		s = storeArticle(badArticles, a);
+	} catch(...) {
+		pLock->unlock();
+		throw;
+	}
 	pLock->unlock();
 	if (s != 0) {
 		throw(Error("storeBadArt: duplicateArt", ERROR_LOCATION));
 	}
 }
 
+// The article is written under a temporary name and renamed to art_*
+// after a good close, so getSpooledArt never takes a half-written file.
+// A failed open or write (a full disk, a file size limit) throws
+// SystemError and leaves nothing behind: the client was told "240
+// Article posted", and a cut-off article was posted later.
 int ArtSpooler::storeArticle(const string & path, Article & a)
 {
 	ofstream os;
-	string fn, id;
+	string fn, tmp, id;
 	struct stat st;
-	int s;
+	int s, e;
 
 	id = createID();;
 	fn = path + "/art_" + id;
+	tmp = path + "/tmp_" + id;
 	s = lstat(fn.c_str(), &st);
 	if (s == -1) {
-		os.open(fn.c_str());
+		errno = 0;
+		os.open(tmp.c_str());
 		os << a;
 		os.close();
+		if (os.fail() || rename(tmp.c_str(), fn.c_str()) != 0) {
+			e = errno;
+			unlink(tmp.c_str());
+			throw SystemError("cannot store article in " + path, e,
+					  ERROR_LOCATION);
+		}
 		s = 0;
 	} else {
 		s = 1;
