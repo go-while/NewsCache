@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -458,5 +459,101 @@ exec "$@"`, "nc", o.Path}, o.Args...)
 	time.Sleep(100 * time.Millisecond)
 	if log := e.logFile(); !strings.Contains(log, name+" [127.0.0.1] connect") {
 		t.Errorf("the log doesn't name the client %s:\n%s", name, grepLines(log, "connect"))
+	}
+}
+
+// childPids returns the pids of pid's child processes (Linux: from /proc).
+func childPids(t *testing.T, pid int) []int {
+	t.Helper()
+	dirs, err := filepath.Glob("/proc/[0-9]*/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []int
+	for _, d := range dirs {
+		b, err := os.ReadFile(d)
+		if err != nil {
+			continue
+		}
+		// pid (comm) state ppid ...: comm may hold blanks
+		s := string(b)
+		f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+		if len(f) > 1 && f[1] == strconv.Itoa(pid) {
+			n, _ := strconv.Atoi(strings.Fields(s)[0])
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// running reports whether process pid exists and isn't a zombie.
+func running(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(f) > 0 && f[0] != "Z"
+}
+
+// TestSIGTERMEndsSessions: SIGTERM to the daemon ends its sessions: an
+// idle one gets "400 ... service discontinued" at once, and one blocked
+// in sending to a client that doesn't read ends too. The daemon exited
+// without telling its sessions, and a session noticed SIGTERM only after
+// the next command line, so both kept running until ClientTimeout.
+func TestSIGTERMEndsSessions(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session processes in /proc")
+	}
+	const group = "alt.binaries.stall"
+	e := newEnv(t)
+	e.ClientTimeout = 600
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	p := e.standalone()
+
+	// a: idle after the greeting
+	a := e.dial()
+	// b: stops reading in the middle of a big XOVER
+	b, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	b.(*net.TCPConn).SetReadBuffer(4096)
+	rb := bufio.NewReader(b)
+	b.SetDeadline(time.Now().Add(60 * time.Second))
+	rb.ReadString('\n') // greeting
+	io.WriteString(b, "GROUP "+group+"\r\nXOVER 1-40000\r\n")
+	if l, err := rb.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
+		t.Fatalf("b: GROUP: %q %v", l, err)
+	}
+	if l, err := rb.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
+		t.Fatalf("b: XOVER: %q %v", l, err)
+	}
+	time.Sleep(2 * time.Second)
+	sessions := childPids(t, p.Pid())
+	if len(sessions) != 2 {
+		t.Fatalf("daemon %d has the children %v, want 2 sessions", p.Pid(), sessions)
+	}
+
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	a.Deadline = 5 * time.Second
+	code, line, err := a.ReadStatus()
+	if err != nil || code != 400 {
+		t.Errorf("idle session after SIGTERM: %q, %v; want 400", line, err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for _, pid := range sessions {
+		for running(pid) {
+			if time.Now().After(deadline) {
+				t.Errorf("session %d still runs 5 s after SIGTERM to the daemon", pid)
+				syscall.Kill(pid, syscall.SIGKILL)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }

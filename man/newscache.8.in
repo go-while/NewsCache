@@ -68,11 +68,13 @@ Print all options specified in the configure phase.
 .SH SIGNALS
 
 .TP 
-.B SIGTERM, SIGQUIT, SIGINT, SIGPIPE
+.B SIGTERM, SIGINT
 
 These signals instruct NewsCache to abort any existing transfers, close
-all connections and terminate the process. If the target of the signal
-is  the  daemon, all current child processes wil also be terminated.
+all connections and terminate the process. A session process answers
+its client "400 ... service discontinued" and ends, also while it waits
+for the client. If the target of the signal is the daemon, it sends
+SIGTERM to all its session processes and ends. SIGPIPE is ignored.
 
 .TP 
 .B SIGHUP

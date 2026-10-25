@@ -175,6 +175,12 @@ Bug fixes:
   address entries of the access list were matched against an
   uninitialized address; a session could get the rights of such an entry
   instead of the "stdin" one, depending on what was on the stack.
+* SIGTERM to the daemon left its sessions running until ClientTimeout
+  (20 minutes by default): the daemon didn't pass it on, and a session
+  noticed SIGTERM only after the client's next command, and not at all
+  while it was blocked sending to a client that didn't read. The daemon
+  now sends SIGTERM to its sessions, which end at once with "400 ...
+  service discontinued", as newscache(8) says.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came
