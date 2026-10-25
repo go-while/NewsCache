@@ -1476,7 +1476,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 				    clt->srvr->getgroup(clt->groupname);
 		}
 		catch(const NoSuchGroupError & nsge) {
-			(*clt->co) << "411 no such newsgroup\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 		catch(const Error & e) {
@@ -1559,7 +1559,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 				    clt->srvr->getgroup(clt->groupname);
 		}
 		catch(const NoSuchGroupError & nsge) {
-			(*clt->co) << "411 no such newsgroup\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 		catch(const Error & e) {
@@ -1737,7 +1737,7 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
@@ -2078,7 +2078,7 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 	} else {
 		// selects the group anew, the current article is its first
 		if ((gi = selectgroup(clt, clt->groupname)) == NULL) {
-			(*clt->co) << "411 no such news group\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 	}
@@ -2090,7 +2090,10 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		if (argc >= 2)
+			(*clt->co) << "411 no such news group\r\n";
+		else
+			(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
@@ -2450,7 +2453,9 @@ static int parse_range(const char *s, artnum_t * fst, artnum_t * lst)
  * Selects the client's current group for XOVER/XHDR/XPAT. Returns 0, or
  * -1 after an error reply. When the news server or the spool fails, the
  * reply is 403 (RFC 3977 3.2.1), as for ARTICLE, STAT, NEXT/LAST and
- * LISTGROUP; 412 means that no group is selected.
+ * LISTGROUP; 412 means that no group is selected, or that the current
+ * one no longer exists (RFC 3977 6.2.1.2; it was 411, which is for a
+ * group named in the command).
  */
 static int current_group(ClientData * clt)
 {
@@ -2459,7 +2464,7 @@ static int current_group(ClientData * clt)
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {

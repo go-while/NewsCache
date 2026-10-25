@@ -1235,3 +1235,41 @@ func TestUpstream503TimeoutClose(t *testing.T) {
 		t.Errorf("%d upstream connections, want 2", n)
 	}
 }
+
+// TestCurrentGroupGone412: when the current group no longer exists (here
+// the upstream answers 411 to the GROUP that refreshes it), ARTICLE,
+// STAT, NEXT, XOVER and LISTGROUP without a group answer 412, as RFC 3977
+// says for "the currently selected newsgroup is invalid". They answered
+// 411, which is the reply for a group named in the command; LISTGROUP
+// with the name still gets 411.
+func TestCurrentGroupGone412(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"GROUP test.alpha": {"411 No such newsgroup"}},
+		OverrideFrom: map[string]int{"GROUP": 2},
+	}})
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	// GroupTimeout 0: the next use asks the upstream again
+	time.Sleep(1100 * time.Millisecond)
+	for _, tc := range []struct {
+		cmd  string
+		want int
+	}{
+		{"ARTICLE 1", 412}, {"STAT 1", 412}, {"NEXT", 412}, {"XOVER 1-3", 412},
+		{"LISTGROUP", 412}, {"LISTGROUP test.alpha", 411},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code/10 == 22 || code == 211 {
+			if code != 223 {
+				c.ReadDotLines()
+			}
+		}
+		if code != tc.want {
+			t.Errorf("%s with the current group gone: %q, want %d", tc.cmd, line, tc.want)
+		}
+	}
+}

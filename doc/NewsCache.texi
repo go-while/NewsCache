@@ -222,7 +222,9 @@ means that no group is selected. @code{group} and @code{listgroup}
 answer @samp{411} only for a group that doesn't exist (the news server
 says so, or no news server carries it). When the news server fails for
 a group the spool doesn't know yet, they answer @samp{403}; a group the
-spool knows is served with its stored numbers.
+spool knows is served with its stored numbers. When the current group
+no longer exists (the news server answers 411 for it), the commands
+for the current group answer @samp{412}, as RFC 3977 says.
 
 @c *** 
 @c *** General Options

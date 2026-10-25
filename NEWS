@@ -491,6 +491,12 @@ Bug fixes:
   is now an ordinary reply, except when the server has closed the
   connection behind it, as old INN versions did with "503 Timeout" on
   an idle connection.
+* When the current group no longer existed (the news server answered
+  411 for it), ARTICLE, HEAD, BODY and STAT by number, NEXT, LAST,
+  XOVER, OVER, XHDR, XPAT, HDR and LISTGROUP without a group answered
+  "411 no such news group". RFC 3977 asks for 412 when the selected
+  group is invalid, and keeps 411 for a group named in the command; the
+  reply is now "412 current group no longer exists".
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry
