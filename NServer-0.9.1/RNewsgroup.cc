@@ -66,6 +66,8 @@ void RNewsgroup::printoverdb(std::ostream & os, artnum_t f, artnum_t l)
 
 	if (f < _first)
 		f = _first;
+	if (f == 0)
+		f = 1;	// no article 0: load(0) fails, its chunk was skipped
 	if (l > _last)
 		l = _last;
 	for (a = f; a <= l && os.good();) {
@@ -92,6 +94,8 @@ void RNewsgroup::printheaderdb(std::ostream & os, const char *header,
 
 	if (f < _first)
 		f = _first;
+	if (f == 0)
+		f = 1;	// no article 0: load(0) fails, its chunk was skipped
 	if (l > _last)
 		l = _last;
 	for (a = f; a <= l && os.good();) {
@@ -125,6 +129,8 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 
 	if (f < _first)
 		f = _first;
+	if (f == 0)
+		f = 1;	// no article 0: load(0) fails, its chunk was skipped
 	if (l > _last)
 		l = _last;
 	if (f > l)

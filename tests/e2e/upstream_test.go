@@ -945,3 +945,36 @@ func TestUpstreamArticleErrorNot423(t *testing.T) {
 		})
 	}
 }
+
+// TestUpstreamLowZero: an upstream that reports a low water mark of 0 for a
+// group with articles (not RFC 3977, but sloppy servers do). NewsCache
+// passes the 0 on, so newsreaders ask for "XOVER 0-3". In a group of a
+// not-cached server, RNewsgroup::load(0) failed (there is no article 0)
+// and the whole first chunk (0-9999) was skipped: the group looked empty.
+func TestUpstreamLowZero(t *testing.T) {
+	for _, opts := range []string{"", "not-cached"} {
+		t.Run("options "+firstNonEmpty(opts, "default"), func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerOptions = opts
+			e.addArticles("test.alpha", 3)
+			upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{
+				GroupNumbers: func(_ int, g fakeserver.Group) fakeserver.Group {
+					g.Low = 0
+					return g
+				},
+			}})
+			c := e.session()
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q", line)
+			} else {
+				t.Logf("GROUP: %q", line)
+			}
+			expectXover(t, c, 0, 3, 1, 2, 3)
+			if code, line := c.Cmd("XHDR Subject 0-3"); code != 221 {
+				t.Errorf("XHDR Subject 0-3: %q, want 221", line)
+			} else if lines := c.ReadDotLines(); len(lines) != 3 {
+				t.Errorf("XHDR Subject 0-3: %q, want 3 lines", lines)
+			}
+		})
+	}
+}
