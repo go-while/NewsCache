@@ -65,6 +65,33 @@ func TestDefaultDenyEveryone(t *testing.T) {
 	})
 }
 
+// TestAccessFirstMatch: the first access entry that matches the client is
+// used, in the order of the file, as the manual and newscache.conf(5) say
+// (the manual said "the most specific entry" until the fix). A narrow entry
+// before a broader one wins; one after Default is never used.
+func TestAccessFirstMatch(t *testing.T) {
+	entry := func(name, allow string) string {
+		return "  " + name + " {\n    allow " + allow + "\n    List *\n    Read *\n    PostTo *\n    Authentication none\n  }\n"
+	}
+	for _, tc := range []struct {
+		name, list, want string
+	}{
+		{"narrow first", entry("Client 127.0.0.1", "none") + entry("Client 127.0.0.0/8", "read post") + entry("Default", "none"), "502 "},
+		{"broad first", entry("Client 127.0.0.0/8", "read post") + entry("Client 127.0.0.1", "none") + entry("Default", "none"), "200 "},
+		{"Default first", entry("Default", "read post") + entry("Client 127.0.0.0/8", "none"), "200 "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.AccessList = "AccessList {\n" + tc.list + "}"
+			e.standalone()
+			c := e.dialRaw()
+			if !strings.HasPrefix(c.Greeting, tc.want) {
+				t.Fatalf("client 127.0.0.1: greeting %q, want %s", c.Greeting, tc.want)
+			}
+		})
+	}
+}
+
 // TestShippedConfigsDenyEveryone: the sample config and the container config
 // load and allow nobody: newscache -p shows exactly one access entry, and it
 // is "allow none".

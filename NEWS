@@ -221,6 +221,10 @@ Bug fixes:
   the build failed one step later because there was no configure script.
 
 Documentation:
+* The manual said that NewsCache uses the most specific AccessList entry
+  that matches a client. It uses the first one, in the order of the
+  file, as newscache.conf-dist says: put narrower entries before broader
+  ones and Default last. The manual and newscache.conf(5) say so now.
 * The sample newscache.conf-dist works as /etc/newscache.conf as it is,
   for packages: Admin (shown by HELP) is root@localhost instead of the
   original author's address of 1997, PidFile is /run/newscache.pid,
