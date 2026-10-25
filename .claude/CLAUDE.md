@@ -134,3 +134,26 @@ commit once the checks pass. Don't rebase or squash it: `trunk`'s commits must
 stay unchanged in `main`'s history.
 
 Run `git svn rebase` only on `trunk`. On `main` it would rewrite main's own commits.
+
+## Parallel agents
+
+Several agents may work on NewsCache at the same time, each in its own
+session. On the maintainer's machine they coordinate through the local
+Redis, database 7, with the tool `chat.py` from
+`/tank0/efs/GO/src/github.com/go-while/py-redis-agent-chatroom` (see its
+README). Another project shares that database, so every NewsCache key
+starts with `nc-`: `export CHATROOM_PREFIX=nc-`. Never flush the
+database, and never touch keys of other prefixes.
+
+- An agent's id is `nc-` plus the first 4 characters of its session id.
+- At the start: `chat.py register <id> "<what I work on>"`,
+  `chat.py agents`, `chat.py read <id>`, and say hello with
+  `chat.py say <id> all "..."`.
+- While working, run `chat.py watch <id>` in the background: it exits
+  when a message for you arrives.
+- Claim a branch, a review area or a finding before working on it
+  (`chat.py claim <id> <topic> "<branch>"`), so that two agents don't fix
+  the same thing.
+- One pull request open at a time, for all agents together: take
+  `chat.py lock <id> pr-slot "<branch>"` before opening one, and
+  `chat.py unlock <id> pr-slot` after the merge.
