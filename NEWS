@@ -464,6 +464,9 @@ Bug fixes:
   spool can't be opened). 412 means "no newsgroup selected" in RFC 3977;
   the reply is now "403 operation failed" (internal fault). 412 is still
   the answer when no group is selected.
+* NEWGROUPS answered "410 operation failed" when the active list couldn't
+  be read; 410 is no NEWGROUPS reply. It now answers like LIST: "403
+  internal error" (RFC 3977), after one more try on a damaged database.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

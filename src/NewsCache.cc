@@ -2234,14 +2234,10 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	if (lt == -1)
 		goto ns_newgroups_error;
 
-	ActiveDB *active;
-	try {
-		active = clt->srvr->active();
-	}
-	catch(const Error & e) {
-		(*clt->co) << "410 operation failed\r\n";
-		return -1;
-	}
+	// An error here goes to the command loop, as for LIST: 403 (RFC 3977
+	// 3.2.1), or once more after a damaged database. (It answered 410,
+	// which isn't a NEWGROUPS reply.)
+	ActiveDB *active = clt->srvr->active();
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
 	ostringstream lines;
