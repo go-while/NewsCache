@@ -1,8 +1,8 @@
 /*  $Revision: 1.2 $
 **
 **  Do shell-style pattern matching for ?, \, [], and * characters.
-**  Might not be robust in face of malformed patterns; e.g., "foo[a-"
-**  could cause a segmentation violation.  It is 8bit clean.
+**  Malformed patterns ("foo[a-", "foo[", a trailing backslash) match
+**  nothing; they used to be read past their end.  It is 8bit clean.
 **
 **  Written by Rich $alz, mirror!rs, Wed Nov 26 19:03:17 EST 1986.
 **  Rich $alz is now <rsalz@osf.org>.
@@ -71,6 +71,10 @@ static int DoMatch(const char *text, const char *p)
 		case '\\':
 			/* Literal match with following character. */
 			p++;
+			if (*p == '\0')
+				/* a trailing backslash: malformed (the loop's
+				   p++ went past the end) */
+				return ABORT;
 			/* FALLTHROUGH */
 		default:
 			if (*text != *p)
@@ -101,11 +105,18 @@ static int DoMatch(const char *text, const char *p)
 				if (*++p == *text)
 					matched = TRUE;
 			for (last = *p; *++p && *p != ']'; last = *p)
-				/* This next line requires a good C compiler. */
-				if (*p == '-' && p[1] != ']'
+				/* This next line requires a good C compiler.
+				   (A '-' before the end is a range only when
+				   a character follows; "[a-" read past the
+				   end of the pattern.) */
+				if (*p == '-' && p[1] != ']' && p[1] != '\0'
 				    ? *text <= *++p
 				    && *text >= last : *text == *p)
 					matched = TRUE;
+			if (*p == '\0')
+				/* no closing ']': malformed (the loop's p++
+				   went past the end) */
+				return ABORT;
 			if (matched == reverse)
 				return FALSE;
 			continue;
