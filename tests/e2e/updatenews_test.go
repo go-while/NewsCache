@@ -282,3 +282,39 @@ func TestPostSpooledKeepNoMessageID(t *testing.T) {
 		}
 	}
 }
+
+// TestPrefetchLastLineNoNewline: the last line of the prefetch file counts
+// when the file doesn't end with a newline. updatenews used to drop it, so a
+// final "!pattern" was ignored and the excluded groups were prefetched.
+func TestPrefetchLastLineNoNewline(t *testing.T) {
+	for _, tc := range []struct {
+		name, file string
+		want       []string
+	}{
+		{"exclusion", "de.*\n!de.alt.*", []string{"de.test"}},
+		{"group", "de.test\nat.test", []string{"de.test", "at.test"}},
+		{"pattern", "de.test\nat.*", []string{"de.test", "at.test"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			for _, g := range []string{"de.test", "de.alt.binaries.x", "at.test"} {
+				e.Store.AddGroup(g, g)
+				e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+			}
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte(tc.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+
+			out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews -o: %v\n%s", err, out)
+			}
+			if got := prefetched(e); strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("prefetch file %q:\n  got  %q\n  want %q", tc.file, got, tc.want)
+			}
+		})
+	}
+}

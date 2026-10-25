@@ -165,14 +165,16 @@ void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 
 	for (; Xsignal < 0;) {
 		nlreadline(ifs, line, 0);
-		if (ifs.eof())
-			break;
 		if (ifs.bad()) {
 			slog.
 			    p(Logger::Error) << "cannot read from " << Cfg.
 			    PrefetchFile << "\n";
 			break;
 		}
+		// fail() only when nothing was read: a last line without a
+		// newline sets just eof() and still counts
+		if (ifs.fail())
+			break;
 		string::size_type b = line.find_first_not_of(" \t\r\n");
 		if (b == string::npos || line[b] == '#')
 			continue;
