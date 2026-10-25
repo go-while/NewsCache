@@ -75,6 +75,9 @@ Bug fixes:
 * newscacheclean used NiceServer for its priority instead of NiceClean,
   which had no effect. It uses NiceClean now (default 3), as
   newscache.conf(5) says; check the value if you set NiceServer.
+* LIST ACTIVE with a wildmat showed groups outside the client's List:
+  for a group that no List rule matched, the wildmat alone decided, so
+  "LIST ACTIVE *" from a client with "List test.*" listed every group.
 * LIST NEWSGROUPS sent every description in the spool's .newsgroups
   file, also those of groups outside the client's List, and LIST
   NEWSGROUPS with a wildmat (RFC 3977) answered 501. It now shows the
