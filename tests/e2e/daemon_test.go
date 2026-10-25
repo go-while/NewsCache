@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"bufio"
 	"fmt"
+	"github.com/go-while/nntp-testkit/fakeserver"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -299,4 +302,84 @@ func TestCachePort(t *testing.T) {
 			t.Errorf("newscache -p with only CachePort:\n%s", out)
 		}
 	})
+}
+
+// TestClientStalledReader: a client that stops reading in the middle of a
+// big XOVER is cut off after ClientTimeout. XOVER writes while it holds
+// the group's lock, and ClientTimeout only covered the wait for the next
+// command: the session stayed blocked in send() for good, and another
+// session that needed the group (storing an article it read) hung too.
+func TestClientStalledReader(t *testing.T) {
+	const group = "alt.binaries.stall"
+	e := newEnv(t)
+	e.ClientTimeout = 3
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	e.standalone()
+	a, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.(*net.TCPConn).SetReadBuffer(4096)
+	ra := bufio.NewReader(a)
+	a.SetDeadline(time.Now().Add(60 * time.Second))
+	ra.ReadString('\n') // greeting
+	io.WriteString(a, "GROUP "+group+"\r\n")
+	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
+		t.Fatalf("A: GROUP: %q %v", l, err)
+	}
+	io.WriteString(a, "XOVER 1-40000\r\n")
+	// A reads the status line and a little, then nothing more
+	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
+		t.Fatalf("A: XOVER: %q %v", l, err)
+	}
+	time.Sleep(2 * time.Second)
+
+	b := e.dial()
+	b.Deadline = 20 * time.Second
+	start := time.Now()
+	if code, line := b.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("B: GROUP: %q", line)
+	}
+	if code, line := b.Cmd("ARTICLE 39999"); code != 220 {
+		t.Fatalf("B: ARTICLE 39999: %q, want 220 (not blocked by A)", line)
+	}
+	b.ReadDotLines()
+	t.Logf("B served after %v", time.Since(start).Round(100*time.Millisecond))
+}
+
+// TestClientPostStall: a client that sends POST, part of the article and
+// then nothing is cut off after ClientTimeout (plus a little), and the
+// article isn't posted. Reading the article had no timeout.
+func TestClientPostStall(t *testing.T) {
+	e := newEnv(t)
+	e.ClientTimeout = 2
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+	conn, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(40 * time.Second))
+	r := bufio.NewReader(conn)
+	r.ReadString('\n') // greeting
+	io.WriteString(conn, "POST\r\n")
+	if l, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(l, "340") {
+		t.Fatalf("POST: %q %v", l, err)
+	}
+	io.WriteString(conn, "Newsgroups: test.alpha\r\nSubject: stalled\r\n")
+	start := time.Now()
+	// the server must end the session; whatever it answers, then EOF
+	for {
+		if _, err := r.ReadString('\n'); err != nil {
+			break
+		}
+	}
+	if d := time.Since(start); d > 30*time.Second {
+		t.Errorf("session ended after %v, want ClientTimeout plus a little", d)
+	}
+	if n := len(e.Store.Posted()); n != 0 {
+		t.Errorf("upstream got %d posted articles, want none", n)
+	}
 }

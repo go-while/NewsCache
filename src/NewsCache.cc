@@ -2602,6 +2602,24 @@ static void finish_reply(ostream & co, const ReplyTracker & tracker,
 	}
 }
 
+/*
+ * Sets the send timeout of the client's output and the receive timeout of
+ * its input from ClientTimeout (not for a client that isn't a socket).
+ * A send or receive that times out fails; the stream goes bad and the
+ * session ends.
+ */
+static void set_client_timeouts(int in_fd, int out_fd)
+{
+	if (Cfg.ClientTimeout <= 0)
+		return;
+	struct timeval tv;
+	tv.tv_usec = 0;
+	tv.tv_sec = Cfg.ClientTimeout;
+	setsockopt(out_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+	tv.tv_sec = Cfg.ClientTimeout + 10;
+	setsockopt(in_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
+
 void nnrpd(int fd)
 {
 	ClientData clt;
@@ -2773,6 +2791,16 @@ void nnrpd(int fd)
 		fd = 0;
 	}
 
+	// ClientTimeout also limits each send to the client and each read
+	// inside a command (the article of a POST); it used to cover only
+	// the wait for the next command. A client that stopped reading left
+	// its session blocked in send(), and XOVER, XHDR, HDR and LISTGROUP
+	// write while they hold the group's lock: every other session on the
+	// group hung until the client went away. The read timeout is a little
+	// longer than ClientTimeout, so that the wait for a command still
+	// ends with the alarm and its "400 ... timed out" reply.
+	set_client_timeouts(fd, clt.ci == &cin ? 1 : fd);
+
 #ifdef NO_STREAM_BUFFERING
 	{
 		streambuf *b;
@@ -2858,6 +2886,13 @@ void nnrpd(int fd)
 	 co) << "200 " PACKAGE " " VERSION ", accepting NNRP commands\r\n";
 	do {
 		flush(*clt.co);
+		if (!clt.co->good()) {
+			// the client doesn't read its replies (send timed out)
+			// or has gone
+			slog.p(Logger::Notice) << clt.client_logname
+			    << " can't be written to, session ended\n";
+			break;
+		}
 
 		alarmed = 0;
 		alarm (Cfg.ClientTimeout);
