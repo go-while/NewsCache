@@ -473,7 +473,8 @@ characters.
 indicates which articles should be posted to the news server. Its
 argument has the same syntax as the argument of the
 @code{Read}-option. All articles posted to one or more of these
-newsgroups will be sent to that news server.
+newsgroups will be sent to that news server. NewsCache takes articles of
+up to 1 MB from clients; a larger one is refused (441).
 @item GroupTimeout
 @cdindex GroupTimeout
 after that amount of seconds the newsgroup's active database is
