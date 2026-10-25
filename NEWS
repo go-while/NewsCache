@@ -83,6 +83,14 @@ Bug fixes:
   spaces and tabs around them; a name with white space or a control
   character in it is refused with "441 invalid Newsgroups header", and
   such an article gives no Read right by message-ID either.
+* AUTHINFO: the password hashes are compared in constant time, so the
+  answer's timing no longer tells how many leading characters of a guess
+  matched. A stored hash that crypt() can't use is refused with 502 and
+  an error in the log, also on libxcrypt and musl, where crypt() returns
+  the failure token "*0" instead of NULL (a stored "*0" matched it for
+  any password). Built with --without-md5 but with MD5 autodetection, a
+  24-character field ending in "==" let any password in; it now goes
+  through crypt(). md5crypt's result was never freed; it is now.
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became
