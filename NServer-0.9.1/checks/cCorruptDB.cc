@@ -6,7 +6,10 @@
 //  2. many processes run into the same damaged file at once: they must
 //     all end up on one new file, none on a file another one moved aside;
 //  3. a free block whose size reaches into the records behind it must
-//     count as damage, not be handed out again over those records.
+//     count as damage, not be handed out again over those records;
+//  4. the file can't be mapped again after it grew (mmap fails: address
+//     space limit): no lock may be kept, and no pointer into the old
+//     mapping used.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -19,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -235,6 +239,127 @@ static void free_overlap(const string & dir)
 	unlink((fn + ".bad").c_str());
 }
 
+// The process's address space in bytes (Linux), 0 if unknown.
+static unsigned long vmsize(void)
+{
+	ifstream f("/proc/self/status");
+	string l;
+	while (getline(f, l))
+		if (l.compare(0, 7, "VmSize:") == 0)
+			return strtoul(l.c_str() + 7, NULL, 10) * 1024;
+	return 0;
+}
+
+// Limits the address space to what is in use now plus 1 MB; false if
+// that can't be done here.
+static bool limit_as(struct rlimit *old)
+{
+	struct rlimit low;
+	unsigned long v = vmsize();
+	if (v == 0 || getrlimit(RLIMIT_AS, old) != 0)
+		return false;
+	low = *old;
+	low.rlim_cur = v + (1 << 20);
+	if (old->rlim_max != RLIM_INFINITY && low.rlim_cur > old->rlim_max)
+		return false;
+	return setrlimit(RLIMIT_AS, &low) == 0;
+}
+
+// Whether another process can lock the whole file now.
+static bool other_can_lock(const string & fn)
+{
+	pid_t p = fork();
+	if (p == 0) {
+		int fd = open(fn.c_str(), O_RDWR);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		_exit(fd >= 0 && fcntl(fd, F_SETLK, &fl) == 0 ? 0 : 1);
+	}
+	int st;
+	waitpid(p, &st, 0);
+	return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+}
+
+static void map_fails(const string & dir)
+{
+#if defined(__SANITIZE_ADDRESS__)
+	return;			// (ASan needs far more address space)
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+	return;
+#endif
+#endif
+	string fn = dir + "/map.db";
+	string big(8 << 20, 'b');	// the file must grow by 8 MB
+	const char *d;
+	size_t sz;
+	struct rlimit old;
+	NVArray a(fn.c_str());
+	a.setsize(0, 9);
+	a.set(1, "one", 4);
+
+	// 1. This process grows the file (resize). The lock of the
+	// growing allocation was kept, and the next access used the old
+	// mapping (SIGSEGV).
+	if (!limit_as(&old)) {
+		cerr << "map_fails: no address space limit here, skipped\n";
+		unlink(fn.c_str());
+		return;
+	}
+	bool threw = false;
+	try {
+		a.set(2, big.data(), big.size());
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	setrlimit(RLIMIT_AS, &old);
+	CHECK(threw);
+	CHECK(a.get_lock() == NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	a.get(1, &d, &sz);
+	CHECK(d && strcmp(d, "one") == 0);
+
+	// 2. Another process grows the file (by more than the room the
+	// first growth left); this one can't map it at its next lock. The
+	// lock was kept.
+	big += big;
+	pid_t p = fork();
+	if (p == 0) {
+		try {
+			NVArray b(fn.c_str());
+			b.set(3, big.data(), big.size());
+		}
+		catch(const Error & e) {
+			_exit(1);
+		}
+		_exit(0);
+	}
+	int st;
+	waitpid(p, &st, 0);
+	CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	if (!limit_as(&old)) {
+		failures++;
+		return;
+	}
+	threw = false;
+	try {
+		a.get(1, &d, &sz);
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	setrlimit(RLIMIT_AS, &old);
+	CHECK(threw);
+	CHECK(a.get_lock() == NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	a.get(3, &d, &sz);
+	CHECK(d && sz == big.size());
+	unlink(fn.c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -249,6 +374,7 @@ int main(int argc, char *argv[])
 	if (!race_only) {
 		lost_file(dir);
 		free_overlap(dir);
+		map_fails(dir);
 	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);

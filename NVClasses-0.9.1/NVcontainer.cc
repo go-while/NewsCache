@@ -179,8 +179,13 @@ void NVcontainer::make_current()
 		if (is_current())
 			return;
 		munmap(mem_p, mem_sz);
-		mem_p = NULL;
 	}
+	// Nothing mapped until the mmap below: when fstat or mmap fails, no
+	// pointer into the old mapping is left (the next lock maps again).
+	mem_p = NULL;
+	mem_hdr = NULL;
+	mem_sz = 0;
+	forget();
 
 	if (fstat(mem_fd, &st) < 0) {
 		throw SystemError("NVContainer(20801): fstat failed",
@@ -206,6 +211,7 @@ void NVcontainer::make_current()
 			      mem_fd, 0);
 	if (mem_p == (char *) -1) {
 		mem_p = NULL;
+		mem_sz = 0;
 		throw SystemError("NVContainer::make_current(): mmap failed", errno,
 				  ERROR_LOCATION);
 	}
@@ -313,7 +319,14 @@ size_t NVcontainer::resize(size_t nsz)
 	mem_hdr->bytes_free += nsz - mem_sz;
 	flhead->size += nsz - mem_sz;
 	mem_hdr->size = nsz;
-	make_current();
+	try {
+		make_current();
+	}
+	catch(...) {
+		// (mmap failed: address space limit) the lock goes too
+		lock(UnLock);
+		throw;
+	}
 	lock(UnLock);
 	return mem_sz;
 }
@@ -624,6 +637,7 @@ int NVcontainer::lock(int command, int block)
 {
 	int res;
 	int curLock = UnLock;
+	int asked = command;
 
 	if (command != UnLock && mem_fd < 0 && lost_fn[0] &&
 	    lck_stackp == NVcontainer_LOCKSTACKSIZE) {
@@ -697,8 +711,23 @@ int NVcontainer::lock(int command, int block)
 		}
 		// Adapt to the new size if somebody changed the container's 
 		// size
-		if (command != UnLock)
-			make_current();
+		if (command != UnLock) {
+			try {
+				make_current();
+			}
+			catch(...) {
+				// The mapping failed (mmap, fstat): give a new
+				// lock back, as when the flock fails, or it is
+				// kept for good. (After corrupt() the stack is
+				// gone already.)
+				if (asked != UnLock &&
+				    lck_stackp < NVcontainer_LOCKSTACKSIZE) {
+					lck_stackp++;
+					nvflock(mem_fd, curLock, Block);
+				}
+				throw;
+			}
+		}
 	}
 	return 0;
 }

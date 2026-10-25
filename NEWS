@@ -88,6 +88,12 @@ Bug fixes:
   records could hand those records' space out again, so a new article
   silently overwrote another one; the file is now moved aside as
   damaged instead.
+* When a spool file grew and couldn't be mapped into memory again (an
+  address space limit, ulimit -v or LimitAS=), the session kept the
+  file's lock for good, so every other session that needed that group,
+  the active list or the history hung, and its next access to the file
+  crashed it. The lock is now given back and the file mapped again at
+  the next access.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
