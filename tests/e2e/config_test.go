@@ -42,6 +42,39 @@ const denyAll = `AccessList {
   }
 }`
 
+// TestConfigLastLineNoNewline: the last line of the config file was
+// dropped without a word when the file didn't end with a newline (getline
+// sets eofbit for it, and the lexer took that for the end): a final
+// "MaxConnections 99" stayed at the earlier value, a final "}" gave a
+// misleading syntax error.
+func TestConfigLastLineNoNewline(t *testing.T) {
+	for _, c := range []struct{ name, last, want string }{
+		{"option", "MaxConnections 99", "MaxConnections 99"},
+		{"comment", "MaxConnections 99\n# end", "MaxConnections 99"},
+		{"block", "AccessList {\n  Default {\n    allow none\n  }\n}", "allow none"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.writeConf()
+			b, err := os.ReadFile(e.Conf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conf := strings.TrimRight(string(b), "\n") + "\n" + c.last
+			if err := os.WriteFile(e.Conf, []byte(conf), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), c.want+"\n") {
+				t.Errorf("last line %q without newline: -p output lacks %q:\n%s", c.last, c.want, out)
+			}
+		})
+	}
+}
+
 // TestDefaultDenyEveryone: with only "Default { allow none }", nobody may
 // connect, not even localhost or an inetd client.
 func TestDefaultDenyEveryone(t *testing.T) {

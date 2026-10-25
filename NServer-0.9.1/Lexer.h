@@ -27,11 +27,13 @@ class Lexer {
 
 	std::string _buf;
 	int _line;
+	int _eof;		// getToken reached the end of the file
 	const char *_cbuf;
 	const char *_cbufp;
   public:
 	Lexer(const char *fn = NULL) {
 		_fn = NULL;
+		_eof = 0;
 		if (fn)
 			open(fn);
 	}
@@ -48,12 +50,13 @@ class Lexer {
 			throw IOError("Stream bad", -1, ERROR_LOCATION);
 		_fn = fn;
 		_line = 0;
+		_eof = 0;
 		_buf = "";
 		_cbufp = _cbuf = _buf.c_str();
 	}
 
 	int eof() {
-		return _is.eof();
+		return _eof;
 	}
 
 	std::string curToken() {
@@ -63,16 +66,25 @@ class Lexer {
 	std::string getToken() {
 		const char *q;
 		while (!(*_cbufp)) {
+			// a last line without a newline sets eofbit only:
+			// it is still a line, the end comes after it
+			if (_is.eof() && !_eof && !_is.bad()) {
+				_eof = 1;
+				return "";
+			}
 			if (!_is.good())
 				throw IOError("Stream bad", -1,
 					      ERROR_LOCATION);
 			_line++;
 			nlreadline(_is, _buf, 0);
-			if (_is.eof())
-				return "";
-			if (!_is.good())
+			if (_is.bad())
 				throw IOError("Stream bad", -1,
 					      ERROR_LOCATION);
+			if (_is.fail()) {
+				// nothing read: the end of the file
+				_eof = 1;
+				return "";
+			}
 			_cbufp = _cbuf = _buf.c_str();
 			while (isspace(*_cbufp))
 				_cbufp++;

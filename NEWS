@@ -348,6 +348,10 @@ Bug fixes:
   ConnectTimeout and ReadTimeout now take a plain number in a range
   (see newscache.conf(5)); anything else is a config error with the
   file and line.
+* The last line of the config file was ignored when the file didn't end
+  with a newline: a final "MaxConnections 99" or "Username news" had no
+  effect, without a message, and a final "}" gave a misleading syntax
+  error. It is read like any other line now.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
