@@ -76,15 +76,18 @@ void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
+				bool bad = false;
 				try {
 					_OverviewFormat->convert(*art, over);
 				}
 				catch(const InvalidArticleError & e) {
-					delete art;
-					corrupt("stored article unreadable");
+					bad = true;
 				}
-				os << over << "\r\n";
 				delete art;
+				if (bad)
+					dropbad(nbr);
+				else
+					os << over << "\r\n";
 			} else if (*data == bigarticle
 				   || *data == overview) {
 				os << data + sizeof(char) << "\r\n";
@@ -190,6 +193,39 @@ std::string NVNewsgroup::recordmsgid(const char *data, size_t szdata)
 	catch(...) {
 	}
 	return "";
+}
+
+// A stored article (an inline record) whose text doesn't parse: no
+// Message-ID, or what the news server sent isn't an article. The record
+// itself passed sget's checks, so the file is sound: only this article
+// goes, not the whole group (corrupt), and it is fetched again when it is
+// asked for. Takes the exclusive lock, nested in the caller's: pointers
+// into the database must be taken again afterwards.
+void NVNewsgroup::dropbad(artnum_t nbr)
+{
+	unsigned long f, l;
+	char *data;
+	size_t szdata;
+
+	slog.p(Logger::Warning) << name() << ": stored article " << nbr
+	    << " unreadable, dropped\n";
+	NVLock guard(*this, NVcontainer::ExclLock);
+	NVArray::getsize(&f, &l);
+	if (f <= nbr && nbr <= l) {
+		NVArray::sget(nbr, &data, &szdata);
+		if (data && *data == article) {
+			std::string id = recordmsgid(data, szdata);
+			NVArray::sdel(nbr - arrfst);
+			if (!id.empty() && History::enabled()) {
+				try {
+					History::remove(id.c_str(), name());
+				}
+				catch(...) {
+				}
+			}
+		}
+	}
+	guard.release();
 }
 
 // Frees the records of [f,l] in the index, and the .art files of big
@@ -461,15 +497,22 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
-				// Every stored article has a Message-ID; a record
-				// without one, or that doesn't parse, is damaged.
+				// Every stored article has a Message-ID; one
+				// without, or that doesn't parse, goes and is
+				// fetched again (see dropbad).
+				bool ok = false;
 				try {
-					art->getfield("Message-ID:");
+					ok = !art->getfield("Message-ID:").empty();
 				}
 				catch(const Error & e) {
+				}
+				if (!ok) {
 					delete art;
 					art = NULL;
-					corrupt("stored article unreadable");
+					from_spool = false;
+					dropbad(nbr);
+					if ((art = retrievearticle(nbr)) != NULL)
+						storearticle(art);
 				}
 			} else if (*data == bigarticle) {
 				// The article's own file. One that can't be
@@ -554,6 +597,19 @@ void NVNewsgroup::setarticle(Article * art)
 	ASSERT2(testdb());
 
 	nbr = art->getnbr();
+	// getarticle serves no stored article without a Message-ID: such
+	// an article is passed on, not stored
+	bool hasid = false;
+	try {
+		hasid = !art->getfield("Message-ID:").empty();
+	}
+	catch(const Error & e) {
+	}
+	if (!hasid) {
+		slog.p(Logger::Notice) << name() << ": article " << nbr
+		    << " has no Message-ID, not stored\n";
+		return;
+	}
 	NVLock guard(*this, NVcontainer::ExclLock);	// (nvalloc may throw)
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
@@ -706,14 +762,18 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 				art =
 				    new Article(nbr, data + sizeof(char),
 						szdata - sizeof(char) - 1);
+				bool bad = false;
 				try {
 					_OverviewFormat->convert(*art, over);
 				}
 				catch(const InvalidArticleError & e) {
-					delete art;
-					corrupt("stored article unreadable");
+					bad = true;
 				}
 				delete art;
+				if (bad) {
+					over = "";
+					dropbad(nbr);
+				}
 			} else if (*data == bigarticle
 				   || *data == overview) {
 				over = data + sizeof(char);
@@ -865,7 +925,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 		NVArray::sget(i, &data, &szdata);
 		if (data && (*data == article || *data == bigarticle
 			     || *data == overview)) {
-			bool found = true;
+			bool found = true, bad = false;
 			if (*data == article) {
 				//FIX! This is inefficient!
 				//FIX! The article is copied and all the overview data is copied 
@@ -890,7 +950,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 						found = false;
 					}
 				} catch(const InvalidArticleError & e) {
-					corrupt("stored article unreadable");
+					bad = true;
 				}
 			} else {
 				const char *over = data + sizeof(char);
@@ -903,7 +963,10 @@ void NVNewsgroup::printheaderdb(ostream & os,
 					found = false;
 				}
 			}
-			headerline(os, i, found ? &fld : NULL, pat);
+			if (bad)
+				dropbad(i);
+			else
+				headerline(os, i, found ? &fld : NULL, pat);
 		}
 		if (i == l)
 			break;

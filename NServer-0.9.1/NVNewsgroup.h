@@ -33,6 +33,7 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
   protected:
 	void sprintover(std::ostream & os, artnum_t nbr);
 	std::string recordmsgid(const char *data, size_t szdata);
+	void dropbad(artnum_t nbr);
 
 	enum {
 		hasarticle = 0x1,
