@@ -354,6 +354,11 @@ Bug fixes:
   error. It is read like any other line now.
 * newscache -p left out Hostname and a server's BindFrom, so its output,
   used as a config, lost them.
+* An AccessList entry with an empty prefix length, such as
+  "Client 192.168.1.0/" (a typo), was taken as /0 and let in every IPv4
+  client, without a word. Prefix lengths of 65536 and more wrapped around
+  (65536 became /0 as well), and a netmask with gaps (255.0.255.0) was
+  cut at its first gap. All of these are configuration errors now.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
