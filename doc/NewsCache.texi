@@ -218,6 +218,12 @@ user for NewsCache, although I took care of security issues, when
 writing NewsCache. @strong{A service that needs not to run as
 priviledged user, should not run as priviledged user.}
 
+Numeric values are plain decimal numbers. A value that is no number, or
+is out of range, is a configuration error that names the file and line;
+@file{newscache.conf(5)} lists the ranges (for example,
+@code{MaxConnections} 1 to 1000000, @code{Retries} 0 to 100,
+@code{ClientTimeout} and @code{ReadTimeout} 0 to 86400 seconds).
+
 @cdindex ConfigVersion
 First of all, you should specify, which configuration version, you are
 using. The current version is version 5. Thus, you should include the

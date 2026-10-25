@@ -1,6 +1,7 @@
 #include "util.h"
 #include "MPList.h"
 
+#include <limits.h>
 #include <netinet/in.h>
 
 #include <algorithm>
@@ -199,23 +200,18 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 			a1 = lex.getToken();
 			cur.postTo = a1;
 		} else if (tok == "GroupTimeout") {
-			a1 = lex.getToken();
-			cur.groupTimeout = atoi(a1.c_str());
+			cur.groupTimeout = getNumber(lex, "GroupTimeout", 0, INT_MAX);
 		} else if (tok == "LimitGroupSize") {
-			a1 = lex.getToken();
-			cur.limitgroupsize = atoi(a1.c_str());
+			cur.limitgroupsize = getNumber(lex, "LimitGroupSize", 0, UINT_MAX);
 		} else if (tok == "Retries") {
-			a1 = lex.getToken();
-			cur.retries = atoi(a1.c_str());
+			cur.retries = getNumber(lex, "Retries", 0, 100);
 		} else if (tok == "ConnectBackoff") {
-			a1 = lex.getToken();
-			cur.connectBackoff = atoi(a1.c_str());
+			cur.connectBackoff = getNumber(lex, "ConnectBackoff", 0, 86400);
 		} else if (tok == "ConnectTimeout") {
-			a1 = lex.getToken();
-			cur.connectTimeout = atoi(a1.c_str());
+			cur.connectTimeout = getNumber(lex, "ConnectTimeout", 0, 86400);
 		} else if (tok == "ReadTimeout") {
-			a1 = lex.getToken();
-			cur.readTimeout = atoi(a1.c_str());
+			// (sockstream polls in milliseconds, an int)
+			cur.readTimeout = getNumber(lex, "ReadTimeout", 0, 86400);
 		} else if (tok == "User") {
 			a1 = lex.getToken();
 			cur.user = a1;

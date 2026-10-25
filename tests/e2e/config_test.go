@@ -304,6 +304,77 @@ func TestAuthFailureDelayConfig(t *testing.T) {
 	}
 }
 
+// TestIntegerOptionsConfig: the integer options were read with atoi,
+// unchecked. "MaxConnections ten" became 0 and turned every client away,
+// "ClientTimeout 20m" became 20 seconds, "Retries -1" became 4294967295
+// (the connect and reconnect loops never ended), and a ReadTimeout above
+// 2147483 overflowed sockstream's poll timeout in milliseconds. Each value
+// must now be a plain number in its range, else a config error naming the
+// option, the file and the line.
+func TestIntegerOptionsConfig(t *testing.T) {
+	for _, c := range []struct {
+		extra, server, want string
+	}{
+		{"MaxConnections ten", "", ""},
+		{"MaxConnections 0", "", ""},
+		{"MaxConnections 1", "", "MaxConnections 1"},
+		{"ClientTimeout 20m", "", ""},
+		{"ClientTimeout -1", "", ""},
+		{"ClientTimeout 86401", "", ""},
+		{"ClientTimeout 0", "", "ClientTimeout 0"},
+		{"NiceServer 21", "", ""},
+		{"NiceClient x", "", ""},
+		{"NiceServer -5", "", "NiceServer -5"},
+		{"Timeouts 300 1d", "", ""},
+		{"Timeouts 0 86400", "", "Timeouts 0 86400"},
+		{"", "Retries -1", ""},
+		{"", "Retries 101", ""},
+		{"", "Retries 0", "Retries 0"},
+		{"", "ReadTimeout 4294968", ""},
+		{"", "ReadTimeout -1", ""},
+		{"", "ReadTimeout 86400", "ReadTimeout 86400"},
+		{"", "ConnectTimeout 1e3", ""},
+		{"", "ConnectBackoff 99999999999999999999", ""},
+		{"", "GroupTimeout 5m", ""},
+		{"", "LimitGroupSize -5", ""},
+		{"", "LimitGroupSize 4294967295", "LimitGroupSize 4294967295"},
+	} {
+		name := c.extra + c.server
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = c.extra
+			if c.server != "" {
+				e.ServerLines = "    " + c.server
+			}
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if c.want == "" {
+				opt := strings.Fields(name)[0]
+				if err == nil {
+					t.Fatalf("newscache -p accepted %q: %q", name, grepLines(string(out), opt))
+				}
+				if !strings.Contains(string(out), opt+" expects a number from") ||
+					!strings.Contains(string(out), e.Conf+":") {
+					t.Errorf("%q: error %q, want file:line and %q", name, strings.TrimSpace(string(out)), opt+" expects a number")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			found := false
+			for _, l := range strings.Split(string(out), "\n") {
+				if strings.TrimSpace(l) == c.want {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
+			}
+		})
+	}
+}
+
 // TestPrintHidesPassword: newscache -p and "XDEBUG dump configuration"
 // printed the upstream server's Password in plain text. -p output is
 // pasted into bug reports, and XDEBUG sends it over the network. They now

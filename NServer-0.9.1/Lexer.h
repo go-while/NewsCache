@@ -1,7 +1,9 @@
 #ifndef _Lexer_h_
 #define _Lexer_h_
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <iostream>
 #include <fstream>
@@ -135,6 +137,34 @@ class SyntaxError:public Error {
 		    << "  Desc: " << _errtext << "\n";
 	}
 };
+
+/*
+ * Reads the value of the integer option name: a whole token of decimal
+ * digits (a '-' first only where min < 0) from min to max, else a
+ * SyntaxError naming the option and its file and line. atoi made "ten" 0
+ * (MaxConnections 0 turned every client away) and -1 a huge unsigned
+ * number (Retries -1 reconnected for ever).
+ */
+inline long long getNumber(Lexer & lex, const char *name, long long min,
+			   long long max)
+{
+	std::string a = lex.getToken();
+	const char *p = a.c_str();
+	char *e;
+	long long v;
+
+	errno = 0;
+	v = strtoll(p, &e, 10);
+	if (*p == '-' && min < 0)
+		p++;
+	if (!isdigit((unsigned char) *p) || *e || errno || v < min || v > max) {
+		char msg[256];
+		snprintf(msg, sizeof(msg), "%s expects a number from %lld to %lld",
+			 name, min, max);
+		throw SyntaxError(lex, msg, ERROR_LOCATION);
+	}
+	return v;
+}
 
 #endif
 

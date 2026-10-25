@@ -44,6 +44,12 @@ and the articles retrieved by NewsCache, if a news reader client request it. The
 
 
 .SS General Configuration Options
+Numeric values are plain decimal numbers. A value that is no number, or
+is out of range, is a configuration error that names the file and line.
+The ranges: ClientTimeout, ConnectBackoff, ConnectTimeout and ReadTimeout
+0 to 86400 seconds; MaxConnections 1 to 1000000; NiceServer, NiceClient
+and NiceClean \-20 to 20; Retries 0 to 100; GroupTimeout and the two
+Timeouts 0 to 2147483647; LimitGroupSize 0 to 4294967295.
 .TP
 .I "ConfigVersion version"
 Specifies the syntax version of the configuration file. This manual page
@@ -276,7 +282,7 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIPostTo\fR GroupSpec
 	\fIGroupTimeout\fR seconds
 	\fIBindFrom\fR address
-	\fIRetris\fR nr-of-retries
+	\fIRetries\fR nr-of-retries
 	\fIUser\fR username
 	\fIPassword\fR password
 	\fITLSCAFile\fR file

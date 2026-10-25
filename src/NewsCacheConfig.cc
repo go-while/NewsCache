@@ -30,10 +30,9 @@ using namespace std;
       STRNCPY(name,a1);\
     }
 
-#define HANDLEINTARG(name) \
+#define HANDLEINTARG(name,min,max) \
     if(tok==#name) {\
-      a1=lex.getToken();\
-      name=atoi(a1.c_str());\
+      name=getNumber(lex,#name,min,max);\
     }
 
 
@@ -154,15 +153,15 @@ void Config::read(const char *fn)
 						  ERROR_LOCATION);
 			SpoolSize = v;
 		} else
-			HANDLEINTARG(ClientTimeout)
+			HANDLEINTARG(ClientTimeout, 0, 86400)
 			    else
-			HANDLEINTARG(MaxConnections)
+			HANDLEINTARG(MaxConnections, 1, 1000000)
 			    else
-			HANDLEINTARG(NiceServer)
+			HANDLEINTARG(NiceServer, -20, 20)
 			    else
-			HANDLEINTARG(NiceClient)
+			HANDLEINTARG(NiceClient, -20, 20)
 			    else
-			HANDLEINTARG(NiceClean)
+			HANDLEINTARG(NiceClean, -20, 20)
 			    else
 		if (tok == "LogStyle") {
 			LogStyle = 0;
@@ -241,10 +240,8 @@ void Config::read(const char *fn)
 						  "History expects on or off",
 						  ERROR_LOCATION);
 		} else if (tok == "Timeouts") {
-			a1 = lex.getToken();
-			a2 = lex.getToken();
-			ttl_list = atoi(a1.c_str());
-			ttl_desc = atoi(a2.c_str());
+			ttl_list = getNumber(lex, "Timeouts", 0, INT_MAX);
+			ttl_desc = getNumber(lex, "Timeouts", 0, INT_MAX);
 		} else {
 			throw SyntaxError(lex, "unknown keyword",
 					  ERROR_LOCATION);
