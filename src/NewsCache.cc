@@ -2360,6 +2360,13 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 	}
 	switch (argc - i) {
 	case 0:
+		// the current article (RFC 3977 8.3.2, 8.5.2: 420 without
+		// one; it answered an empty list)
+		if (clt->nbr == 0) {
+			(*clt->co) <<
+			    "420 no current article has been selected\r\n";
+			return -1;
+		}
 		fst = lst = clt->nbr;
 		break;
 	case 1:

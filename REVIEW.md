@@ -162,6 +162,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | A command line of 1023 characters or more closed the connection without a reply (`getline` into the 1024-byte buffer failed, and the loop took the stream for broken); now 501 and the rest of the line is skipped. 256 words gave 500 instead of 501 | 1 | review (area 1) | #PR |
 | LIST NEWSGROUPS ignored the client's List (the whole `.newsgroups` file went to every client) and answered a wildmat (RFC 3977 7.6.6) with 501 | 2 | review (area 2) | #PR |
 | LIST ACTIVE with a wildmat showed groups outside the client's List: `NewsgroupFilter::matches` let the wildmat decide for every group no rule matched (`bmlen` 0), so only groups a `!` rule rejects stayed hidden | 2, 10 | review (fixing LIST NEWSGROUPS) | #PR |
+| OVER, XOVER and XHDR without an argument and without a current article answered an empty 224/221 for article 0 instead of 420 (RFC 3977 8.3.2); HDR already answered 420 | 2 | review (area 2) | #PR |
 | `TestSpoolDiskFullDaemon` failed now and then, mostly in the `-race` pass on a busy machine: client 1 waits while client 2 works, which took longer than the default ClientTimeout (60 s), so NewsCache ended client 1's session as idle; and a reply deadline of 60 s was too short for 20000 overview records. Test timing only, not a NewsCache bug | 15 | e2e tests (Fedora 44, `go test -race`) | #83 |
 | With `Options starttls`, a 480 to MODE READER (sent before STARTTLS) made `issue()` log in at once (the re-login of #68): User and Password went out in plain text, which anyone in the middle could force by injecting the 480; this undid #16. Also, a server that wants the login before MODE READER got a second login (502) and the connect failed every time | 7 | review (area 7) | #85 |
 | NEXT and LAST crashed (SIGSEGV) at the first gap in a group that isn't cached (`Options not-cached`): `RNewsgroup::getover` returns NULL for a number without a record, and `ns_lastnext` read `o[0]` | 2 | review (area 2) | #86 |
@@ -193,7 +194,6 @@ that it stays as it is.
 | In standalone mode the "400 service not available" sent when CServer fails is lost (`exit(1)` without a flush) | 1 | review (area 1) | e2e: unwritable spool, the client gets 400 |
 | Client host names of 64 characters or more are never used on Linux (`client_name[MAXHOSTNAMELEN]`, the result of `getnameinfo` isn't checked) | 1 | review (area 1) |  |
 | In inetd mode the access list is matched against an uninitialized `clt.sock` | 1 | review (area 1) |  |
-| OVER/XOVER and HDR without an argument and without a current article answer an empty 224/225 instead of 420 | 2 | review (area 2) |  |
 | `xdebug dump <unknown>` sends no reply; xdebug answers with the code `xxx`; `ns_xmotd` is dead code | 2 | review (areas 1, 2) |  |
 | Upstream error replies reach the client as they are (`fetch_readable` passes a ResponseError's text on): a stray `220` or `381` without data | 2, 7 | review (area 7) |  |
 | A failed AUTHINFO PASS answers 502; RFC 4643 says 481 (three e2e tests expect 502) | 3 | review (area 3) |  |

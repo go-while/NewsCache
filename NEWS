@@ -75,6 +75,9 @@ Bug fixes:
 * newscacheclean used NiceServer for its priority instead of NiceClean,
   which had no effect. It uses NiceClean now (default 3), as
   newscache.conf(5) says; check the value if you set NiceServer.
+* OVER, XOVER and XHDR without a range and without a current article (in
+  an empty group) answered an empty list instead of "420 no current
+  article" (RFC 3977); HDR already did.
 * LIST ACTIVE with a wildmat showed groups outside the client's List:
   for a group that no List rule matched, the wildmat alone decided, so
   "LIST ACTIVE *" from a client with "List test.*" listed every group.

@@ -812,3 +812,25 @@ func TestCommandLineTooLong(t *testing.T) {
 		t.Fatalf("XPAT with 256 words: %q, want 501", line)
 	}
 }
+
+// TestOverNoCurrentArticle: OVER, XOVER, XHDR and HDR without a range
+// need a current article (RFC 3977 8.3.2, 8.5.2): in an empty group there
+// is none, and the answer is 420. OVER, XOVER and XHDR answered an empty
+// list for article 0.
+func TestOverNoCurrentArticle(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.empty", "a group without articles")
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.empty"); code != 211 {
+		t.Fatalf("GROUP test.empty: %q, want 211", line)
+	}
+	for _, cmd := range []string{"OVER", "XOVER", "XHDR Subject", "HDR Subject"} {
+		code, line := c.Cmd("%s", cmd)
+		if code == 224 || code == 221 || code == 225 {
+			c.ReadDotLines()
+		}
+		if code != 420 {
+			t.Errorf("%s without a current article: %q, want 420", cmd, line)
+		}
+	}
+}
