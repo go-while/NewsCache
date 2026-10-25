@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <grp.h>
 #include <pwd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -10,8 +11,20 @@
 #include <string>
 
 #include "setugid.h"
+#include "Logger.h"
 
 using namespace std;
+
+extern Logger slog;
+
+// Reports on stderr and in the log, then exits: the detached daemon has
+// no stderr, and it died without a trace when the Username didn't exist.
+static void fail(const string & msg)
+{
+	cerr << msg << endl;
+	slog.p(Logger::Error) << msg << "\n";
+	exit(1);
+}
 
 // Switches to the user uname and the group gname (either may be NULL or
 // empty). Started as root, the group defaults to the user's primary group,
@@ -30,23 +43,17 @@ void setugid(const char *uname, const char *gname)
 	// getgrnam() and getpwnam().
 	if (gname && *gname) {
 		struct group *grp = getgrnam(gname);
-		if (grp == NULL) {
-			cerr << "Cannot get grent for " << gname
-			    <<
-			    "\nPlease set the Groupname in newscache.conf\n";
-			exit(1);
-		}
+		if (grp == NULL)
+			fail(string("Cannot get grent for ") + gname +
+			     ": please set the Groupname in newscache.conf");
 		gid = grp->gr_gid;
 		have_gid = true;
 	}
 	if (uname && *uname) {
 		struct passwd *pwd = getpwnam(uname);
-		if (pwd == NULL) {
-			cerr << "Cannot get pwent for " << uname
-			    <<
-			    "\nPlease set the Username in newscache.conf\n";
-			exit(1);
-		}
+		if (pwd == NULL)
+			fail(string("Cannot get pwent for ") + uname +
+			     ": please set the Username in newscache.conf");
 		uid = pwd->pw_uid;
 		user = pwd->pw_name;
 		if (!have_gid && geteuid() == 0) {
@@ -59,21 +66,22 @@ void setugid(const char *uname, const char *gname)
 	if (have_gid && geteuid() == 0) {
 		int r = have_uid ? initgroups(user.c_str(), gid)
 		    : setgroups(1, &gid);
-		if (r < 0) {
-			cerr << "Cannot set the supplementary groups: "
-			    << strerror(errno) << endl;
-			exit(1);
-		}
+		if (r < 0)
+			fail(string("Cannot set the supplementary groups: ") +
+			     strerror(errno));
 	}
+	char id[32];
 	if (have_gid && setregid(gid, gid) < 0) {
-		cerr << "Cannot set effective groupid to " << gid
-		    << ": " << strerror(errno) << endl;
-		exit(1);
+		string err = strerror(errno);
+		snprintf(id, sizeof(id), "%ld", (long) gid);
+		fail(string("Cannot set effective groupid to ") + id + ": " +
+		     err);
 	}
 	if (have_uid && setreuid(uid, uid) < 0) {
-		cerr << "Cannot set effective userid to " << uid
-		    << ": " << strerror(errno) << endl;
-		exit(1);
+		string err = strerror(errno);
+		snprintf(id, sizeof(id), "%ld", (long) uid);
+		fail(string("Cannot set effective userid to ") + id + ": " +
+		     err);
 	}
 }
 

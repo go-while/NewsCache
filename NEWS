@@ -187,6 +187,13 @@ Bug fixes:
   wrote its own log line from inside the signal handler, which isn't
   safe. The handler now only records the ended session; the daemon logs
   it from its main loop.
+* Started without -n, the daemon closed its standard input, output and
+  error instead of pointing them at /dev/null, so the next files it
+  opened took their place: in a session process the client's connection
+  became the standard error, where error messages of the C library go.
+  And a Username or Groupname that doesn't exist was reported only on
+  that closed standard error: the daemon stopped at once without a word
+  in the log. Such errors are logged now too.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came

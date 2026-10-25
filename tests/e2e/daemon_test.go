@@ -199,6 +199,104 @@ func checkPidFile(t *testing.T, fn string, pid int) {
 	}
 }
 
+// startDetached starts newscache the classic way, without -n: it forks,
+// the parent exits and the daemon goes on. Returns the daemon's pid from
+// the pid file, or 0 if the daemon is gone again before that.
+func startDetached(t *testing.T, e *env) int {
+	t.Helper()
+	pidFile := filepath.Join(e.Dir, "newscache.pid")
+	if err := exec.Command(e.Bin, "-c", e.Conf).Run(); err != nil {
+		t.Fatalf("newscache: %v", err)
+	}
+	for i := 0; i < 50; i++ {
+		b, _ := os.ReadFile(pidFile)
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGTERM) })
+			return pid
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return 0
+}
+
+// TestDaemonDetached: the detached daemon closed stdin, stdout and stderr
+// instead of pointing them at /dev/null, so the next files it opened took
+// fds 0-2: the listening socket became fd 0, and in a session process the
+// client's socket became stderr (where glibc's abort messages go). And
+// setugid reported a Username that doesn't exist only on that closed
+// stderr: the daemon died at once, without a trace in the log.
+func TestDaemonDetached(t *testing.T) {
+	t.Run("stdio is /dev/null", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("reads /proc/<pid>/fd")
+		}
+		e := newEnv(t)
+		e.addArticles("test.alpha", 1)
+		e.writeConf()
+		pid := startDetached(t, e)
+		if pid == 0 {
+			t.Fatal("the daemon wrote no pid file")
+		}
+		// the pid file comes before listen()
+		for i := 0; i < 50; i++ {
+			if nc, err := net.Dial("tcp", e.Listen); err == nil {
+				nc.Close()
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		c := e.dial()
+		c.Cmd("GROUP test.alpha")
+		// whether fds 0-2 of pid are /dev/null; false if pid is gone
+		check := func(who string, pid int) bool {
+			for fd := 0; fd <= 2; fd++ {
+				l, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd))
+				if err != nil && who == "session" {
+					// the session of the probe above, ending
+					return false
+				}
+				if l != "/dev/null" {
+					t.Errorf("%s (pid %d): fd %d is %q (%v), want /dev/null", who, pid, fd, l, err)
+				}
+			}
+			return true
+		}
+		check("daemon", pid)
+		kids, _ := os.ReadFile(fmt.Sprintf("/proc/%d/task/%d/children", pid, pid))
+		n := 0
+		for _, k := range strings.Fields(string(kids)) {
+			if kid, err := strconv.Atoi(k); err == nil && check("session", kid) {
+				n++
+			}
+		}
+		if n == 0 {
+			t.Logf("no session process found under %d (no /proc/<pid>/task/<pid>/children?)", pid)
+		}
+		c.Cmd("QUIT")
+	})
+	t.Run("unknown Username is logged", func(t *testing.T) {
+		e := newEnv(t)
+		e.writeConf()
+		b, err := os.ReadFile(e.Conf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conf := strings.Replace(string(b), "\nUsername ", "\nUsername nosuchuser_e2e\n#", 1)
+		if err := os.WriteFile(e.Conf, []byte(conf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if pid := startDetached(t, e); pid != 0 {
+			for i := 0; i < 50 && syscall.Kill(pid, 0) == nil; i++ {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		log := e.logFile()
+		if !strings.Contains(log, "Cannot get pwent for nosuchuser_e2e") {
+			t.Errorf("the log doesn't say why the daemon stopped:\n%s", log)
+		}
+	})
+}
+
 // freePort returns a free TCP port on 127.0.0.1.
 func freePort(t *testing.T) string {
 	t.Helper()

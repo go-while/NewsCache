@@ -4004,9 +4004,20 @@ int main(int argc, char **argv)
 					      Error) << "setsid failed\n";
 					exit(1);
 				}
-				close(STDIN_FILENO);
-				close(STDOUT_FILENO);
-				close(STDERR_FILENO);
+				// /dev/null, not closed: else the next files
+				// opened became fds 0-2, and what went to stderr
+				// (an abort message, setugid's errors) went to a
+				// client's socket or into a spool file
+				{
+					int fd = open("/dev/null", O_RDWR);
+					if (fd >= 0) {
+						dup2(fd, STDIN_FILENO);
+						dup2(fd, STDOUT_FILENO);
+						dup2(fd, STDERR_FILENO);
+						if (fd > STDERR_FILENO)
+							close(fd);
+					}
+				}
 				break;
 			default:
 				return 0;
