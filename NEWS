@@ -99,6 +99,10 @@ Bug fixes:
   without the lock it already had, so it went on reading the file
   unlocked; one that came while it went back to its outer lock made the
   next unlock fail ("Lock Stack underflow"). The lock state is now kept.
+* A spool file left longer than its header says (a session killed while
+  the file grew) was mapped into memory again, with a "wrong database
+  size" log line at level Critical, at every lock in every session until
+  the file grew again. It is now mapped once.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

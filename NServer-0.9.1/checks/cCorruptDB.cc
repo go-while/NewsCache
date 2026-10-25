@@ -12,7 +12,9 @@
 //     mapping used;
 //  5. a signal interrupts the wait for a lock upgrade (EINTR, as the
 //     sessions' handlers have no SA_RESTART): the lock the caller held
-//     before must still be held.
+//     before must still be held;
+//  6. a file longer than its header says (a crash while it grew) must be
+//     mapped once, not again at every lock change.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -428,6 +430,47 @@ static void lock_eintr(const string & dir)
 	unlink(fn.c_str());
 }
 
+struct CurArray:public NVArray {
+	CurArray(const char *fn) {
+		open(fn);
+	}
+	bool current(void) {
+		return is_current();
+	}
+};
+
+static void longer_file(const string & dir)
+{
+	string fn = dir + "/longer.db";
+	const char *d;
+	size_t sz;
+	struct stat st;
+	{
+		NVArray a(fn.c_str());
+		a.setsize(0, 9);
+		a.set(1, "one", 4);
+	}
+	if (stat(fn.c_str(), &st) != 0 ||
+	    truncate(fn.c_str(), st.st_size + 65536) != 0) {
+		perror(fn.c_str());
+		exit(1);
+	}
+	CurArray a(fn.c_str());
+	a.get(1, &d, &sz);
+	CHECK(d && strcmp(d, "one") == 0);
+	// still the same mapping: the next lock needs no remap (it was
+	// remapped, with a log line, at every lock change)
+	CHECK(a.current());
+	// it still grows (and maps the bigger file)
+	string big(200000, 'b');
+	a.set(2, big.data(), big.size());
+	a.get(2, &d, &sz);
+	CHECK(d && sz == big.size());
+	CHECK(a.current());
+	CHECK(!exists(fn + ".bad"));
+	unlink(fn.c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -444,6 +487,7 @@ int main(int argc, char *argv[])
 		free_overlap(dir);
 		map_fails(dir);
 		lock_eintr(dir);
+		longer_file(dir);
 	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);

@@ -150,6 +150,7 @@ NVcontainer::NVcontainer()
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_sz = 0;
+	mem_hdrsz = 0;
 	mem_hdr = (Header *) mem_p;
 }
 
@@ -162,6 +163,7 @@ NVcontainer::NVcontainer(const char *dbname, int flags)
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_sz = 0;
+	mem_hdrsz = 0;
 	mem_hdr = (Header *) mem_p;
 	open(dbname, flags);
 }
@@ -279,6 +281,7 @@ void NVcontainer::make_current()
 		   << " mem_hdr->size: " << (unsigned long int) mem_hdr->size;
 		slog.p(Logger::Critical) << sb.rdbuf()->str();
 	}
+	mem_hdrsz = mem_hdr->size;
 }
 
 size_t NVcontainer::resize(size_t nsz)
