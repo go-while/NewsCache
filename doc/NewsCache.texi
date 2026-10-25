@@ -305,7 +305,11 @@ around 1 day for the newsgroup descriptions.
 @cdindex ClientTimeout
 With @code{ClientTimeout} you can specify an inactivity timer. If the
 client does not send any commands for this time, the connection is
-closed by the server. A useful value is around 15 minutes. Values below
+closed by the server. The same limit applies to each write to the
+client and, plus 10 seconds, to each read inside a command (the article
+of a @code{POST}): a client that stops reading its replies, or stops
+sending in the middle of an article, is disconnected too, so it can't
+keep a group locked. A useful value is around 15 minutes. Values below
 3 minutes should not be used because that would violate the current NNTP
 draft specification.
 

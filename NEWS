@@ -13,6 +13,12 @@ Bug fixes:
 * POST: an article cut off by the client (the connection ended before
   the final ".") was posted upstream as it was. It is now refused (441)
   and not posted.
+* ClientTimeout now also limits each write to the client and each read
+  inside a command. A client that stopped reading its replies stayed
+  connected for good, and if it did so during XOVER, XHDR, HDR or
+  LISTGROUP it kept the group locked, so every other session that needed
+  that group hung. A client that stopped in the middle of a POST was
+  never disconnected either.
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became

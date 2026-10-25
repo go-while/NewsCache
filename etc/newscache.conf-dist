@@ -322,7 +322,8 @@ NewsServerList {
 # be not downloaded from the upstream server. You need updatenews.
 # Timeouts 3600 3600
 
-# Disconnect idle client connections after 10 minutes
+# Disconnect idle client connections after 10 minutes (also clients that
+# stop reading their replies, or stop sending in the middle of a POST)
 ClientTimeout 600
 
 # After a failed login, wait this many seconds before answering, times
