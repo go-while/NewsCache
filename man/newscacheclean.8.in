@@ -13,6 +13,9 @@ test \- Purge the NewsCache to SpoolSize (newscache.conf parameter).
 The 
 .B newscacheclean
 command purges the Cache from NewsCache to the SpoolSize parameter specified in the newscache.conf file. The program newscacheclean walks through the directory tree of SpoolDirectory (newscache.conf parameter) and adds every newsgroup db and every articel file into the purge list. Every outdated external article is also inserted. Then the purge list is sorted by access time. The purge removes first all outdated external articles and then one article or newsgroup database after the other until SpoolSize (newscache.conf parameter) is reached.
+Symbolic links in the spool directory are not followed, neither to
+directories nor to files: what they point to is not counted and not
+removed.
 
 .SH OPTIONS
 This program follows the usual GNU command line syntax, with long

@@ -160,6 +160,11 @@ Bug fixes:
 * NEWGROUPS listed the new groups as "group time creator" (the format
   of LIST ACTIVE.TIMES). RFC 3977 wants the format of LIST ACTIVE,
   "group high low status", which newsreaders parse.
+* newscacheclean followed symlinks in the spool directory. Through a
+  link to a directory elsewhere it deleted files there (*.bad, .art*,
+  files named like history shards) and replaced a file named .db, and a
+  link loop made it count the spool many times over and purge articles
+  for nothing. It now skips symlinks.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
