@@ -116,6 +116,11 @@ Bug fixes:
   silently: the line lost its later fields, such as the flags, and the
   rest was read as a line of its own, whose start was taken for a user
   name. Lines may be of any length now.
+* A successful login wasn't logged with the user name (a failed one
+  was), so the log didn't tell which account a session used; it is now
+  logged at level notice ("authenticated as <user>"). The client's
+  password is also cleared from memory right after the check instead of
+  being kept for the whole session.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

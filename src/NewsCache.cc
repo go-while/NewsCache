@@ -1268,6 +1268,15 @@ void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 #define OK_SEQUENCE 			"281"
 #define INCORRECT_ORDER_SEQUENCE 	"482"
 
+// Overwrites a password in memory (a memset the compiler can't drop),
+// so that it isn't kept for the whole session, e.g. for a core dump.
+static void clear_password(char *p)
+{
+	volatile char *v = p;
+	while (*v)
+		*v++ = '\0';
+}
+
 //Authinfo
 int ns_authinfo(ClientData * clt, int argc, char *argv[])
 {
@@ -1305,8 +1314,11 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		strcpy(clt->auth_pass, argv[2]);
+		clear_password(argv[2]);
+		int checked = check_authentication(clt);
+		clear_password(clt->auth_pass);
 
-		if (check_authentication(clt) < 0) {
+		if (checked < 0) {
 			sleep (clt->auth_failure_sleep_time*
 					(++clt->auth_failures));
 			(*clt->
@@ -1315,6 +1327,9 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		}
 
 		(*clt->co) << OK_SEQUENCE << " OK.\r\n";
+		// (a failed login is logged with the user name too)
+		slog.p(Logger::Notice) << clt->client_logname
+		    << " authenticated as " << clt->auth_user << "\n";
 		clt->auth_state = AUTH_OK;
 		set_client_command_table(*clt);
 

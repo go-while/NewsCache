@@ -744,3 +744,17 @@ func TestAuthFileLongLine(t *testing.T) {
 		t.Errorf("login as bob, who has no line: %q, want a refusal", line)
 	}
 }
+
+// TestLoginLogged: a successful login is logged with the user name, as a
+// failed one is. The log said only "authinfo", so an admin couldn't tell
+// which account a session used.
+func TestLoginLogged(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	c := e.session()
+	login(t, c)
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	if log := e.logFile(); !strings.Contains(log, "authenticated as tester") {
+		t.Errorf("no \"authenticated as tester\" in the log:\n%s", log)
+	}
+}
