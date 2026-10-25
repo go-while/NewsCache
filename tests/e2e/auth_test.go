@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"debug/elf"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -150,6 +151,33 @@ func TestAuthFileWrongPassword(t *testing.T) {
 	c.Cmd("AUTHINFO USER tester")
 	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
 		t.Fatalf("AUTHINFO PASS wrong: %q, want 502", line)
+	}
+}
+
+// TestAuthFileBadHash: a stored hash that is no hash ("*" or "!", the
+// locked-account markers of shadow files, an empty field, or a method
+// crypt() doesn't know) refuses the login and leaves the session usable;
+// another user's line still works. The check passed crypt()'s result to
+// strcmp without looking: crypt() returns NULL for such a setting with
+// glibc's and BSD's crypt, which killed the session, and libxcrypt's
+// failure token "*0" matched a stored "*0" for any password.
+func TestAuthFileBadHash(t *testing.T) {
+	for _, hash := range []string{"*", "!", "", "$9$junk", "*0", "*1", "x"} {
+		t.Run(fmt.Sprintf("%q", hash), func(t *testing.T) {
+			e := authFileEnv(t, "bad:"+hash+":*:*:*:", "tester:"+md5Hash+":*:*:*:")
+			e.Extra = "AuthFailureDelay 0"
+			c := e.session()
+			if code, line := c.Cmd("AUTHINFO USER bad"); code != 381 {
+				t.Fatalf("AUTHINFO USER bad: %q, want 381", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS secret"); code != 502 {
+				t.Fatalf("AUTHINFO PASS with stored hash %q: %q, want 502", hash, line)
+			}
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP after the refused login: %q, want 211", line)
+			}
+			login(t, c)
+		})
 	}
 }
 

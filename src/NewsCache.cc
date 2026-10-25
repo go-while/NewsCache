@@ -538,28 +538,85 @@ char **seekfile(const char *filename, const char *username)
 	return NULL;
 }
 
+/*
+ * Whether two hashes (or passwords) differ, in time that depends on their
+ * lengths only, not on where they differ: a byte-by-byte compare that
+ * stops at the first difference tells how many leading characters of a
+ * guess were right.
+ */
+static int hashes_differ(const char *a, const char *b)
+{
+	size_t la = strlen(a), lb = strlen(b);
+	// With different lengths compare a with itself, so the loop does
+	// the same work; the length difference alone decides then.
+	const char *q = la == lb ? b : a;
+	unsigned char diff = la != lb;
+
+	for (size_t i = 0; i < la; i++)
+		diff |= (unsigned char) a[i] ^ (unsigned char) q[i];
+	return diff != 0;
+}
+
+/*
+ * Checks the password key against the stored hash pass: 0 if it matches.
+ * pass is an MD5 hash of ours (base64, 24 characters ending in "==") or a
+ * hash for the system's crypt(), which reads the method and the salt from
+ * it. Any other value refuses the login: crypt() returns NULL for a
+ * setting it can't use (glibc, BSD: errno EINVAL, or ENOSYS for a method
+ * that was compiled out), or a failure token "*0" or "*1" (libxcrypt,
+ * musl). The NULL went into strcmp and killed the session; a stored
+ * "*0" would have matched the token for any password. "*" and "!" are
+ * how shadow files mark a locked account, so a hash starting with either
+ * is refused outright.
+ */
 int auto_cryptcheck(const char *key, const char *pass)
 {
-#ifdef MD5_AUTO
-	if (strlen(pass) == 24 && pass[23] == '=' && pass[22] == '=') {
-		// looks like an MD5 hash
-#endif
-#ifdef MD5_CRYPT
-		return strcmp(pass, (const char *) md5crypt(key));
-#endif
-#ifdef MD5_AUTO
-	} else {
-#endif
-		{
-			// crypt() returns NULL for a format it doesn't know
-			// on some systems (FreeBSD, macOS)
-			const char *c = crypt(key, pass);
-			return c ? strcmp(pass, c) : -1;
-		}
-#ifdef MD5_AUTO
+	if (pass[0] == '\0' || pass[0] == '*' || pass[0] == '!') {
+		slog.p(Logger::Error)
+		    << "authinfo: the stored password hash is empty or marks a"
+		    " locked account; the login is refused\n";
+		return -1;
 	}
-#endif				/*MD5_AUTO */
-	return 0;
+
+	bool md5 = false;
+#ifdef MD5_CRYPT
+#ifdef MD5_AUTO
+	// looks like an MD5 hash
+	md5 = strlen(pass) == 24 && pass[23] == '=' && pass[22] == '=';
+#else
+	md5 = true;
+#endif
+#endif
+	char *md5hash = NULL;
+	const char *hash;
+	if (md5) {
+#ifdef MD5_CRYPT
+		md5hash = md5crypt(key);	// malloc'ed, NULL if that failed
+#endif
+		hash = md5hash;
+	} else {
+		errno = 0;
+		hash = crypt(key, pass);
+	}
+
+	int r;
+	if (hash == NULL) {
+		std::string why = md5 ? "cannot hash the password to check it"
+		    : std::string("crypt() can't use the stored hash (")
+		    + strerror(errno) + ")";
+		slog.p(Logger::Error) << "authinfo: " << why
+		    << "; the login is refused\n";
+		r = -1;
+	} else if (hash[0] == '*') {
+		slog.p(Logger::Error)
+		    << "authinfo: crypt() can't use the stored hash; the login"
+		    " is refused\n";
+		r = -1;
+	} else {
+		r = hashes_differ(pass, hash) ? -1 : 0;
+	}
+	free(md5hash);
+	return r;
 }
 
 #ifdef PLAIN_TEXT_PASSWORDS
@@ -700,7 +757,7 @@ int check_auth_file (ClientData *clt)
 	// (only for a field that is no hash; the plain comparison came
 	// first and accepted a hash as its own password)
 	if (passf && plain_password_field(authv[1]))
-		passf = strcmp(clt->auth_pass, authv[1]);
+		passf = hashes_differ(clt->auth_pass, authv[1]);
 #endif
 	if (passf)
 		return -1;
