@@ -1831,6 +1831,15 @@ void CServer::spoolarticle(Article * article)
 	}
 }
 
+// The Message-ID for the log. A spooled article may have none (servers
+// with dontgenmsgid): getfield threw NoSuchFieldError, and postspooled
+// lost the article, whose spool file getSpooledArt had removed already.
+static string logged_msgid(Article * a)
+{
+	return a->has_field("message-id:") ? a->getfield("message-id:") :
+	    string("(none)");
+}
+
 void CServer::postspooled(void)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::postspooled()\n");
@@ -1847,12 +1856,12 @@ void CServer::postspooled(void)
 					slog.p(Logger::Debug)
 					    << "CServer::postspooled():\
 					RServer::post returns Spooling\
-					necessary; ID:" << pA->getfield("message-id") << "\n";
+					necessary; ID:" << logged_msgid(pA) << "\n";
 					pSpool->storeBadArt(*pA);
 				} else if (s == -2) {
 					slog.p(Logger::Error)
 					    << "CServer::postspooled():\
-					RServer::post returns -2; ID:" << pA->getfield("message-id") << "\n";
+					RServer::post returns -2; ID:" << logged_msgid(pA) << "\n";
 					pSpool->storeBadArt(*pA);
 				}
 			}
@@ -1860,8 +1869,19 @@ void CServer::postspooled(void)
 				slog.p(Logger::Error)
 				    << "CServer::postspooled(): RServer::post\
 				throw InvalidArticleError; ID: "
-				    << pA->getfield("message-id") << "\n";
+				    << logged_msgid(pA) << "\n";
 				pSpool->storeBadArt(*pA);
+			}
+			catch(...) {
+				// back into the spool for the next run: its
+				// file is gone already
+				try {
+					pSpool->spoolArt(*pA);
+				}
+				catch(...) {
+				}
+				delete pA;
+				throw;
 			}
 			delete pA;
 		}

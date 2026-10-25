@@ -32,6 +32,12 @@ Bug fixes:
   the following commands read those lines as their replies, so articles
   the server had were answered 423 and the session stayed out of step
   with the server. The connection is now closed and opened again.
+* updatenews lost a spooled article without a Message-ID (servers with
+  "Options dontgenmsgid") when the upstream server refused it or
+  couldn't take it: logging its Message-ID failed, the run aborted, and
+  the article was neither posted nor kept in .badArticles. An article
+  whose posting fails with an unexpected error now goes back into the
+  spool.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
