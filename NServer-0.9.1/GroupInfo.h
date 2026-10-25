@@ -76,7 +76,10 @@ class GroupInfo {
 		char *q = _name;
 		unsigned int i = 0;
 
-		while (i < sizeof(_name) && !isspace(*p)) {
+		// stop at the end too: a line without blanks (from the news
+		// server) was read past its end, up to 512 bytes
+		while (i < sizeof(_name) && *p &&
+		       !isspace((unsigned char) *p)) {
 			*q++ = *p++;
 			++i;
 		}
@@ -101,7 +104,7 @@ class GroupInfo {
 		else
 			_n = _lst - _fst + 1;
 
-		while (isspace(*p))
+		while (isspace((unsigned char) *p))
 			p++;
 		if (*p)
 			_flag = *p;

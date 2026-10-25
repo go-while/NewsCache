@@ -8,6 +8,8 @@ New option:
 Bug fixes:
 * Error messages in the log showed a random line number ("Line:
   808335154") for errors raised without a location.
+* A line of the upstream's active list without blanks (a group name
+  alone) was read past its end, up to 512 bytes, before it was skipped.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

@@ -132,6 +132,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | `wildmat` read past the end of a malformed pattern: a character class without `]` ("a[b-", "a[^"), and a trailing backslash; reachable from a client with XPAT and `LIST ACTIVE <wildmat>`. Its header comment said "foo[a-" could cause a segmentation violation | 2, 10 | review (area 2) | #96 |
 | NEWGROUPS computed the wrong instant: on glibc (no `HAVE_TZNAME`) "GMT" wasn't applied at all and the DST flag came from the current time; the other branch forced the DST flag from `daylight`. Off by the UTC offset, or by an hour across DST | 2 | review (area 2) | #97 |
 | `Error`'s constructors without a location left `_line` uninitialized, so the log showed `Line: 808335154` and similar for every such error (SystemError, NSError, ... built with only a text) | 13 | review (area 7) | #PR |
+| `GroupInfo::set` copied the group name of an upstream active line up to the first blank without stopping at the end of the string: a line without blanks (`foo.bar`) or an empty one was read up to 512 bytes past its end before it was skipped (a guard page after the line: SIGSEGV); also `isspace` on a signed char | 10 | review (area 7) | #PR |
 | `TestSpoolDiskFullDaemon` failed now and then, mostly in the `-race` pass on a busy machine: client 1 waits while client 2 works, which took longer than the default ClientTimeout (60 s), so NewsCache ended client 1's session as idle; and a reply deadline of 60 s was too short for 20000 overview records. Test timing only, not a NewsCache bug | 15 | e2e tests (Fedora 44, `go test -race`) | #83 |
 | With `Options starttls`, a 480 to MODE READER (sent before STARTTLS) made `issue()` log in at once (the re-login of #68): User and Password went out in plain text, which anyone in the middle could force by injecting the 480; this undid #16. Also, a server that wants the login before MODE READER got a second login (502) and the connect failed every time | 7 | review (area 7) | #85 |
 | NEXT and LAST crashed (SIGSEGV) at the first gap in a group that isn't cached (`Options not-cached`): `RNewsgroup::getover` returns NULL for a number without a record, and `ns_lastnext` read `o[0]` | 2 | review (area 2) | #86 |
@@ -176,7 +177,7 @@ that it stays as it is.
 | `RServer::active` copies each Read pattern into a 513-byte stack buffer without a bound (config input) | 7 | review (area 7) |  |
 | `CServer::postspooled` loses a spooled article without a Message-ID when posting it fails again | 7 | review (area 7) |  |
 | `CServer::article(<id>)` stops searching at the first unreachable server; a failed MODE READER can clear the posting flag; QUIT isn't sent over TLS | 7 | review (area 7) |  |
-| `GroupInfo::set` reads past the end of an upstream active line without blanks; `NVActiveDB::read` and `readoverdb` set the mtime after a list cut off (the RServer side checks the stream now); `underflow` returns a 0xFF byte as EOF when the buffer isn't empty | 10, 9, 7 | review (areas 1, 7) |  |
+| `NVActiveDB::read` and `readoverdb` set the mtime after a list cut off (the RServer side checks the stream now); `underflow` returns a 0xFF byte as EOF when the buffer isn't empty | 9, 7 | review (areas 1, 7) |  |
 
 ## CodeQL dismissals
 
