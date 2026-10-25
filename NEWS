@@ -334,6 +334,26 @@ Bug fixes:
   after its last entry made the session loop for ever at full CPU while
   it held the group's lock: the client got no answer, every other session
   on that group hung, and only SIGKILL ended it.
+* A SpoolSize of 1 TByte (1073741824 KBytes) or more made every
+  newscacheclean run delete the whole spool: the limit was computed in a
+  32-bit number and wrapped negative. Values from 2147483648 on were cut
+  by the parser. SpoolSize is a 64-bit number now, and anything but a
+  plain number of KBytes is a config error.
+* Integer options were read without any check: "MaxConnections ten"
+  became 0 and turned every client away, "ClientTimeout 20m" became 20
+  seconds, "Retries -1" made NewsCache reconnect for ever to a failing
+  server, and a ReadTimeout above 2147483 overflowed the wait in
+  milliseconds. ClientTimeout, MaxConnections, the Nice values,
+  Timeouts, GroupTimeout, LimitGroupSize, Retries, ConnectBackoff,
+  ConnectTimeout and ReadTimeout now take a plain number in a range
+  (see newscache.conf(5)); anything else is a config error with the
+  file and line.
+* The last line of the config file was ignored when the file didn't end
+  with a newline: a final "MaxConnections 99" or "Username news" had no
+  effect, without a message, and a final "}" gave a misleading syntax
+  error. It is read like any other line now.
+* newscache -p left out Hostname and a server's BindFrom, so its output,
+  used as a config, lost them.
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.

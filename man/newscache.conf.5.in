@@ -44,6 +44,12 @@ and the articles retrieved by NewsCache, if a news reader client request it. The
 
 
 .SS General Configuration Options
+Numeric values are plain decimal numbers. A value that is no number, or
+is out of range, is a configuration error that names the file and line.
+The ranges: ClientTimeout, ConnectBackoff, ConnectTimeout and ReadTimeout
+0 to 86400 seconds; MaxConnections 1 to 1000000; NiceServer, NiceClient
+and NiceClean \-20 to 20; Retries 0 to 100; GroupTimeout and the two
+Timeouts 0 to 2147483647; LimitGroupSize 0 to 4294967295.
 .TP
 .I "ConfigVersion version"
 Specifies the syntax version of the configuration file. This manual page
@@ -127,8 +133,8 @@ Maximal number of simultanous connections. This Parameter works only in standalo
 .I "SpoolDirectory directory"
 The directory, where the cached newsgroups and articles should be stored. The default value is /var/cache/newscache.
 .TP
-.I "Spoolsize KBytes"
-The maximum size of the spool area. This is controlled by the
+.I "SpoolSize KBytes"
+The maximum size of the spool area, a plain number of KBytes. This is controlled by the
 .BR newscacheclean (8) .
 The default value is 1048576 KBytes (1 GByte).
 .TP
@@ -276,7 +282,7 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIPostTo\fR GroupSpec
 	\fIGroupTimeout\fR seconds
 	\fIBindFrom\fR address
-	\fIRetris\fR nr-of-retries
+	\fIRetries\fR nr-of-retries
 	\fIUser\fR username
 	\fIPassword\fR password
 	\fITLSCAFile\fR file

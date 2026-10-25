@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -29,10 +30,9 @@ using namespace std;
       STRNCPY(name,a1);\
     }
 
-#define HANDLEINTARG(name) \
+#define HANDLEINTARG(name,min,max) \
     if(tok==#name) {\
-      a1=lex.getToken();\
-      name=atoi(a1.c_str());\
+      name=getNumber(lex,#name,min,max);\
     }
 
 
@@ -137,17 +137,31 @@ void Config::read(const char *fn)
 			    else
 			HANDLESTRGARG(Hostname)
 			    else
-			HANDLEINTARG(SpoolSize)
+		if (tok == "SpoolSize") {
+			char *e;
+			long long v;
+
+			// KBytes; newscacheclean works in 512-byte blocks and
+			// st_blocks, so no int (it wrapped from 1 TByte on)
+			a1 = lex.getToken();
+			errno = 0;
+			v = strtoll(a1.c_str(), &e, 10);
+			if (!isdigit((unsigned char) a1[0]) || *e || errno
+			    || v > LLONG_MAX / 1024)
+				throw SyntaxError(lex,
+						  "SpoolSize expects a size in KBytes",
+						  ERROR_LOCATION);
+			SpoolSize = v;
+		} else
+			HANDLEINTARG(ClientTimeout, 0, 86400)
 			    else
-			HANDLEINTARG(ClientTimeout)
+			HANDLEINTARG(MaxConnections, 1, 1000000)
 			    else
-			HANDLEINTARG(MaxConnections)
+			HANDLEINTARG(NiceServer, -20, 20)
 			    else
-			HANDLEINTARG(NiceServer)
+			HANDLEINTARG(NiceClient, -20, 20)
 			    else
-			HANDLEINTARG(NiceClient)
-			    else
-			HANDLEINTARG(NiceClean)
+			HANDLEINTARG(NiceClean, -20, 20)
 			    else
 		if (tok == "LogStyle") {
 			LogStyle = 0;
@@ -226,10 +240,8 @@ void Config::read(const char *fn)
 						  "History expects on or off",
 						  ERROR_LOCATION);
 		} else if (tok == "Timeouts") {
-			a1 = lex.getToken();
-			a2 = lex.getToken();
-			ttl_list = atoi(a1.c_str());
-			ttl_desc = atoi(a2.c_str());
+			ttl_list = getNumber(lex, "Timeouts", 0, INT_MAX);
+			ttl_desc = getNumber(lex, "Timeouts", 0, INT_MAX);
 		} else {
 			throw SyntaxError(lex, "unknown keyword",
 					  ERROR_LOCATION);
@@ -246,6 +258,7 @@ void Config::printParameters (ostream *pOut)
 		*pOut << "Groupname " << Groupname << endl;
 	}
 	*pOut << "Admin " << Admin << endl;
+	*pOut << "Hostname " << Hostname << endl;
 	*pOut << "ServerType ";
 	if (ServerType == inetd) {
 		*pOut << "inetd" << endl;

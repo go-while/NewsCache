@@ -42,6 +42,39 @@ const denyAll = `AccessList {
   }
 }`
 
+// TestConfigLastLineNoNewline: the last line of the config file was
+// dropped without a word when the file didn't end with a newline (getline
+// sets eofbit for it, and the lexer took that for the end): a final
+// "MaxConnections 99" stayed at the earlier value, a final "}" gave a
+// misleading syntax error.
+func TestConfigLastLineNoNewline(t *testing.T) {
+	for _, c := range []struct{ name, last, want string }{
+		{"option", "MaxConnections 99", "MaxConnections 99"},
+		{"comment", "MaxConnections 99\n# end", "MaxConnections 99"},
+		{"block", "AccessList {\n  Default {\n    allow none\n  }\n}", "allow none"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.writeConf()
+			b, err := os.ReadFile(e.Conf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conf := strings.TrimRight(string(b), "\n") + "\n" + c.last
+			if err := os.WriteFile(e.Conf, []byte(conf), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), c.want+"\n") {
+				t.Errorf("last line %q without newline: -p output lacks %q:\n%s", c.last, c.want, out)
+			}
+		})
+	}
+}
+
 // TestDefaultDenyEveryone: with only "Default { allow none }", nobody may
 // connect, not even localhost or an inetd client.
 func TestDefaultDenyEveryone(t *testing.T) {
@@ -246,6 +279,29 @@ func TestPrintAllowAuthentication(t *testing.T) {
 	}
 }
 
+// TestPrintHostnameBindFrom: newscache -p left out Hostname and a server's
+// BindFrom, so its output read back as a config lost them (Message-IDs then
+// used the FQDN, upstream connections left from the default address).
+func TestPrintHostnameBindFrom(t *testing.T) {
+	e := newEnv(t)
+	e.ServerLines = "    BindFrom 127.0.0.1"
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	var got []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && (f[0] == "Hostname" || f[0] == "BindFrom") {
+			got = append(got, strings.Join(f, " "))
+		}
+	}
+	want := []string{"Hostname newscache.test", "BindFrom 127.0.0.1"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("newscache -p prints %q, want %q", got, want)
+	}
+}
+
 // TestAccessPrefixNeedsAddress: a /prefix after something that isn't an IP
 // address is a config error. It used to become a host name that never
 // matches, silently.
@@ -298,6 +354,77 @@ func TestAuthFailureDelayConfig(t *testing.T) {
 				t.Fatalf("newscache -p: %v\n%s", err, out)
 			}
 			if !strings.Contains("\n"+string(out), "\n"+c.want+"\n") {
+				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
+			}
+		})
+	}
+}
+
+// TestIntegerOptionsConfig: the integer options were read with atoi,
+// unchecked. "MaxConnections ten" became 0 and turned every client away,
+// "ClientTimeout 20m" became 20 seconds, "Retries -1" became 4294967295
+// (the connect and reconnect loops never ended), and a ReadTimeout above
+// 2147483 overflowed sockstream's poll timeout in milliseconds. Each value
+// must now be a plain number in its range, else a config error naming the
+// option, the file and the line.
+func TestIntegerOptionsConfig(t *testing.T) {
+	for _, c := range []struct {
+		extra, server, want string
+	}{
+		{"MaxConnections ten", "", ""},
+		{"MaxConnections 0", "", ""},
+		{"MaxConnections 1", "", "MaxConnections 1"},
+		{"ClientTimeout 20m", "", ""},
+		{"ClientTimeout -1", "", ""},
+		{"ClientTimeout 86401", "", ""},
+		{"ClientTimeout 0", "", "ClientTimeout 0"},
+		{"NiceServer 21", "", ""},
+		{"NiceClient x", "", ""},
+		{"NiceServer -5", "", "NiceServer -5"},
+		{"Timeouts 300 1d", "", ""},
+		{"Timeouts 0 86400", "", "Timeouts 0 86400"},
+		{"", "Retries -1", ""},
+		{"", "Retries 101", ""},
+		{"", "Retries 0", "Retries 0"},
+		{"", "ReadTimeout 4294968", ""},
+		{"", "ReadTimeout -1", ""},
+		{"", "ReadTimeout 86400", "ReadTimeout 86400"},
+		{"", "ConnectTimeout 1e3", ""},
+		{"", "ConnectBackoff 99999999999999999999", ""},
+		{"", "GroupTimeout 5m", ""},
+		{"", "LimitGroupSize -5", ""},
+		{"", "LimitGroupSize 4294967295", "LimitGroupSize 4294967295"},
+	} {
+		name := c.extra + c.server
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = c.extra
+			if c.server != "" {
+				e.ServerLines = "    " + c.server
+			}
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if c.want == "" {
+				opt := strings.Fields(name)[0]
+				if err == nil {
+					t.Fatalf("newscache -p accepted %q: %q", name, grepLines(string(out), opt))
+				}
+				if !strings.Contains(string(out), opt+" expects a number from") ||
+					!strings.Contains(string(out), e.Conf+":") {
+					t.Errorf("%q: error %q, want file:line and %q", name, strings.TrimSpace(string(out)), opt+" expects a number")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			found := false
+			for _, l := range strings.Split(string(out), "\n") {
+				if strings.TrimSpace(l) == c.want {
+					found = true
+				}
+			}
+			if !found {
 				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
 			}
 		})
@@ -424,6 +551,76 @@ func TestSpoolDirectoryTooLong(t *testing.T) {
 				limit+1, err, out)
 		}
 	})
+}
+
+// TestSpoolSizeLarge: SpoolSize was an int read with atoi. From 1 TByte
+// (1073741824 KBytes) on, newscacheclean's limit in 512-byte blocks
+// (SpoolSize * 2) wrapped negative and every run deleted the whole spool;
+// values from 2^31 on were mangled by atoi. It is a 64-bit number now, and
+// anything but a plain number is a config error.
+func TestSpoolSizeLarge(t *testing.T) {
+	clean := filepath.Join(filepath.Dir(binPath(t)), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to the newscache binary")
+	}
+	spoolFiles := func(dir string) (names []string) {
+		filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+			if err == nil && !fi.IsDir() {
+				names = append(names, strings.TrimPrefix(p, dir))
+			}
+			return nil
+		})
+		return
+	}
+	for _, sz := range []string{"1073741824", "2147483648", "4294967296", "9007199254740991"} {
+		t.Run(sz, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = "SpoolSize " + sz
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), "\nSpoolSize "+sz+"\n") {
+				t.Errorf("newscache -p prints %q, want SpoolSize %s", grepLines(string(out), "SpoolSize"), sz)
+			}
+			e.addArticles("test.alpha", 3)
+			c := e.session()
+			c.Cmd("GROUP test.alpha")
+			for i := 1; i <= 3; i++ {
+				if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
+					t.Fatalf("ARTICLE %d: %q", i, line)
+				}
+				c.ReadDotLines()
+			}
+			c.Cmd("QUIT")
+			time.Sleep(200 * time.Millisecond)
+			before := spoolFiles(e.Spool)
+			if !strings.Contains(strings.Join(before, " "), ".db") {
+				t.Fatalf("no group database in the spool: %q", before)
+			}
+			if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
+				t.Fatalf("newscacheclean: %v\n%s", err, out)
+			}
+			if after := spoolFiles(e.Spool); len(after) != len(before) {
+				t.Errorf("SpoolSize %s: newscacheclean removed files from a tiny spool: %q -> %q", sz, before, after)
+			}
+		})
+	}
+	for _, sz := range []string{"-1", "1T", "1e9", "9007199254740992", "99999999999999999999"} {
+		t.Run(sz, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = "SpoolSize " + sz
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err == nil {
+				t.Fatalf("newscache -p accepted SpoolSize %s: %q", sz, grepLines(string(out), "SpoolSize"))
+			}
+			if !strings.Contains(string(out), "SpoolSize expects a size in KBytes") {
+				t.Errorf("SpoolSize %s: error %q", sz, strings.TrimSpace(string(out)))
+			}
+		})
+	}
 }
 
 // dirOfLength creates a directory under base whose path is exactly n
