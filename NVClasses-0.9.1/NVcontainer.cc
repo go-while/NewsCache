@@ -695,14 +695,32 @@ int NVcontainer::lock(int command, int block)
 	}
 	// Relock if lock state changed
 	if (curLock != command) {
-		if ((res = nvflock(mem_fd, command, block)) < 0) {
+		res = nvflock(mem_fd, command, block);
+		if (res < 0 && errno == EINTR && asked == UnLock) {
+			// Back to the caller's outer lock (the stack points at
+			// it already). nvflock gave the inner one up first, so
+			// the outer one must be held again: a signal only
+			// interrupts the wait.
+			do
+				res = nvflock(mem_fd, command, Block);
+			while (res < 0 && errno == EINTR);
+		}
+		if (res < 0) {
 			int e = errno;
 			// Take the entry off again: the caller doesn't hold
 			// this lock, and won't UnLock it. (Left on the stack,
 			// the next lock() took it as held and used the
-			// mapping without flock or make_current.)
-			if (command != UnLock)
+			// mapping without flock or make_current.) Only for a
+			// new lock: restoring, the entry is the outer one.
+			if (asked != UnLock) {
 				lck_stackp++;
+				// An upgrade gave the caller's lock up first: the
+				// caller still holds it, so it is taken again.
+				if (curLock != UnLock)
+					while (nvflock(mem_fd, curLock, Block) < 0 &&
+					       errno == EINTR)
+						;
+			}
 			if (e == EWOULDBLOCK && block == NoBlock)
 				return -1;
 			throw
@@ -719,11 +737,14 @@ int NVcontainer::lock(int command, int block)
 				// The mapping failed (mmap, fstat): give a new
 				// lock back, as when the flock fails, or it is
 				// kept for good. (After corrupt() the stack is
-				// gone already.)
+				// gone already.) The caller's lock is taken
+				// back through EINTR, as above.
 				if (asked != UnLock &&
 				    lck_stackp < NVcontainer_LOCKSTACKSIZE) {
 					lck_stackp++;
-					nvflock(mem_fd, curLock, Block);
+					while (nvflock(mem_fd, curLock, Block) < 0 &&
+					       errno == EINTR)
+						;
 				}
 				throw;
 			}

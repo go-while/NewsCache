@@ -94,6 +94,11 @@ Bug fixes:
   the active list or the history hung, and its next access to the file
   crashed it. The lock is now given back and the file mapped again at
   the next access.
+* A signal (SIGTERM, SIGHUP, the client timeout's alarm) that came while
+  a session waited to upgrade its lock on a spool file left the session
+  without the lock it already had, so it went on reading the file
+  unlocked; one that came while it went back to its outer lock made the
+  next unlock fail ("Lock Stack underflow"). The lock state is now kept.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in

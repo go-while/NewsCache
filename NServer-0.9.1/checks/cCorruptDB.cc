@@ -9,7 +9,10 @@
 //     count as damage, not be handed out again over those records;
 //  4. the file can't be mapped again after it grew (mmap fails: address
 //     space limit): no lock may be kept, and no pointer into the old
-//     mapping used.
+//     mapping used;
+//  5. a signal interrupts the wait for a lock upgrade (EINTR, as the
+//     sessions' handlers have no SA_RESTART): the lock the caller held
+//     before must still be held.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -360,6 +363,71 @@ static void map_fails(const string & dir)
 	unlink(fn.c_str());
 }
 
+static void on_alarm(int)
+{
+}
+
+static void lock_eintr(const string & dir)
+{
+	string fn = dir + "/eintr.db";
+	struct sigaction sa, old;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = on_alarm;	// no SA_RESTART, as in the sessions
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGALRM, &sa, &old);
+	NVArray a(fn.c_str());
+	a.setsize(0, 9);
+
+	int go[2];
+	if (pipe(go) != 0) {
+		perror("pipe");
+		exit(1);
+	}
+	pid_t p = fork();
+	if (p == 0) {
+		// a shared lock for 3 seconds
+		int fd = open(fn.c_str(), O_RDWR);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_RDLCK;
+		fl.l_whence = SEEK_SET;
+		if (fd < 0 || fcntl(fd, F_SETLKW, &fl) != 0 ||
+		    write(go[1], "x", 1) != 1)
+			_exit(1);
+		sleep(3);
+		_exit(0);
+	}
+	char c;
+	if (read(go[0], &c, 1) != 1) {
+		perror("read");
+		exit(1);
+	}
+	close(go[0]);
+	close(go[1]);
+	a.lock(NVcontainer::ShrdLock);
+	// the upgrade waits for the child; the alarm interrupts it
+	alarm(1);
+	bool threw = false;
+	try {
+		a.lock(NVcontainer::ExclLock);
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	alarm(0);
+	CHECK(threw);
+	int st;
+	waitpid(p, &st, 0);
+	// still the caller's shared lock: on the stack and on the file
+	// (nvflock had given it up before it waited)
+	CHECK(a.get_lock() == NVcontainer::ShrdLock);
+	CHECK(!other_can_lock(fn));
+	a.lock(NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	sigaction(SIGALRM, &old, NULL);
+	unlink(fn.c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -375,6 +443,7 @@ int main(int argc, char *argv[])
 		lost_file(dir);
 		free_overlap(dir);
 		map_fails(dir);
+		lock_eintr(dir);
 	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);
