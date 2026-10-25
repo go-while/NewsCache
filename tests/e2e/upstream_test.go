@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -508,5 +511,82 @@ func TestUpstreamStalledActive(t *testing.T) {
 	case <-done:
 	case <-time.After(40 * time.Second):
 		t.Error("the session reading the stalled active list didn't end")
+	}
+}
+
+// resetProxy relays to upstream and resets (RST, SO_LINGER 0) the first
+// client connection right after the reply to the first command that
+// starts with prefix.
+func resetProxy(t *testing.T, upstream, prefix string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var first atomic.Bool
+	first.Store(true)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			reset := first.Swap(false)
+			go func(c net.Conn) {
+				defer c.Close()
+				up, err := net.Dial("tcp", upstream)
+				if err != nil {
+					return
+				}
+				defer up.Close()
+				go io.Copy(c, up)
+				r := bufio.NewReader(c)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					io.WriteString(up, line)
+					if reset && strings.HasPrefix(strings.ToLower(line), prefix) {
+						time.Sleep(200 * time.Millisecond) // the reply goes through
+						c.(*net.TCPConn).SetLinger(0)
+						return
+					}
+				}
+			}(c)
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	return port
+}
+
+// TestUpstreamClosedNoDiscontinue: the upstream resets the connection in
+// the middle of a session; NewsCache opens a new one and the client goes
+// on. Writing to the reset connection raised SIGPIPE, which NewsCache took
+// for a termination signal: the client's next command got "400 ...
+// service discontinued" and the session ended.
+func TestUpstreamClosedNoDiscontinue(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	// as a daemon: the upstream resets its connection after GROUP; the
+	// next command NewsCache writes there fails
+	e.ServerHost = "127.0.0.1"
+	e.ServerPort = resetProxy(t, e.Upstream.Addr(), "group")
+	e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	time.Sleep(time.Second)
+	for n := 1; n <= 2; n++ {
+		code, line := c.Cmd("ARTICLE %d", n)
+		if code != 220 {
+			t.Fatalf("ARTICLE %d: %q", n, line)
+		}
+		c.ReadDotLines()
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE after the upstream reset its connection: %q, want 111", line)
 	}
 }
