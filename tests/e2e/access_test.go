@@ -445,3 +445,68 @@ func TestPostNewsgroupsSeparators(t *testing.T) {
 		})
 	}
 }
+
+// TestListNewsgroupsFilter: LIST NEWSGROUPS shows only the descriptions of
+// groups in the client's List, and takes a wildmat (RFC 3977 7.6.6). It
+// sent the whole description file to every client, and the wildmat form
+// got 501.
+func TestListNewsgroupsFilter(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	desc := "test.alpha Alpha group.\ntest.beta\tBeta group.\nsecret.group Not for this client.\n"
+	if err := os.WriteFile(filepath.Join(e.Spool, ".newsgroups"), []byte(desc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client stdin {\n    allow read post\n    List *\n", "Client stdin {\n    allow read post\n    List test.*\n", 1)
+	c := e.session()
+	list := func(cmd string) []string {
+		t.Helper()
+		if code, line := c.Cmd("%s", cmd); code != 215 {
+			t.Fatalf("%s: %q, want 215", cmd, line)
+		}
+		var groups []string
+		for _, l := range c.ReadDotLines() {
+			groups = append(groups, strings.Fields(l)[0])
+		}
+		return groups
+	}
+	if got := strings.Join(list("LIST NEWSGROUPS"), " "); got != "test.alpha test.beta" {
+		t.Errorf("LIST NEWSGROUPS: groups %q, want test.alpha test.beta", got)
+	}
+	if got := strings.Join(list("LIST NEWSGROUPS *.beta"), " "); got != "test.beta" {
+		t.Errorf("LIST NEWSGROUPS *.beta: groups %q, want test.beta", got)
+	}
+	if got := strings.Join(list("LIST NEWSGROUPS secret.*"), " "); got != "" {
+		t.Errorf("LIST NEWSGROUPS secret.*: groups %q, want none", got)
+	}
+}
+
+// TestListActiveWildmatList: LIST ACTIVE with a wildmat shows only groups
+// in the client's List. The wildmat replaced the List for every group no
+// List rule matched, so "LIST ACTIVE *" from a client with "List test.*"
+// showed all groups.
+func TestListActiveWildmatList(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.addArticles("secret.group", 1)
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client stdin {\n    allow read post\n    List *\n", "Client stdin {\n    allow read post\n    List test.*\n", 1)
+	c := e.session()
+	for _, cmd := range []string{"LIST", "LIST ACTIVE *", "LIST ACTIVE *.group"} {
+		if code, line := c.Cmd("%s", cmd); code != 215 {
+			t.Fatalf("%s: %q, want 215", cmd, line)
+		}
+		var groups []string
+		for _, l := range c.ReadDotLines() {
+			groups = append(groups, strings.Fields(l)[0])
+		}
+		want := "test.alpha"
+		if cmd == "LIST ACTIVE *.group" {
+			want = ""
+		}
+		if got := strings.Join(groups, " "); got != want {
+			t.Errorf("%s: groups %q, want %q", cmd, got, want)
+		}
+	}
+}

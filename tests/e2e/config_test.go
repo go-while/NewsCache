@@ -352,7 +352,7 @@ func TestPrintHidesPassword(t *testing.T) {
 		}
 		dump = append(dump, l)
 	}
-	if len(dump) == 0 || !strings.HasPrefix(dump[0], "xxx configuration") {
+	if len(dump) == 0 || !strings.HasPrefix(dump[0], "100 configuration") {
 		t.Fatalf("XDEBUG dump configuration: %q", dump)
 	}
 	check("XDEBUG dump configuration", strings.Join(dump, "\n"))
@@ -484,4 +484,26 @@ func grepLines(s, sub string) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// TestXdebugReplies: every XDEBUG command gets a reply with a status code.
+// "XDEBUG dump <unknown>" got none (the client waited for ever), and the
+// other replies had the code "xxx" or none at all.
+func TestXdebugReplies(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client stdin {\n    allow read post\n", "Client stdin {\n    allow read post debug\n", 1)
+	c := e.session()
+	for _, cmd := range []string{"XDEBUG dump foo", "XDEBUG foo bar", "XDEBUG"} {
+		if code, line := c.Cmd("%s", cmd); code != 501 {
+			t.Errorf("%s: %q, want 501", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("XDEBUG help"); code != 100 {
+		t.Fatalf("XDEBUG help: %q, want 100", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after XDEBUG: %q, want 111", line)
+	}
 }

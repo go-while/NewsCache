@@ -110,6 +110,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 
 #include <iostream>
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -172,7 +173,6 @@ int ns_mode(ClientData * clt, int argc, char *argv[]);
 int ns_newgroups(ClientData * clt, int argc, char *argv[]);
 int ns_post(ClientData * clt, int argc, char *argv[]);
 int ns_quit(ClientData * clt, int argc, char *argv[]);
-int ns_xmotd(ClientData * clt, int argc, char *argv[]);
 int ns_xover(ClientData * clt, int argc, char *argv[]);
 int ns_xpat(ClientData * clt, int argc, char *argv[]);
 int ns_hdr(ClientData * clt, int argc, char *argv[]);
@@ -207,7 +207,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	{"last", "", ns_lastnext}
 	,
 	{"list",
-	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]",
+	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]",
 	 ns_list}
 	,
 	{"listgroup", "[newsgroup [range]]", ns_listgroup}
@@ -1829,6 +1829,33 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			}
 			(*clt->co) << ".\r\n";
 			return 0;
+		} else if (strcasecmp(argv[1], "newsgroups") == 0) {
+			// LIST NEWSGROUPS [wildmat] (RFC 3977 7.6.6): only the
+			// groups the client may list, like LIST ACTIVE. The
+			// wildmat form answered 501, and every description in
+			// the file was shown.
+			char buf[MAXPATHLEN];
+			string strg;
+			if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
+				     Cfg.SpoolDirectory) >= (int) sizeof(buf))
+				buf[0] = '\0';	// can't happen: see LServer::init
+			ifstream ifs(buf);
+			NewsgroupFilter filter(clt->access_entry->list);
+			(*clt->
+			 co) << "215 Description follows\r\n";
+			for (;;) {
+				nlreadline(ifs, strg);
+				if (!ifs.good())
+					break;
+				string name =
+				    strg.substr(0, strg.find_first_of(" \t\r\n"));
+				if (filter.matches(name.c_str()) <= 0 ||
+				    (argc == 3 && !wildmat(name.c_str(), argv[2])))
+					continue;
+				(*clt->co) << strg;
+			}
+			(*clt->co) << ".\r\n";
+			return 0;
 		} else if (argc == 2) {
 			if (strcasecmp(argv[1], "extensions") == 0) {
 				(*clt->
@@ -1836,23 +1863,6 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				(*clt->co) << " over\r\n";
 				(*clt->co) << " pat\r\n";
 				(*clt->co) << " authinfo user\r\n";
-				(*clt->co) << ".\r\n";
-				return 0;
-			} else if (strcasecmp(argv[1], "newsgroups") == 0) {
-				char buf[MAXPATHLEN];
-				string strg;
-				if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
-					     Cfg.SpoolDirectory) >= (int) sizeof(buf))
-					buf[0] = '\0';	// can't happen: see LServer::init
-				ifstream ifs(buf);
-				(*clt->
-				 co) << "215 Description follows\r\n";
-				for (;;) {
-					nlreadline(ifs, strg);
-					if (!ifs.good())
-						break;
-					(*clt->co) << strg;
-				}
 				(*clt->co) << ".\r\n";
 				return 0;
 			} else if (strcasecmp(argv[1], "headers") == 0) {
@@ -1878,7 +1888,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 
 	(*clt->
 	 co) <<
-      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]\r\n";
+      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]\r\n";
 	return -1;
 }
 
@@ -2246,12 +2256,6 @@ int ns_quit(ClientData * clt, int argc, char *argv[])
 	return 1;
 }
 
-int ns_xmotd(ClientData * clt, int argc, char *argv[])
-{
-	(*clt->co) << "500 not yet supported\r\n";
-	return -1;
-}
-
 
 /*
  * 221 Header follows
@@ -2349,6 +2353,13 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 	}
 	switch (argc - i) {
 	case 0:
+		// the current article (RFC 3977 8.3.2, 8.5.2: 420 without
+		// one; it answered an empty list)
+		if (clt->nbr == 0) {
+			(*clt->co) <<
+			    "420 no current article has been selected\r\n";
+			return -1;
+		}
 		fst = lst = clt->nbr;
 		break;
 	case 1:
@@ -2549,31 +2560,29 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
+// The replies are multi-line ones with the informative code 100: they
+// had the code "xxx" (help none), and an unknown "xdebug dump" argument
+// got no reply at all.
 int ns_xdebug(ClientData * clt, int argc, char *argv[])
 {
-	if (argc == 3) {
-		if (strcmp(argv[1], "dump") == 0) {
-			if (strcmp(argv[2], "authorization") == 0) {
-				(*clt->
-				 co) <<
-			      "xxx authorization data follows\r\n";
-				(*clt->co) << *clt->access_entry << "\r\n";
-				(*clt->co) << ".\r\n";
-			}
-			if (strcmp(argv[2], "configuration") == 0) {
-				(*clt->
-				 co) <<
-			      "xxx configuration data follows\r\n";
-				Cfg.printParameters (clt->co);
-				(*clt->co) << ".\r\n";
-			}
+	if (argc == 3 && strcmp(argv[1], "dump") == 0) {
+		if (strcmp(argv[2], "authorization") == 0) {
+			(*clt->co) << "100 authorization data follows\r\n";
+			(*clt->co) << *clt->access_entry << "\r\n";
+			(*clt->co) << ".\r\n";
+			return 0;
 		}
-		return 0;
+		if (strcmp(argv[2], "configuration") == 0) {
+			(*clt->co) << "100 configuration data follows\r\n";
+			Cfg.printParameters (clt->co);
+			(*clt->co) << ".\r\n";
+			return 0;
+		}
 	}
 
 	if (argc == 2) {
 		if (strcmp(argv[1], "help") == 0) {
-			(*clt->co) << "Valid commands:\r\n";
+			(*clt->co) << "100 Valid commands:\r\n";
 			(*clt->co) << "xdebug dump authorization:\r\n";
 			(*clt->co) << "xdebug dump configuration:\r\n";
 			(*clt->co) << ".\r\n";
@@ -2762,6 +2771,7 @@ void nnrpd(int fd)
 	char req[1024], oreq[1024], *rp;
 	char *argv[256];
 	int argc;
+	bool too_long;
 	const char *cmd;
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
@@ -3034,6 +3044,17 @@ void nnrpd(int fd)
 		alarmed = 0;
 		alarm (Cfg.ClientTimeout);
 		clt.ci->getline(req, sizeof(req), '\n');
+		too_long = false;
+		if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
+		    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {
+			// The line doesn't fit into req: skip the rest of it
+			// and answer 501 (RFC 3977 3.2.1). The failed getline
+			// used to end the session without a reply.
+			too_long = true;
+			clt.ci->clear();
+			clt.ci->ignore(std::numeric_limits < std::streamsize >::max(),
+				       '\n');
+		}
 		alarm (0);
 		if (alarmed) {
 			alarmed = 0;
@@ -3053,6 +3074,13 @@ void nnrpd(int fd)
 		if (!clt.ci->good()) {
 			slog.p(Logger::Debug) << "NewsCache.cc input stream not good!\n";
 			break;
+		}
+		if (too_long) {
+			// (not logged: it may be an AUTHINFO line)
+			slog.p(Logger::Notice) << clt.client_logname
+			    << " command line too long\n";
+			(*clt.co) << "501 Line too long\r\n";
+			continue;
 		}
 		rp = req + strlen(req);
 		while (rp > req) {
@@ -3085,7 +3113,7 @@ void nnrpd(int fd)
 		if (!argc)
 			continue;
 		if (argc == 256) {
-			(*clt.co) << "500 Line too long\r\n";
+			(*clt.co) << "501 Line too long\r\n";
 			continue;
 		}
 		// Call function for command

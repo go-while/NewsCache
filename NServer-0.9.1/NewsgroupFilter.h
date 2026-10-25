@@ -266,8 +266,11 @@ class NewsgroupFilter {
 		} else if (!WildmatSearch) {
 			return bmlen;
 		} else {
-			return (wildmat(newsgroup, Wildmat.c_str())? (1)
-				: (0));
+			// the wildmat narrows the rules down: a group no rule
+			// accepts stays out (it let LIST ACTIVE <wildmat> show
+			// groups outside the client's List)
+			return (bmlen > 0 &&
+				wildmat(newsgroup, Wildmat.c_str())) ? (1) : (0);
 		}
 		//return bmrej?-bmlen:bmlen;
 	}

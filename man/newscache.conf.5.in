@@ -529,7 +529,7 @@ Connected to faultier.
 Escape character is '^]'.
 200 NewsCache 1.2, accepting NNRP commands
 xdebug dump authorization
-xxx authorization data follows
+100 authorization data follows
 127.0.0.1/255.255.255.255{
   access_flags=4 ( debug)
   list=at.*
@@ -544,7 +544,7 @@ authinfo user myusername
 authinfo pass mypassword
 281 OK.
 xdebug dump authorization
-xxx authorization data follows
+100 authorization data follows
 127.0.0.1/255.255.255.255{
   access_flags=7 ( read post debug)
   list=at.*,*
