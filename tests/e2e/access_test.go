@@ -306,3 +306,46 @@ func TestPostCutOff(t *testing.T) {
 		t.Errorf("upstream got %d posted articles, want none (the article was cut off)", n)
 	}
 }
+
+// TestPostSizeLimit: POST takes articles up to 1 MB; a larger one is
+// refused with 441, read to its "." line (the session goes on) and not
+// posted. There was no limit: an endless article took all the memory.
+func TestPostSizeLimit(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	c.Deadline = 60 * time.Second
+	post := func(n, kb int) (int, string) {
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: size %d\r\n"+
+			"Message-ID: <size%d@newscache.test>\r\n\r\n", n, n)
+		line := strings.Repeat("x", 1022) + "\r\n"
+		for i := 0; i < kb; i++ {
+			b.WriteString(line)
+		}
+		b.WriteString(".\r\n")
+		if err := c.Send(b.String()); err != nil {
+			t.Fatal(err)
+		}
+		code, reply, err := c.ReadStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, reply
+	}
+	if code, line := post(1, 1100); code != 441 {
+		t.Errorf("POST of 1.1 MB: %q, want 441", line)
+	}
+	if code, line := post(2, 900); code != 240 {
+		t.Errorf("POST of 900 KB: %q, want 240", line)
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after the posts: %q, want 111", line)
+	}
+	if n := len(e.Store.Posted()); n != 1 {
+		t.Errorf("upstream got %d posted articles, want 1 (the 900 KB one)", n)
+	}
+}

@@ -2053,6 +2053,66 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 
 #undef DD2INT
 
+// The largest article a client may post (bytes, with CRLF line ends).
+#define MAX_POST_SIZE (1024 * 1024)
+
+/*
+ * Reads a posted article up to its "." line into text, as readtext does
+ * (lines end with "\r\n", the "." line not included). Returns 0; 1 when
+ * the article is larger than max bytes (the rest is read and dropped up
+ * to the "." line, so that the session stays in step, and nothing is
+ * kept); -1 when the input ends before the "." line. Article::read had no
+ * limit: an endless article, or an endless line, took all the memory.
+ */
+static int read_post_article(istream & is, string & text, size_t max)
+{
+	string line;
+	size_t total = 0, len;
+	bool over = false;
+	char first, second;
+	int c;
+
+	text.clear();
+	for (;;) {
+		len = 0;
+		first = second = 0;
+		line.clear();
+		while ((c = is.get()) != EOF && c != '\n') {
+			if (len == 0)
+				first = c;
+			else if (len == 1)
+				second = c;
+			len++;
+			if (!over) {
+				line += (char) c;
+				if (total + line.size() > max) {
+					over = true;
+					string().swap(line);
+					string().swap(text);
+				}
+			}
+		}
+		if (c == EOF)
+			return -1;
+		if ((len == 1 && first == '.')
+		    || (len == 2 && first == '.' && second == '\r'))
+			break;
+		if (over)
+			continue;
+		if (!line.empty() && line[line.size() - 1] == '\r')
+			line.erase(line.size() - 1);
+		total += line.size() + 2;
+		if (total > max) {
+			over = true;
+			string().swap(text);
+			continue;
+		}
+		text += line;
+		text += "\r\n";
+	}
+	return over ? 1 : 0;
+}
+
 int ns_post(ClientData * clt, int argc, char *argv[])
 {
 	VERB(slog.p(Logger::Debug) << "NewsCache::ns_post\n");
@@ -2067,8 +2127,9 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		// request article to be posted
 		(*clt->co) << "340 send article to be posted.\r\n";
 		clt->co->flush();
-		art.read(*clt->ci);
-		if (!clt->ci->good()) {
+		string text;
+		int r = read_post_article(*clt->ci, text, MAX_POST_SIZE);
+		if (r < 0) {
 			// the input ended (or failed) before the "." line:
 			// the article is cut off and must not be posted
 			slog.p(Logger::Notice) << clt->client_logname
@@ -2077,6 +2138,15 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			(*clt->co) << "441 article incomplete, not posted\r\n";
 			return -1;
 		}
+		if (r > 0) {
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: article larger than " << MAX_POST_SIZE
+			    << " bytes, not posted\n";
+			(*clt->co) << "441 article too large (at most "
+			    << MAX_POST_SIZE << " bytes)\r\n";
+			return -1;
+		}
+		art.settext(text);
 
 		// check whether client is authorized to post this article.
 		// (substr took the second argument as an end position,

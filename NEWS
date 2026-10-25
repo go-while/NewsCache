@@ -6,6 +6,9 @@ New option:
   read and write; default 300, 0 waits for ever).
 
 Bug fixes:
+* POST takes articles of up to 1 MB. There was no limit: a client could
+  send an endless article (or line) until the session ran out of memory.
+  A larger article is refused with 441 and the session goes on.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came
