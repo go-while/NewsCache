@@ -712,3 +712,48 @@ func TestUpstreamLongCommand(t *testing.T) {
 		t.Errorf("the upstream didn't get the whole STAT command")
 	}
 }
+
+// TestUpstreamCutOffActive: the upstream closes the connection in the
+// middle of the active list (LIST ACTIVE <pattern>, which NewsCache sends
+// by default). The cut-off list must not count as complete: the next
+// session asks for it again. NVActiveDB::read stopped at the end of the
+// input and set the list's time as after a full list, so the missing
+// groups stayed missing until Timeouts ran out (#95 checked only the
+// "list active" branch).
+func TestUpstreamCutOffActive(t *testing.T) {
+	e := newEnv(t)
+	for i := 1; i <= 40; i++ {
+		e.Store.AddGroup(fmt.Sprintf("test.g%02d", i), "g")
+	}
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		DropInMultiline: map[string]int{"LIST": 21},
+	}})
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	if code, line := c.Cmd("LIST ACTIVE"); code == 215 {
+		c.ReadDotLines()
+	} else {
+		t.Logf("LIST ACTIVE: %q", line)
+	}
+	c.Cmd("QUIT")
+	// (LIST alone counts LIST OVERVIEW.FMT of every connection too)
+	lists := func() int {
+		n := 0
+		for _, l := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToUpper(l), "LIST ACTIVE") {
+				n++
+			}
+		}
+		return n
+	}
+	before := lists()
+	c2 := e.session()
+	c2.Deadline = 20 * time.Second
+	if code, _ := c2.Cmd("LIST ACTIVE"); code == 215 {
+		c2.ReadDotLines()
+	}
+	c2.Cmd("QUIT")
+	if after := lists(); after == before {
+		t.Errorf("the second LIST ACTIVE didn't go upstream: the cut-off active list was taken as complete")
+	}
+}

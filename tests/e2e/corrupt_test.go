@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 	"github.com/go-while/nntp-testkit/proc"
 )
 
@@ -406,4 +407,72 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 		t.Errorf("newscache: %v, stderr %q", err, p.Stderr())
 	}
 	checkMovedAside(t, e, db)
+}
+
+// TestBadStoredArticle: an article of 15 KB or less is kept in the group
+// database as it came from the upstream. One that the read side can't use
+// (no Message-ID; a bare CR in a header that the overview walks over) was
+// taken for a damaged database on every later read: the whole group
+// database went to .db.bad, with every cached record of the group. Now an
+// article without a Message-ID isn't stored, and a stored one that doesn't
+// parse is dropped on its own and fetched again.
+func TestBadStoredArticle(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts fakeserver.Options
+		art1 func(e *env)
+	}{
+		{"no-message-id", fakeserver.Options{Faults: fakeserver.Faults{
+			OverrideLine: map[string][]string{"ARTICLE 1": {
+				"220 1 <nomid@x> article", "From: a@b", "Subject: no id",
+				"Newsgroups: test.alpha", "", "body", "."}},
+		}}, func(e *env) {
+			e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 1, []string{"body"}))
+		}},
+		{"bare-cr", fakeserver.Options{}, func(e *env) {
+			id := "<bare-cr.1@upstream.test>"
+			e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+				Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+					"Newsgroups: test.alpha", "Xref: upstream.test test.alpha:1",
+					"X-Junk: a\rb", "Subject: s"},
+				Body: []string{"body"}})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.Store.AddGroup("test.alpha", "x")
+			tc.art1(e)
+			for n := int64(2); n <= 3; n++ {
+				e.Store.AddArticle("test.alpha", groupArticle("test.alpha", n, []string{"body"}))
+			}
+			upstreamWith(t, e, tc.opts)
+			for s := 1; s <= 2; s++ {
+				c := e.session()
+				c.Strict = false
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("session %d: GROUP: %q", s, line)
+				}
+				if code, line := c.Cmd("XOVER 1-3"); code == 224 {
+					if l := c.ReadDotLines(); s == 2 && (!containsPrefix(l, "2\t") ||
+						!containsPrefix(l, "3\t")) {
+						t.Errorf("session 2: XOVER 1-3 lacks the records of 2 and 3: %q", l)
+					}
+				} else {
+					t.Errorf("session %d: XOVER 1-3: %q", s, line)
+				}
+				for n := 1; n <= 3; n++ {
+					code, line := c.Cmd("ARTICLE %d", n)
+					if code == 220 {
+						c.ReadDotLines()
+					} else if n > 1 {
+						t.Errorf("session %d: ARTICLE %d: %q", s, n, line)
+					}
+				}
+				c.Cmd("QUIT")
+			}
+			if m, _ := filepath.Glob(filepath.Join(e.Spool, "test", "alpha", "*.bad")); len(m) > 0 {
+				t.Errorf("the group database was moved aside: %v", m)
+			}
+		})
+	}
 }
