@@ -199,7 +199,7 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 	// No space for a group (disk full): the rest of the list is read
 	// all the same, so the connection to the news server stays in step,
 	// and the error is thrown at the end.
-	bool failed = false;
+	bool failed = false, done = false;
 	SystemError err;
 
 	NVLock guard(*this, NVcontainer::ExclLock);
@@ -209,8 +209,10 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 		// Each line has the following form
 		// GroupName Last First Flags
 		nlreadline(is, line, 0, NNTP_MAXLINE);
-		if (line == ".")
+		if (line == ".") {
+			done = true;
 			break;
+		}
 
 		if (!filter || matchgroup(filter, line.c_str()) > 0) {
 			// Add group. Skip a line we can't parse (e.g. a group
@@ -241,6 +243,11 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 	}
 	if (failed)
 		throw err;
+	// A list cut off (the connection ended before the ".") isn't
+	// complete: without the new mtime it is fetched again next time.
+	if (!done)
+		throw SystemError("active list cut off by the news server", -1,
+				  ERROR_LOCATION);
 	time(&now);
 	setmtime(now);
 }

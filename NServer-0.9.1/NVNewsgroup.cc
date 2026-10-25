@@ -784,13 +784,17 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 	// all the same, so the connection to the news server stays in step
 	// (the next command read the rest for its reply), and the error is
 	// thrown at the end.
-	bool failed = false;
+	bool failed = false, done = false;
 	SystemError err;
 
 	NVLock guard(*this, NVcontainer::ExclLock);
 	for (;;) {
 		nlreadline(is, line1, 0, NNTP_MAXLINE);
-		if (line1 == "." || is.eof())
+		if (line1 == ".") {
+			done = true;
+			break;
+		}
+		if (is.eof())
 			break;
 		if ((n = leading_artnum(line1.c_str())) > high)
 			high = n;
@@ -815,8 +819,11 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 	if (failed)
 		throw err;
 
-	time(&now);
-	setmtime(now);
+	// (a reply cut off isn't complete: overviewrange throws for it)
+	if (done) {
+		time(&now);
+		setmtime(now);
+	}
 	return high;
 }
 

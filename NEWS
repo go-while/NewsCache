@@ -107,6 +107,10 @@ Bug fixes:
   SIGXFSZ (and a core dump) the first time a spool file would grow past
   it, instead of passing the article on as on a full disk. newscache and
   updatenews ignore SIGXFSZ now, so the write fails and is handled.
+* An active list that the upstream server cut off was still taken as
+  complete in the default setup (LIST ACTIVE with a pattern): the groups
+  after the cut kept old numbers and new groups were missing until
+  Timeouts ran out. The list is now fetched again by the next session.
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
   NewsCache log in right away (the re-login added in 1.3.22). Anyone in
