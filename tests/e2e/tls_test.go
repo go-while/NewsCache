@@ -408,3 +408,35 @@ func TestSTARTTLSNoLoginBeforeTLS(t *testing.T) {
 		t.Errorf("MODE READER sent %d times, want it again after the login", n)
 	}
 }
+
+// TestUpstreamQuit: at the end of a session NewsCache sends QUIT to the
+// upstream. Over TLS it was dropped: RServer::disconnect writes it into
+// the stream without a flush, and the TLS stream sent its close_notify
+// without writing what it still held.
+func TestUpstreamQuit(t *testing.T) {
+	for _, useTLS := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "TLS"}[useTLS], func(t *testing.T) {
+			var e *env
+			if useTLS {
+				var ca *testCA
+				e, ca, _ = tlsEnv(t, []string{"localhost"}, validFrom, validUntil, false, false)
+				e.ServerLines = "    TLSCAFile " + ca.file
+			} else {
+				e = newEnv(t)
+				e.addArticles("test.alpha", 1)
+			}
+			c := e.session()
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP test.alpha: %q", line)
+			}
+			c.Cmd("QUIT")
+			deadline := time.Now().Add(10 * time.Second)
+			for e.Upstream.Count("QUIT") == 0 {
+				if time.Now().After(deadline) {
+					t.Fatalf("the upstream got no QUIT")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		})
+	}
+}
