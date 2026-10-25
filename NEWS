@@ -225,6 +225,10 @@ Bug fixes:
   the group's spool database for damaged at every read: it was moved to
   .db.bad and all cached articles of the group were fetched again. Such
   bytes now become a space; RFC 5536 allows neither.
+* XHDR Xref and HDR Xref killed the session (an uncaught exception,
+  SIGABRT) when an overview record from the upstream server had an empty
+  Xref field followed by a tab. They also answered ": host group:n"
+  instead of "host group:n" from an overview record.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

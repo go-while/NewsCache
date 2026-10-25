@@ -117,11 +117,21 @@ class OverviewFmt {
 					return field;
 				}
 				if (full < _over[i].full) {
-					// Strip fieldname
-					while (*p && *p != ':')
-						p++;
-					while (*p && isspace(*p))
-						p++;
+					// Strip fieldname: up to the ':' and the
+					// blanks after it, within this field (q is
+					// its end). A field without ':', such as an
+					// empty Xref, stays as it is.
+					const char *c = p;
+
+					while (c < q && *c != ':')
+						c++;
+					if (c < q) {
+						c++;
+						while (c < q
+						       && isspace((unsigned char) *c))
+							c++;
+						p = c;
+					}
 					field.assign(p, q - p);
 					return field;
 				}
