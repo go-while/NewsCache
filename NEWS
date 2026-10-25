@@ -154,6 +154,9 @@ Bug fixes:
 * configure --enable-headerlog gave a build that didn't compile (a typo
   since 2008), and newscache -o printed the option as
   --enable_headerlog.
+* NEWGROUPS listed the new groups as "group time creator" (the format
+  of LIST ACTIVE.TIMES). RFC 3977 wants the format of LIST ACTIVE,
+  "group high low status", which newsreaders parse.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
