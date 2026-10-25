@@ -455,34 +455,6 @@ void Authentication::printParameters (std::ostream *pOut) const
 	*pOut << endl;
 }
 
-void Authentication::modify (unsigned int start, Authentication &source)
-{
-	unsigned int i;
-	vector<std::string>::iterator sp, se;
-	vector<std::string>::iterator dp, de;
-
-	sp = source.fields.begin();
-	se = source.fields.end();
-	dp = fields.begin();
-	de = fields.end();
-
-	for (i=0; sp != se && dp != de; i++) {
-		if (dp == de) {
-			if (i>=start)
-				fields.push_back (*sp);
-			sp++;
-		} else if (sp == se) {
-			if (i>=start)
-				fields.push_back (std::string(""));
-			dp++;
-		} else {
-			if (i>=start)
-				(*dp) += (*sp);
-			sp++; dp++;
-		}
-	}
-}
-
 int Authentication::typeEqual (const std::string &v)
 {
 	const char *s = fields[0].c_str();

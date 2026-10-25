@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"debug/elf"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -365,4 +366,143 @@ func hasShadowPassword(name string) bool {
 		}
 	}
 	return false
+}
+
+// pamPermitService writes a PAM service that accepts every user and
+// password (pam_permit) and returns its name; it is removed when the test
+// ends. It skips unless the binary has PAM support and the test may write
+// /etc/pam.d (as root; PAM reads services only from there).
+func pamPermitService(t *testing.T, bin string) string {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux-PAM")
+	}
+	f, err := elf.Open(bin)
+	if err != nil {
+		t.Skipf("can't read %s: %v", bin, err)
+	}
+	libs, _ := f.ImportedLibraries()
+	f.Close()
+	pam := false
+	for _, l := range libs {
+		pam = pam || strings.HasPrefix(l, "libpam.so")
+	}
+	if !pam {
+		t.Skip("newscache built without PAM (configure --with-pam)")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to write a PAM service to /etc/pam.d")
+	}
+	found := false
+	for _, d := range []string{"/usr/lib64/security", "/lib64/security", "/usr/lib/x86_64-linux-gnu/security",
+		"/lib/x86_64-linux-gnu/security", "/usr/lib/aarch64-linux-gnu/security", "/usr/lib/security", "/lib/security"} {
+		if _, err := os.Stat(filepath.Join(d, "pam_permit.so")); err == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Skip("pam_permit.so not found")
+	}
+	name := "newscache-e2e-" + filepath.Base(t.TempDir())
+	path := filepath.Join("/etc/pam.d", name)
+	if err := os.WriteFile(path, []byte("auth required pam_permit.so\naccount required pam_permit.so\n"), 0o644); err != nil {
+		t.Skipf("can't write %s: %v", path, err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+	return name
+}
+
+// TestAuthPamFileRights: with "Authentication pam+file", the rights of the
+// line "*" and of the user's own line add up. The fields used to be joined
+// as strings without a comma ("test.alpha" and "test.beta" gave
+// "test.alphatest.beta"), so the user lost both groups; lines of different
+// lengths lost fields; and a user without a line of their own was refused
+// although the manual says "*" applies to all users.
+func TestAuthPamFileRights(t *testing.T) {
+	e := newEnv(t)
+	service := pamPermitService(t, e.Bin)
+	e.addArticles("test.alpha", 1)
+	e.addArticles("test.beta", 1)
+	e.addArticles("test.gamma", 1)
+	e.Extra = "AuthFailureDelay 0"
+	setup := func(lines ...string) {
+		path := filepath.Join(e.Dir, "pamfile.auth")
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		e.AccessList = `AccessList {
+  Client stdin {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    PAMServicename ` + service + `
+    Authentication pam+file:` + path + `
+  }
+  Default {
+    allow none
+  }
+}`
+	}
+	loginAs := func(t *testing.T, c interface {
+		Cmd(format string, args ...any) (int, string)
+	}, user string) int {
+		t.Helper()
+		if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
+			t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
+		}
+		code, _ := c.Cmd("AUTHINFO PASS anything")
+		return code
+	}
+	// group checks that the client may (open) or may not read g.
+	group := func(t *testing.T, c interface {
+		Cmd(format string, args ...any) (int, string)
+	}, g string, open bool) {
+		t.Helper()
+		code, line := c.Cmd("GROUP %s", g)
+		if open && code != 211 {
+			t.Errorf("GROUP %s: %q, want 211", g, line)
+		} else if !open && code == 211 {
+			t.Errorf("GROUP %s: %q, want a refusal", g, line)
+		}
+	}
+
+	t.Run("own line and star line add up", func(t *testing.T) {
+		// the user's line is longer than the "*" line
+		setup("hugo:test.alpha:test.alpha::read", "*:test.beta:test.beta")
+		c := e.session()
+		if code := loginAs(t, c, "hugo"); code != 281 {
+			t.Fatalf("login: %d, want 281", code)
+		}
+		group(t, c, "test.alpha", true)
+		group(t, c, "test.beta", true)
+		group(t, c, "test.gamma", false)
+	})
+	t.Run("a negation in one line doesn't open another", func(t *testing.T) {
+		// "*" and "!test.gamma" must not become "*!test.gamma"
+		setup("hugo:test.alpha:test.alpha::read", "*:!test.gamma:!test.gamma")
+		c := e.session()
+		if code := loginAs(t, c, "hugo"); code != 281 {
+			t.Fatalf("login: %d, want 281", code)
+		}
+		group(t, c, "test.alpha", true)
+		group(t, c, "test.beta", false)
+	})
+	t.Run("star line for a user without a line", func(t *testing.T) {
+		setup("hugo:test.alpha:test.alpha::read", "*:test.beta:test.beta::read")
+		c := e.session()
+		if code := loginAs(t, c, "otto"); code != 281 {
+			t.Fatalf("login: %d, want 281 (the \"*\" line applies to all users)", code)
+		}
+		group(t, c, "test.beta", true)
+		group(t, c, "test.alpha", false)
+	})
+	t.Run("no line applies", func(t *testing.T) {
+		setup("hugo:test.alpha:test.alpha::read")
+		c := e.session()
+		if code := loginAs(t, c, "otto"); code == 281 {
+			t.Fatalf("login of a user without any line: %d, want a refusal", code)
+		}
+	})
 }
