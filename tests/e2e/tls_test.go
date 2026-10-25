@@ -25,6 +25,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
 // testCA is a CA with a PEM file NewsCache can use as TLSCAFile.
@@ -364,5 +366,45 @@ func TestTLSOptionsWithoutGnuTLS(t *testing.T) {
 				t.Errorf("upstream received %d plain-text lines: %q", n, e.Upstream.Lines())
 			}
 		})
+	}
+}
+
+// TestSTARTTLSNoLoginBeforeTLS: with Options starttls, a 480 to MODE READER
+// (the first command, before STARTTLS) must not make NewsCache log in
+// there and then: User and Password would go out in plain text, which
+// anyone in the middle could force by injecting the 480. The login waits
+// for TLS, and MODE READER is sent again after it.
+func TestSTARTTLSNoLoginBeforeTLS(t *testing.T) {
+	e := newEnv(t)
+	requireTLS(t, e.Bin)
+	e.addArticles("test.alpha", 1)
+	upstreamWith(t, e, fakeserver.Options{
+		StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: "secret"},
+		Faults: fakeserver.Faults{
+			Override:      map[string][]string{"MODE": {"480 Authentication required"}},
+			OverrideTimes: map[string]int{"MODE": 1},
+		},
+	})
+	ca := newTestCA(t, e.Dir)
+	p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), true, false)
+	e.ServerHost = "localhost"
+	e.ServerPort = p.port()
+	e.ServerOptions = "starttls"
+	e.ServerLines = "    TLSCAFile " + ca.file + "\n    User tester\n    Password secret"
+	ok := groupOK(t, e)
+	plain, handshakes, _ := p.state()
+	for _, l := range plain {
+		if strings.HasPrefix(strings.ToUpper(l), "AUTHINFO") {
+			t.Errorf("sent %q in plain text, before STARTTLS", l)
+		}
+	}
+	if handshakes == 0 {
+		t.Error("no TLS handshake")
+	}
+	if !ok {
+		t.Error("GROUP failed: after STARTTLS and the login it must work")
+	}
+	if n := e.Upstream.Count("MODE"); n < 2 {
+		t.Errorf("MODE READER sent %d times, want it again after the login", n)
 	}
 }
