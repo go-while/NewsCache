@@ -631,3 +631,39 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 		})
 	}
 }
+
+// TestUpstreamCutOffArticle: the upstream closes the connection in the
+// middle of an article. The client must not get the cut-off article as if
+// it were complete, and it must not be stored: the next request goes
+// upstream again. It was served with a "." after the last full line and
+// kept in the spool for good.
+func TestUpstreamCutOffArticle(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		// the status line, 5 header lines, the blank line and 2 of the 3
+		// body lines; then the connection closes, without the "."
+		DropInMultiline: map[string]int{"ARTICLE": 9},
+	}})
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code == 220 {
+		lines := c.ReadDotLines()
+		t.Errorf("ARTICLE 1 cut off by the upstream: %q with %d lines %q, want an error", line, len(lines), lines)
+	} else {
+		t.Logf("ARTICLE 1 cut off by the upstream: %q", line)
+	}
+	before := e.Upstream.Count("ARTICLE")
+	c2 := e.session()
+	c2.Deadline = 20 * time.Second
+	c2.Cmd("GROUP test.alpha")
+	if code, _ := c2.Cmd("ARTICLE 1"); code == 220 {
+		c2.ReadDotLines()
+	}
+	if after := e.Upstream.Count("ARTICLE"); after == before {
+		t.Errorf("the second ARTICLE 1 didn't go upstream: the cut-off article was stored")
+	}
+}

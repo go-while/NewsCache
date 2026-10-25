@@ -465,6 +465,26 @@ void RServer::disconnect()
 	}
 }
 
+/*
+ * Reads the text of an article (after a 220) into art. When the server
+ * closed the connection before the "." line, the article is cut off: the
+ * connection is closed and SystemError thrown, so that it isn't served or
+ * stored as if it were complete (readtext stops at the end of the input
+ * without telling).
+ */
+void RServer::readarticle(Article * art)
+{
+	art->read(*_pServerStream);
+	if (!_pServerStream->good()) {
+		slog.p(Logger::Warning) << "news server "
+		    << _CurrentServer->hostname
+		    << " closed the connection in the middle of an article\n";
+		disconnect();
+		throw SystemError("article cut off by the news server", -1,
+				  ERROR_LOCATION);
+	}
+}
+
 void RServer::authenticate()
 {
 	char buf[1024];
@@ -810,6 +830,12 @@ ActiveDB *RServer::active()
 						_ServerList->makeFilter(i,
 									"*").c_str(),
 						flags);
+				if (!_pServerStream->good()) {
+					disconnect();
+					throw SystemError("active list cut off "
+							  "by the news server",
+							  -1, ERROR_LOCATION);
+				}
 			}
 		}
 		catch(ResponseError & re) {
@@ -1008,8 +1034,16 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 			 (unsigned long long) lst);
 		resp = issue(buf, NULL);
 		p = resp.c_str();
-		if (NNTP_ISCODE(p, "224"))
-			return ng->readoverdb(*_pServerStream);
+		if (NNTP_ISCODE(p, "224")) {
+			artnum_t r = ng->readoverdb(*_pServerStream);
+			if (!_pServerStream->good()) {
+				// cut off: the range isn't complete
+				disconnect();
+				throw SystemError("overview cut off by the news "
+						  "server", -1, ERROR_LOCATION);
+			}
+			return r;
+		}
 		if (NNTP_ISCODE(p, "502")) {
 			throw NotAllowedError(resp, ERROR_LOCATION);
 		}
@@ -1055,7 +1089,7 @@ void RServer::article(const char *gname, artnum_t nbr, Article * art)
 		string c(buf), e("220");
 		throw ResponseError(c, e, resp);
 	}
-	art->read(*_pServerStream);
+	readarticle(art);
 	art->setnbr(nbr);
 }
 
@@ -1071,7 +1105,7 @@ void RServer::article(const char *id, Article * art)
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
-			art->read(*_pServerStream);
+			readarticle(art);
 			art->setnbr(0);
 			return;
 		}
@@ -1098,7 +1132,7 @@ void RServer::article(const char *id, Article * art)
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
-			art->read(*_pServerStream);
+			readarticle(art);
 			art->setnbr(0);
 			return;
 		}
@@ -1905,7 +1939,7 @@ void CServer::article(const char *id, Article * art)
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
-			art->read(*_pServerStream);
+			readarticle(art);
 			art->setnbr(0);
 			filter_xref(art, gname ? _CurrentServer : NULL, gname);
 			return;
@@ -1933,7 +1967,7 @@ void CServer::article(const char *id, Article * art)
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (strncmp(p, "220", 3) == 0) {
-			art->read(*_pServerStream);
+			readarticle(art);
 			art->setnbr(0);
 			filter_xref(art, NULL);
 			return;
