@@ -458,6 +458,12 @@ Bug fixes:
   It now lists only what the client may do at that moment (RFC 3977,
   RFC 4643): AUTHINFO USER before the login, the reading commands and
   POST after it.
+* ARTICLE, HEAD, BODY and STAT by number, NEXT, LAST, LISTGROUP, XOVER,
+  OVER, XHDR, XPAT and HDR answered "412 operation failed" when the
+  current group couldn't be opened (for example, its database in the
+  spool can't be opened). 412 means "no newsgroup selected" in RFC 3977;
+  the reply is now "403 operation failed" (internal fault). 412 is still
+  the answer when no group is selected.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

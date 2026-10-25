@@ -1478,7 +1478,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		catch(const Error & e) {
-			(*clt->co) << "412 operation failed\r\n";
+			(*clt->co) << "403 operation failed\r\n";
 			return -1;
 		}
 
@@ -1561,7 +1561,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		catch(const Error & e) {
-			(*clt->co) << "412 operation failed\r\n";
+			(*clt->co) << "403 operation failed\r\n";
 			return -1;
 		}
 
@@ -1737,7 +1737,7 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		return -1;
 	}
 
@@ -2090,7 +2090,7 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		e.print();
 		return -1;
 	}
@@ -2443,7 +2443,9 @@ static int parse_range(const char *s, artnum_t * fst, artnum_t * lst)
 
 /*
  * Selects the client's current group for XOVER/XHDR/XPAT. Returns 0, or
- * -1 after an error reply.
+ * -1 after an error reply. When the news server or the spool fails, the
+ * reply is 403 (RFC 3977 3.2.1), as for ARTICLE, STAT, NEXT/LAST and
+ * LISTGROUP; 412 means that no group is selected.
  */
 static int current_group(ClientData * clt)
 {
@@ -2457,7 +2459,7 @@ static int current_group(ClientData * clt)
 	}
 	catch(const Error & e) {
 		e.print();
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		return -1;
 	}
 	ASSERT2(clt->grp->testdb());

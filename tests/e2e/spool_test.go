@@ -167,3 +167,36 @@ func TestNewscachecleanNiceClean(t *testing.T) {
 		t.Errorf("newscacheclean ran at nice %d, want %d (ours %d + NiceClean 7; NiceServer is 2)", got, want, base)
 	}
 }
+
+// TestGroupSpoolFails403: when the current group's database can't be
+// opened (here its .db is a directory), every command that works on the
+// current group answers 403, RFC 3977's reply for an internal fault. They
+// answered "412 operation failed", but 412 means that no group is
+// selected. GROUP itself doesn't open the database and still answers 211.
+func TestGroupSpoolFails403(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	if err := os.MkdirAll(filepath.Join(e.Spool, "test", "alpha", ".db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c := e.session()
+	for _, cmd := range []string{"ARTICLE 1", "HEAD 1", "BODY 1", "STAT 1", "STAT", "NEXT", "LAST",
+		"XOVER 1-3", "OVER 1-3", "XHDR Subject 1-3", "XPAT Subject 1-3 *", "HDR Subject 1-3",
+		"LISTGROUP", "LISTGROUP test.alpha"} {
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP before %s: %q", cmd, line)
+		}
+		code, line := c.Cmd("%s", cmd)
+		if code/10 == 22 || code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+			if code != 223 {
+				c.ReadDotLines()
+			}
+		}
+		if code != 403 {
+			t.Errorf("%s with the group's database failing: %q, want 403", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE: %q, want 111", line)
+	}
+}
