@@ -555,6 +555,38 @@ func TestXhdrLongHeaderName(t *testing.T) {
 	}
 }
 
+// TestXhdrLongNameMatch: find_field cut a header name to 511 characters,
+// so a longer one matched a header that only starts with those, and
+// getfield skipped the whole name: past the end of the article when that
+// header is the last one (a heap over-read; AddressSanitizer reports it).
+func TestXhdrLongNameMatch(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<longname.1@upstream.test>"
+	name := strings.Repeat("A", 600)
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: s", "Newsgroups: test.alpha", name + ": v"},
+		Body: []string{"b"}})
+	c := e.session()
+	for _, tc := range []struct{ name, want string }{
+		{strings.Repeat("A", 900), id + " (none)"},
+		{name, id + " v"},
+	} {
+		code, line, err := c.TryCmd("XHDR %s %s", tc.name, id)
+		if err != nil || code != 221 {
+			t.Errorf("XHDR <%d characters> %s: %d %q %v, want 221", len(tc.name), id, code, line, err)
+			continue
+		}
+		if got := c.ReadDotLines(); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("XHDR <%d characters> %s: %q, want [%q]", len(tc.name), id, got, tc.want)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE: %q", line)
+	}
+}
+
 // TestXhdrMessageID: XHDR header <message-id> (RFC 2980 2.6) answered
 // 501. It needs no group, and its line starts with the message-ID.
 func TestXhdrMessageID(t *testing.T) {

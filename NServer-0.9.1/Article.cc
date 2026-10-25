@@ -193,35 +193,20 @@ int Article::has_field(const char *ifld)
 	return 1;
 }
 
+// The name is compared as it is, without a length limit. It was cut to
+// 511 characters in a buffer, so a longer name (XHDR, XPAT, HDR from a
+// client) matched a header that only starts with those, and getfield,
+// which skips strlen(ifld), read past the end of the article.
 const char* Article::find_field(const char *ifld) const
 {
-	char hdrbuf[513], *p;
-	const char *q, *fld;
-	const char *ifp;
-	unsigned int i;
-
-	i = 1;
-	p = hdrbuf;
-	ifp = ifld;
-	while (i < sizeof(hdrbuf) && (*p = tolower(*ifp))) {
-		i++;
-		p++;
-		ifp++;
-	}
-	if (i == sizeof(hdrbuf)) {
-		p--;
-		VERB(slog.
-		     p(Logger::
-		       Error) <<
-		     "Article::find_field: field exceeds 512 characters! Contact maintainer!\n");
-	}
-	*p = '\0';
+	const char *p, *q, *fld;
 
 	q = _ctext;
 	for (;;) {
-		p = hdrbuf;
+		p = ifld;
 		fld = q;
-		while (*p && *p == tolower(*q)) {
+		while (*p && tolower((unsigned char) *p) ==
+		       tolower((unsigned char) *q)) {
 			p++;
 			q++;
 		}

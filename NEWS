@@ -239,6 +239,10 @@ Bug fixes:
   be written to the spool (a full disk): the article was lost, or
   updatenews later posted it cut off. POST now answers with an error
   (449), and nothing half written is left in the spool.
+* XHDR, XPAT and HDR with a header name longer than 511 characters could
+  read past the end of an article that has a header starting with the
+  same 511 characters, and send bytes from the session's memory to the
+  client. Header names are now compared in full.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry
