@@ -1,9 +1,14 @@
 Unreleased:
 
-New option:
+New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
   server when it sends or accepts nothing for this many seconds (each
   read and write; default 300, 0 waits for ever).
+* MaxArticleSize: the largest article (bytes) taken from a news server
+  (default 1048576). A larger one is refused: the client gets an error,
+  nothing is stored and the connection to that server is closed.
+* MaxPostSize: the largest article (bytes) a client may post (default
+  1048576); a larger one gets 441.
 
 Bug fixes:
 * Error messages in the log showed a random line number ("Line:
@@ -43,6 +48,11 @@ Bug fixes:
   .artSpool until the server takes them; only articles the server
   refuses go to .badArticles. A spooled article is also no longer lost
   when updatenews is stopped while posting it.
+* An upstream server could send an endless line or article, and the
+  session read it until it ran out of memory. Articles are now limited
+  by MaxArticleSize, and lines outside articles (status lines, overview
+  records, the active list, LISTGROUP) to 16 KiB; more is an error, and
+  the connection to the server is closed.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

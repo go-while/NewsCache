@@ -244,6 +244,7 @@ class RServer:virtual public NServer {
 	sockstream *_pServerStream;
 	int _authenticating;	// in authenticate(): no second login on a 480
 	int _connecting;	// in connect(): no login on a 480 (TLS may not be up yet)
+	size_t _MaxArticleSize;	// largest article accepted (MaxArticleSize)
 
 	/**
 	* Logs in with the server's User and Password (AUTHINFO USER/PASS).
@@ -255,7 +256,8 @@ class RServer:virtual public NServer {
 	/**
 	* Reads an article's text after a 220 reply.
 	* \throw SystemError If the server closed the connection before the
-	* 	final "." (the connection is closed then).
+	* 	final "." or the article is larger than _MaxArticleSize (the
+	* 	connection is closed then).
 	*/
 	void readarticle(Article * art);
 
@@ -278,6 +280,7 @@ class RServer:virtual public NServer {
 		_pServerStream = NULL;
 		_authenticating = 0;
 		_connecting = 0;
+		_MaxArticleSize = 1024 * 1024;
 	}
 	void init(MPList * serverlist);
 
@@ -364,6 +367,14 @@ class RServer:virtual public NServer {
 	* 	since only the pointer is stored.
 	*/
 	void setserverlist(MPList * serverlist);
+
+	/**
+	* Sets the largest article (bytes) accepted from a news server
+	* (MaxArticleSize); a larger one is an error.
+	*/
+	void setmaxarticlesize(size_t n) {
+		_MaxArticleSize = n;
+	}
 
 	/**
 	* Return the currently installed list of news servers.

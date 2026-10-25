@@ -70,6 +70,8 @@ void Config::init(void)
 	AuthFailureDelay = 15;
 	HistoryEnabled = 0;
 	MaxConnections = 32;
+	MaxArticleSize = 1024 * 1024;
+	MaxPostSize = 1024 * 1024;
 
 	NiceServer = 0;
 	NiceClient = 10;
@@ -194,6 +196,25 @@ void Config::read(const char *fn)
 						  "AuthFailureDelay expects seconds, 0 to 3600",
 						  ERROR_LOCATION);
 			AuthFailureDelay = (int) v;
+		} else if (tok == "MaxArticleSize" || tok == "MaxPostSize") {
+			char *e;
+			long v;
+
+			// bytes; an article is held in memory as a whole
+			a1 = lex.getToken();
+			errno = 0;
+			v = strtol(a1.c_str(), &e, 10);
+			if (!isdigit((unsigned char) a1[0]) || *e || errno
+			    || v < 1024 || v > 1024L * 1024 * 1024) {
+				string msg = tok + " expects bytes, 1024 to "
+				    "1073741824";
+				throw SyntaxError(lex, msg.c_str(),
+						  ERROR_LOCATION);
+			}
+			if (tok == "MaxArticleSize")
+				MaxArticleSize = v;
+			else
+				MaxPostSize = v;
 		} else if (tok == "History") {
 			a1 = lex.getToken();
 			if (a1 == "on" || a1 == "yes")
@@ -265,6 +286,8 @@ void Config::printParameters (ostream *pOut)
 	*pOut << "AuthFailureDelay " << AuthFailureDelay << endl;
 	*pOut << "History " << (HistoryEnabled ? "on" : "off") << endl;
 	*pOut << "MaxConnections " << MaxConnections << endl;
+	*pOut << "MaxArticleSize " << MaxArticleSize << endl;
+	*pOut << "MaxPostSize " << MaxPostSize << endl;
 	*pOut << "Timeouts " << ttl_list << " " << ttl_desc << endl;
 	*pOut << "NiceServer " << NiceServer << endl;
 	*pOut << "NiceClient " << NiceClient << endl;

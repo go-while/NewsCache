@@ -330,6 +330,25 @@ seconds; 0 answers at once, the maximum is 3600.
 AuthFailureDelay 5
 @end example
 
+@cdindex MaxArticleSize
+@cdindex MaxPostSize
+NewsCache holds an article in memory as a whole. @code{MaxArticleSize}
+is the largest article, in bytes, that it takes from a news server: a
+larger one is an error, NewsCache closes the connection to that server
+(the rest of the article is unread on it), the client gets an error,
+nothing is stored, and the log says so. Lines from a news server
+outside articles (status lines, overview records, the active list,
+LISTGROUP) are limited to 16384 bytes each, with the same effect; lines
+in articles count only towards @code{MaxArticleSize}.
+@code{MaxPostSize} is the largest article a client may post (with CRLF
+line ends); a larger one is read to its final @code{.} and refused with
+441. Both default to 1048576 (1 MiB) and take 1024 to 1073741824.
+
+@example
+MaxArticleSize 1048576
+MaxPostSize 1048576
+@end example
+
 @cdindex SpoolDirectory
 @cdindex SpoolSize
 @cdindex NewsCacheClean
@@ -474,7 +493,8 @@ indicates which articles should be posted to the news server. Its
 argument has the same syntax as the argument of the
 @code{Read}-option. All articles posted to one or more of these
 newsgroups will be sent to that news server. NewsCache takes articles of
-up to 1 MB from clients; a larger one is refused (441).
+up to @code{MaxPostSize} (1 MiB by default) from clients; a larger one
+is refused (441).
 @item GroupTimeout
 @cdindex GroupTimeout
 after that amount of seconds the newsgroup's active database is

@@ -197,6 +197,7 @@ int LServer::post(Article * article)
 RServer::RServer(MPList * serverlist)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::RServer/1\n");
+	_MaxArticleSize = 1024 * 1024;
 	init(serverlist);
 }
 
@@ -326,7 +327,7 @@ void RServer::connect()
 		//FIXME! groupname to send correct passwd to correct server/group
 		//FIXME! RECONNECT/RETRY? HOW IMPLEMENT? What happens if module 
 		//FIXME! cannot handle this?!?
-		nlreadline(*_pServerStream, grt, 0);
+		nlreadline(*_pServerStream, grt, 0, NNTP_MAXLINE);
 		slog.p(Logger::Info) << grt << "\n";
 
 		RSERVER_CONNECT_CHECK_CONNECTION
@@ -427,6 +428,10 @@ void RServer::connect()
 			    ("Cannot read data from %s:%s");
 			if (resp[0] == '2' && resp[1] == '1' && resp[2] == '5') {
 				_OverviewFormat->readxoin(*_pServerStream);
+				// (a list cut off, or a line too long: else
+				// the next command reconnected, nested)
+				RSERVER_CONNECT_CHECK_CONNECTION
+				    ("Cannot read data from %s:%s");
 			} else {
 				slog.
 				    p(Logger::
@@ -490,16 +495,28 @@ void RServer::reply_unread()
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
  * stored as if it were complete (readtext stops at the end of the input
- * without telling).
+ * without telling). The same for an article larger than MaxArticleSize.
  */
 void RServer::readarticle(Article * art)
 {
+	int r;
+
 	try {
-		art->read(*_pServerStream);
+		r = art->read(*_pServerStream, _MaxArticleSize);
 	}
 	catch(...) {
 		reply_unread();
 		throw;
+	}
+	if (r < 0) {
+		// the rest of it is unread: the connection is out of step
+		slog.p(Logger::Warning) << "news server "
+		    << _CurrentServer->hostname
+		    << " sent an article larger than MaxArticleSize ("
+		    << _MaxArticleSize << " bytes), closing the connection\n";
+		disconnect();
+		throw SystemError("article larger than MaxArticleSize", -1,
+				  ERROR_LOCATION);
 	}
 	if (!_pServerStream->good()) {
 		slog.p(Logger::Warning) << "news server "
@@ -579,7 +596,7 @@ string RServer::issue(const char *command, const char *expresp)
 		// loop throws ResponseError.
 		rs = 0;
 		try {
-			rs = nlreadline(*_pServerStream, resp, 0);
+			rs = nlreadline(*_pServerStream, resp, 0, NNTP_MAXLINE);
 		}
 		catch(...) {
 			slog.
@@ -961,13 +978,15 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		}
 
 		for (;;) {
-			nlreadline(*_pServerStream, line);
+			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
 			if (line == ".\r\n")
 				break;
-			if (!_pServerStream->good())
+			if (!_pServerStream->good()) {
+				disconnect();
 				throw
 					SystemError("error while reading from server",
 						    errno, ERROR_LOCATION);
+			}
 			i = leading_artnum(line.data());
 			if (f <= i && i <= l)
 				lstgrp[i - f] = 1;
@@ -1002,12 +1021,14 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 		throw ResponseError(c, e, resp);
 	}
 	for (;;) {
-		nlreadline(*_pServerStream, line);
+		nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
 		if (line == ".\r\n")
 			break;
-		if (!_pServerStream->good())
+		if (!_pServerStream->good()) {
+			disconnect();
 			throw SystemError("error while reading from server",
 					  errno, ERROR_LOCATION);
+		}
 		// read to the end even when the client has gone, the
 		// connection to the news server stays in use
 		i = leading_artnum(line.data());
@@ -1249,7 +1270,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			throw ResponseError("post\r\n", "[34]40", resp);
 		}
 		*_pServerStream << *article << ".\r\n" << flush;
-		nlreadline(*_pServerStream, resp);
+		nlreadline(*_pServerStream, resp, 1, NNTP_MAXLINE);
 		if (_pServerStream->good())
 			break;
 
