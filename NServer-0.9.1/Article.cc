@@ -68,6 +68,32 @@ Article::~Article ()
 {
 }
 
+// RFC 5536 allows neither NUL nor a CR outside CRLF. Kept as they came,
+// a CR in the head made the article unparsable (find_field and getfield
+// throw: 423 for an article the server has), and a NUL anywhere made the
+// stored record look damaged, so the whole group database was moved aside
+// at every read. Both become a space; a lone CR in the body does no harm
+// and stays. readtext ends every line with CRLF.
+static void clean_text(string & text)
+{
+	string::size_type i, n = text.length();
+	int head = 1;
+
+	for (i = 0; i < n; i++) {
+		if (text[i] == '\0') {
+			text[i] = ' ';
+		} else if (text[i] == '\r' && head) {
+			if (i + 1 < n && text[i + 1] == '\n') {
+				if (i == 0 || (i >= 2 && text[i - 2] == '\r'
+						       && text[i - 1] == '\n'))
+					head = 0;	// the empty line after the head
+			} else {
+				text[i] = ' ';
+			}
+		}
+	}
+}
+
 int Article::read(std::istream & is, size_t max)
 {
 	DEBUG(slog.p(Logger::Debug) << "Article::read(&is)\n");
@@ -77,6 +103,8 @@ int Article::read(std::istream & is, size_t max)
 	r = readtext(is, _text, 1, ".\r\n", max);
 	if (r < 0)
 		std::string().swap(_text);
+	else
+		clean_text(_text);
 	_ctext = _text.c_str();
 	return r < 0 ? -1 : 0;
 }

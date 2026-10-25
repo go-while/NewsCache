@@ -219,6 +219,12 @@ Bug fixes:
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
+* An article with a NUL byte, or a CR without LF in a header, from the
+  upstream server (or posted through NewsCache) could not be read
+  ("423 no such article number") or, once stored, made NewsCache take
+  the group's spool database for damaged at every read: it was moved to
+  .db.bad and all cached articles of the group were fetched again. Such
+  bytes now become a space; RFC 5536 allows neither.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

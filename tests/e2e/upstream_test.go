@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -755,5 +756,84 @@ func TestUpstreamCutOffActive(t *testing.T) {
 	c2.Cmd("QUIT")
 	if after := lists(); after == before {
 		t.Errorf("the second LIST ACTIVE didn't go upstream: the cut-off active list was taken as complete")
+	}
+}
+
+// An upstream article with a NUL byte, or a CR without LF in a header
+// (RFC 5536 allows neither). Before, a CR in a header in front of Xref
+// made the article unreadable (423 although the upstream has it), and
+// after Xref, or a NUL anywhere in a small article, the article was
+// stored and the next read took the group's database for damaged: it was
+// moved to .db.bad and every cached article of the group was gone, at
+// every read. Now such a byte becomes a space.
+func TestUpstreamArticleNULAndCR(t *testing.T) {
+	for _, tc := range []struct {
+		name, junk string
+		after      bool // the bad header after Message-ID and Xref
+		body       bool // the junk in the body
+	}{
+		{"cr-header", "\r", false, false},
+		{"nul-header", "\x00", false, false},
+		{"cr-header-after-xref", "\r", true, false},
+		{"nul-header-after-xref", "\x00", true, false},
+		{"nul-body", "\x00", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.Store.AddGroup("test.alpha", "x")
+			id := "<junk.1@upstream.test>"
+			junk := "X-Junk: a" + tc.junk + "b"
+			h := []string{"From: poster@upstream.test", "Message-ID: " + id}
+			if !tc.after && !tc.body {
+				h = append(h, junk)
+			}
+			h = append(h, "Subject: s", "Newsgroups: test.alpha",
+				"Xref: upstream.test test.alpha:1")
+			if tc.after {
+				h = append(h, junk)
+			}
+			body := []string{"body line"}
+			if tc.body {
+				body = append(body, "a"+tc.junk+"b")
+			}
+			e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1,
+				MessageID: id, Headers: h, Body: body})
+
+			read := func(c *client.Conn, what string) {
+				t.Helper()
+				code, line := c.Cmd("ARTICLE 1")
+				if code != 220 {
+					t.Errorf("%s ARTICLE 1: %q, want 220", what, line)
+					return
+				}
+				text := strings.Join(c.ReadDotLines(), "\n")
+				if strings.ContainsAny(text, "\r\x00") {
+					t.Errorf("%s ARTICLE 1 has a NUL or a lone CR: %q", what, text)
+				}
+				if !strings.Contains(text, "a b") {
+					t.Errorf("%s ARTICLE 1: no \"a b\" in %q", what, text)
+				}
+			}
+			c := e.session()
+			c.Strict = false
+			c.Cmd("GROUP test.alpha")
+			read(c, "first")
+			read(c, "second")
+			if code, line := c.Cmd("XOVER 1"); code != 224 {
+				t.Errorf("XOVER 1: %q", line)
+			} else if ov := c.ReadDotLines(); len(ov) != 1 {
+				t.Errorf("XOVER 1: %q, want one record", ov)
+			}
+			c2 := e.session()
+			c2.Strict = false
+			c2.Cmd("GROUP test.alpha")
+			read(c2, "next session's")
+			if n := e.Upstream.Count("ARTICLE"); n != 1 {
+				t.Errorf("the upstream got %d ARTICLE commands, want 1 (the rest from the spool)", n)
+			}
+			if m, _ := filepath.Glob(filepath.Join(e.Spool, "test", "alpha", "*.bad")); len(m) > 0 {
+				t.Errorf("the group's database was taken for damaged: %v", m)
+			}
+		})
 	}
 }
