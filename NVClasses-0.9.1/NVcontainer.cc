@@ -150,6 +150,7 @@ NVcontainer::NVcontainer()
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_sz = 0;
+	mem_hdrsz = 0;
 	mem_hdr = (Header *) mem_p;
 }
 
@@ -162,6 +163,7 @@ NVcontainer::NVcontainer(const char *dbname, int flags)
 	mem_fd = -1;
 	mem_p = NULL;
 	mem_sz = 0;
+	mem_hdrsz = 0;
 	mem_hdr = (Header *) mem_p;
 	open(dbname, flags);
 }
@@ -179,8 +181,13 @@ void NVcontainer::make_current()
 		if (is_current())
 			return;
 		munmap(mem_p, mem_sz);
-		mem_p = NULL;
 	}
+	// Nothing mapped until the mmap below: when fstat or mmap fails, no
+	// pointer into the old mapping is left (the next lock maps again).
+	mem_p = NULL;
+	mem_hdr = NULL;
+	mem_sz = 0;
+	forget();
 
 	if (fstat(mem_fd, &st) < 0) {
 		throw SystemError("NVContainer(20801): fstat failed",
@@ -206,6 +213,7 @@ void NVcontainer::make_current()
 			      mem_fd, 0);
 	if (mem_p == (char *) -1) {
 		mem_p = NULL;
+		mem_sz = 0;
 		throw SystemError("NVContainer::make_current(): mmap failed", errno,
 				  ERROR_LOCATION);
 	}
@@ -273,6 +281,7 @@ void NVcontainer::make_current()
 		   << " mem_hdr->size: " << (unsigned long int) mem_hdr->size;
 		slog.p(Logger::Critical) << sb.rdbuf()->str();
 	}
+	mem_hdrsz = mem_hdr->size;
 }
 
 size_t NVcontainer::resize(size_t nsz)
@@ -313,7 +322,14 @@ size_t NVcontainer::resize(size_t nsz)
 	mem_hdr->bytes_free += nsz - mem_sz;
 	flhead->size += nsz - mem_sz;
 	mem_hdr->size = nsz;
-	make_current();
+	try {
+		make_current();
+	}
+	catch(...) {
+		// (mmap failed: address space limit) the lock goes too
+		lock(UnLock);
+		throw;
+	}
 	lock(UnLock);
 	return mem_sz;
 }
@@ -359,6 +375,15 @@ nvoff_t NVcontainer::nvalloc(size_t rsz)
 		cur = o2fl(cur->next);
 		if (!cur || cur <= prv)
 			corrupt("free list out of order");
+		if ((char *) prv + prv->size > (char *) cur)
+			corrupt("free blocks overlap");
+	}
+	// The block must end before the next free one: a damaged size that
+	// reaches into the records behind it would hand them out again.
+	if (cur != flhead) {
+		FreeList *nxt = o2fl(cur->next);
+		if (!nxt || nxt <= cur || (char *) cur + cur->size > (char *) nxt)
+			corrupt("free blocks overlap");
 	}
 
 	if (cur == flhead) {
@@ -615,6 +640,7 @@ int NVcontainer::lock(int command, int block)
 {
 	int res;
 	int curLock = UnLock;
+	int asked = command;
 
 	if (command != UnLock && mem_fd < 0 && lost_fn[0] &&
 	    lck_stackp == NVcontainer_LOCKSTACKSIZE) {
@@ -672,14 +698,32 @@ int NVcontainer::lock(int command, int block)
 	}
 	// Relock if lock state changed
 	if (curLock != command) {
-		if ((res = nvflock(mem_fd, command, block)) < 0) {
+		res = nvflock(mem_fd, command, block);
+		if (res < 0 && errno == EINTR && asked == UnLock) {
+			// Back to the caller's outer lock (the stack points at
+			// it already). nvflock gave the inner one up first, so
+			// the outer one must be held again: a signal only
+			// interrupts the wait.
+			do
+				res = nvflock(mem_fd, command, Block);
+			while (res < 0 && errno == EINTR);
+		}
+		if (res < 0) {
 			int e = errno;
 			// Take the entry off again: the caller doesn't hold
 			// this lock, and won't UnLock it. (Left on the stack,
 			// the next lock() took it as held and used the
-			// mapping without flock or make_current.)
-			if (command != UnLock)
+			// mapping without flock or make_current.) Only for a
+			// new lock: restoring, the entry is the outer one.
+			if (asked != UnLock) {
 				lck_stackp++;
+				// An upgrade gave the caller's lock up first: the
+				// caller still holds it, so it is taken again.
+				if (curLock != UnLock)
+					while (nvflock(mem_fd, curLock, Block) < 0 &&
+					       errno == EINTR)
+						;
+			}
 			if (e == EWOULDBLOCK && block == NoBlock)
 				return -1;
 			throw
@@ -688,8 +732,26 @@ int NVcontainer::lock(int command, int block)
 		}
 		// Adapt to the new size if somebody changed the container's 
 		// size
-		if (command != UnLock)
-			make_current();
+		if (command != UnLock) {
+			try {
+				make_current();
+			}
+			catch(...) {
+				// The mapping failed (mmap, fstat): give a new
+				// lock back, as when the flock fails, or it is
+				// kept for good. (After corrupt() the stack is
+				// gone already.) The caller's lock is taken
+				// back through EINTR, as above.
+				if (asked != UnLock &&
+				    lck_stackp < NVcontainer_LOCKSTACKSIZE) {
+					lck_stackp++;
+					while (nvflock(mem_fd, curLock, Block) < 0 &&
+					       errno == EINTR)
+						;
+				}
+				throw;
+			}
+		}
 	}
 	return 0;
 }

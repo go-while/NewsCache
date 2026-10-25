@@ -88,6 +88,8 @@ class NVcontainer {
 
 	char *mem_p;
 	size_t mem_sz;
+	// The header's size when the file was mapped (see is_current)
+	size_t mem_hdrsz;
 
 	/*
 	 * The method make_current map the database file into shared memory.
@@ -99,10 +101,13 @@ class NVcontainer {
 	virtual void make_current(void);
 
 	/*
-	 * Check if the the the file size is equal the memory mapped size.
+	 * Whether the mapping is still current: no process has resized the
+	 * file since it was mapped (the header's size is the same). Not the
+	 * mapped size: a file longer than its header says (a crash in
+	 * resize) was remapped at every lock change.
 	 */
 	virtual int is_current(void) {
-		return mem_hdr && mem_sz == mem_hdr->size;
+		return mem_hdr && mem_hdr->size == mem_hdrsz;
 	}
 	virtual size_t resize(size_t nsz);
 

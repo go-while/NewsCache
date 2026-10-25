@@ -3783,9 +3783,12 @@ int main(int argc, char **argv)
 	// side has closed fails with EPIPE, which the streams handle (an
 	// upstream connection is opened again). As a termination signal it
 	// ended the client's session ("service discontinued") whenever an
-	// upstream connection had been reset.
+	// upstream connection had been reset. SIGXFSZ: a write beyond the
+	// file size limit (ulimit -f) fails with EFBIG then, which the spool
+	// handles as a full disk, instead of ending the session.
 	action.sa_handler = SIG_IGN;
 	sigaction(SIGPIPE, &action, NULL);
+	sigaction(SIGXFSZ, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
 	sigaction(SIGUSR2, &action, NULL);
 
@@ -3797,6 +3800,7 @@ int main(int argc, char **argv)
 	signal(SIGHUP, catchsighup);
 	signal(SIGINT, catchsignal);
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGXFSZ, SIG_IGN);
 	signal(SIGTERM, catchsignal);
 
 	signal(SIGUSR1, SIG_IGN);

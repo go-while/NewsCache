@@ -4,7 +4,17 @@
 //     file descriptor left): the object must stay usable - every access
 //     an error, no use of the old mapping - and recover later;
 //  2. many processes run into the same damaged file at once: they must
-//     all end up on one new file, none on a file another one moved aside.
+//     all end up on one new file, none on a file another one moved aside;
+//  3. a free block whose size reaches into the records behind it must
+//     count as damage, not be handed out again over those records;
+//  4. the file can't be mapped again after it grew (mmap fails: address
+//     space limit): no lock may be kept, and no pointer into the old
+//     mapping used;
+//  5. a signal interrupts the wait for a lock upgrade (EINTR, as the
+//     sessions' handlers have no SA_RESTART): the lock the caller held
+//     before must still be held;
+//  6. a file longer than its header says (a crash while it grew) must be
+//     mapped once, not again at every lock change.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -17,11 +27,13 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <fstream>
 #include <iostream>
 #include <string>
 
 #include "Logger.h"
 #include "NVActiveDB.h"
+#include "NVArray.h"
 
 using namespace std;
 
@@ -184,6 +196,281 @@ static void race(const string & dir, int round)
 	unlink((fn + ".bad").c_str());
 }
 
+struct OffArray:public NVArray {
+	OffArray(const char *fn) {
+		open(fn);
+	}
+	nvoff_t off(unsigned long i) {
+		return arrtab[i];
+	}
+};
+
+static void free_overlap(const string & dir)
+{
+	string fn = dir + "/overlap.db";
+	char rec[100];
+	memset(rec, 'r', sizeof(rec));
+	OffArray a(fn.c_str());
+	a.setsize(0, 9);
+	for (int i = 1; i <= 4; i++)
+		a.set(i, rec, sizeof(rec));
+	// the blocks of 1 and 3 freed; record 2 lies between them
+	nvoff_t b1 = a.off(1) - sizeof(unsigned long);
+	nvoff_t b3 = a.off(3) - sizeof(unsigned long);
+	a.del(1);
+	a.del(3);
+	// damage: the free block of 1 reaches over 2 into the one of 3
+	unsigned long sz = b3 - b1 + 16;
+	int fd = open(fn.c_str(), O_RDWR);
+	if (fd < 0 || pwrite(fd, &sz, sizeof(sz), b1 + sizeof(nvoff_t)) !=
+	    (ssize_t) sizeof(sz)) {
+		perror(fn.c_str());
+		exit(1);
+	}
+	close(fd);
+	// a record that fits only into the damaged block: it was put over
+	// record 2
+	string big(b3 - b1 - 32, 'b');
+	bool threw = false;
+	try {
+		a.set(5, big.data(), big.size());
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	CHECK(threw);
+	CHECK(exists(fn + ".bad"));
+	unlink(fn.c_str());
+	unlink((fn + ".bad").c_str());
+}
+
+// The process's address space in bytes (Linux), 0 if unknown.
+static unsigned long vmsize(void)
+{
+	ifstream f("/proc/self/status");
+	string l;
+	while (getline(f, l))
+		if (l.compare(0, 7, "VmSize:") == 0)
+			return strtoul(l.c_str() + 7, NULL, 10) * 1024;
+	return 0;
+}
+
+// Limits the address space to what is in use now plus 1 MB; false if
+// that can't be done here.
+static bool limit_as(struct rlimit *old)
+{
+	struct rlimit low;
+	unsigned long v = vmsize();
+	if (v == 0 || getrlimit(RLIMIT_AS, old) != 0)
+		return false;
+	low = *old;
+	low.rlim_cur = v + (1 << 20);
+	if (old->rlim_max != RLIM_INFINITY && low.rlim_cur > old->rlim_max)
+		return false;
+	return setrlimit(RLIMIT_AS, &low) == 0;
+}
+
+// Whether another process can lock the whole file now.
+static bool other_can_lock(const string & fn)
+{
+	pid_t p = fork();
+	if (p == 0) {
+		int fd = open(fn.c_str(), O_RDWR);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		_exit(fd >= 0 && fcntl(fd, F_SETLK, &fl) == 0 ? 0 : 1);
+	}
+	int st;
+	waitpid(p, &st, 0);
+	return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+}
+
+static void map_fails(const string & dir)
+{
+#if defined(__SANITIZE_ADDRESS__)
+	return;			// (ASan needs far more address space)
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+	return;
+#endif
+#endif
+	string fn = dir + "/map.db";
+	string big(8 << 20, 'b');	// the file must grow by 8 MB
+	const char *d;
+	size_t sz;
+	struct rlimit old;
+	NVArray a(fn.c_str());
+	a.setsize(0, 9);
+	a.set(1, "one", 4);
+
+	// 1. This process grows the file (resize). The lock of the
+	// growing allocation was kept, and the next access used the old
+	// mapping (SIGSEGV).
+	if (!limit_as(&old)) {
+		cerr << "map_fails: no address space limit here, skipped\n";
+		unlink(fn.c_str());
+		return;
+	}
+	bool threw = false;
+	try {
+		a.set(2, big.data(), big.size());
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	setrlimit(RLIMIT_AS, &old);
+	CHECK(threw);
+	CHECK(a.get_lock() == NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	a.get(1, &d, &sz);
+	CHECK(d && strcmp(d, "one") == 0);
+
+	// 2. Another process grows the file (by more than the room the
+	// first growth left); this one can't map it at its next lock. The
+	// lock was kept.
+	big += big;
+	pid_t p = fork();
+	if (p == 0) {
+		try {
+			NVArray b(fn.c_str());
+			b.set(3, big.data(), big.size());
+		}
+		catch(const Error & e) {
+			_exit(1);
+		}
+		_exit(0);
+	}
+	int st;
+	waitpid(p, &st, 0);
+	CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	if (!limit_as(&old)) {
+		failures++;
+		return;
+	}
+	threw = false;
+	try {
+		a.get(1, &d, &sz);
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	setrlimit(RLIMIT_AS, &old);
+	CHECK(threw);
+	CHECK(a.get_lock() == NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	a.get(3, &d, &sz);
+	CHECK(d && sz == big.size());
+	unlink(fn.c_str());
+}
+
+static void on_alarm(int)
+{
+}
+
+static void lock_eintr(const string & dir)
+{
+	string fn = dir + "/eintr.db";
+	struct sigaction sa, old;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = on_alarm;	// no SA_RESTART, as in the sessions
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGALRM, &sa, &old);
+	NVArray a(fn.c_str());
+	a.setsize(0, 9);
+
+	int go[2];
+	if (pipe(go) != 0) {
+		perror("pipe");
+		exit(1);
+	}
+	pid_t p = fork();
+	if (p == 0) {
+		// a shared lock for 3 seconds
+		int fd = open(fn.c_str(), O_RDWR);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_RDLCK;
+		fl.l_whence = SEEK_SET;
+		if (fd < 0 || fcntl(fd, F_SETLKW, &fl) != 0 ||
+		    write(go[1], "x", 1) != 1)
+			_exit(1);
+		sleep(3);
+		_exit(0);
+	}
+	char c;
+	if (read(go[0], &c, 1) != 1) {
+		perror("read");
+		exit(1);
+	}
+	close(go[0]);
+	close(go[1]);
+	a.lock(NVcontainer::ShrdLock);
+	// the upgrade waits for the child; the alarm interrupts it
+	alarm(1);
+	bool threw = false;
+	try {
+		a.lock(NVcontainer::ExclLock);
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	alarm(0);
+	CHECK(threw);
+	int st;
+	waitpid(p, &st, 0);
+	// still the caller's shared lock: on the stack and on the file
+	// (nvflock had given it up before it waited)
+	CHECK(a.get_lock() == NVcontainer::ShrdLock);
+	CHECK(!other_can_lock(fn));
+	a.lock(NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	sigaction(SIGALRM, &old, NULL);
+	unlink(fn.c_str());
+}
+
+struct CurArray:public NVArray {
+	CurArray(const char *fn) {
+		open(fn);
+	}
+	bool current(void) {
+		return is_current();
+	}
+};
+
+static void longer_file(const string & dir)
+{
+	string fn = dir + "/longer.db";
+	const char *d;
+	size_t sz;
+	struct stat st;
+	{
+		NVArray a(fn.c_str());
+		a.setsize(0, 9);
+		a.set(1, "one", 4);
+	}
+	if (stat(fn.c_str(), &st) != 0 ||
+	    truncate(fn.c_str(), st.st_size + 65536) != 0) {
+		perror(fn.c_str());
+		exit(1);
+	}
+	CurArray a(fn.c_str());
+	a.get(1, &d, &sz);
+	CHECK(d && strcmp(d, "one") == 0);
+	// still the same mapping: the next lock needs no remap (it was
+	// remapped, with a log line, at every lock change)
+	CHECK(a.current());
+	// it still grows (and maps the bigger file)
+	string big(200000, 'b');
+	a.set(2, big.data(), big.size());
+	a.get(2, &d, &sz);
+	CHECK(d && sz == big.size());
+	CHECK(a.current());
+	CHECK(!exists(fn + ".bad"));
+	unlink(fn.c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -195,8 +482,13 @@ int main(int argc, char *argv[])
 	string dir(tmpl);
 
 	bool race_only = argc > 1 && strcmp(argv[1], "race") == 0;
-	if (!race_only)
+	if (!race_only) {
 		lost_file(dir);
+		free_overlap(dir);
+		map_fails(dir);
+		lock_eintr(dir);
+		longer_file(dir);
+	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);
 
