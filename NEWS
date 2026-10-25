@@ -27,6 +27,11 @@ Bug fixes:
 * With several upstream servers, ARTICLE <message-id> answered "503
   operation failed" when one of the servers asked before the one that
   had the article couldn't be reached. Such a server is now skipped.
+* A damaged group database found while an overview reply from the
+  upstream server was being stored left the rest of that reply unread:
+  the following commands read those lines as their replies, so articles
+  the server had were answered 423 and the session stayed out of step
+  with the server. The connection is now closed and opened again.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

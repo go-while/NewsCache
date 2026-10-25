@@ -260,6 +260,12 @@ class RServer:virtual public NServer {
 	void readarticle(Article * art);
 
 	/**
+	* Closes the connection when an exception left the rest of a
+	* multi-line reply unread (it would be read as the next reply).
+	*/
+	void reply_unread();
+
+	/**
 	* One OVER (or XOVER) request for [fst,lst]: stores the records in
 	* ng and returns the highest article number among them, 0 when
 	* there were none. Throws like overviewdb.

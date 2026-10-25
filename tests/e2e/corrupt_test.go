@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-while/nntp-testkit/client"
 	"github.com/go-while/nntp-testkit/proc"
@@ -331,4 +332,78 @@ func TestUpdatenewsCorruptDB(t *testing.T) {
 	if ov := c.ReadDotLines(); len(ov) != 21 {
 		t.Errorf("XOVER 1-21 from the prefetched database: %d lines, want 21", len(ov))
 	}
+}
+
+// TestCorruptDBDuringFetch: the spool finds a damaged group database
+// while it stores an overview reply (a bad index entry of an article
+// inside the fetched range). The CorruptDBError left the rest of the
+// reply unread on the upstream connection, and the command, run once
+// more on the new database, read those lines as its replies: LISTGROUP
+// and OVER were taken as unsupported and the session's XOVER failed.
+func TestCorruptDBDuringFetch(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "test group")
+	for n := int64(1); n <= 10; n++ {
+		if n != 2 && n != 4 {
+			e.Store.AddArticle("test.alpha", groupArticle("test.alpha", n, []string{"body"}))
+		}
+	}
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	if code, line := c.Cmd("XOVER 1-10"); code != 224 {
+		t.Fatalf("XOVER 1-10: %q", line)
+	}
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+
+	// 2 and 4 show up: the next sync fetches OVER 2-4, with 3 inside,
+	// whose index entry is damaged now
+	e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 2, []string{"body"}))
+	e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 4, []string{"body"}))
+	db := filepath.Join(e.Spool, "test", "alpha", ".db")
+	b, err := os.ReadFile(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the index: first and last number (10), then one offset per number
+	le := func(off int) uint64 {
+		var v uint64
+		for i := 7; i >= 0; i-- {
+			v = v<<8 | uint64(b[off+i])
+		}
+		return v
+	}
+	idx := -1
+	for off := 0; off+16+8*10 <= len(b); off += 8 {
+		if f := le(off); f >= 1 && f <= 3 && le(off+8) == 10 && le(off+16+8*int(3-f)) != 0 {
+			idx = off
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("index not found in the .db")
+	}
+	entry := idx + 16 + 8*int(3-le(idx))
+	for i := 0; i < 8; i++ {
+		b[entry+i] = 0xff
+	}
+	if err := os.WriteFile(db, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond) // GroupTimeout 0: sync again
+
+	c, p := corruptSession(t, e)
+	got, err := readCmds(c, []string{"GROUP test.alpha", "XOVER 1-10", "ARTICLE 4", "ARTICLE 5"})
+	if err != nil {
+		t.Errorf("after the damage: %v (so far %q)", err, got)
+	}
+	want := "GROUP test.alpha:211 XOVER 1-10:224 ARTICLE 4:220 ARTICLE 5:220"
+	if strings.Join(got, " ") != want {
+		t.Errorf("replies %q, want %q", strings.Join(got, " "), want)
+	}
+	c.TryCmd("QUIT")
+	if err := p.Wait(); err != nil {
+		t.Errorf("newscache: %v, stderr %q", err, p.Stderr())
+	}
+	checkMovedAside(t, e, db)
 }

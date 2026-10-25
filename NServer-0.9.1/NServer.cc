@@ -471,6 +471,21 @@ void RServer::disconnect()
 }
 
 /*
+ * An exception left the rest of a multi-line reply (an article, an
+ * overview, the active list) unread, e.g. a CorruptDBError of the spool
+ * while storing it: the next command would read that rest as its reply,
+ * and every command after it too. The connection is closed instead.
+ */
+void RServer::reply_unread()
+{
+	if (_CurrentServer)
+		slog.p(Logger::Warning) << "error while reading a reply of "
+		    << "news server " << _CurrentServer->hostname
+		    << ", closing the connection\n";
+	disconnect();
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
@@ -479,7 +494,13 @@ void RServer::disconnect()
  */
 void RServer::readarticle(Article * art)
 {
-	art->read(*_pServerStream);
+	try {
+		art->read(*_pServerStream);
+	}
+	catch(...) {
+		reply_unread();
+		throw;
+	}
 	if (!_pServerStream->good()) {
 		slog.p(Logger::Warning) << "news server "
 		    << _CurrentServer->hostname
@@ -804,12 +825,18 @@ ActiveDB *RServer::active()
 						    "\r\n";
 						issue(cmd.c_str(), "215");
 						// read active database and filter unwanted groups
-						_ActiveDB->
-						    read(*_pServerStream,
-							 _ServerList->
-							 makeFilter(i,
-								    cgroup.c_str()).c_str(),
-							 flags);
+						try {
+							_ActiveDB->
+							    read(*_pServerStream,
+								 _ServerList->
+								 makeFilter(i,
+									    cgroup.c_str()).c_str(),
+								 flags);
+						}
+						catch(...) {
+							reply_unread();
+							throw;
+						}
 					} while (sp != end);
 				}
 				catch(ResponseError & re) {
@@ -830,10 +857,16 @@ ActiveDB *RServer::active()
 			     nntpflags & MPListEntry::
 			     F_LIST_ACTIVE_WILDMAT)) {
 				issue("list active\r\n", "215");
-				_ActiveDB->read(*_pServerStream,
-						_ServerList->makeFilter(i,
-									"*").c_str(),
-						flags);
+				try {
+					_ActiveDB->read(*_pServerStream,
+							_ServerList->makeFilter(i,
+										"*").c_str(),
+							flags);
+				}
+				catch(...) {
+					reply_unread();
+					throw;
+				}
 				if (!_pServerStream->good()) {
 					disconnect();
 					throw SystemError("active list cut off "
@@ -1039,7 +1072,14 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
-			artnum_t r = ng->readoverdb(*_pServerStream);
+			artnum_t r;
+			try {
+				r = ng->readoverdb(*_pServerStream);
+			}
+			catch(...) {
+				reply_unread();
+				throw;
+			}
 			if (!_pServerStream->good()) {
 				// cut off: the range isn't complete
 				disconnect();
