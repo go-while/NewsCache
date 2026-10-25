@@ -467,6 +467,9 @@ Bug fixes:
 * NEWGROUPS answered "410 operation failed" when the active list couldn't
   be read; 410 is no NEWGROUPS reply. It now answers like LIST: "403
   internal error" (RFC 3977), after one more try on a damaged database.
+* DATE would answer "500 gmtime failed" if the system couldn't convert
+  the time; 500 means "unknown command". It is "403 gmtime failed" now
+  (RFC 3977: internal fault). This doesn't happen in practice.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

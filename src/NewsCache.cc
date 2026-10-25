@@ -1638,7 +1638,9 @@ int ns_date(ClientData * clt, int argc, char *argv[])
 	}
 	time(&conv);
 	if ((ltm = gmtime_r(&conv, &tmbuf)) == NULL) {
-		(*clt->co) << "500 gmtime failed\r\n";
+		// 403: internal fault (RFC 3977 3.2.1); 500 is "unknown
+		// command"
+		(*clt->co) << "403 gmtime failed\r\n";
 		slog.p(Logger::Error) << "ns_date() gmtime failed\n";
 		return -1;
 	}
