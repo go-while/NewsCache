@@ -263,8 +263,18 @@ void AccessList::readClient(Lexer & lex, const char *address)
 	int family = AF_UNSPEC;
 	const char *slash = strchr(address, '/');
 	if (slash != NULL) {
+		// "a.b.c.d/" was /0 (atoi("")) and let in every client
+		if (slash[1] == '\0')
+			throw SyntaxError(lex, "missing prefix length after '/'",
+					  ERROR_LOCATION);
 		if (strspn(slash + 1, "0123456789") == strlen(slash + 1)) {
-			cur.prefixlen = atoi(slash + 1);
+			// checked before it goes into the unsigned short:
+			// 65536 wrapped to /0
+			unsigned long v = strtoul(slash + 1, NULL, 10);
+			if (v > 128)
+				throw SyntaxError(lex, "prefix length too long",
+						  ERROR_LOCATION);
+			cur.prefixlen = v;
 		} else {
 			unsigned char mask[4];
 			if (inet_pton(AF_INET, slash + 1, &mask) != 1) {
@@ -297,6 +307,14 @@ void AccessList::readClient(Lexer & lex, const char *address)
 			if (b & 0x02) {
 				cur.prefixlen++;
 			}
+
+			// only a contiguous mask; 255.0.255.0 became /8
+			unsigned char want[4] = { 0, 0, 0, 0 };
+			for (unsigned int i = 0; i < cur.prefixlen; i++)
+				want[i / 8] |= 0x80 >> (i % 8);
+			if (memcmp(mask, want, sizeof(mask)) != 0)
+				throw SyntaxError(lex, "IPv4 netmask is not contiguous",
+						  ERROR_LOCATION);
 		}
 
 		cur.hostname.assign(address, slash);

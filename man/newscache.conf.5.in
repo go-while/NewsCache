@@ -221,6 +221,12 @@ IPv4 addresses. Use 0.0.0.0 to listen on IPv4 only.
 }
 
 .fi
+.IP "Client ip-address/netmask"
+The netmask is a prefix length (0 to 32 for IPv4, 0 to 128 for IPv6)
+or, for IPv4, a mask such as 255.255.255.0 whose bits are contiguous.
+A plain address without a netmask means that host only. An empty prefix
+("10.0.0.0/"), one out of range and a mask with gaps are configuration
+errors.
 .IP "allow [read] [post] [debug] [none] [authentication]"
 Allow read, post, debug for this Client. The default is none. If only authenticated users are allowed for this network, then authentication can be specified. See example "Only authenticated users".
 .IP "List \fINGSpecification\fR"

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -317,6 +318,65 @@ func TestAccessPrefixNeedsAddress(t *testing.T) {
 			}
 			if !strings.Contains(string(out), "needs an IP address") {
 				t.Errorf("Client %s: error %q, want \"a /prefix needs an IP address\"", p, strings.TrimSpace(string(out)))
+			}
+		})
+	}
+}
+
+// TestAccessPrefixInvalid: a Client entry with an empty prefix length
+// ("192.168.1.0/", a typo) became /0 and let in every IPv4 client, and
+// prefix lengths of 65536 and more wrapped in an unsigned short (65536 to /0,
+// 65544 to /8); a non-contiguous netmask was taken as the bits up to its
+// first gap. Each is a config error now. The entry below is for 10.9.9.9
+// only, so the old code let in a client from 127.0.0.1 that it must refuse.
+func TestAccessPrefixInvalid(t *testing.T) {
+	for _, c := range []struct{ pattern, err string }{
+		{"10.9.9.9/", "missing prefix length"},
+		{"10.9.9.9/65536", "prefix length too long"},
+		{"10.9.9.9/65544", "prefix length too long"},
+		{"10.9.9.9/4294967328", "prefix length too long"},
+		{"10.9.9.9/99999999999999999999", "prefix length too long"},
+		{"10.9.9.9/33", "prefix length too long"},
+		{"2001:db8::/129", "prefix length too long"},
+		{"10.9.9.9/255.0.255.0", "netmask is not contiguous"},
+		{"10.9.9.9/255.255.255.253", "netmask is not contiguous"},
+	} {
+		t.Run(c.pattern, func(t *testing.T) {
+			e := newEnv(t)
+			e.AccessList = accessEntry(c.pattern)
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err == nil {
+				msg := fmt.Sprintf("newscache accepted Client %s as %q", c.pattern,
+					grepLines(accessListOf(t, string(out)), "Client"))
+				e.standalone()
+				cl := e.dialLenient()
+				defer cl.Close()
+				t.Fatalf("%s; a client from 127.0.0.1 got %q", msg, cl.Greeting)
+			}
+			if !strings.Contains(string(out), c.err) {
+				t.Errorf("Client %s: error %q, want %q", c.pattern, strings.TrimSpace(string(out)), c.err)
+			}
+		})
+	}
+	// valid forms still work
+	for _, c := range []struct{ pattern, want string }{
+		{"10.9.9.9/0", "Client 10.9.9.9/0"},
+		{"10.9.9.9/32", "Client 10.9.9.9/32"},
+		{"2001:db8::/128", "Client 2001:db8::/128"},
+		{"10.0.0.0/255.255.255.254", "Client 10.0.0.0/31"},
+		{"10.0.0.0/0.0.0.0", "Client 10.0.0.0/0"},
+	} {
+		t.Run(c.pattern, func(t *testing.T) {
+			e := newEnv(t)
+			e.AccessList = accessEntry(c.pattern)
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if err != nil {
+				t.Fatalf("Client %s: %v\n%s", c.pattern, err, out)
+			}
+			if got := grepLines(accessListOf(t, string(out)), "Client"); !strings.Contains(got, c.want+" {") {
+				t.Errorf("Client %s printed as %q, want %q", c.pattern, got, c.want)
 			}
 		})
 	}
