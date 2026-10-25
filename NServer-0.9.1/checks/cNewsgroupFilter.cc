@@ -1,4 +1,6 @@
 #include <iostream>
+#include <string>
+#include <cstring>
 
 #include "NewsgroupFilter.h"
 
@@ -120,6 +122,30 @@ int main(int argc, char *argv[])
 
 	cout << "operator|=:\n";
 	combine_filters(CheckOR());
+
+	// Rules longer than a newsgroup name (513 bytes) used to overflow
+	// the iterator's fixed buffer when filters were combined.
+	cout << "long rules: " << flush;
+	{
+		std::string longrule(5000, 'x'), longgroup(5000, 'x');
+		longrule += ".*";
+		longgroup += ".y";
+		NewsgroupFilter f("at.*"), g(("*,!" + longrule).c_str());
+		NewsgroupFilter h(longrule.c_str());
+		f |= h;
+		g &= NewsgroupFilter("*");
+		NewsgroupFilter copy(f);
+		copy = f;
+		if (f.matches(longgroup.c_str()) > 0
+		    && f.matches("at.tuwien.general") > 0
+		    && f.matches("foo.bar") <= 0
+		    && g.matches(longgroup.c_str()) <= 0) {
+			cout << "+" << endl;
+		} else {
+			cout << "-" << endl;
+			ef++;
+		}
+	}
 
 	if (ef == 0) {
 		cout << "cNewsgroupFilter: all tests succeeded\n";

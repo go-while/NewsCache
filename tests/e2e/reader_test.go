@@ -56,6 +56,38 @@ func TestListActive(t *testing.T) {
 	}
 }
 
+// TestListActiveTimesLongPattern: a LIST ACTIVE.TIMES pattern longer than a
+// newsgroup name (513 bytes) is only a pattern that matches nothing; the
+// session answers and goes on. It was copied into a fixed buffer of the
+// group filter unchecked: with glibc's checks the session aborted ("buffer
+// overflow detected"), elsewhere it wrote past the buffer.
+func TestListActiveTimesLongPattern(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	// (under 1000 bytes: longer command lines are refused before the
+	// command runs)
+	for _, pat := range []string{
+		strings.Repeat("x", 600),
+		strings.Repeat("a", 900) + ".*,test.*",
+		"test.*,!" + strings.Repeat("b", 900),
+	} {
+		code, line := c.Cmd("LIST ACTIVE.TIMES %s", pat)
+		if code != 215 {
+			t.Fatalf("LIST ACTIVE.TIMES <%d bytes>: %q, want 215", len(pat), line)
+		}
+		c.ReadDotLines()
+	}
+	// the session is still alive and the pattern logic still works
+	code, line := c.Cmd("LIST ACTIVE.TIMES test.*")
+	if code != 215 {
+		t.Fatalf("LIST ACTIVE.TIMES test.*: %q, want 215", line)
+	}
+	if lines := c.ReadDotLines(); len(lines) != 1 || !strings.HasPrefix(lines[0], "test.alpha ") {
+		t.Errorf("LIST ACTIVE.TIMES test.*: %q, want the line of test.alpha", lines)
+	}
+}
+
 func TestGroupArticleHeadBody(t *testing.T) {
 	e := newEnv(t)
 	ids := e.addArticles("test.alpha", 3)
