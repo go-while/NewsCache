@@ -756,7 +756,9 @@ ActiveDB *RServer::active()
 {
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
 	unsigned int i, flags;
-	char cgroup[MAXGROUPNAMELEN + 1], *cgp, buf[1024];
+	// std::string: a Read element of the config has no length limit
+	// (it overflowed a 513-byte buffer)
+	string cgroup, cmd;
 	char c;
 
 	ASSERT(if (!_ServerList) {
@@ -795,21 +797,19 @@ ActiveDB *RServer::active()
 					  _CurrentServer->read.end();
 					do {
 						// Extract a newsgroup-expression
-						cgp = cgroup;
+						cgroup.clear();
 						while (sp != end &&
 						       (c = *sp++) != ',')
-							*cgp++ = c;
-						*cgp = '\0';
-						snprintf(buf, sizeof(buf),
-							 "list active %s\r\n",
-							 cgroup);
-						issue(buf, "215");
+							cgroup += c;
+						cmd = "list active " + cgroup +
+						    "\r\n";
+						issue(cmd.c_str(), "215");
 						// read active database and filter unwanted groups
 						_ActiveDB->
 						    read(*_pServerStream,
 							 _ServerList->
 							 makeFilter(i,
-								    cgroup).c_str(),
+								    cgroup.c_str()).c_str(),
 							 flags);
 					} while (sp != end);
 				}
