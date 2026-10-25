@@ -468,8 +468,8 @@ func testUpstreamStalledArticle(t *testing.T, useTLS bool) {
 	b.ReadDotLines()
 	select {
 	case line := <-done:
-		if strings.HasPrefix(line, "220") {
-			t.Errorf("A: ARTICLE 1: %q, want an error (the upstream never answered)", line)
+		if !strings.HasPrefix(line, "403 ") {
+			t.Errorf("A: ARTICLE 1: %q, want 403 (the upstream never answered)", line)
 		}
 		t.Logf("A: ARTICLE 1 -> %q", line)
 	case <-time.After(30 * time.Second):
@@ -911,10 +911,11 @@ func TestUpstreamArticleNULAndCR(t *testing.T) {
 
 // TestUpstreamArticleErrorNot423: when the upstream fails to send an
 // article by number (here it closes the connection in the middle), the
-// client must get an error, not "423 no such article": RNewsgroup::getarticle
-// (not-cached) and CNewsgroup::retrievearticle turned every exception into
-// "no such article", and some newsreaders then mark the article as gone.
-// An article the upstream doesn't have is still 423.
+// client must get 403 (an internal fault, RFC 3977 3.2.1), not "423 no
+// such article": RNewsgroup::getarticle (not-cached) and
+// CNewsgroup::retrievearticle turned every exception into "no such
+// article", and some newsreaders then mark the article as gone. An
+// article the upstream doesn't have is still 423.
 func TestUpstreamArticleErrorNot423(t *testing.T) {
 	for _, opts := range []string{"", "not-cached"} {
 		t.Run("options "+firstNonEmpty(opts, "default"), func(t *testing.T) {
@@ -934,13 +935,75 @@ func TestUpstreamArticleErrorNot423(t *testing.T) {
 			if code == 220 {
 				c.ReadDotLines()
 			}
-			if code == 220 || code == 423 || code < 400 {
-				t.Errorf("ARTICLE 1 cut off by the upstream: %q, want an error other than 423", line)
-			} else {
-				t.Logf("ARTICLE 1 cut off by the upstream: %q", line)
+			if code != 403 {
+				t.Errorf("ARTICLE 1 cut off by the upstream: %q, want 403", line)
 			}
 			if code, line := c.Cmd("ARTICLE 2"); code != 423 {
 				t.Errorf("ARTICLE 2 (not on the upstream): %q, want 423", line)
+			}
+		})
+	}
+}
+
+// TestUpstreamFault403: when the upstream fails while NewsCache fetches an
+// article (it closes the connection in the middle, it doesn't answer
+// within ReadTimeout, the article is larger than MaxArticleSize), every
+// command that fetches the article answers 403, by number and by
+// message-ID: RFC 3977 3.2.1 has 403 for "internal fault or problem
+// preventing action being taken". They answered 503, RFC 977's "program
+// fault", which RFC 3977 made "feature not supported". The session goes
+// on after each of them.
+func TestUpstreamFault403(t *testing.T) {
+	all := []string{"ARTICLE 1", "HEAD 1", "BODY 1", "ARTICLE %s", "HEAD %s",
+		"BODY %s", "STAT %s", "HDR Subject %s", "XHDR Subject %s", "XPAT Subject %s *"}
+	for _, f := range []struct {
+		name  string
+		cmds  []string
+		setup func(e *env) string // returns the message-ID of article 1
+	}{
+		{"cut off", all, func(e *env) string {
+			ids := e.addArticles("test.alpha", 1)
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				DropInMultiline: map[string]int{"ARTICLE": 3},
+			}})
+			return ids[0]
+		}},
+		{"too large", all, func(e *env) string {
+			e.Extra = "MaxArticleSize 100000"
+			e.Store.AddGroup("test.alpha", "test group")
+			return addSizedArticle(e, "test.alpha", 1, 110000, 998)
+		}},
+		{"timeout", []string{"ARTICLE 1", "ARTICLE %s", "HDR Subject %s"}, func(e *env) string {
+			ids := e.addArticles("test.alpha", 1)
+			e.ServerLines = "    ReadTimeout 1\n    Retries 1"
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				Delay: map[string]time.Duration{"ARTICLE": time.Minute},
+			}})
+			return ids[0]
+		}},
+	} {
+		t.Run(f.name, func(t *testing.T) {
+			e := newEnv(t)
+			id := f.setup(e)
+			c := e.session()
+			c.Deadline = 30 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q", line)
+			}
+			for _, cmd := range f.cmds {
+				if strings.Contains(cmd, "%s") {
+					cmd = fmt.Sprintf(cmd, id)
+				}
+				code, line := c.Cmd("%s", cmd)
+				if code/100 == 2 && code != 223 {
+					c.ReadDotLines()
+				}
+				if code != 403 {
+					t.Errorf("%s: %q, want 403", cmd, line)
+				}
+				if code, line := c.Cmd("DATE"); code != 111 {
+					t.Fatalf("DATE after %s: %q, want 111", cmd, line)
+				}
 			}
 		})
 	}

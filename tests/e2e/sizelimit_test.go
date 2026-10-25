@@ -44,7 +44,7 @@ func logHas(e *env, s string) bool {
 }
 
 // TestUpstreamArticleTooLarge: an article larger than MaxArticleSize
-// (default 1 MiB) is refused: the client gets an error, nothing is stored
+// (default 1 MiB) is refused: the client gets 403, nothing is stored
 // (the next ARTICLE fetches it again), the connection to the upstream is
 // closed (the rest of the article is unread on it), and another session
 // is served. NewsCache read any article into memory, whatever its size.
@@ -74,9 +74,11 @@ func TestUpstreamArticleTooLarge(t *testing.T) {
 				code, line := a.Cmd("ARTICLE 1")
 				if code == 220 {
 					a.ReadDotLines()
-					t.Fatalf("ARTICLE 1 (%d bytes) try %d: %q, want an error", c.large, i, line)
+					t.Fatalf("ARTICLE 1 (%d bytes) try %d: %q, want 403", c.large, i, line)
 				}
-				t.Logf("ARTICLE 1 try %d -> %q", i, line)
+				if code != 403 {
+					t.Errorf("ARTICLE 1 (%d bytes) try %d: %q, want 403", c.large, i, line)
+				}
 				if code, line := a.Cmd("ARTICLE 2"); code != 220 {
 					t.Fatalf("ARTICLE 2 (%d bytes) after it: %q, want 220", c.small, line)
 				}
@@ -153,7 +155,7 @@ func startMeasured(t *testing.T, e *env) (*proc.Process, *client.Conn) {
 // TestUpstreamEndlessArticle: an upstream that never ends an article.
 // NewsCache read it until the upstream gave up (the testkit's deadline),
 // growing all the while; now it stops after MaxArticleSize and answers
-// the client at once.
+// the client at once (403).
 func TestUpstreamEndlessArticle(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 2)
@@ -172,7 +174,9 @@ func TestUpstreamEndlessArticle(t *testing.T) {
 	if err != nil {
 		t.Errorf("ARTICLE 1: no reply: %v", err)
 	} else if code == 220 {
-		t.Fatalf("ARTICLE 1: %q, want an error", line)
+		t.Fatalf("ARTICLE 1: %q, want 403", line)
+	} else if code != 403 {
+		t.Errorf("ARTICLE 1: %q, want 403", line)
 	}
 	if took > 10*time.Second {
 		t.Errorf("ARTICLE 1 answered after %v, want within 10 s", took)
