@@ -3200,12 +3200,13 @@ void nnrpd(int fd)
 						client_logname << " failed authinfo for user  " <<
 						clt.auth_user << "\n";
 			}
-		if (clt.auth_failures >= clt.auth_max_failures) {
-
-			(*clt.  co) << "400 " PACKAGE " " VERSION
-		       ", service discontinued (max passwords retries)\r\n";
-			goto client_exit;
 		}
+		// (whatever the LogStyle: this check used to sit in the
+		// block above, so strict-inn allowed endless retries)
+		if (clt.auth_failures >= clt.auth_max_failures) {
+			(*clt.co) << "400 " PACKAGE " " VERSION
+			    ", service discontinued (max passwords retries)\r\n";
+			goto client_exit;
 		}
 	} while (errc == 0 || errc == -1);
 

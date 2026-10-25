@@ -98,6 +98,10 @@ Bug fixes:
   with "AUTHINFO", but the command itself skipped leading blanks. The
   line was logged at level info, and after a wrong password once more at
   level notice.
+* With "LogStyle strict-inn" the connection wasn't closed after the
+  third failed login, as the manual says it is, so a client could try
+  passwords for ever on one connection (with "AuthFailureDelay 0" at
+  full speed).
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

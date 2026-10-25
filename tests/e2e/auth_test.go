@@ -608,3 +608,37 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 		t.Errorf("no masked AUTHINFO failure in the log:\n%s", grepLines(log, "uthinfo"))
 	}
 }
+
+// TestAuthMaxFailures: after the third failed login the connection is
+// closed (400), with every LogStyle. With "LogStyle strict-inn" the check
+// was skipped (it sat in the block that writes NewsCache's own log lines),
+// so a client could guess passwords for ever on one connection.
+func TestAuthMaxFailures(t *testing.T) {
+	for _, logStyle := range []string{"", "LogStyle ip-address strict-inn"} {
+		name := logStyle
+		if name == "" {
+			name = "default LogStyle"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+			e.Extra = "AuthFailureDelay 0\n" + logStyle
+			c := e.session()
+			c.Deadline = 10 * time.Second
+			for n := 1; n <= 3; n++ {
+				if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+					t.Fatalf("try %d: AUTHINFO USER: %q, want 381", n, line)
+				}
+				if code, line := c.Cmd("AUTHINFO PASS wrong%d", n); code != 502 {
+					t.Fatalf("try %d: AUTHINFO PASS: %q, want 502", n, line)
+				}
+			}
+			code, line, err := c.ReadStatus()
+			if err != nil || code != 400 {
+				t.Fatalf("after the third failure: %q, %v; want 400", line, err)
+			}
+			if l, err := c.ReadLine(); err == nil {
+				t.Fatalf("after the 400: %q, want the connection closed", l)
+			}
+		})
+	}
+}
