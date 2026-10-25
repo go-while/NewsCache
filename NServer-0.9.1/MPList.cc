@@ -126,6 +126,7 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	*pOut << "\t\tRetries " << retries << std::endl;
 	*pOut << "\t\tConnectBackoff " << connectBackoff << std::endl;
 	*pOut << "\t\tConnectTimeout " << connectTimeout << std::endl;
+	*pOut << "\t\tReadTimeout " << readTimeout << std::endl;
 	*pOut << "\t}" << std::endl;
 }
 
@@ -212,6 +213,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 		} else if (tok == "ConnectTimeout") {
 			a1 = lex.getToken();
 			cur.connectTimeout = atoi(a1.c_str());
+		} else if (tok == "ReadTimeout") {
+			a1 = lex.getToken();
+			cur.readTimeout = atoi(a1.c_str());
 		} else if (tok == "User") {
 			a1 = lex.getToken();
 			cur.user = a1;

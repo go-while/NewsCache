@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <poll.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -183,8 +185,37 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
     slog.p(Logger::Warning) << "Unable to connect to " << name << ' '
 			    << service << "\n";
   }
+  else
+  {
+    apply_io_timeout();
+  }
 
   freeaddrinfo(res);
+}
+
+bool sockstream::sockstreambuf::wait_io(bool for_write)
+{
+  struct pollfd p;
+  p.fd = _fd;
+  p.events = for_write ? POLLOUT : POLLIN;
+  p.revents = 0;
+  int rc;
+  do
+  {
+    rc = poll(&p, 1, _io_timeout ? (int) _io_timeout * 1000 : -1);
+  } while (rc < 0 && errno == EINTR);
+  return rc > 0;
+}
+
+void sockstream::sockstreambuf::apply_io_timeout()
+{
+  if (!_io_timeout)
+    return;
+  struct timeval tv;
+  tv.tv_sec = _io_timeout;
+  tv.tv_usec = 0;
+  setsockopt(_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
 void sockstream::sockstreambuf::attach(int fd)
@@ -405,11 +436,14 @@ void sockstream::sslstreambuf::disconnect()
   }
   _connected = false;
 
-  int rc_shutdown = GNUTLS_E_AGAIN;
-  while (rc_shutdown == GNUTLS_E_AGAIN)
+  // Only our close_notify: waiting for the server's (SHUT_RDWR) could
+  // wait for ever on a server that doesn't answer, or loop on
+  // GNUTLS_E_AGAIN once the socket has a timeout.
+  int rc_shutdown;
+  do
   {
-    rc_shutdown = gnutls_bye(_session, GNUTLS_SHUT_RDWR);
-  }
+    rc_shutdown = gnutls_bye(_session, GNUTLS_SHUT_WR);
+  } while (rc_shutdown == GNUTLS_E_INTERRUPTED);
 }
 
 
@@ -449,7 +483,10 @@ int sockstream::sslstreambuf::sync()
     do
     {
       rc_write = gnutls_write(_session, pbase() + off, pptr() - pbase() - off);
-    } while (rc_write == GNUTLS_E_AGAIN);
+      // GNUTLS_E_AGAIN: the send timeout ran out, or GnuTLS has more
+      // to do: go on only while the socket becomes writable in time
+    } while (rc_write == GNUTLS_E_INTERRUPTED ||
+	     (rc_write == GNUTLS_E_AGAIN && _buf.wait_io(true)));
     if (rc_write < 0)
     {
       return -1;
@@ -474,7 +511,12 @@ int sockstream::sslstreambuf::underflow()
   do
   {
     rc_read = gnutls_read(_session, _buf._gbuf, sizeof(_buf._gbuf));
-  } while (rc_read == GNUTLS_E_AGAIN);
+    // GNUTLS_E_AGAIN: the receive timeout ran out, or a record without
+    // application data (a TLS 1.3 session ticket) was taken in: go on
+    // while data is pending or arrives in time
+  } while (rc_read == GNUTLS_E_INTERRUPTED ||
+	   (rc_read == GNUTLS_E_AGAIN &&
+	    (gnutls_record_check_pending(_session) > 0 || _buf.wait_io(false))));
   if (rc_read > 0)
   {
     setg(_buf._gbuf, _buf._gbuf, _buf._gbuf + rc_read);

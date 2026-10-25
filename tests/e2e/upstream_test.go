@@ -408,3 +408,105 @@ func TestUpstreamLoginExpired(t *testing.T) {
 		t.Errorf("upstream got %d AUTHINFO lines, want a second login", n)
 	}
 }
+
+// TestUpstreamStalledArticle: an upstream that stops answering in the
+// middle of a session (here: no reply to ARTICLE) is given up after the
+// server's ReadTimeout. There was no read timeout at all: the session
+// waited for good while it held the group's lock, and another session
+// that needed the group (fetching overview records) hung too.
+func TestUpstreamStalledArticle(t *testing.T) {
+	t.Run("plain", func(t *testing.T) { testUpstreamStalledArticle(t, false) })
+	t.Run("TLS", func(t *testing.T) { testUpstreamStalledArticle(t, true) })
+}
+
+func testUpstreamStalledArticle(t *testing.T, useTLS bool) {
+	e := newEnv(t)
+	if useTLS {
+		requireTLS(t, e.Bin)
+	}
+	e.addArticles("test.alpha", 3)
+	e.ServerLines = "    ReadTimeout 2\n    Retries 2"
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"ARTICLE": time.Minute},
+	}})
+	if useTLS {
+		// through GnuTLS, whose reads retried GNUTLS_E_AGAIN for ever
+		ca := newTestCA(t, e.Dir)
+		p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), false, false)
+		e.ServerHost = "localhost"
+		e.ServerPort = p.port()
+		e.ServerOptions = "ssl"
+		e.ServerLines += "\n    TLSCAFile " + ca.file
+	}
+	e.standalone()
+	a := e.dial()
+	a.Deadline = 30 * time.Second
+	if code, line := a.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("A: GROUP: %q", line)
+	}
+	done := make(chan string, 1)
+	go func() {
+		_, line, err := a.TryCmd("ARTICLE 1")
+		if err != nil {
+			line = err.Error()
+		}
+		done <- line
+	}()
+	time.Sleep(500 * time.Millisecond)
+	b := e.dial()
+	b.Deadline = 20 * time.Second
+	if code, line := b.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("B: GROUP: %q", line)
+	}
+	if code, line := b.Cmd("XOVER 1-3"); code != 224 {
+		t.Fatalf("B: XOVER: %q, want 224 (not blocked by A's stalled fetch)", line)
+	}
+	b.ReadDotLines()
+	select {
+	case line := <-done:
+		if strings.HasPrefix(line, "220") {
+			t.Errorf("A: ARTICLE 1: %q, want an error (the upstream never answered)", line)
+		}
+		t.Logf("A: ARTICLE 1 -> %q", line)
+	case <-time.After(30 * time.Second):
+		t.Fatal("A: ARTICLE 1 got no reply within 30 s")
+	}
+}
+
+// TestUpstreamStalledActive: an upstream that stalls in the middle of the
+// active list. The session that asked holds the active list's lock while
+// it reads; without a read timeout every new session then hung before the
+// greeting, and the whole cache was down until a restart.
+func TestUpstreamStalledActive(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.addArticles("test.beta", 1)
+	e.ServerLines = "    ReadTimeout 2\n    Retries 2"
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		LineDelay: map[string]time.Duration{"LIST": time.Minute},
+	}})
+	e.standalone()
+	a := e.dial()
+	a.Deadline = 40 * time.Second
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if code, _, err := a.TryCmd("LIST"); err == nil && code == 215 {
+			a.TryReadDotLines()
+		}
+	}()
+	time.Sleep(500 * time.Millisecond)
+	c, err := client.TryDial(e.Listen, 30*time.Second)
+	if err != nil {
+		t.Fatalf("second session: no greeting within 30 s: %v", err)
+	}
+	c = c.WithTB(t)
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("second session: DATE: %q, want 111", line)
+	}
+	select {
+	case <-done:
+	case <-time.After(40 * time.Second):
+		t.Error("the session reading the stalled active list didn't end")
+	}
+}

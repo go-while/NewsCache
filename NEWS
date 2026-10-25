@@ -1,5 +1,10 @@
 Unreleased:
 
+New option:
+* ReadTimeout (in a Server entry): give up the connection to the news
+  server when it sends or accepts nothing for this many seconds (each
+  read and write; default 300, 0 waits for ever).
+
 Bug fixes:
 * With "Options starttls", the upstream password could go out in plain
   text: a 480 reply to MODE READER, which comes before STARTTLS, made
@@ -19,6 +24,13 @@ Bug fixes:
   LISTGROUP it kept the group locked, so every other session that needed
   that group hung. A client that stopped in the middle of a POST was
   never disconnected either.
+* An upstream news server that stopped answering held its session for
+  good, together with the locks it had: during the refresh of the active
+  list that lock made every new session hang before the greeting, so the
+  whole cache was down until a restart; during a fetch the group was
+  locked for everyone. With ReadTimeout the connection is given up and
+  opened again, also over TLS (where the wait was without limit even
+  when closing the connection).
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became

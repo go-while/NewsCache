@@ -436,6 +436,7 @@ option := "Read" grouplist | "PostTo" grouplist |
           "User" string | "Password" string |
           "GroupTimeout" number | "LimitGroupSize" number |
           "ConnectTimeout" number | "ConnectBackoff" number |
+          "ReadTimeout" number |
 	  "Options" flags 
 @end example
 
@@ -494,6 +495,16 @@ it; they print the comment @samp{# Password set, not shown} instead.
 @item ConnectTimeout
 @cdindex ConnectTimeout
 Limit the timeout for connections to upstream servers.
+@item ReadTimeout
+@cdindex ReadTimeout
+How long NewsCache waits for the server to send (or accept) anything on
+an open connection, in seconds; the default is 300, 0 waits for ever.
+It applies to each read and write, not to a whole reply, so a large
+article on a slow line is fine. A server that stops answering ends the
+connection after this time; NewsCache connects again (up to
+@code{Retries} times) and otherwise gives the client an error. Without
+it, a session waited for good, holding the group's or the active list's
+lock, so other sessions hung too.
 @item ConnectBackoff
 @cdindex ConnectBackoff
 Wait the specfied amount of seconds before trying to reconnect to an

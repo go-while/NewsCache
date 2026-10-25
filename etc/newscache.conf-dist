@@ -230,6 +230,10 @@ AccessList {
 #   connection attempt
 # ConnectTimeout:
 #   Timeout connects after specified amount of seconds
+# ReadTimeout:
+#   Give up a connection when the server sends (or accepts) nothing for
+#   this many seconds (each read and write, not a whole reply; default
+#   300, 0 = wait for ever)
 # Options:
 #   (not-)offline, semioffline ... retrieve nothing/everything/articles
 #   (not-)setpostflag ... set postflag to n in the active database, if
