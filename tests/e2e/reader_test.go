@@ -606,3 +606,36 @@ func TestOverviewAfterArticleRead(t *testing.T) {
 	}
 	c.Cmd("QUIT")
 }
+
+// TestNextLastNotCachedGap: NEXT and LAST skip numbers without an article.
+// In a group that isn't cached (Options not-cached), the overview of a
+// missing number is a NULL pointer, which NEXT and LAST dereferenced: the
+// session crashed (SIGSEGV) at the first gap.
+func TestNextLastNotCachedGap(t *testing.T) {
+	const group = "test.gap"
+	e := newEnv(t)
+	e.Store.AddGroup(group, "articles 1, 2 and 5")
+	for _, n := range []int64{1, 2, 5} {
+		e.Store.AddArticle(group, groupArticle(group, n, []string{"body"}))
+	}
+	e.ServerOptions = "not-cached"
+	c := e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("NEXT"); code != 223 || !strings.HasPrefix(line, "223 2 ") {
+		t.Fatalf("NEXT from 1: %q, want 223 2", line)
+	}
+	if code, line := c.Cmd("NEXT"); code != 223 || !strings.HasPrefix(line, "223 5 ") {
+		t.Fatalf("NEXT from 2 over the gap: %q, want 223 5", line)
+	}
+	if code, line := c.Cmd("NEXT"); code != 421 {
+		t.Errorf("NEXT from 5: %q, want 421", line)
+	}
+	if code, line := c.Cmd("LAST"); code != 223 || !strings.HasPrefix(line, "223 2 ") {
+		t.Fatalf("LAST from 5 over the gap: %q, want 223 2", line)
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after NEXT/LAST: %q, want 111 (session alive)", line)
+	}
+}

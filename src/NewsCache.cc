@@ -1550,7 +1550,8 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 			}
 			i--;
 			o = clt->grp->getover(i);
-			if (o[0]) {
+			// (NULL from a not-cached group: no record)
+			if (o && o[0]) {
 				aid = ofmt->getfield(o, "Message-ID:", 0);
 				break;
 			}
@@ -1565,7 +1566,8 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 			}
 			++i;
 			o = clt->grp->getover(i);
-			if (o[0]) {
+			// (NULL from a not-cached group: no record)
+			if (o && o[0]) {
 				aid = ofmt->getfield(o, "Message-ID:", 0);
 				break;
 			}
