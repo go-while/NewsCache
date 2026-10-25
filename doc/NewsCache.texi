@@ -515,7 +515,9 @@ option to specify the password for the above mentioned username.
 it; they print the comment @samp{# Password set, not shown} instead.
 @item ConnectTimeout
 @cdindex ConnectTimeout
-Limit the timeout for connections to upstream servers.
+Limit the timeout for connections to upstream servers, in seconds, in
+@command{newscache} and @command{updatenews}; 0 (the default) leaves it
+to the system, which can take minutes for a server that doesn't answer.
 @item ReadTimeout
 @cdindex ReadTimeout
 How long NewsCache waits for the server to send (or accept) anything on

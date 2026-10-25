@@ -63,6 +63,11 @@ Bug fixes:
 * updatenews died with SIGABRT and a core dump, without a log line, when
   its spool couldn't be created or written. It now logs the error and
   exits with status 1.
+* updatenews ignored ConnectTimeout: connecting to a server that doesn't
+  answer took the system's timeout (about two minutes on Linux). And
+  SIGPIPE, from a write to a connection the server had closed, ended the
+  prefetch after the current group as if updatenews had been stopped;
+  it is ignored now, as in newscache.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

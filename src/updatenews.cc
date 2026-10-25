@@ -68,6 +68,7 @@ Config Cfg;
 int opt_flags = 0;
 int opt_workers = 0;
 int Xsignal;
+sig_atomic_t alarmed = 0;
 
 void catchsignal(int num)
 {
@@ -112,6 +113,22 @@ void doprefetch(CServer * cs, const char *group)
 		}
 	}
 	slog.p(Logger::Error) << "prefetching " << group << " failed\n";
+}
+
+// SIGALRM ends a connect() after ConnectTimeout (see sockstream.cc)
+void catchsigalarm(int num)
+{
+	alarmed = 1;
+#ifdef HAVE_SIGACTION
+	/* Reinstall the signal handler */
+	struct sigaction action;
+	action.sa_handler = catchsigalarm;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(num, &action, NULL);
+#else
+	signal(num, catchsigalarm);
+#endif
 }
 
 int create_worker(CServer * cs, const char *group)
@@ -414,7 +431,8 @@ int main(int argc, char **argv)
 		Cfg.srvrs.entries[i].groupTimeout = 0;
 	}
 
-	// signal
+	// signal; without the alarm indicator ConnectTimeout never applied
+	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
 #ifdef HAVE_SIGACTION
 	struct sigaction action;
@@ -424,21 +442,26 @@ int main(int argc, char **argv)
 	action.sa_flags = 0;
 	sigaction(SIGHUP, &action, NULL);
 	sigaction(SIGINT, &action, NULL);
-	sigaction(SIGPIPE, &action, NULL);
 	sigaction(SIGTERM, &action, NULL);
-
-	sigaction(SIGALRM, &action, NULL);
 	sigaction(SIGUSR1, &action, NULL);
 	sigaction(SIGUSR2, &action, NULL);
+
+	action.sa_handler = catchsigalarm;
+	sigaction(SIGALRM, &action, NULL);
+
+	// as in newscache: a write to a connection the server has closed
+	// fails with EPIPE, and the connection is opened again; as a
+	// termination signal it ended the prefetch
+	action.sa_handler = SIG_IGN;
+	sigaction(SIGPIPE, &action, NULL);
 #else
 	signal(SIGHUP, catchsignal);
-	signal(SIGPIPE, catchsignal);
 	signal(SIGINT, catchsignal);
-	signal(SIGPIPE, catchsignal);
 	signal(SIGTERM, catchsignal);
-	signal(SIGALRM, catchsignal);
+	signal(SIGALRM, catchsigalarm);
 	signal(SIGUSR1, catchsignal);
 	signal(SIGUSR2, catchsignal);
+	signal(SIGPIPE, SIG_IGN);
 #endif
 	// beyond the file size limit (ulimit -f) a write fails with EFBIG,
 	// which the spool handles, instead of ending the process
