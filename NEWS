@@ -250,6 +250,10 @@ Bug fixes:
   blank continuation line at the end of an article without body was
   read past its end. NewsCache now removes every X-NNTP-Posting-Host of
   the client and adds its own.
+* XOVER, XHDR lines and HDR :lines showed the Lines header of the
+  article, if it had one, instead of the number of body lines once a
+  client had read the article; before that they showed the count from
+  the news server. They now always show the number of body lines.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

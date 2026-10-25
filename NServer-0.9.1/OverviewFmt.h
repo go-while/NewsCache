@@ -246,6 +246,15 @@ class OverviewFmt {
 		 recout = buf;
 		for (i = 0; i < _osz; i++) {
 			recout += '\t';
+			// Lines is the count of body lines (:lines), as
+			// the news server's overview has it, not the
+			// poster's Lines header (RFC 5536 made it obsolete)
+			if (strcasecmp(_over[i].name, "lines:") == 0) {
+				snprintf(buf, sizeof(buf), "%lu",
+					 article.bodylines());
+				recout.append(buf);
+				continue;
+			}
 			try {
 				fld = article.getfield(_over[i].name,
 						       _over[i].full);
@@ -260,16 +269,7 @@ class OverviewFmt {
 				recout.append(fld);
 			}
 			catch(NoSuchFieldError & nf) {
-				// Most articles have no Lines header (RFC
-				// 5536 made it obsolete): count the body
-				// lines, as the news server's overview does
-				// (:lines). Other fields not found => empty
-				if (strcasecmp(_over[i].name, "lines:") ==
-				    0) {
-					snprintf(buf, sizeof(buf), "%lu",
-						 article.bodylines());
-					recout.append(buf);
-				}
+				// fields not found => empty
 			}
 		}
 	}

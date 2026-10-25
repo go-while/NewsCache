@@ -677,6 +677,46 @@ func TestOverviewAfterArticleRead(t *testing.T) {
 	c.Cmd("QUIT")
 }
 
+// TestOverviewLinesHeader: the overview record made from an article read
+// by a client took Lines from the poster's Lines header when there was
+// one, the news server's record counts the body (RFC 3977 :lines): the
+// same article showed two line counts, depending on where its record
+// came from. XHDR lines by number did the same.
+func TestOverviewLinesHeader(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<lines.1@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: s", "Newsgroups: test.alpha", "Lines: 99",
+			"Xref: upstream.test test.alpha:1"},
+		Body: []string{"one", "two"}})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	xover := func() []string {
+		t.Helper()
+		if code, line := c.Cmd("XOVER 1"); code != 224 {
+			t.Fatalf("XOVER 1: %q", line)
+		}
+		return c.ReadDotLines()
+	}
+	before := xover()
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	if after := xover(); strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Errorf("XOVER 1 after ARTICLE 1: %q, want (as before) %q", after, before)
+	}
+	for _, cmd := range []string{"XHDR lines 1", "HDR :lines 1"} {
+		if code, line := c.Cmd("%s", cmd); code != 221 && code != 225 {
+			t.Errorf("%s: %q", cmd, line)
+		} else if got := c.ReadDotLines(); len(got) != 1 || got[0] != "1 2" {
+			t.Errorf("%s: %q, want [\"1 2\"]", cmd, got)
+		}
+	}
+}
+
 // TestNextLastNotCachedGap: NEXT and LAST skip numbers without an article.
 // In a group that isn't cached (Options not-cached), the overview of a
 // missing number is a NULL pointer, which NEXT and LAST dereferenced: the

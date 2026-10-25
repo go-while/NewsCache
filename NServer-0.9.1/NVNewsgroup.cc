@@ -906,19 +906,19 @@ void NVNewsgroup::printheaderdb(ostream & os,
 				Article art(i, data + sizeof(char),
 					    szdata - sizeof(char) - 1);
 				try {
-					fld = art.getfield(xheader.c_str(), 0);
-				} catch(NoSuchFieldError & nfe) {
-					// no Lines header: the body lines,
-					// as in the overview (:lines)
+					// Lines is the count of body lines
+					// (:lines), as in the overview, not
+					// the poster's Lines header
 					if (strcasecmp(xheader.c_str(),
 						       "lines:") == 0) {
 						char n[32];
 						snprintf(n, sizeof(n), "%lu",
 							 art.bodylines());
 						fld = n;
-					} else {
-						found = false;
-					}
+					} else
+						fld = art.getfield(xheader.c_str(), 0);
+				} catch(NoSuchFieldError & nfe) {
+					found = false;
 				} catch(const InvalidArticleError & e) {
 					bad = true;
 				}
