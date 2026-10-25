@@ -72,6 +72,9 @@ Bug fixes:
   neither posted nor prefetched anything. The option is now accepted
   and ignored: groups are prefetched one at a time. --lock-groups, as
   the usage text spells it, works too.
+* newscacheclean used NiceServer for its priority instead of NiceClean,
+  which had no effect. It uses NiceClean now (default 3), as
+  newscache.conf(5) says; check the value if you set NiceServer.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

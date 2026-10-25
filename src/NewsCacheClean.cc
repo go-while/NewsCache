@@ -569,17 +569,18 @@ int main(int argc, char **argv)
 	slog.p(Logger::Info) << "cleaning spool directory\n";
 
 
-	/* set nice value for master server */
+	/* set nice value for newscacheclean */
 #ifdef HAVE_SETPRIORITY
 	errno = 0;
-	nice = Cfg.NiceServer;
-	nice += getpriority(PRIO_PROCESS, 0);
+	// -1 is also a valid priority: errno tells an error
+	nice = getpriority(PRIO_PROCESS, 0);
 	if (nice == -1 && errno != 0) {
 		slog.
 		    p(Logger::
 		      Error) << "getpriority failed: " << strerror(errno)
 		    << "\n";
 	} else {
+		nice += Cfg.NiceClean;
 		if (setpriority(PRIO_PROCESS, 0, nice) == -1)
 			slog.
 			    p(Logger::

@@ -3,9 +3,14 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
@@ -83,5 +88,82 @@ func TestExpiredBigArticleFileRemoved(t *testing.T) {
 	if _, err := os.Stat(artFile); err == nil {
 		left, _ := filepath.Glob(filepath.Join(e.Spool, "test", "big", ".art*"))
 		t.Errorf("%s is still in the spool after article 2 expired upstream (files: %q)", artFile, left)
+	}
+}
+
+// TestNewscachecleanNiceClean: newscacheclean lowers its priority by
+// NiceClean, as newscache.conf(5) says. It used NiceServer instead, so
+// NiceClean had no effect. The test holds the lock of a group's database,
+// so newscacheclean waits for it, and reads its nice value meanwhile.
+func TestNewscachecleanNiceClean(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads /proc/<pid>/stat")
+	}
+	e := newEnv(t)
+	e.addArticles("test.a", 1)
+	c := e.session()
+	c.Cmd("GROUP test.a")
+	c.Cmd("XOVER 1-1")
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+	conf, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.Replace(string(conf), "NiceServer 0", "NiceServer 2", 1)
+	s = strings.Replace(s, "NiceClean 0", "NiceClean 7", 1)
+	if err := os.WriteFile(e.Conf, []byte(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(filepath.Join(e.Spool, "test", "a", ".db"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	lk := syscall.Flock_t{Type: syscall.F_WRLCK}
+	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLKW, &lk); err != nil {
+		t.Fatal(err)
+	}
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	cmd := exec.Command(clean, "-c", e.Conf)
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// field 19 of /proc/<pid>/stat, after the command name in parentheses
+	niceOf := func(pid int) int {
+		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := strings.Fields(string(b[strings.LastIndexByte(string(b), ')')+1:]))
+		n, err := strconv.Atoi(f[16])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	base := niceOf(os.Getpid())
+	want := base + 7
+	if want > 19 {
+		want = 19
+	}
+	got := base
+	for deadline := time.Now().Add(10 * time.Second); got != want && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+		got = niceOf(cmd.Process.Pid)
+	}
+	lk.Type = syscall.F_UNLCK
+	syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk)
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out.String())
+	}
+	if got != want {
+		t.Errorf("newscacheclean ran at nice %d, want %d (ours %d + NiceClean 7; NiceServer is 2)", got, want, base)
 	}
 }
