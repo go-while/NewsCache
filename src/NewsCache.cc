@@ -2041,6 +2041,15 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "340 send article to be posted.\r\n";
 		clt->co->flush();
 		art.read(*clt->ci);
+		if (!clt->ci->good()) {
+			// the input ended (or failed) before the "." line:
+			// the article is cut off and must not be posted
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: the article ended without its final"
+			    " \".\", not posted\n";
+			(*clt->co) << "441 article incomplete, not posted\r\n";
+			return -1;
+		}
 
 		// check whether client is authorized to post this article.
 		// (substr took the second argument as an end position,

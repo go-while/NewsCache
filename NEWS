@@ -10,6 +10,9 @@ Bug fixes:
   connect failed on them with a second, refused login).
 * NEXT and LAST crashed the session at the first missing article number
   in a group of a server with "Options not-cached".
+* POST: an article cut off by the client (the connection ended before
+  the final ".") was posted upstream as it was. It is now refused (441)
+  and not posted.
 * "Authentication pam+file": the rights of the lines that apply to a user
   (the user's own line, the lines @group of their groups, and the line *)
   were joined as strings without a comma, so "at.test" and "us.*" became
