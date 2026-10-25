@@ -86,6 +86,7 @@ int checkArticle(const char *artfn)
 	if (art1.getfield("dummy2:") != "dummy2")
 		return -84;
 
+	delete art2;
 	return 0;
 }
 
