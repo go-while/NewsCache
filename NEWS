@@ -107,6 +107,11 @@ Bug fixes:
   kept the first user's rights under the second user's name. It now gets
   502, as RFC 4643 says. A client whose entry has no Authentication gets
   502 at once too (it got 381, then 502 after the failure delay).
+* Where a login is required ("Authentication unix" without fields),
+  CAPABILITIES and MODE READER got "480 Authentication required" instead
+  of their answer, so a newsreader couldn't learn from CAPABILITIES that
+  it may log in (RFC 3977, RFC 4643); unknown commands got 480 instead
+  of 500.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

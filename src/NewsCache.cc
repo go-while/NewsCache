@@ -3135,10 +3135,17 @@ void nnrpd(int fd)
 		}
 		// Call function for command
 		cmd = argv[0];
+		// Before the login: CAPABILITIES may come at any time, and
+		// lists AUTHINFO USER (RFC 3977 5.2, RFC 4643 2.2); MODE
+		// READER comes before the login (RFC 4643 2.2); unknown
+		// commands get 500 below.
 		if (clt.auth_state == AUTH_REQUIRED &&
 		    strcasecmp(cmd, "authinfo") != 0 &&
 		    strcasecmp(cmd, "quit") != 0 &&
-		    strcasecmp(cmd, "help") != 0) {
+		    strcasecmp(cmd, "help") != 0 &&
+		    strcasecmp(cmd, "capabilities") != 0 &&
+		    strcasecmp(cmd, "mode") != 0 &&
+		    nnrp_commands.find(argv[0]) != end) {
 			(*clt.
 			 co) << "480 Authentication required (" << cmd <<
 		       ")\r\n";

@@ -678,3 +678,41 @@ func TestAuthinfoAfterLogin(t *testing.T) {
 		}
 	})
 }
+
+// TestLoginRequiredCommands: where a login is required ("Authentication
+// unix" without fields), CAPABILITIES and MODE READER are answered before
+// the login, and an unknown command gets 500; the other commands get 480.
+// Everything but AUTHINFO, QUIT and HELP got 480, so a client couldn't
+// learn from CAPABILITIES that it may log in (RFC 3977 5.2, RFC 4643 2.2).
+func TestLoginRequiredCommands(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication unix
+  }
+  Default {
+    allow none
+  }
+}`
+	c := e.session()
+	checkCaps(t, "before login", capabilities(t, c), []string{"VERSION 2", "AUTHINFO USER"}, nil)
+	if code, line := c.Cmd("MODE READER"); code != 200 && code != 201 {
+		t.Errorf("MODE READER before login: %q, want 200 or 201", line)
+	}
+	if code, line := c.Cmd("FOOBAR"); code != 500 {
+		t.Errorf("unknown command before login: %q, want 500", line)
+	}
+	for _, cmd := range []string{"GROUP test.alpha", "LIST", "POST"} {
+		if code, line := c.Cmd("%s", cmd); code != 480 {
+			t.Errorf("%s before login: %q, want 480", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("AUTHINFO USER nobody"); code != 381 {
+		t.Errorf("AUTHINFO USER: %q, want 381", line)
+	}
+}
