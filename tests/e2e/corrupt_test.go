@@ -303,6 +303,126 @@ func TestNewscachecleanCorruptDB(t *testing.T) {
 	}
 }
 
+// TestNewscachecleanSymlinks: newscacheclean doesn't follow symlinks in the
+// spool. Through a link to a directory outside the spool it deleted the
+// *.bad and .art files there and replaced a .db it took for damaged; a link
+// loop ("loop -> .") made it walk and count the spool hundreds of times.
+func TestNewscachecleanSymlinks(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.a", 3)
+	c := e.session()
+	c.Cmd("GROUP test.a")
+	c.Cmd("XOVER 1-3")
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+	grp := filepath.Join(e.Spool, "test", "a")
+	// an article file the database doesn't refer to: still removed
+	orphan := filepath.Join(grp, ".art999")
+	if err := os.WriteFile(orphan, []byte("orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(e.Dir, "outside")
+	files := map[string]string{
+		"notes.bad":     "a file of the admin",
+		"grp/.db":       "not a database",
+		"grp/.art7":     "an article file",
+		"grp/.art1":     "another one",
+		"single.art5":   "linked as a file",
+		"single.bad":    "linked as a file",
+		"history/0":     "linked as a history shard",
+		"history/1.bad": "linked as a history shard",
+	}
+	for name, data := range files {
+		p := filepath.Join(outside, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links := map[string]string{
+		filepath.Join(e.Spool, "link"):      outside,
+		filepath.Join(e.Spool, "loop"):      ".",
+		filepath.Join(grp, ".art5"):         filepath.Join(outside, "single.art5"),
+		filepath.Join(grp, "x.bad"):         filepath.Join(outside, "single.bad"),
+		filepath.Join(e.Spool, "test", "b"): filepath.Join(outside, "grp"),
+		filepath.Join(e.Spool, ".history"):  filepath.Join(outside, "history"),
+	}
+	for l, target := range links {
+		if err := os.Symlink(target, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// SpoolSize 1 KB: everything newscacheclean counts is over the limit
+	// and goes
+	conf, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Replace(string(conf), "SpoolSize 102400", "SpoolSize 1", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	out, err := exec.Command(clean, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	// outside the spool, every file is still there, unchanged, and no
+	// other file was added (a damaged .db used to become .db.bad there)
+	got := map[string]string{}
+	filepath.WalkDir(outside, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			data, _ := os.ReadFile(p)
+			rel, _ := filepath.Rel(outside, p)
+			got[filepath.ToSlash(rel)] = string(data)
+		}
+		return nil
+	})
+	for name, data := range files {
+		if g, ok := got[name]; !ok || g != data {
+			t.Errorf("outside the spool, %s: %q (there: %v); want %q", name, g, ok, data)
+		}
+	}
+	for name := range got {
+		if _, ok := files[name]; !ok {
+			t.Errorf("outside the spool, new file %s", name)
+		}
+	}
+	for l := range links {
+		if _, err := os.Lstat(l); err != nil {
+			t.Errorf("symlink %s: %v", l, err)
+		}
+	}
+	if _, err := os.Stat(orphan); err == nil {
+		t.Errorf("%s is still there", orphan)
+	}
+	// the purge table lists each file once, none through a link
+	var table []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(l, "./") {
+			table = append(table, strings.Fields(l)[0])
+		}
+	}
+	seen := map[string]bool{}
+	for _, p := range table {
+		if strings.Contains(p, "/loop") || strings.Contains(p, "/link") ||
+			strings.HasPrefix(p, "./test/b/") || strings.HasPrefix(p, "./.history/") ||
+			p == "./test/a/.art5" || p == "./test/a/x.bad" || seen[p] {
+			t.Errorf("purge table entry %s", p)
+		}
+		seen[p] = true
+	}
+	if !seen["./test/a/.db"] || !seen["./test/a/.art999"] {
+		t.Errorf("purge table lacks the group's files:\n%s", strings.Join(table, "\n"))
+	}
+}
+
 // TestUpdatenewsCorruptDB: updatenews prefetches a group whose .db is
 // damaged: it is moved aside and the group fetched into a new one.
 func TestUpdatenewsCorruptDB(t *testing.T) {

@@ -227,7 +227,7 @@ static void scan_history(void)
 		if (f->d_name[0] == '.')
 			continue;
 		snprintf(buf, sizeof(buf), "./.history/%s", f->d_name);
-		if (stat(buf, &s) != 0 || !S_ISREG(s.st_mode))
+		if (lstat(buf, &s) != 0 || !S_ISREG(s.st_mode))
 			continue;
 		size_t nl = strlen(f->d_name);
 		if (nl > 4 && strcmp(f->d_name + nl - 4, ".bad") == 0) {
@@ -293,7 +293,8 @@ static NVNewsgroup *open_spool_group(OverviewFmt *fmt, const char *cpath,
 	string dbname = cpath;
 	dbname += "/.db";
 	struct stat s;
-	if (stat (dbname.c_str(), &s) != 0)
+	// not through a symlink: NVNewsgroup would repair a file outside
+	if (lstat (dbname.c_str(), &s) != 0 || !S_ISREG(s.st_mode))
 		return NULL;
 	return new NVNewsgroup (fmt, (const char *) Cfg.SpoolDirectory, ngname);
 }
@@ -321,7 +322,7 @@ void clean(const char *cpath)
 		scan_history();
 		return;
 	}
-	if (stat(buf, &s) == 0) {
+	if (lstat(buf, &s) == 0 && S_ISREG(s.st_mode)) {
 		dbatime = MAX(s.st_atime, s.st_mtime);
 		pvector.push_back( new Entry (buf, dbatime, s.st_blocks) );
 		_blocks += s.st_blocks;
@@ -345,9 +346,14 @@ void clean(const char *cpath)
 				<< cpath << "/" << f->d_name << "\n";
 			continue;
 		}
-		if (stat(buf, &s) == 0) {
+		// lstat, and only real directories: a symlink would lead
+		// out of the spool (files there deleted) or into a loop
+		if (lstat(buf, &s) == 0) {
 			if (S_ISDIR(s.st_mode))
 				clean(buf);
+			else if (S_ISLNK(s.st_mode))
+				slog.p(Logger::Notice)
+					<< "not following symlink " << buf << "\n";
 		} else {
 			slog.
 			    p(Logger::
@@ -402,7 +408,8 @@ void clean(const char *cpath)
 				<< cpath << "/" << f->d_name << "\n";
 			continue;
 		}
-		if (stat(buf, &s) == 0) {
+		// lstat: a symlinked file is neither counted nor removed
+		if (lstat(buf, &s) == 0) {
 			size_t nl = strlen(f->d_name);
 			if (S_ISREG(s.st_mode) && nl > 4 &&
 			    strcmp(f->d_name + nl - 4, ".bad") == 0) {
