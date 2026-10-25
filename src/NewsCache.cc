@@ -496,7 +496,10 @@ int pam_conv_func(int num_msg, const struct pam_message **msg, struct pam_respon
 char **seekfile(const char *filename, const char *username)
 {
 	FILE *F;
-	static char buf[1024];
+	// Lines of any length: fgets() into 1024 bytes split a longer
+	// line silently, and its rest was parsed as a line of its own.
+	static char *buf = NULL;
+	static size_t bufsize = 0;
 	char *p;
 	int i;
 
@@ -510,7 +513,7 @@ char **seekfile(const char *filename, const char *username)
 		return NULL;
 	}
 
-	while (fgets(buf, sizeof(buf), F) != NULL) {
+	while (getline(&buf, &bufsize, F) != -1) {
 		p = buf + strlen(buf) - 1;
 		while (p > buf && isspace(*p))
 			*p-- = '\0';
@@ -1265,9 +1268,30 @@ void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 #define OK_SEQUENCE 			"281"
 #define INCORRECT_ORDER_SEQUENCE 	"482"
 
+// Overwrites a password in memory (a memset the compiler can't drop),
+// so that it isn't kept for the whole session, e.g. for a core dump.
+static void clear_password(char *p)
+{
+	volatile char *v = p;
+	while (*v)
+		*v++ = '\0';
+}
+
 //Authinfo
 int ns_authinfo(ClientData * clt, int argc, char *argv[])
 {
+	// No AUTHINFO after a login (RFC 4643 2.2: 502); a second login
+	// added that user's rights to the first one's. Entries without an
+	// Authentication start out in AUTH_OK: no login for them either.
+	if (clt->auth_state == AUTH_OK) {
+		if (clt->access_entry->authentication.getType() == "none")
+			(*clt->co) << REJECT_SEQUENCE
+			    " no authentication available\r\n";
+		else
+			(*clt->co) << REJECT_SEQUENCE
+			    " already authenticated\r\n";
+		return -1;
+	}
 	// check arguments
 	if (argc != 3)
 		goto ns_authinfo_error;
@@ -1290,8 +1314,11 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		strcpy(clt->auth_pass, argv[2]);
+		clear_password(argv[2]);
+		int checked = check_authentication(clt);
+		clear_password(clt->auth_pass);
 
-		if (check_authentication(clt) < 0) {
+		if (checked < 0) {
 			sleep (clt->auth_failure_sleep_time*
 					(++clt->auth_failures));
 			(*clt->
@@ -1300,6 +1327,9 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		}
 
 		(*clt->co) << OK_SEQUENCE << " OK.\r\n";
+		// (a failed login is logged with the user name too)
+		slog.p(Logger::Notice) << clt->client_logname
+		    << " authenticated as " << clt->auth_user << "\n";
 		clt->auth_state = AUTH_OK;
 		set_client_command_table(*clt);
 
@@ -3090,8 +3120,13 @@ void nnrpd(int fd)
 			else
 				*rp = '\0';
 		}
-		strcpy(oreq, req);
-		// FIXME: better solution?
+		// oreq, for the log, without leading blanks either: the split
+		// below skips them, so " AUTHINFO PASS x" is an AUTHINFO
+		// command, and its password must not be logged.
+		rp = req;
+		while (isspace((unsigned char)*rp))
+			rp++;
+		strcpy(oreq, rp);
 		if (strncasecmp(oreq, "authinfo", 8))
 			slog.p(Logger::Info) << clt.
 			    client_logname << " " << oreq << "\n";
@@ -3118,10 +3153,17 @@ void nnrpd(int fd)
 		}
 		// Call function for command
 		cmd = argv[0];
+		// Before the login: CAPABILITIES may come at any time, and
+		// lists AUTHINFO USER (RFC 3977 5.2, RFC 4643 2.2); MODE
+		// READER comes before the login (RFC 4643 2.2); unknown
+		// commands get 500 below.
 		if (clt.auth_state == AUTH_REQUIRED &&
 		    strcasecmp(cmd, "authinfo") != 0 &&
 		    strcasecmp(cmd, "quit") != 0 &&
-		    strcasecmp(cmd, "help") != 0) {
+		    strcasecmp(cmd, "help") != 0 &&
+		    strcasecmp(cmd, "capabilities") != 0 &&
+		    strcasecmp(cmd, "mode") != 0 &&
+		    nnrp_commands.find(argv[0]) != end) {
 			(*clt.
 			 co) << "480 Authentication required (" << cmd <<
 		       ")\r\n";
@@ -3195,12 +3237,13 @@ void nnrpd(int fd)
 						client_logname << " failed authinfo for user  " <<
 						clt.auth_user << "\n";
 			}
-		if (clt.auth_failures >= clt.auth_max_failures) {
-
-			(*clt.  co) << "400 " PACKAGE " " VERSION
-		       ", service discontinued (max passwords retries)\r\n";
-			goto client_exit;
 		}
+		// (whatever the LogStyle: this check used to sit in the
+		// block above, so strict-inn allowed endless retries)
+		if (clt.auth_failures >= clt.auth_max_failures) {
+			(*clt.co) << "400 " PACKAGE " " VERSION
+			    ", service discontinued (max passwords retries)\r\n";
+			goto client_exit;
 		}
 	} while (errc == 0 || errc == -1);
 

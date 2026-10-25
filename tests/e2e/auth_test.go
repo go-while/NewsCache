@@ -573,3 +573,188 @@ func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
 		t.Errorf("AUTHINFO md5 / the right password: %d, want 281", code)
 	}
 }
+
+// TestAuthinfoLeadingBlankNotLogged: the log shows AUTHINFO without its
+// arguments, also when the line starts with blanks. The test for AUTHINFO
+// looked at the line as it came, but the command split skips leading
+// blanks, so " AUTHINFO PASS <password>" ran as AUTHINFO and was logged in
+// full, at level info and again with "failed" at level notice.
+func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
+	const secret = "s3cr3t-client-pw"
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	if code, line := c.Cmd(" AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("\tAUTHINFO PASS %s", secret); code != 502 {
+		t.Fatalf("AUTHINFO PASS (wrong): %q, want 502", line)
+	}
+	if code, line := c.Cmd("  AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd(" AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	for _, s := range []string{secret, "PASS secret"} {
+		if strings.Contains(log, s) {
+			t.Errorf("the log has the password (%q):\n%s", s, grepLines(log, s))
+		}
+	}
+	if !strings.Contains(log, "failed authinfo for user") {
+		t.Errorf("no masked AUTHINFO failure in the log:\n%s", grepLines(log, "uthinfo"))
+	}
+}
+
+// TestAuthMaxFailures: after the third failed login the connection is
+// closed (400), with every LogStyle. With "LogStyle strict-inn" the check
+// was skipped (it sat in the block that writes NewsCache's own log lines),
+// so a client could guess passwords for ever on one connection.
+func TestAuthMaxFailures(t *testing.T) {
+	for _, logStyle := range []string{"", "LogStyle ip-address strict-inn"} {
+		name := logStyle
+		if name == "" {
+			name = "default LogStyle"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+			e.Extra = "AuthFailureDelay 0\n" + logStyle
+			c := e.session()
+			c.Deadline = 10 * time.Second
+			for n := 1; n <= 3; n++ {
+				if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+					t.Fatalf("try %d: AUTHINFO USER: %q, want 381", n, line)
+				}
+				if code, line := c.Cmd("AUTHINFO PASS wrong%d", n); code != 502 {
+					t.Fatalf("try %d: AUTHINFO PASS: %q, want 502", n, line)
+				}
+			}
+			code, line, err := c.ReadStatus()
+			if err != nil || code != 400 {
+				t.Fatalf("after the third failure: %q, %v; want 400", line, err)
+			}
+			if l, err := c.ReadLine(); err == nil {
+				t.Fatalf("after the 400: %q, want the connection closed", l)
+			}
+		})
+	}
+}
+
+// TestAuthinfoAfterLogin: after a successful login AUTHINFO gets 502 (RFC
+// 4643 2.2). It was accepted, and a second login added the second user's
+// rights to the first one's; a failed second login kept the first one's
+// rights under the second user's name. Without an Authentication there is
+// no login at all: 502 at once, no 381, no failure delay.
+func TestAuthinfoAfterLogin(t *testing.T) {
+	t.Run("second login", func(t *testing.T) {
+		e := loginOnlyEnv(t, "tester:"+md5Hash+":*:*:*:read",
+			"poster:"+md5Hash+":*:*:*:read,post")
+		c := e.session()
+		login(t, c)
+		for _, cmd := range []string{"AUTHINFO USER poster", "AUTHINFO PASS secret", "AUTHINFO USER tester"} {
+			if code, line := c.Cmd("%s", cmd); code != 502 {
+				t.Errorf("%s after the login: %q, want 502", cmd, line)
+			}
+		}
+		if code, line := c.Cmd("POST"); code != 500 {
+			if code == 340 {
+				c.Send(".\r\n")
+				c.ReadStatus()
+			}
+			t.Errorf("POST: %q, want 500 (tester has no post right)", line)
+		}
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP: %q, want 211 (tester's rights kept)", line)
+		}
+	})
+	t.Run("no Authentication", func(t *testing.T) {
+		e := newEnv(t)
+		c := e.session()
+		if code, line := c.Cmd("AUTHINFO USER tester"); code != 502 {
+			t.Errorf("AUTHINFO USER without Authentication: %q, want 502", line)
+		}
+	})
+}
+
+// TestLoginRequiredCommands: where a login is required ("Authentication
+// unix" without fields), CAPABILITIES and MODE READER are answered before
+// the login, and an unknown command gets 500; the other commands get 480.
+// Everything but AUTHINFO, QUIT and HELP got 480, so a client couldn't
+// learn from CAPABILITIES that it may log in (RFC 3977 5.2, RFC 4643 2.2).
+func TestLoginRequiredCommands(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication unix
+  }
+  Default {
+    allow none
+  }
+}`
+	c := e.session()
+	checkCaps(t, "before login", capabilities(t, c), []string{"VERSION 2", "AUTHINFO USER"}, nil)
+	if code, line := c.Cmd("MODE READER"); code != 200 && code != 201 {
+		t.Errorf("MODE READER before login: %q, want 200 or 201", line)
+	}
+	if code, line := c.Cmd("FOOBAR"); code != 500 {
+		t.Errorf("unknown command before login: %q, want 500", line)
+	}
+	for _, cmd := range []string{"GROUP test.alpha", "LIST", "POST"} {
+		if code, line := c.Cmd("%s", cmd); code != 480 {
+			t.Errorf("%s before login: %q, want 480", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("AUTHINFO USER nobody"); code != 381 {
+		t.Errorf("AUTHINFO USER: %q, want 381", line)
+	}
+}
+
+// TestAuthFileLongLine: auth-file lines may be longer than 1024 bytes.
+// They were read in pieces of 1023 bytes: the line lost the fields after
+// the cut, and the rest was parsed as a line of its own, so text at that
+// place became another user.
+func TestAuthFileLongLine(t *testing.T) {
+	// a List field of about 2000 bytes; test.alpha is in it
+	var pad strings.Builder
+	for i := 0; pad.Len() < 2000; i++ {
+		fmt.Fprintf(&pad, "pad.group%04d,", i)
+	}
+	long := "tester:" + md5Hash + ":" + pad.String() + "test.alpha:test.alpha:*:read"
+	// a line whose byte 1024 starts what looks like a line for "bob"
+	head := "other:" + md5Hash + ":"
+	phantom := head + strings.Repeat("x", 1023-len(head)) + "bob:" + md5Hash + ":*:*:*:read"
+	e := loginOnlyEnv(t, long, phantom)
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	login(t, c)
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP test.alpha after the login with the long line: %q, want 211", line)
+	}
+	c = e.session()
+	c.Cmd("AUTHINFO USER bob")
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code == 281 {
+		t.Errorf("login as bob, who has no line: %q, want a refusal", line)
+	}
+}
+
+// TestLoginLogged: a successful login is logged with the user name, as a
+// failed one is. The log said only "authinfo", so an admin couldn't tell
+// which account a session used.
+func TestLoginLogged(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	c := e.session()
+	login(t, c)
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	if log := e.logFile(); !strings.Contains(log, "authenticated as tester") {
+		t.Errorf("no \"authenticated as tester\" in the log:\n%s", log)
+	}
+}

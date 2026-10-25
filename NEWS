@@ -93,6 +93,34 @@ Bug fixes:
   connection without a reply. It now gets "501 Line too long" and the
   session goes on; a line of 256 words or more gets 501 too, instead of
   500 (RFC 3977).
+* The client's password was logged when its AUTHINFO line started with a
+  blank or a tab: the log hid the arguments only of lines that began
+  with "AUTHINFO", but the command itself skipped leading blanks. The
+  line was logged at level info, and after a wrong password once more at
+  level notice.
+* With "LogStyle strict-inn" the connection wasn't closed after the
+  third failed login, as the manual says it is, so a client could try
+  passwords for ever on one connection (with "AuthFailureDelay 0" at
+  full speed).
+* AUTHINFO was accepted again after a successful login, and a second
+  login added the second user's rights to the first one's; a failed one
+  kept the first user's rights under the second user's name. It now gets
+  502, as RFC 4643 says. A client whose entry has no Authentication gets
+  502 at once too (it got 381, then 502 after the failure delay).
+* Where a login is required ("Authentication unix" without fields),
+  CAPABILITIES and MODE READER got "480 Authentication required" instead
+  of their answer, so a newsreader couldn't learn from CAPABILITIES that
+  it may log in (RFC 3977, RFC 4643); unknown commands got 480 instead
+  of 500.
+* Auth-file lines longer than 1023 bytes (a long List) were split
+  silently: the line lost its later fields, such as the flags, and the
+  rest was read as a line of its own, whose start was taken for a user
+  name. Lines may be of any length now.
+* A successful login wasn't logged with the user name (a failed one
+  was), so the log didn't tell which account a session used; it is now
+  logged at level notice ("authenticated as <user>"). The client's
+  password is also cleared from memory right after the check instead of
+  being kept for the whole session.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
