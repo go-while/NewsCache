@@ -6,6 +6,8 @@ New option:
   read and write; default 300, 0 waits for ever).
 
 Bug fixes:
+* Error messages in the log showed a random line number ("Line:
+  808335154") for errors raised without a location.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.
