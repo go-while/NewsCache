@@ -246,6 +246,10 @@ func testDiskFullDaemon(t *testing.T, kb int, clean string) {
 	// Timeouts: the active list is due again after a second
 	e.Extra += "History on\nTimeouts 1 3600\n"
 	e.MaxConnections = 4
+	// client 1 waits while client 2 works: on a busy machine, and with a
+	// -race fake upstream, that took longer than the default 60 s, and
+	// NewsCache rightly ended client 1's session as idle
+	e.ClientTimeout = 600
 	for i := 0; i < 3000; i++ {
 		e.Store.AddGroup(fmt.Sprintf("test.many.group-with-a-longer-name.%04d", i), "")
 	}
@@ -284,14 +288,16 @@ wait $pid`, kb)
 	o.Path = "unshare"
 	p := proc.StartTCP(t, o, e.Listen)
 
-	// each reply must arrive within 60 s (the deadline of the conn, for a
-	// whole dot block: a -race client on a slow machine needs some for
-	// 20000 records); a lock left held makes a session wait for good
+	// each reply must arrive within 180 s (the deadline of the conn, for a
+	// whole dot block: a -race client and fake upstream on a busy machine
+	// need well over a minute for 20000 records); a lock left held makes
+	// a session wait for good, which still fails
+	const deadline = 180 * time.Second
 	run := func(name string, c *client.Conn, cmds ...string) {
 		for _, cmd := range cmds {
 			code, line, err := c.TryCmd("%s", cmd)
 			if err != nil {
-				t.Fatalf("%s: %s: no reply within 60s (%v)", name, cmd, err)
+				t.Fatalf("%s: %s: no reply within %v (%v)", name, cmd, deadline, err)
 			}
 			if strings.HasPrefix(cmd, "ARTICLE") && code != 220 {
 				t.Errorf("%s: %s: %q, want the article (passed on when it can't be kept)", name, cmd, line)
@@ -310,7 +316,7 @@ wait $pid`, kb)
 		}
 	}
 	session := func(name string, keep bool, cmds ...string) *client.Conn {
-		c, err := client.TryDial(e.Listen, 60*time.Second)
+		c, err := client.TryDial(e.Listen, deadline)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

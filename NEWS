@@ -38,6 +38,8 @@ Documentation:
 
 Other changes:
 * The end-to-end tests use nntp-testkit 0.7.0 (still Go 1.26 or later).
+* TestSpoolDiskFullDaemon no longer fails on a busy machine (its client
+  sat idle past ClientTimeout while the other client worked).
 
 Release 1.3.22:
 Billy G. - 2026-10-23
