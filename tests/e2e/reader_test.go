@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 	"github.com/go-while/nntp-testkit/proc"
 )
 
@@ -674,5 +675,36 @@ func TestNextLastNotCachedGap(t *testing.T) {
 	}
 	if code, line := c.Cmd("DATE"); code != 111 {
 		t.Errorf("DATE after NEXT/LAST: %q, want 111 (session alive)", line)
+	}
+}
+
+// TestOverviewHeaderTab: the overview record made from an article read by
+// a client kept a TAB in a header as it was (RFC 3977 8.3.2: it becomes a
+// space). "Subject: one<TAB>two" gave the record a tenth field, the
+// fields after it moved, and STAT 1 answered with the Date as the
+// message-ID.
+func TestOverviewHeaderTab(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "x")
+	id := "<tab.1@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{Number: 1, MessageID: id,
+		Headers: []string{"From: poster@upstream.test", "Message-ID: " + id,
+			"Subject: one\ttwo", "Newsgroups: test.alpha",
+			"Xref: upstream.test test.alpha:1"},
+		Body: []string{"body line"}})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("XOVER 1"); code != 224 {
+		t.Errorf("XOVER 1: %q", line)
+	} else if ov := c.ReadDotLines(); len(ov) != 1 || strings.Count(ov[0], "\t") != 8 ||
+		strings.Split(ov[0], "\t")[1] != "one two" || strings.Split(ov[0], "\t")[4] != id {
+		t.Errorf("XOVER 1 after ARTICLE 1: %q, want 9 fields, Subject \"one two\"", ov)
+	}
+	if code, line := c.Cmd("STAT 1"); code != 223 || !strings.Contains(line, id) {
+		t.Errorf("STAT 1: %q, want 223 1 %s", line, id)
 	}
 }

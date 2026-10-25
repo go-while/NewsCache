@@ -239,6 +239,7 @@ class OverviewFmt {
 		char buf[256];
 		std::string fld;
 		int i;
+		std::string::size_type k;
 
 		 snprintf(buf, sizeof(buf), "%llu",
 			  (unsigned long long) article.getnbr());
@@ -246,9 +247,17 @@ class OverviewFmt {
 		for (i = 0; i < _osz; i++) {
 			recout += '\t';
 			try {
-				recout.append(article.
-					      getfield(_over[i].name,
-						       _over[i].full));
+				fld = article.getfield(_over[i].name,
+						       _over[i].full);
+				// RFC 3977 8.3.2: a TAB, CR or LF in a field
+				// becomes a space; a TAB would add a field
+				// and move the ones after it.
+				for (k = 0; k < fld.length(); k++) {
+					if (fld[k] == '\t' || fld[k] == '\r'
+					    || fld[k] == '\n' || fld[k] == '\0')
+						fld[k] = ' ';
+				}
+				recout.append(fld);
 			}
 			catch(NoSuchFieldError & nf) {
 				// Most articles have no Lines header (RFC

@@ -229,6 +229,11 @@ Bug fixes:
   SIGABRT) when an overview record from the upstream server had an empty
   Xref field followed by a tab. They also answered ": host group:n"
   instead of "host group:n" from an overview record.
+* A tab in a header (such as the Subject) of an article that a client
+  had read shifted the fields of its overview record: XOVER showed the
+  wrong byte and line counts, and STAT, NEXT and LAST answered with the
+  Date instead of the message-ID. Tabs now become spaces, as RFC 3977
+  says.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry
