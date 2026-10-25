@@ -147,6 +147,10 @@ Bug fixes:
   fallback left out articles 1 to 9999 when the news server reported a
   low water mark of 0 (as some sloppy servers do): the group looked
   empty.
+* A log message without a line end went out with the priority of the
+  next message, which a syslog filter could drop: the error that
+  posting couldn't spool an article was logged at the next message's
+  level. It keeps its own priority now.
 * POST takes articles of up to 1 MB. There was no limit: a client could
   send an endless article (or line) until the session ran out of memory.
   A larger article is refused with 441 and the session goes on.

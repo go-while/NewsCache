@@ -67,11 +67,31 @@ int main()
 			bad++;
 		}
 	}
+	in.close();
 	cout << total << " lines, " << bad << " garbled" << endl;
-	if (bad == 0 && total == procs * lines) {
-		unlink(fn);
-		return 0;
+	if (bad != 0 || total != procs * lines)
+		return 1;
+	unlink(fn);
+
+	// A line left without "\n" goes out at its own priority when the
+	// next message sets another one (it went out at the new one, which a
+	// syslog filter may drop).
+	slog.open(fn);
+	slog.p(Logger::Error) << "partial line";
+	slog.p(Logger::Info) << "next line\n";
+	slog.close();
+	in.open(fn);
+	int pri[2] = { -1, -1 }, n = 0;
+	while (n < 2 && getline(in, l)) {
+		cout << l << endl;
+		pri[n++] = atoi(l.c_str());
 	}
-	return 1;
+	if (pri[0] != Logger::Error || pri[1] != Logger::Info) {
+		cout << "priorities " << pri[0] << ", " << pri[1] << "; want "
+		    << Logger::Error << ", " << Logger::Info << endl;
+		return 1;
+	}
+	unlink(fn);
+	return 0;
 #endif
 }

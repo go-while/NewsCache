@@ -1851,7 +1851,7 @@ void CServer::spoolarticle(Article * article)
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "CServer::spoolarticle: catched\
-		unknown error while spooling article";
+		unknown error while spooling article\n";
 		throw;
 	}
 }

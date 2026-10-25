@@ -203,9 +203,11 @@ void Logger::close()
 
 Logger & Logger::priority(int p)
 {
-	_priority = p;
+	// a line left without "\n" goes out at its own priority, before the
+	// new one applies
 	if (buflen && buf[buflen - 1] != '\n')
 		write("\n");
+	_priority = p;
 	return *this;
 }
 
