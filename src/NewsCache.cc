@@ -173,7 +173,6 @@ int ns_mode(ClientData * clt, int argc, char *argv[]);
 int ns_newgroups(ClientData * clt, int argc, char *argv[]);
 int ns_post(ClientData * clt, int argc, char *argv[]);
 int ns_quit(ClientData * clt, int argc, char *argv[]);
-int ns_xmotd(ClientData * clt, int argc, char *argv[]);
 int ns_xover(ClientData * clt, int argc, char *argv[]);
 int ns_xpat(ClientData * clt, int argc, char *argv[]);
 int ns_hdr(ClientData * clt, int argc, char *argv[]);
@@ -2257,12 +2256,6 @@ int ns_quit(ClientData * clt, int argc, char *argv[])
 	return 1;
 }
 
-int ns_xmotd(ClientData * clt, int argc, char *argv[])
-{
-	(*clt->co) << "500 not yet supported\r\n";
-	return -1;
-}
-
 
 /*
  * 221 Header follows
@@ -2567,31 +2560,29 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
+// The replies are multi-line ones with the informative code 100: they
+// had the code "xxx" (help none), and an unknown "xdebug dump" argument
+// got no reply at all.
 int ns_xdebug(ClientData * clt, int argc, char *argv[])
 {
-	if (argc == 3) {
-		if (strcmp(argv[1], "dump") == 0) {
-			if (strcmp(argv[2], "authorization") == 0) {
-				(*clt->
-				 co) <<
-			      "xxx authorization data follows\r\n";
-				(*clt->co) << *clt->access_entry << "\r\n";
-				(*clt->co) << ".\r\n";
-			}
-			if (strcmp(argv[2], "configuration") == 0) {
-				(*clt->
-				 co) <<
-			      "xxx configuration data follows\r\n";
-				Cfg.printParameters (clt->co);
-				(*clt->co) << ".\r\n";
-			}
+	if (argc == 3 && strcmp(argv[1], "dump") == 0) {
+		if (strcmp(argv[2], "authorization") == 0) {
+			(*clt->co) << "100 authorization data follows\r\n";
+			(*clt->co) << *clt->access_entry << "\r\n";
+			(*clt->co) << ".\r\n";
+			return 0;
 		}
-		return 0;
+		if (strcmp(argv[2], "configuration") == 0) {
+			(*clt->co) << "100 configuration data follows\r\n";
+			Cfg.printParameters (clt->co);
+			(*clt->co) << ".\r\n";
+			return 0;
+		}
 	}
 
 	if (argc == 2) {
 		if (strcmp(argv[1], "help") == 0) {
-			(*clt->co) << "Valid commands:\r\n";
+			(*clt->co) << "100 Valid commands:\r\n";
 			(*clt->co) << "xdebug dump authorization:\r\n";
 			(*clt->co) << "xdebug dump configuration:\r\n";
 			(*clt->co) << ".\r\n";

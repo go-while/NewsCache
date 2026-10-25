@@ -75,6 +75,10 @@ Bug fixes:
 * newscacheclean used NiceServer for its priority instead of NiceClean,
   which had no effect. It uses NiceClean now (default 3), as
   newscache.conf(5) says; check the value if you set NiceServer.
+* XDEBUG: "xdebug dump" with an unknown argument got no reply, so the
+  client waited for ever; it now gets 501. The replies of "xdebug dump"
+  and "xdebug help" begin with the code 100 instead of "xxx" or no code
+  at all.
 * OVER, XOVER and XHDR without a range and without a current article (in
   an empty group) answered an empty list instead of "420 no current
   article" (RFC 3977); HDR already did.
