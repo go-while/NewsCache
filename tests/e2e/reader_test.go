@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 const noPending = 100 * time.Millisecond
@@ -395,6 +396,42 @@ func TestNewgroups(t *testing.T) {
 	}
 	if code, line := c.Cmd("NEWGROUPS 2601 000000"); code != 501 {
 		t.Errorf("NEWGROUPS with a bad date: %q, want 501", line)
+	}
+}
+
+// TestNewgroupsTime: NEWGROUPS takes the given date and time as UTC with
+// GMT, and as local time (DST as on that date) without. The server runs in
+// US Eastern time (a POSIX TZ rule, no tzdata needed). The 231 line ends
+// with the instant NewsCache compares against. On glibc, GMT wasn't
+// applied at all, and the DST flag came from the current time.
+func TestNewgroupsTime(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "TZ=EST5EDT,M3.2.0,M11.1.0")
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args string
+		want string
+	}{
+		{"20260101 000000 GMT", "1767225600"},
+		{"20260101 000000", "1767243600"}, // EST, UTC-5
+		{"20260701 120000", "1782921600"}, // EDT, UTC-4
+		{"260701 160000 GMT", "1782921600"},
+	} {
+		code, line := c.Cmd("NEWGROUPS %s", tc.args)
+		if code != 231 {
+			t.Fatalf("NEWGROUPS %s: %q, want 231", tc.args, line)
+		}
+		c.ReadDotLines()
+		if f := strings.Fields(line); f[len(f)-1] != tc.want {
+			t.Errorf("NEWGROUPS %s: %q, want the instant %s", tc.args, line, tc.want)
+		}
 	}
 }
 
