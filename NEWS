@@ -181,6 +181,12 @@ Bug fixes:
   while it was blocked sending to a client that didn't read. The daemon
   now sends SIGTERM to its sessions, which end at once with "400 ...
   service discontinued", as newscache(8) says.
+* The daemon could hang for good, accepting no more clients, when a
+  client session ended with an error at the moment the daemon itself
+  wrote a log line (after a reload, for example): the SIGCHLD handler
+  wrote its own log line from inside the signal handler, which isn't
+  safe. The handler now only records the ended session; the daemon logs
+  it from its main loop.
 * Built with --enable-plainpass, a locked auth-file line ("user:*",
   "user:!...") let in whoever sent the field itself as the password, and
   a hash worked as its own password: the plain-text comparison came

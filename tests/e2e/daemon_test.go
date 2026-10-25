@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -555,5 +556,85 @@ func TestSIGTERMEndsSessions(t *testing.T) {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
+	}
+}
+
+// TestSigchldStress: the SIGCHLD handler logged "<pid> returned <n>" for
+// a session that ended with an error, from inside the signal handler. The
+// Logger isn't async-signal-safe (malloc, localtime_r, stdio, syslog):
+// when the signal came while the daemon itself was logging, the handler
+// blocked on a lock its own process held, and the daemon hung for good
+// (it accepted nothing, systemd saw a live process). Here every session
+// fails (SpoolDirectory is a file) while SIGHUP makes the daemon log a
+// reload line every 200 microseconds; afterwards the daemon must still
+// answer, and the "returned 1" lines must still be logged (from the main
+// loop now). The window is small: the old code hung after 30-60 seconds of
+// this, so the default run (5 s) mainly checks the logging;
+// NEWSCACHE_STRESS=120s runs longer.
+func TestSigchldStress(t *testing.T) {
+	dur := 5 * time.Second
+	if d, err := time.ParseDuration(os.Getenv("NEWSCACHE_STRESS")); err == nil {
+		dur = d
+	}
+	e := newEnv(t)
+	e.MaxConnections = 64
+	p := e.standalone()
+	good, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Replace(string(good), "SpoolDirectory "+e.Spool, "SpoolDirectory "+e.Conf, 1)
+	if err := os.WriteFile(e.Conf, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.Signal(syscall.SIGHUP)
+	time.Sleep(200 * time.Millisecond)
+
+	stop := time.Now().Add(dur)
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(stop) {
+				c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
+				if err != nil {
+					continue
+				}
+				c.SetDeadline(time.Now().Add(3 * time.Second))
+				bufio.NewReader(c).ReadString('\n')
+				c.Close()
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(stop) {
+			p.Signal(syscall.SIGHUP)
+			time.Sleep(200 * time.Microsecond)
+		}
+	}()
+	wg.Wait()
+
+	// the good config again: a session must get its greeting
+	if err := os.WriteFile(e.Conf, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.Signal(syscall.SIGHUP)
+	time.Sleep(300 * time.Millisecond)
+	c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
+	if err != nil {
+		t.Fatalf("daemon after the stress: %v", err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(10 * time.Second))
+	if l, err := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(l, "200") {
+		wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", l, err, wchan)
+	}
+	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(b), " returned 1") {
+		t.Errorf("no \"<pid> returned 1\" line in the log for the failed sessions")
 	}
 }

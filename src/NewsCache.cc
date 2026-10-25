@@ -327,7 +327,7 @@ Config Cfg;
 bool reReadConfig;
 
 sig_atomic_t Xsignal;
-int nntp_connections;
+volatile sig_atomic_t nntp_connections;	// sigchld() decrements it
 
 /* The daemon's session processes, so that it can end them when it stops
  * (they kept running until ClientTimeout). Only sigchld() changes a pid
@@ -360,6 +360,46 @@ static void end_sessions(void)
 	for (size_t i = 0; i < sessions.size(); i++)
 		if (sessions[i] != 0)
 			kill(sessions[i], SIGTERM);
+}
+
+/* Sessions that ended with an error, recorded by sigchld() and logged by
+ * log_ended_sessions() in the main flow: the Logger isn't
+ * async-signal-safe (malloc, localtime_r, stdio, syslog), and logging
+ * from the handler deadlocked the daemon when it interrupted a log line. */
+#define ENDED_MAX 64
+static pid_t ended_pid[ENDED_MAX];
+static int ended_status[ENDED_MAX];
+static volatile sig_atomic_t ended_n, ended_lost;
+
+static void log_ended_sessions(void)
+{
+	pid_t pid[ENDED_MAX];
+	int st[ENDED_MAX];
+	int n, lost;
+	sigset_t old;
+
+	if (ended_n == 0 && ended_lost == 0)
+		return;
+	block_sigchld(&old);
+	n = ended_n;
+	lost = ended_lost;
+	memcpy(pid, ended_pid, n * sizeof(pid[0]));
+	memcpy(st, ended_status, n * sizeof(st[0]));
+	ended_n = 0;
+	ended_lost = 0;
+	sigprocmask(SIG_SETMASK, &old, NULL);
+
+	for (int i = 0; i < n; i++) {
+		if (WIFEXITED(st[i]))
+			slog.p(Logger::Error) << pid[i] << " returned "
+			    << WEXITSTATUS(st[i]) << "\n";
+		else
+			slog.p(Logger::Error) << pid[i] << " caught signal "
+			    << WTERMSIG(st[i]) << "\n";
+	}
+	if (lost)
+		slog.p(Logger::Error) << lost << " more sessions ended "
+		    "with an error\n";
 }
 
 /* The pid file this daemon wrote, kept open so it can be emptied when the
@@ -3516,6 +3556,7 @@ void nntpd()
 				}
 			}
 
+			log_ended_sessions();
 			errno = 0;
 			clt_fd = accept(sock, NULL, NULL);
 			if (Xsignal != -1) {
@@ -3624,7 +3665,7 @@ void nntpd()
 			}
 			//Parent
 			add_session(clt_pid);
-			nntp_connections++;
+			nntp_connections = nntp_connections + 1;
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
 			while ((close(clt_fd) < 0) && (errno == EINTR)) {
@@ -3643,8 +3684,8 @@ void sigchld(int num)
 {
 	int pid;
 	int st;
+	int saved_errno = errno;	// waitpid may change it
 
-	//slog.p(Logger::Debug) << "receiving signal SIGCHLD: " << num << "\n";
 	/* Reinstall the signal handler */
 #ifdef HAVE_SIGACTION
 	struct sigaction action;
@@ -3659,26 +3700,22 @@ void sigchld(int num)
 	while ((pid = waitpid(0, &st, WNOHANG)) > 0) {
 		if (WIFEXITED(st) || WIFSIGNALED(st)) {
 			// child terminated
-			nntp_connections--;
+			nntp_connections = nntp_connections - 1;
 			for (size_t i = 0; i < sessions.size(); i++)
 				if (sessions[i] == pid)
 					sessions[i] = 0;
+			// no logging here (see log_ended_sessions)
 			if (st) {
-				if (WIFEXITED(st)) {
-					slog.
-					    p(Logger::
-					      Error) << pid << " returned "
-					    << WEXITSTATUS(st) << "\n";
-				} else if (WIFSIGNALED(st)) {
-					slog.
-					    p(Logger::
-					      Error) << pid <<
-					    " caught signal " <<
-					    WTERMSIG(st) << "\n";
-				}
+				if (ended_n < ENDED_MAX) {
+					ended_pid[ended_n] = pid;
+					ended_status[ended_n] = st;
+					ended_n = ended_n + 1;
+				} else
+					ended_lost = ended_lost + 1;
 			}
 		}
 	}
+	errno = saved_errno;
 }
 
 void catchsigalarm(int num)
