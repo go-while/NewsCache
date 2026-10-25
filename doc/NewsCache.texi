@@ -1029,7 +1029,9 @@ Running NewsCache as root to get around this is not recommended.
 The description of newsgroups is currently not cached properly. The file
 containing the descriptions (@code{.newsgroups} in NewsCache's spool
 directory) has to be created manually. The file's format is
-@code{newsgroup description}.
+@code{newsgroup description}. A client gets the lines of the groups
+in its @code{List} only, and with @code{list newsgroups @var{wildmat}}
+those that match the wildmat.
 
 @example
 comp.os.linux.alpha Linux on Digital Alpha machines.

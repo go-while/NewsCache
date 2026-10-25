@@ -208,7 +208,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	{"last", "", ns_lastnext}
 	,
 	{"list",
-	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]",
+	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]",
 	 ns_list}
 	,
 	{"listgroup", "[newsgroup [range]]", ns_listgroup}
@@ -1830,6 +1830,33 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			}
 			(*clt->co) << ".\r\n";
 			return 0;
+		} else if (strcasecmp(argv[1], "newsgroups") == 0) {
+			// LIST NEWSGROUPS [wildmat] (RFC 3977 7.6.6): only the
+			// groups the client may list, like LIST ACTIVE. The
+			// wildmat form answered 501, and every description in
+			// the file was shown.
+			char buf[MAXPATHLEN];
+			string strg;
+			if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
+				     Cfg.SpoolDirectory) >= (int) sizeof(buf))
+				buf[0] = '\0';	// can't happen: see LServer::init
+			ifstream ifs(buf);
+			NewsgroupFilter filter(clt->access_entry->list);
+			(*clt->
+			 co) << "215 Description follows\r\n";
+			for (;;) {
+				nlreadline(ifs, strg);
+				if (!ifs.good())
+					break;
+				string name =
+				    strg.substr(0, strg.find_first_of(" \t\r\n"));
+				if (filter.matches(name.c_str()) <= 0 ||
+				    (argc == 3 && !wildmat(name.c_str(), argv[2])))
+					continue;
+				(*clt->co) << strg;
+			}
+			(*clt->co) << ".\r\n";
+			return 0;
 		} else if (argc == 2) {
 			if (strcasecmp(argv[1], "extensions") == 0) {
 				(*clt->
@@ -1837,23 +1864,6 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				(*clt->co) << " over\r\n";
 				(*clt->co) << " pat\r\n";
 				(*clt->co) << " authinfo user\r\n";
-				(*clt->co) << ".\r\n";
-				return 0;
-			} else if (strcasecmp(argv[1], "newsgroups") == 0) {
-				char buf[MAXPATHLEN];
-				string strg;
-				if (snprintf(buf, sizeof(buf), "%s/.newsgroups",
-					     Cfg.SpoolDirectory) >= (int) sizeof(buf))
-					buf[0] = '\0';	// can't happen: see LServer::init
-				ifstream ifs(buf);
-				(*clt->
-				 co) << "215 Description follows\r\n";
-				for (;;) {
-					nlreadline(ifs, strg);
-					if (!ifs.good())
-						break;
-					(*clt->co) << strg;
-				}
 				(*clt->co) << ".\r\n";
 				return 0;
 			} else if (strcasecmp(argv[1], "headers") == 0) {
@@ -1879,7 +1889,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 
 	(*clt->
 	 co) <<
-      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups|overview.fmt]\r\n";
+      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]\r\n";
 	return -1;
 }
 

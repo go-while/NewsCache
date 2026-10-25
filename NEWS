@@ -75,6 +75,10 @@ Bug fixes:
 * newscacheclean used NiceServer for its priority instead of NiceClean,
   which had no effect. It uses NiceClean now (default 3), as
   newscache.conf(5) says; check the value if you set NiceServer.
+* LIST NEWSGROUPS sent every description in the spool's .newsgroups
+  file, also those of groups outside the client's List, and LIST
+  NEWSGROUPS with a wildmat (RFC 3977) answered 501. It now shows the
+  groups of the client's List, and with a wildmat those that match.
 * A command line of more than about 1020 characters closed the
   connection without a reply. It now gets "501 Line too long" and the
   session goes on; a line of 256 words or more gets 501 too, instead of
