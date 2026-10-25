@@ -206,6 +206,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | The last line of the config file was dropped silently when the file didn't end with a newline: `getline` sets eofbit for it and `Lexer::getToken` returned "" (end) at once; `Config::read` stopped on `_is.eof()` too. A final `MaxConnections 99` or `Username news` had no effect, a final `}` gave "expected declaration or '}'" | 6 | review (area 6) | #114 |
 | `newscache -p` (and `xdebug dump configuration`) left out `Hostname` and a server's `BindFrom` (as #15 did for some options): read back as a config, its output lost them | 6 | review (area 6) | #114 |
 | `Client 10.1.2.3/` (prefix length left empty) became /0 and let in every IPv4 client: `strspn` accepted the empty string and `atoi("")` is 0. Prefix lengths of 65536 and more wrapped in the `unsigned short` (65536 to /0, 65544 to /8), and a netmask with gaps (`255.0.255.0`) was cut at its first gap. Each is a config error now | 4, 6 | review (area 6) | #115 |
+| The pid file was opened as root with `O_CREAT\|O_TRUNC` and without `O_NOFOLLOW`, in a directory newscache.conf(5) tells to make writable for `Username`: that user could replace it with a symlink or hard link to any file (`/etc/shadow`), which root emptied and overwrote with the pid at the next start. Now `O_NOFOLLOW`, and only a regular file with one link is truncated and written | 5 | review (area 5) | #116 |
 
 ## Open points
 

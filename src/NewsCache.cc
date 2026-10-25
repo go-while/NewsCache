@@ -409,26 +409,40 @@ static int pid_file_fd = -1;
 
 /*
  * Writes our pid to Cfg.PidFile, unless PidFile is empty. Runs before
- * setugid, so a root-only directory such as /run works.
+ * setugid, so a root-only directory such as /run works. As root, it must
+ * not follow a symlink or write into a hard link that Username may have
+ * put there (the directory can be writable for Username, see
+ * newscache.conf(5)): only a regular file with one link is written.
  */
 static void write_pid_file(void)
 {
 	char buf[32];
+	struct stat st;
+	const char *err = NULL;
 	int len;
 
 	if (Cfg.PidFile[0] == '\0')
 		return;
-	pid_file_fd = open(Cfg.PidFile, O_RDWR | O_CREAT | O_TRUNC, 0644);
+	pid_file_fd = open(Cfg.PidFile, O_RDWR | O_CREAT | O_NOFOLLOW |
+			   O_NONBLOCK | O_CLOEXEC, 0644);
 	len = snprintf(buf, sizeof(buf), "%ld\n", (long) getpid());
-	if (pid_file_fd < 0 || write(pid_file_fd, buf, len) != len) {
+	if (pid_file_fd < 0)
+		err = strerror(errno);
+	else if (fstat(pid_file_fd, &st) < 0)
+		err = strerror(errno);
+	else if (!S_ISREG(st.st_mode) || st.st_nlink != 1)
+		err = "not a regular file with one link, left alone";
+	else if (ftruncate(pid_file_fd, 0) < 0 ||
+		 write(pid_file_fd, buf, len) != len)
+		err = strerror(errno);
+	if (err) {
 		slog.p(Logger::Warning) << "cannot write pid file "
-		    << Cfg.PidFile << ": " << strerror(errno) << "\n";
+		    << Cfg.PidFile << ": " << err << "\n";
 		if (pid_file_fd >= 0)
 			close(pid_file_fd);
 		pid_file_fd = -1;
 		return;
 	}
-	fcntl(pid_file_fd, F_SETFD, FD_CLOEXEC);
 	snprintf(pid_file, sizeof(pid_file), "%s", Cfg.PidFile);
 }
 

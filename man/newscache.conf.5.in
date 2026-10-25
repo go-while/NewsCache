@@ -79,7 +79,12 @@ and removes it when it stops (SIGTERM, SIGINT); for that, the
 directory must be writable for
 .IR Username ,
 for example /run/newscache owned by news. Where it isn't, as in /run,
-the file is only emptied. Under systemd no pid file is needed.
+the file is only emptied. Only a regular file is written: a symbolic
+link, a hard link or anything else at that name is left alone (with a
+warning in the log), so that the user of a writable directory can't make
+root overwrite another file. That user can still put another pid in the
+file; where scripts send signals by it, a directory only root can write
+is safer. Under systemd no pid file is needed.
 .TP
 .I "Username username"
 Change the user id to username as soon as NewsCache has bound to
