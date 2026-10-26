@@ -113,6 +113,15 @@ static void lost_file(const string & dir)
 		failures++;
 		return;
 	}
+	// GNU/Hurd doesn't enforce RLIMIT_NOFILE: the new file can be
+	// opened there, and the case can't be set up
+	int probe = open("/dev/null", O_RDONLY);
+	if (probe >= 0) {
+		close(probe);
+		setrlimit(RLIMIT_NOFILE, &old);
+		cerr << "lost_file: RLIMIT_NOFILE not enforced here, skipped\n";
+		return;
+	}
 	// Moved aside, no new file: errors, three times in a row. (The
 	// third used the unmapped old file and crashed: the second left its
 	// lock on the stack.)

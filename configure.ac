@@ -187,6 +187,13 @@ if eval "test x${with_pam+set} = xset"; then
 	 	AC_MSG_ERROR(You don't have PAM header files.)
 	 fi
 fi
+dnl GNU/Hurd defines neither MAXPATHLEN nor MAXHOSTNAMELEN (it has no
+dnl fixed limits); the fixed buffers that use them get the Linux sizes.
+AC_CHECK_DECL([MAXPATHLEN], [],
+	[CPPFLAGS="$CPPFLAGS -DMAXPATHLEN=4096"], [#include <sys/param.h>])
+AC_CHECK_DECL([MAXHOSTNAMELEN], [],
+	[CPPFLAGS="$CPPFLAGS -DMAXHOSTNAMELEN=256"], [#include <sys/param.h>
+#include <netdb.h>])
 dnl Checks for typedefs, structures, and compiler characteristics.
 dnl AC_C_CONST -- we don't use c
 AC_TYPE_PID_T
