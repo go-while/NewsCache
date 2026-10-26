@@ -539,6 +539,9 @@ Documentation:
   ConfigVersion 3 instead of 5.
 
 Other changes:
+* CI: the macOS jobs (build and test, checkout on a case-insensitive
+  file system) run only when CI is started by hand, because GitHub's
+  macOS runners often time out in the queue.
 * TestLongClientName passes on Arch Linux: in its namespace it also
   reads host names from files first (Arch asks systemd-resolved first,
   which answers 127.0.0.1 with "localhost" itself).

@@ -1,9 +1,14 @@
 # Build and test: make check (C++ unit tests and the Go end-to-end tests in
 # tests/e2e) on Ubuntu in three configurations and on ARM64, on Fedora 43, 44
 # and 45 with Fedora's packaging flags, on Alpine (musl) and Debian 13 in a
-# container, in a FreeBSD VM, and on macOS. The default Ubuntu job also runs
-# make distcheck. Windows and macOS also check that the tree checks out
-# cleanly on a case-insensitive file system.
+# container, and in a FreeBSD VM. The default Ubuntu job also runs make
+# distcheck. Windows also checks that the tree checks out cleanly on a
+# case-insensitive file system.
+#
+# The two macOS jobs (build and test, checkout) run only when the workflow is
+# started by hand (Actions, CI, "Run workflow"): GitHub's macOS runners often
+# wait in the queue until the job times out. On a push or a pull request they
+# are skipped, and a skipped job counts as passed for the required checks.
 
 name: CI
 
@@ -12,6 +17,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      macos:
+        description: Also run the macOS jobs
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -269,21 +279,13 @@ jobs:
   checkout:
     # Windows and macOS file systems are case-insensitive: two tracked files
     # whose names differ only in case can't both be checked out there.
-    name: Checkout (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+    name: Checkout (Windows)
+    runs-on: windows-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            os: windows-latest
-          - name: macOS
-            os: macos-latest
     defaults:
       run:
         shell: bash
-    steps:
+    steps: &checkout-steps
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -317,8 +319,19 @@ jobs:
             exit 1
           fi
 
+  checkout-macos:
+    name: Checkout (macOS)
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps: *checkout-steps
+
   macos:
     name: macOS (build and test)
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
