@@ -241,8 +241,9 @@ priviledged user, should not run as priviledged user.}
 Numeric values are plain decimal numbers. A value that is no number, or
 is out of range, is a configuration error that names the file and line;
 @file{newscache.conf(5)} lists the ranges (for example,
-@code{MaxConnections} 1 to 1000000, @code{Retries} 0 to 100,
-@code{ClientTimeout} and @code{ReadTimeout} 0 to 86400 seconds).
+@code{MaxConnections} 1 to 1000000 and @code{ClientTimeout} 0 to 86400
+seconds; in a @code{Server} entry, @code{Retries} 0 to 100 and
+@code{ReadTimeout} 0 to 86400 seconds).
 
 @cdindex ConfigVersion
 First of all, you should specify, which configuration version, you are
@@ -437,19 +438,6 @@ supported on the LOG_NOTICE level.}
 LogStyle ip-address strict-inn
 @end example
 
-@cdindex Retries
-Whenever a News Server closes the connection, NewsCache retries to
-connect to the News Server and to issue the command again. After a
-certain number of retries, NewsCache gives up. A reply of @samp{400}
-counts as a closed connection; @samp{503} (``feature not supported'' in
-RFC 3977) only when the server has closed the connection behind it, as
-old INN versions did with @samp{503 Timeout} on an idle connection.
-Otherwise a @samp{503} is an ordinary error reply and isn't sent again.
-
-@example
-Retries 3
-@end example
-
 @cdindex PrefetchFile
 The file that lists all those newsgroups that have to be prefetched is
 set by the @code{PrefetchFile}-directive.
@@ -492,9 +480,10 @@ optionlist := | option optionlist
 option := "Read" grouplist | "PostTo" grouplist | 
           "User" string | "Password" string |
           "GroupTimeout" number | "LimitGroupSize" number |
-          "ConnectTimeout" number | "ConnectBackoff" number |
-          "ReadTimeout" number |
-	  "Options" flags 
+          "Retries" number | "ConnectTimeout" number |
+          "ConnectBackoff" number | "ReadTimeout" number |
+          "BindFrom" address | "TLSCAFile" file |
+	  "Options" flags | "Commands" commands
 @end example
 
 In the following example, all articles are cached, read from and posted
@@ -551,11 +540,26 @@ If authentication is required by the upstream news server, use this
 option to specify the password for the above mentioned username.
 @code{newscache -p} and @code{xdebug dump configuration} don't show
 it; they print the comment @samp{# Password set, not shown} instead.
+@item Retries
+@cdindex Retries
+Whenever the news server closes the connection during a command,
+NewsCache connects to it again and issues the command again, up to
+@code{Retries} times (3 by default, 0 to 100); then it gives up and the
+client gets an error. A reply of @samp{400} counts as a closed
+connection, and so does a connection on which @code{ReadTimeout} ran
+out; @samp{503} (``feature not supported'' in RFC 3977) only when the
+server has closed the connection behind it, as old INN versions did
+with @samp{503 Timeout} on an idle connection. Otherwise a @samp{503}
+is an ordinary error reply and isn't sent again. A first connection
+that fails isn't retried. @code{Retries} is an option of a
+@code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout
 @cdindex ConnectTimeout
 Limit the timeout for connections to upstream servers, in seconds, in
 @command{newscache} and @command{updatenews}; 0 (the default) leaves it
 to the system, which can take minutes for a server that doesn't answer.
+It applies to each address of the server's name in turn and covers only
+the TCP connection; the greeting falls under @code{ReadTimeout}.
 @item ReadTimeout
 @cdindex ReadTimeout
 How long NewsCache waits for the server to send (or accept) anything on
@@ -568,14 +572,26 @@ it, a session waited for good, holding the group's or the active list's
 lock, so other sessions hung too.
 @item ConnectBackoff
 @cdindex ConnectBackoff
-Wait the specfied amount of seconds before trying to reconnect to an
-upstream server again after a refused connection attempt.
+After a connection to the server has failed (refused, timed out, or
+failed while it was set up: greeting, STARTTLS, login), don't try again
+for this many seconds; a command that needs the server fails at once
+instead. Each session and each @command{updatenews} run keeps its own
+record. 0 (the default) tries every time.
 @item LimitGroupSize
 @cdindex LimitGroupSize
 Limits the maximum size of a group: clients see only the newest
 articles, that many article numbers. 0 (the default) means no limit.
 NewsCache doesn't need it for large groups any more (see @ref{Large
 Newsgroups}).
+@item BindFrom
+@cdindex BindFrom
+the local address for connections to this server, a numeric IPv4 or
+IPv6 address (host names are not resolved).
+@item TLSCAFile
+@cdindex TLSCAFile
+a PEM file with the CA certificates to verify this server's TLS
+certificate against, for a private CA; without it, the system's trust
+store is used.
 @item Options
 @cdindex Options
 gives one or more of the following options: @code{not-offline}---contact
@@ -584,8 +600,12 @@ contact the upstream news server; @code{semioffline}---contact the
 upstream news server whenever necessary, except for retrieving the list
 of newsgroups; @code{ssl}---use (plain) SSL encrypted connection;
 @code{starttls}---use STARTTLS encrypted connection;
+@code{noverify}---with @code{ssl} or @code{starttls}, don't verify the
+server's certificate (logged as a warning);
 @code{not-setpostflag}, @code{setpostflag}; @code{not-cached},
-@code{cached}, @code{dontgenmsgid}.
+@code{cached}; @code{dontgenmsgid}---don't give an article posted only
+to this server a Message-ID when it has none (NewsCache makes one
+otherwise, and always for an article that goes to several servers).
 @item Commands
 This option indicates which commands are (or are not) supported by the
 upstream news server. Some versions of the netscape collabra server do
@@ -973,13 +993,30 @@ sees (@code{List}), reads (@code{Read}) and posts to (@code{PostTo}),
 and how a client logs in (@code{Authentication none},
 @code{file:@var{path}}, @code{unix}, @code{pam} or @code{pam+file}).
 A login adds the rights and groups of the user's line to those of the
-entry. As RFC 4643 says, a failed login (wrong password, unknown user,
+entry. An entry that allows nothing turns the client away with
+@samp{502 You have no permission to talk}; @code{allow authentication}
+only lets the client stay connected so that it can log in. It gives no
+right and doesn't make the login required. The login is required only
+with @code{Authentication unix} without fields: until then every
+command but @code{CAPABILITIES}, @code{MODE READER}, @code{AUTHINFO},
+@code{HELP} and @code{QUIT} gets @samp{480}, whatever the entry allows.
+With @code{file:}, @code{pam} (also without fields), @code{pam+file}
+and @code{unix} with fields the login is optional: the client has the
+rights of its entry from the start. An entry with only @code{allow
+authentication} and one of these logins still lets nobody read or post
+without a login, as in the example below, but because it gives no
+rights: the commands that need one get @samp{480} until the login. As RFC 4643 says, a failed login (wrong password, unknown user,
 a stored hash that can't be checked) gets 481, @code{AUTHINFO PASS}
 without @code{AUTHINFO USER} gets 482, and @code{AUTHINFO} after a
 successful login, or where the entry has @code{Authentication none},
 gets 502. Before the login, commands that need a right the client doesn't
 have yet get @samp{480}; @code{CAPABILITIES}, @code{MODE READER},
 @code{AUTHINFO}, @code{HELP} and @code{QUIT} are answered in any case.
+Where no login can add a right (@code{Authentication none}, or after the
+login), a command that needs it gets @samp{500 What?}, the reply to an
+unknown command; so does @code{POST} from a client without the post
+right. RFC 3977 asks for @samp{502} there, and @samp{440} for
+@code{POST}.
 The greeting and @code{MODE READER} answer @samp{200} only if the
 client may post at that moment, and @samp{201} (posting prohibited)
 otherwise, also before a login that would add the post right (RFC 3977,

@@ -1,13 +1,14 @@
 .TH newscacheclean 8 "June 2004"
 .SH NAME
-test \- Purge the NewsCache to SpoolSize (newscache.conf parameter).
+newscacheclean \- Purge the NewsCache to SpoolSize (newscache.conf parameter).
 .SH SYNOPSIS
 .B newscacheclean 
 .RI [ \-h ]
+.RI [ \-v ]
+.RI [ \-c\ config-file ] 
 .RI [ \-s ] 
 .RI [ \-p ]
-.RI [ \-\-version ]
-.RI [ \-c\ config-file ] 
+.RI [ \-t ]
 .br
 .SH DESCRIPTION
 The 
@@ -29,22 +30,24 @@ Show summary of options.
 Show version of program.
 .TP
 .B \-c \-\-configuration config-file
+Read config-file instead of
+.IR @SYSCONFDIR@/newscache.conf .
 .TP
 .B \-s \-\-statistic
-Show statistic informations.
+Show statistic informations: how many databases, directories and
+articles were found and removed, and their sizes.
 .TP
 .B \-p \-\-print-purgetable
 Print the sorted purge table.
 .TP
 .B \-t \-\-try
-Try, not really removing files.
+Try, not really removing files. Together with \-p it shows what would
+be removed first.
 
 .SH FILES
 @SYSCONFDIR@/newscache.conf
 .br
 @SBINDIR@/newscache
-.br
-@SBINDIR@/newscacheclean
 .br
 @SBINDIR@/newscacheclean
 .br

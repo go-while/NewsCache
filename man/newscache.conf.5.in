@@ -46,15 +46,17 @@ and the articles retrieved by NewsCache, if a news reader client request it. The
 .SS General Configuration Options
 Numeric values are plain decimal numbers. A value that is no number, or
 is out of range, is a configuration error that names the file and line.
-The ranges: ClientTimeout, ConnectBackoff, ConnectTimeout and ReadTimeout
-0 to 86400 seconds; MaxConnections 1 to 1000000; NiceServer, NiceClient
-and NiceClean \-20 to 20; Retries 0 to 100; GroupTimeout and the two
-Timeouts 0 to 2147483647; LimitGroupSize 0 to 4294967295.
+The ranges: ClientTimeout 0 to 86400 seconds; MaxConnections 1 to
+1000000; NiceServer, NiceClient and NiceClean \-20 to 20; the two
+Timeouts 0 to 2147483647. The options of a Server entry have their
+ranges below, under ServerSpec Configuration Options.
 .TP
 .I "ConfigVersion version"
-Specifies the syntax version of the configuration file. This manual page
-describes version 3. This allows NewsCache to detect a configuration
-file of an older NewsCache version. If specified, it should be
+Specifies the syntax version of the configuration file. The only
+version this NewsCache accepts is 5, the version this manual page
+describes; any other number is a configuration error, so that a file
+written for an older NewsCache (versions 1 to 4) is refused instead of
+being misread. The line may be left out. If specified, it should be
 specified as the first configuration option.
 .TP
 .I "ServerType type"
@@ -100,6 +102,13 @@ No default value.
 .TP
 .I "Admin email-address"
 The email address of this NewsCache's administrator.
+.TP
+.I "Hostname name"
+The host name NewsCache puts into the Message-IDs it makes for posted
+articles that have none. The default is the fully qualified domain name
+of the system, as
+.B newscache \-f
+prints it (localhost if there is none); set it if that is wrong.
 .TP
 .I "AccessList { AccessSpec AccessSpec ... }"
 Client access configuration. The first AccessSpec that matches the client
@@ -166,14 +175,6 @@ preceded by a #-sign. Ignored if ListenTo is set; "ListenTo DEFAULT:port"
 does the same and is the better choice. This directive is ineffective if
 NewsCache is started from inetd.
 .TP
-.I "Retries number"
-Specifies the number of retries for connecting to the news server.
-If this limit is exceded NewsCache assumes that the news server is
-unreachable. 
-.TP
-.I "ReadTimeout seconds"
-Give up the connection to the news server when it sends (or accepts) nothing for this long: each read and write, not a whole reply. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300; 0 waits for ever.
-.TP
 .I "PrefetchFile filename"
 Specifies the file that lists the newsgroups updatenews prefetches, one
 per line. A line may also be a wildmat pattern
@@ -188,17 +189,21 @@ No default value.
 .I "NiceServer n"
 Increment priority of the server process by n. See also
 .BR nice(1) .
-The default value is 0.
+The default value is 0. In this version, the session processes (one per
+client) use NiceServer too: a session forked by the standalone server
+adds it once more to the priority it inherits.
 .TP
 .I "NiceClient n"
-Increment priority of the client process by n. The client process communicates with the user program. See also 
-.BR nice(1) .
+Meant as the increment for the client (session) processes. The default
+is 10. In this version it is read but has no effect; the sessions use
+NiceServer.
 .TP
 .I "NiceClean n"
 Increment priority of the newscacheclean process by n. See also
 .BR nice(1) .
-The newscacheclean process is a housekeeping process. See alco
+The newscacheclean process is a housekeeping process. See also
 .BR newscacheclean(8) .
+The default value is 3.
 .TP
 .I "ListenTo specification"
 The Address, where NewsCache is listening, if running in
@@ -233,8 +238,11 @@ A plain address without a netmask means that host only. An empty prefix
 ("10.0.0.0/"), one out of range and a mask with gaps are configuration
 errors.
 .IP "allow [read] [post] [debug] [none] [authentication]"
-Allow read, post, debug for this Client. The default is none. If only authenticated users are allowed for this network, then authentication can be specified. See example "Only authenticated users".
+Allow read, post, debug for this Client. The default is none: a client whose entry allows nothing gets "502 You have no permission to talk" and is disconnected.
+.I authentication
+lets such a client stay connected so that it can log in. It gives no right by itself and doesn't make a login required: whether a login is possible, whether it is required, and what it adds is set by Authentication (see there). If only authenticated users are allowed for this network, specify authentication alone together with a login that adds the rights; see example "Only authenticated users".
 Before the login, such a client gets 480 for the commands that need a right it doesn't have yet; CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT are answered in any case.
+Where no login can add a right (the entry has Authentication none, or the client has logged in already), a command that needs it gets "500 What?", the reply to an unknown command. This includes POST from a client without the post right; RFC 3977 asks for 502 there, and 440 for POST.
 The greeting and MODE READER answer 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
 CAPABILITIES lists only what the client may do at that moment: before a required login (Authentication unix without fields) or on an entry that allows only the login, it lists AUTHINFO USER but not READER, HDR, OVER, LIST or POST; after the login it lists the rights the login gave.
 .IP "List \fINGSpecification\fR"
@@ -250,7 +258,12 @@ newsgroup may be substituted by * standing for any string.  Each
 newsgroup is retrieved from the news server with the longest match.
 Examples: * (all newsgroups), at.* (the whole at. hierarchy), *,!alt.binaries.* (all newsgroups without alt.binaries hierarchy).
 .IP Authentication
-Type of authentication plus authenication specific options. A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
+Type of authentication plus authenication specific options.
+Only
+.B unix
+without fields makes the login required: until then every command but CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT gets 480, whatever the entry allows.
+With file:, pam (also without fields), pam+file and unix with fields the login is optional: the client has the rights of its entry from the start, and a login adds those of the user. An entry that allows only authentication still lets nobody in without a login, but for another reason: it gives no rights, so the commands that need one get 480 until the login (those that need none, such as DATE, work).
+A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
 .IP none
 no further authentication necessary
 .IP file:/path/to/file
@@ -296,8 +309,12 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIRead\fR GroupSpec
 	\fIPostTo\fR GroupSpec
 	\fIGroupTimeout\fR seconds
+	\fILimitGroupSize\fR number
 	\fIBindFrom\fR address
 	\fIRetries\fR nr-of-retries
+	\fIConnectTimeout\fR seconds
+	\fIConnectBackoff\fR seconds
+	\fIReadTimeout\fR seconds
 	\fIUser\fR username
 	\fIPassword\fR password
 	\fITLSCAFile\fR file
@@ -328,11 +345,52 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 .IP "GroupTimeout \fIseconds\fR"
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
-The default value is 600 seconds. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
+The default value is 600 seconds, the range 0 to 2147483647. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
+.IP "LimitGroupSize \fInumber\fR"
+Clients see only the newest \fInumber\fR article numbers of each group
+of this server: a larger range is cut at its start. The default is 0, no
+limit; the range is 0 to 4294967295. Large groups don't need it.
+.IP "User \fIusername\fR"
+.IP "Password \fIpassword\fR"
+The login (AUTHINFO USER and PASS) for this server, if it needs one.
+NewsCache logs in right after it has connected (after STARTTLS with
+starttls), and again when the server asks for it with 480 in the middle
+of a session.
+.B newscache \-p
+and xdebug don't show the password; they print the comment
+.I "# Password set, not shown"
+instead.
 .IP "TLSCAFile \fIfile\fR"
 A PEM file with the CA certificates to verify this server's TLS certificate against, for servers with a private CA. Without it, NewsCache uses the system's trust store.
 .IP "BindFrom \fIaddress\fR"
 Local address used for connections to this upstream server. It must be a numeric IPv4 or IPv6 address; host names are not resolved. No default value.
+.IP "Retries \fInumber\fR"
+How often NewsCache connects to this server again when the connection
+breaks during a command (the server closes it, answers 400, or
+ReadTimeout runs out), and sends the command again. If that fails
+too, the client gets an error. The default is 3, the range 0 to 100; 0
+gives up at once. A 503 counts only when the server has closed the
+connection right behind it (old INN sent "503 Timeout" on an idle
+connection); otherwise it is an ordinary error reply. A first
+connection that fails isn't retried.
+.IP "ConnectTimeout \fIseconds\fR"
+Give up a connection attempt to this server after this many seconds.
+The limit applies to each address of the server's name in turn (an IPv6
+and an IPv4 address are tried one after the other) and covers only the
+TCP connection; the greeting and everything after it fall under
+ReadTimeout. The default is 0, which leaves it to the system: that can
+take minutes for a server that doesn't answer. The range is 0 to 86400.
+.BR updatenews (8)
+uses it too.
+.IP "ConnectBackoff \fIseconds\fR"
+After a connection to this server has failed (refused, timed out, or
+failed while it was set up: greeting, STARTTLS, login), don't try again
+for this many seconds: a command that needs the server fails at once
+instead. Each session (one per client) and each updatenews run keeps
+its own record. The default is 0, which tries every time; the range is
+0 to 86400.
+.IP "ReadTimeout \fIseconds\fR"
+Give up the connection to this server when it sends (or accepts) nothing for this long: each read and write, not a whole reply, so a large article on a slow line is fine. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300, the range 0 to 86400; 0 waits for ever.
 .IP "Options \fIflags\fR"
 Specifies a list of options that should be turned on or off. The default flags are: cached setpostflag. Valid flags are:
 .nf
@@ -343,6 +401,7 @@ Specifies a list of options that should be turned on or off. The default flags a
 	\fIssl\fR
 	\fIstarttls\fR
 	\fInoverify\fR
+	\fIdontgenmsgid\fR
 .fi
 .RS
 .TP
@@ -365,6 +424,12 @@ Use TLS from the start of the connection, usually on port 563 (nntps).
 Connect in plain text and switch to TLS with the STARTTLS command, usually on port 119. If the server refuses STARTTLS or the TLS handshake fails, NewsCache gives up the connection; it never continues in plain text.
 .IP "noverify"
 With ssl or starttls: don't verify the server's certificate. The connection is encrypted, but anyone in the middle can impersonate the server. NewsCache logs a warning for every such connection. Only for servers with a self-signed certificate; prefer TLSCAFile.
+.IP "dontgenmsgid"
+NewsCache gives a posted article without a Message-ID header one of its
+own (see Hostname). With dontgenmsgid, an article that goes only to
+this server is passed on without one, and the server makes it. An
+article that goes to several servers always gets one, so that it isn't
+posted twice under different IDs.
 .RE
 .IP
 With ssl or starttls, NewsCache verifies the server's certificate during the TLS handshake: it must chain to a trusted CA, be valid now and match the host name (or IP address) in the Server line, which is also sent as SNI. Otherwise the connection fails and the error is logged.
@@ -395,13 +460,10 @@ AccessList {
 }
 NewsServerList {
 	Server news.host nntp {
-		List at.*
 		Read at.*
 		PostTo at.*
 		GroupTimeout 1200
 		Options cached
-		Authentication unix:*:*:*
-		# Authenticated user see all groups
 	}
 }
 
