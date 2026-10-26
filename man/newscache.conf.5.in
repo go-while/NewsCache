@@ -46,10 +46,10 @@ and the articles retrieved by NewsCache, if a news reader client request it. The
 .SS General Configuration Options
 Numeric values are plain decimal numbers. A value that is no number, or
 is out of range, is a configuration error that names the file and line.
-The ranges: ClientTimeout, ConnectBackoff, ConnectTimeout and ReadTimeout
-0 to 86400 seconds; MaxConnections 1 to 1000000; NiceServer, NiceClient
-and NiceClean \-20 to 20; Retries 0 to 100; GroupTimeout and the two
-Timeouts 0 to 2147483647; LimitGroupSize 0 to 4294967295.
+The ranges: ClientTimeout 0 to 86400 seconds; MaxConnections 1 to
+1000000; NiceServer, NiceClient and NiceClean \-20 to 20; the two
+Timeouts 0 to 2147483647. The options of a Server entry have their
+ranges below, under ServerSpec Configuration Options.
 .TP
 .I "ConfigVersion version"
 Specifies the syntax version of the configuration file. This manual page
@@ -100,6 +100,13 @@ No default value.
 .TP
 .I "Admin email-address"
 The email address of this NewsCache's administrator.
+.TP
+.I "Hostname name"
+The host name NewsCache puts into the Message-IDs it makes for posted
+articles that have none. The default is the fully qualified domain name
+of the system, as
+.B newscache \-f
+prints it (localhost if there is none); set it if that is wrong.
 .TP
 .I "AccessList { AccessSpec AccessSpec ... }"
 Client access configuration. The first AccessSpec that matches the client
@@ -166,14 +173,6 @@ preceded by a #-sign. Ignored if ListenTo is set; "ListenTo DEFAULT:port"
 does the same and is the better choice. This directive is ineffective if
 NewsCache is started from inetd.
 .TP
-.I "Retries number"
-Specifies the number of retries for connecting to the news server.
-If this limit is exceded NewsCache assumes that the news server is
-unreachable. 
-.TP
-.I "ReadTimeout seconds"
-Give up the connection to the news server when it sends (or accepts) nothing for this long: each read and write, not a whole reply. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300; 0 waits for ever.
-.TP
 .I "PrefetchFile filename"
 Specifies the file that lists the newsgroups updatenews prefetches, one
 per line. A line may also be a wildmat pattern
@@ -188,17 +187,21 @@ No default value.
 .I "NiceServer n"
 Increment priority of the server process by n. See also
 .BR nice(1) .
-The default value is 0.
+The default value is 0. In this version, the session processes (one per
+client) use NiceServer too: a session forked by the standalone server
+adds it once more to the priority it inherits.
 .TP
 .I "NiceClient n"
-Increment priority of the client process by n. The client process communicates with the user program. See also 
-.BR nice(1) .
+Meant as the increment for the client (session) processes. The default
+is 10. In this version it is read but has no effect; the sessions use
+NiceServer.
 .TP
 .I "NiceClean n"
 Increment priority of the newscacheclean process by n. See also
 .BR nice(1) .
-The newscacheclean process is a housekeeping process. See alco
+The newscacheclean process is a housekeeping process. See also
 .BR newscacheclean(8) .
+The default value is 3.
 .TP
 .I "ListenTo specification"
 The Address, where NewsCache is listening, if running in
@@ -333,6 +336,17 @@ The default value is 600 seconds. The overview records of a part of a group that
 A PEM file with the CA certificates to verify this server's TLS certificate against, for servers with a private CA. Without it, NewsCache uses the system's trust store.
 .IP "BindFrom \fIaddress\fR"
 Local address used for connections to this upstream server. It must be a numeric IPv4 or IPv6 address; host names are not resolved. No default value.
+.IP "Retries \fInumber\fR"
+How often NewsCache connects to this server again when the connection
+breaks during a command (the server closes it, answers 400, or
+ReadTimeout runs out), and sends the command again. If that fails
+too, the client gets an error. The default is 3, the range 0 to 100; 0
+gives up at once. A 503 counts only when the server has closed the
+connection right behind it (old INN sent "503 Timeout" on an idle
+connection); otherwise it is an ordinary error reply. A first
+connection that fails isn't retried.
+.IP "ReadTimeout \fIseconds\fR"
+Give up the connection to this server when it sends (or accepts) nothing for this long: each read and write, not a whole reply, so a large article on a slow line is fine. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300, the range 0 to 86400; 0 waits for ever.
 .IP "Options \fIflags\fR"
 Specifies a list of options that should be turned on or off. The default flags are: cached setpostflag. Valid flags are:
 .nf

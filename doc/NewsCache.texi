@@ -241,8 +241,9 @@ priviledged user, should not run as priviledged user.}
 Numeric values are plain decimal numbers. A value that is no number, or
 is out of range, is a configuration error that names the file and line;
 @file{newscache.conf(5)} lists the ranges (for example,
-@code{MaxConnections} 1 to 1000000, @code{Retries} 0 to 100,
-@code{ClientTimeout} and @code{ReadTimeout} 0 to 86400 seconds).
+@code{MaxConnections} 1 to 1000000 and @code{ClientTimeout} 0 to 86400
+seconds; in a @code{Server} entry, @code{Retries} 0 to 100 and
+@code{ReadTimeout} 0 to 86400 seconds).
 
 @cdindex ConfigVersion
 First of all, you should specify, which configuration version, you are
@@ -437,19 +438,6 @@ supported on the LOG_NOTICE level.}
 LogStyle ip-address strict-inn
 @end example
 
-@cdindex Retries
-Whenever a News Server closes the connection, NewsCache retries to
-connect to the News Server and to issue the command again. After a
-certain number of retries, NewsCache gives up. A reply of @samp{400}
-counts as a closed connection; @samp{503} (``feature not supported'' in
-RFC 3977) only when the server has closed the connection behind it, as
-old INN versions did with @samp{503 Timeout} on an idle connection.
-Otherwise a @samp{503} is an ordinary error reply and isn't sent again.
-
-@example
-Retries 3
-@end example
-
 @cdindex PrefetchFile
 The file that lists all those newsgroups that have to be prefetched is
 set by the @code{PrefetchFile}-directive.
@@ -551,6 +539,19 @@ If authentication is required by the upstream news server, use this
 option to specify the password for the above mentioned username.
 @code{newscache -p} and @code{xdebug dump configuration} don't show
 it; they print the comment @samp{# Password set, not shown} instead.
+@item Retries
+@cdindex Retries
+Whenever the news server closes the connection during a command,
+NewsCache connects to it again and issues the command again, up to
+@code{Retries} times (3 by default, 0 to 100); then it gives up and the
+client gets an error. A reply of @samp{400} counts as a closed
+connection, and so does a connection on which @code{ReadTimeout} ran
+out; @samp{503} (``feature not supported'' in RFC 3977) only when the
+server has closed the connection behind it, as old INN versions did
+with @samp{503 Timeout} on an idle connection. Otherwise a @samp{503}
+is an ordinary error reply and isn't sent again. A first connection
+that fails isn't retried. @code{Retries} is an option of a
+@code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout
 @cdindex ConnectTimeout
 Limit the timeout for connections to upstream servers, in seconds, in
