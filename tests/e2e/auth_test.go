@@ -4,12 +4,16 @@ import (
 	"debug/elf"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // secretHash is crypt("secret") with SHA-512 ($6$), which glibc and libxcrypt
@@ -241,11 +245,17 @@ func TestLoginOnlyEntry(t *testing.T) {
 	c.ReadDotLines()
 }
 
-// TestModeReaderPosting: MODE READER answers 200 only when the client may
-// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
-// answered 200 to every client, and 480 where the entry allows only the
-// login.
-func TestModeReaderPosting(t *testing.T) {
+// postingCase is an access entry and whether its client may post right
+// after the greeting: 200 if it may, 201 if not (RFC 3977 5.1.1, 5.3).
+type postingCase struct {
+	name string
+	env  func(t *testing.T) *env
+	want int
+}
+
+// postingCases are the entries TestModeReaderPosting and TestGreetingPosting
+// check: one that may post, and four that may not (yet).
+func postingCases() []postingCase {
 	entry := func(rights, auth string) string {
 		return `AccessList {
   Client stdin {
@@ -260,11 +270,7 @@ func TestModeReaderPosting(t *testing.T) {
   }
 }`
 	}
-	cases := []struct {
-		name string
-		env  func(t *testing.T) *env
-		want int
-	}{
+	return []postingCase{
 		{"read post", func(t *testing.T) *env {
 			e := newEnv(t)
 			e.AccessList = entry("allow read post", "none")
@@ -291,7 +297,14 @@ func TestModeReaderPosting(t *testing.T) {
     PostTo *`, "tester:"+md5Hash+":*:*:*:post")
 		}, 201},
 	}
-	for _, tc := range cases {
+}
+
+// TestModeReaderPosting: MODE READER answers 200 only when the client may
+// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
+// answered 200 to every client, and 480 where the entry allows only the
+// login.
+func TestModeReaderPosting(t *testing.T) {
+	for _, tc := range postingCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			c := tc.env(t).session()
 			code, line := c.Cmd("MODE READER")
@@ -303,6 +316,25 @@ func TestModeReaderPosting(t *testing.T) {
 				if code, line := c.Cmd("POST"); code == 340 {
 					t.Errorf("POST after MODE READER 201: %q", line)
 				}
+			}
+		})
+	}
+}
+
+// TestGreetingPosting: the greeting follows the same rule as MODE READER,
+// 200 only when the client may post now and 201 otherwise (RFC 3977
+// 5.1.1). It was 200 for every client. The texts of both replies are the
+// same as MODE READER's.
+func TestGreetingPosting(t *testing.T) {
+	for _, tc := range postingCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.env(t).session()
+			want := fmt.Sprintf("%d ", tc.want)
+			if !strings.HasPrefix(c.Greeting, want) {
+				t.Fatalf("greeting %q, want %d", c.Greeting, tc.want)
+			}
+			if code, line := c.Cmd("MODE READER"); len(line) < 4 || line[4:] != c.Greeting[4:] {
+				t.Errorf("MODE READER %q (%d), greeting %q: different texts", line, code, c.Greeting)
 			}
 		})
 	}
@@ -452,6 +484,60 @@ func TestAuthUnixShadowNotReadable(t *testing.T) {
 	if log := e.logFile(); !strings.Contains(log, "cannot read the shadow password of "+u.Username) {
 		t.Errorf("log does not say why the login failed:\n%s", log)
 	}
+}
+
+// unixUser is the account unixSession adds to its /etc/passwd, with the
+// password "secret" (md5Hash).
+const unixUser = "nc-e2e-unix-tester"
+
+// unixSession starts an inetd session for e in which "Authentication unix"
+// can log in as unixUser: newscache runs in a user and mount namespace
+// with an /etc/passwd of the test's own bind-mounted over the system's
+// (skipped where the system doesn't allow one). It runs as root of the
+// namespace, so Username and Groupname are left out.
+func unixSession(t *testing.T, e *env) *client.Conn {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux namespaces")
+	}
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
+	}
+	b, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = append(b, unixUser+":"+md5Hash+":4242:4242::/nonexistent:/bin/false\n"...)
+	passwd := filepath.Join(e.Dir, "passwd")
+	if err := os.WriteFile(passwd, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.writeConf()
+	conf, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(conf), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			lines = append(lines, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "PASSWD="+passwd)
+	o.Args = append([]string{"-rm", "/bin/sh", "-c",
+		`mount --bind "$PASSWD" /etc/passwd || exit 99
+exec "$@"`, "nc", o.Path}, o.Args...)
+	o.Path = "unshare"
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatalf("greeting: %v", err)
+	}
+	return c
 }
 
 // hasShadowPassword reports whether name's password field in /etc/passwd is
@@ -762,7 +848,7 @@ func TestAuthinfoAfterLogin(t *testing.T) {
 // TestAuthinfoFailedReplies: every failed login answers 481 (RFC 4643
 // 2.3.2), whatever the backend and the reason; they all answered 502, which
 // means that AUTHINFO isn't available at all. AUTHINFO PASS without a user
-// name stays 482 (out of sequence).
+// name stays 482 (out of sequence), also with a password that is too long.
 func TestAuthinfoFailedReplies(t *testing.T) {
 	// tryLogin sends AUTHINFO USER user (381 expected) and AUTHINFO PASS
 	// pass, and returns the reply to the PASS.
@@ -844,6 +930,17 @@ func TestAuthinfoFailedReplies(t *testing.T) {
 		c := e.session()
 		if code, line := c.Cmd("AUTHINFO PASS secret"); code != 482 {
 			t.Fatalf("AUTHINFO PASS before AUTHINFO USER: %q, want 482", line)
+		}
+		login(t, c)
+	})
+	// The sequence comes first: a password too long to keep, sent
+	// without a user name, got 481 (the length check ran first).
+	t.Run("long PASS before USER", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+		c := e.session()
+		long := strings.Repeat("p", 600)
+		if code, line := c.Cmd("AUTHINFO PASS %s", long); code != 482 {
+			t.Fatalf("AUTHINFO PASS with 600 characters before AUTHINFO USER: %q, want 482", line)
 		}
 		login(t, c)
 	})

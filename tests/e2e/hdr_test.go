@@ -44,7 +44,8 @@ func checkCaps(t *testing.T, what string, caps []string, want, unwanted []string
 
 // TestCapabilities: CAPABILITIES listed READER, POST and (with any
 // Authentication) AUTHINFO USER for every client, also after a login and
-// to clients without those rights, and neither HDR nor OVER.
+// to clients without those rights, and neither HDR nor OVER. Where a login
+// is required, it listed the reading commands and POST before the login.
 func TestCapabilities(t *testing.T) {
 	reading := []string{"VERSION 2", "READER", "HDR", "OVER",
 		"LIST ACTIVE ACTIVE.TIMES HEADERS NEWSGROUPS OVERVIEW.FMT"}
@@ -92,6 +93,42 @@ func TestCapabilities(t *testing.T) {
 		login(t, c)
 		checkCaps(t, "after login", capabilities(t, c),
 			reading, []string{"POST", "AUTHINFO USER"})
+	})
+
+	// "Authentication unix" without fields: every command but AUTHINFO,
+	// CAPABILITIES, MODE READER, HELP and QUIT gets 480 before the login,
+	// so READER, HDR, OVER, LIST and POST aren't listed then (RFC 3977
+	// 3.3.1, RFC 4643 2.2); they were.
+	t.Run("login required", func(t *testing.T) {
+		e := newEnv(t)
+		e.addArticles("test.alpha", 1)
+		e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication unix
+  }
+  Default {
+    allow none
+  }
+}`
+		c := unixSession(t, e)
+		checkCaps(t, "before login", capabilities(t, c),
+			[]string{"VERSION 2", "AUTHINFO USER"},
+			append(reading[1:], "POST"))
+		if code, line := c.Cmd("AUTHINFO USER %s", unixUser); code != 381 {
+			t.Fatalf("AUTHINFO USER: %q, want 381", line)
+		}
+		if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+			t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+		}
+		checkCaps(t, "after login", capabilities(t, c),
+			append(reading, "POST"), []string{"AUTHINFO USER"})
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP after login: %q, want 211", line)
+		}
 	})
 }
 

@@ -235,7 +235,8 @@ errors.
 .IP "allow [read] [post] [debug] [none] [authentication]"
 Allow read, post, debug for this Client. The default is none. If only authenticated users are allowed for this network, then authentication can be specified. See example "Only authenticated users".
 Before the login, such a client gets 480 for the commands that need a right it doesn't have yet; CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT are answered in any case.
-MODE READER answers 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
+The greeting and MODE READER answer 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
+CAPABILITIES lists only what the client may do at that moment: before a required login (Authentication unix without fields) or on an entry that allows only the login, it lists AUTHINFO USER but not READER, HDR, OVER, LIST or POST; after the login it lists the rights the login gave.
 .IP "List \fINGSpecification\fR"
 Permits client access to the specified newsgroups.
 .IP "Read \fINGSpecification\fR"
@@ -506,7 +507,7 @@ ConfigVersion 5
 ListenTo DEFAULT
 AccessList {
 	Client 127.0.0.1/255.255.255.255 {
-		allow authentication
+		allow read post
 		List *
 		Read *
 		PostTo *
@@ -523,28 +524,27 @@ NewsServerList {
 		GroupTimeout 1200
 		Options cached
 	}
-	NewsServerList {
-  		Server news.redhat.com nntp {
-	    	Retries 3
-	    	Read gated.*
-	    	PostTo gated.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
-  	Server nntp.perl.org nntp {
-    		Retries 3
-	   	Read perl.*
-	    	PostTo perl.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
-  	Server news.php.net nntp {
-    		Retries 3
-	    	Read php.*
-	    	PostTo php.*
-	    	GroupTimeout 1200
-	    	Options cached
-  	}
+	Server news.redhat.com nntp {
+		Retries 3
+		Read gated.*
+		PostTo gated.*
+		GroupTimeout 1200
+		Options cached
+	}
+	Server nntp.perl.org nntp {
+		Retries 3
+		Read perl.*
+		PostTo perl.*
+		GroupTimeout 1200
+		Options cached
+	}
+	Server news.php.net nntp {
+		Retries 3
+		Read php.*
+		PostTo php.*
+		GroupTimeout 1200
+		Options cached
+	}
 }
 
 .fi
