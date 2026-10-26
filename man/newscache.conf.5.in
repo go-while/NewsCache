@@ -299,8 +299,12 @@ This parameter specifiy the name of the PAM Service. The default is newscache. Y
 	\fIRead\fR GroupSpec
 	\fIPostTo\fR GroupSpec
 	\fIGroupTimeout\fR seconds
+	\fILimitGroupSize\fR number
 	\fIBindFrom\fR address
 	\fIRetries\fR nr-of-retries
+	\fIConnectTimeout\fR seconds
+	\fIConnectBackoff\fR seconds
+	\fIReadTimeout\fR seconds
 	\fIUser\fR username
 	\fIPassword\fR password
 	\fITLSCAFile\fR file
@@ -331,7 +335,21 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 .IP "GroupTimeout \fIseconds\fR"
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
-The default value is 600 seconds. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
+The default value is 600 seconds, the range 0 to 2147483647. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
+.IP "LimitGroupSize \fInumber\fR"
+Clients see only the newest \fInumber\fR article numbers of each group
+of this server: a larger range is cut at its start. The default is 0, no
+limit; the range is 0 to 4294967295. Large groups don't need it.
+.IP "User \fIusername\fR"
+.IP "Password \fIpassword\fR"
+The login (AUTHINFO USER and PASS) for this server, if it needs one.
+NewsCache logs in right after it has connected (after STARTTLS with
+starttls), and again when the server asks for it with 480 in the middle
+of a session.
+.B newscache \-p
+and xdebug don't show the password; they print the comment
+.I "# Password set, not shown"
+instead.
 .IP "TLSCAFile \fIfile\fR"
 A PEM file with the CA certificates to verify this server's TLS certificate against, for servers with a private CA. Without it, NewsCache uses the system's trust store.
 .IP "BindFrom \fIaddress\fR"
@@ -345,6 +363,22 @@ gives up at once. A 503 counts only when the server has closed the
 connection right behind it (old INN sent "503 Timeout" on an idle
 connection); otherwise it is an ordinary error reply. A first
 connection that fails isn't retried.
+.IP "ConnectTimeout \fIseconds\fR"
+Give up a connection attempt to this server after this many seconds.
+The limit applies to each address of the server's name in turn (an IPv6
+and an IPv4 address are tried one after the other) and covers only the
+TCP connection; the greeting and everything after it fall under
+ReadTimeout. The default is 0, which leaves it to the system: that can
+take minutes for a server that doesn't answer. The range is 0 to 86400.
+.BR updatenews (8)
+uses it too.
+.IP "ConnectBackoff \fIseconds\fR"
+After a connection to this server has failed (refused, timed out, or
+failed while it was set up: greeting, STARTTLS, login), don't try again
+for this many seconds: a command that needs the server fails at once
+instead. Each session (one per client) and each updatenews run keeps
+its own record. The default is 0, which tries every time; the range is
+0 to 86400.
 .IP "ReadTimeout \fIseconds\fR"
 Give up the connection to this server when it sends (or accepts) nothing for this long: each read and write, not a whole reply, so a large article on a slow line is fine. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300, the range 0 to 86400; 0 waits for ever.
 .IP "Options \fIflags\fR"
@@ -357,6 +391,7 @@ Specifies a list of options that should be turned on or off. The default flags a
 	\fIssl\fR
 	\fIstarttls\fR
 	\fInoverify\fR
+	\fIdontgenmsgid\fR
 .fi
 .RS
 .TP
@@ -379,6 +414,12 @@ Use TLS from the start of the connection, usually on port 563 (nntps).
 Connect in plain text and switch to TLS with the STARTTLS command, usually on port 119. If the server refuses STARTTLS or the TLS handshake fails, NewsCache gives up the connection; it never continues in plain text.
 .IP "noverify"
 With ssl or starttls: don't verify the server's certificate. The connection is encrypted, but anyone in the middle can impersonate the server. NewsCache logs a warning for every such connection. Only for servers with a self-signed certificate; prefer TLSCAFile.
+.IP "dontgenmsgid"
+NewsCache gives a posted article without a Message-ID header one of its
+own (see Hostname). With dontgenmsgid, an article that goes only to
+this server is passed on without one, and the server makes it. An
+article that goes to several servers always gets one, so that it isn't
+posted twice under different IDs.
 .RE
 .IP
 With ssl or starttls, NewsCache verifies the server's certificate during the TLS handshake: it must chain to a trusted CA, be valid now and match the host name (or IP address) in the Server line, which is also sent as SNI. Otherwise the connection fails and the error is logged.
@@ -409,13 +450,10 @@ AccessList {
 }
 NewsServerList {
 	Server news.host nntp {
-		List at.*
 		Read at.*
 		PostTo at.*
 		GroupTimeout 1200
 		Options cached
-		Authentication unix:*:*:*
-		# Authenticated user see all groups
 	}
 }
 

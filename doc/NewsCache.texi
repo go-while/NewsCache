@@ -480,9 +480,10 @@ optionlist := | option optionlist
 option := "Read" grouplist | "PostTo" grouplist | 
           "User" string | "Password" string |
           "GroupTimeout" number | "LimitGroupSize" number |
-          "ConnectTimeout" number | "ConnectBackoff" number |
-          "ReadTimeout" number |
-	  "Options" flags 
+          "Retries" number | "ConnectTimeout" number |
+          "ConnectBackoff" number | "ReadTimeout" number |
+          "BindFrom" address | "TLSCAFile" file |
+	  "Options" flags | "Commands" commands
 @end example
 
 In the following example, all articles are cached, read from and posted
@@ -557,6 +558,8 @@ that fails isn't retried. @code{Retries} is an option of a
 Limit the timeout for connections to upstream servers, in seconds, in
 @command{newscache} and @command{updatenews}; 0 (the default) leaves it
 to the system, which can take minutes for a server that doesn't answer.
+It applies to each address of the server's name in turn and covers only
+the TCP connection; the greeting falls under @code{ReadTimeout}.
 @item ReadTimeout
 @cdindex ReadTimeout
 How long NewsCache waits for the server to send (or accept) anything on
@@ -569,14 +572,26 @@ it, a session waited for good, holding the group's or the active list's
 lock, so other sessions hung too.
 @item ConnectBackoff
 @cdindex ConnectBackoff
-Wait the specfied amount of seconds before trying to reconnect to an
-upstream server again after a refused connection attempt.
+After a connection to the server has failed (refused, timed out, or
+failed while it was set up: greeting, STARTTLS, login), don't try again
+for this many seconds; a command that needs the server fails at once
+instead. Each session and each @command{updatenews} run keeps its own
+record. 0 (the default) tries every time.
 @item LimitGroupSize
 @cdindex LimitGroupSize
 Limits the maximum size of a group: clients see only the newest
 articles, that many article numbers. 0 (the default) means no limit.
 NewsCache doesn't need it for large groups any more (see @ref{Large
 Newsgroups}).
+@item BindFrom
+@cdindex BindFrom
+the local address for connections to this server, a numeric IPv4 or
+IPv6 address (host names are not resolved).
+@item TLSCAFile
+@cdindex TLSCAFile
+a PEM file with the CA certificates to verify this server's TLS
+certificate against, for a private CA; without it, the system's trust
+store is used.
 @item Options
 @cdindex Options
 gives one or more of the following options: @code{not-offline}---contact
@@ -585,8 +600,12 @@ contact the upstream news server; @code{semioffline}---contact the
 upstream news server whenever necessary, except for retrieving the list
 of newsgroups; @code{ssl}---use (plain) SSL encrypted connection;
 @code{starttls}---use STARTTLS encrypted connection;
+@code{noverify}---with @code{ssl} or @code{starttls}, don't verify the
+server's certificate (logged as a warning);
 @code{not-setpostflag}, @code{setpostflag}; @code{not-cached},
-@code{cached}, @code{dontgenmsgid}.
+@code{cached}; @code{dontgenmsgid}---don't give an article posted only
+to this server a Message-ID when it has none (NewsCache makes one
+otherwise, and always for an article that goes to several servers).
 @item Commands
 This option indicates which commands are (or are not) supported by the
 upstream news server. Some versions of the netscape collabra server do
