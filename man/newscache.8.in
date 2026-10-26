@@ -4,7 +4,7 @@
 newscache \- Cache for Network News Transport Protocol (NNTP)
 .SH SYNOPSIS
 .B newscache
-.RI "[\-\-version] [\-h] [\-v] [\-f] [\-c config-file] [\-i] [\-d] [\-p] [\-o]"
+.RI "[\-h] [\-v] [\-f] [\-c config-file] [\-i] [\-d] [\-n] [\-p] [\-o]"
 .br
 .SH DESCRIPTION
 NewsCache is a free cache server for USENET News. NewsCache acts to news reading clients like a news server, except that it stores only those articles that have been requested by at least one client. NewsCache targets problems of the current News System like network bandwidth consumption or the IO load caused by news clients. NewsCache acts to the upstream news server like a news reader programm.
@@ -63,7 +63,8 @@ each one is replaced by the comment
 .IR "# Password set, not shown" .
 .TP
 .B \-o \-\-configuration-options
-Print all options specified in the configure phase.
+Print all options specified in the configure phase. Like \-p, it
+reads the configuration file first, and fails if that has an error.
 
 .SH SIGNALS
 
@@ -93,10 +94,12 @@ mode requires a correct inetd configuration. An example configuration line looks
 
 .SH DIAGNOSTICS
 NewsCache logs diagnostics messages with the syslog priority debug. If NewsCache is configured with the
-.B --enabe-debug
+.B \-\-enable\-debug
 option, he produce much more messages (for details see the INSTALL file). 
-.B newscache -o 
-prints out the actual configuration parameter.  In some error situation
+.B newscache \-p
+prints the configuration as NewsCache has read it, and
+.B newscache \-o
+the options NewsCache was built with.  In some error situation
 you can try to create a core dump file or debug a client process with
 gdb (for details see the documentation directory).
 
@@ -104,8 +107,6 @@ gdb (for details see the documentation directory).
 @SYSCONFDIR@/newscache.conf
 .br
 @SBINDIR@/newscache
-.br
-@SBINDIR@/newscacheclean
 .br
 @SBINDIR@/newscacheclean
 .br

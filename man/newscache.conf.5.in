@@ -52,9 +52,11 @@ Timeouts 0 to 2147483647. The options of a Server entry have their
 ranges below, under ServerSpec Configuration Options.
 .TP
 .I "ConfigVersion version"
-Specifies the syntax version of the configuration file. This manual page
-describes version 3. This allows NewsCache to detect a configuration
-file of an older NewsCache version. If specified, it should be
+Specifies the syntax version of the configuration file. The only
+version this NewsCache accepts is 5, the version this manual page
+describes; any other number is a configuration error, so that a file
+written for an older NewsCache (versions 1 to 4) is refused instead of
+being misread. The line may be left out. If specified, it should be
 specified as the first configuration option.
 .TP
 .I "ServerType type"
