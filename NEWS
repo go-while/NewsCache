@@ -537,6 +537,9 @@ Documentation:
   ConfigVersion 3 instead of 5.
 
 Other changes:
+* TestLongClientName passes on Arch Linux: in its namespace it also
+  reads host names from files first (Arch asks systemd-resolved first,
+  which answers 127.0.0.1 with "localhost" itself).
 * NewsCache builds on Debian GNU/Hurd: configure defines MAXPATHLEN
   (4096) and MAXHOSTNAMELEN (256) where the system has none, and the
   unit check cCorruptDB skips its file-limit case where RLIMIT_NOFILE

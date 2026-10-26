@@ -597,7 +597,9 @@ func TestStandaloneSpoolUnavailable(t *testing.T) {
 // so getnameinfo failed, and such clients were taken for their address
 // (and got the Default entry). The name comes from an /etc/hosts of the
 // test's own, bind-mounted in a user and mount namespace (skipped where
-// the system doesn't allow one).
+// the system doesn't allow one), with an nsswitch.conf that reads host
+// names from files first (Arch asks systemd-resolved first, which
+// answers 127.0.0.1 with "localhost" itself).
 func TestLongClientName(t *testing.T) {
 	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
 		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
@@ -607,6 +609,21 @@ func TestLongClientName(t *testing.T) {
 	hosts := filepath.Join(e.Dir, "hosts")
 	if err := os.WriteFile(hosts, []byte("127.0.0.1 "+name+"\n::1 localhost\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// the system's nsswitch.conf with "hosts: files" (glibc only; musl
+	// has none and reads /etc/hosts anyway)
+	nss := filepath.Join(e.Dir, "nsswitch.conf")
+	if b, err := os.ReadFile("/etc/nsswitch.conf"); err == nil {
+		var lines []string
+		for _, l := range strings.Split(string(b), "\n") {
+			if f := strings.Fields(l); len(f) > 0 && f[0] == "hosts:" {
+				l = "hosts: files"
+			}
+			lines = append(lines, l)
+		}
+		if err := os.WriteFile(nss, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	e.AccessList = accessEntry(name)
 	e.Extra = "LogStyle hostname ip-address"
@@ -626,9 +643,10 @@ func TestLongClientName(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := e.procOpts("-n")
-	o.Env = append(o.Env, "HOSTS="+hosts)
+	o.Env = append(o.Env, "HOSTS="+hosts, "NSS="+nss)
 	o.Args = append([]string{"-rm", "/bin/sh", "-c",
 		`mount --bind "$HOSTS" /etc/hosts || exit 99
+if [ -e "$NSS" ]; then mount --bind "$NSS" /etc/nsswitch.conf || exit 99; fi
 exec "$@"`, "nc", o.Path}, o.Args...)
 	o.Path = "unshare"
 	proc.StartTCP(t, o, e.Listen)
