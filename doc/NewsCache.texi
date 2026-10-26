@@ -993,7 +993,19 @@ sees (@code{List}), reads (@code{Read}) and posts to (@code{PostTo}),
 and how a client logs in (@code{Authentication none},
 @code{file:@var{path}}, @code{unix}, @code{pam} or @code{pam+file}).
 A login adds the rights and groups of the user's line to those of the
-entry. As RFC 4643 says, a failed login (wrong password, unknown user,
+entry. An entry that allows nothing turns the client away with
+@samp{502 You have no permission to talk}; @code{allow authentication}
+only lets the client stay connected so that it can log in. It gives no
+right and doesn't make the login required. The login is required only
+with @code{Authentication unix} without fields: until then every
+command but @code{CAPABILITIES}, @code{MODE READER}, @code{AUTHINFO},
+@code{HELP} and @code{QUIT} gets @samp{480}, whatever the entry allows.
+With @code{file:}, @code{pam} (also without fields), @code{pam+file}
+and @code{unix} with fields the login is optional: the client has the
+rights of its entry from the start. An entry with only @code{allow
+authentication} and one of these logins still lets nobody read or post
+without a login, as in the example below, but because it gives no
+rights: the commands that need one get @samp{480} until the login. As RFC 4643 says, a failed login (wrong password, unknown user,
 a stored hash that can't be checked) gets 481, @code{AUTHINFO PASS}
 without @code{AUTHINFO USER} gets 482, and @code{AUTHINFO} after a
 successful login, or where the entry has @code{Authentication none},

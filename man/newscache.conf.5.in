@@ -238,7 +238,9 @@ A plain address without a netmask means that host only. An empty prefix
 ("10.0.0.0/"), one out of range and a mask with gaps are configuration
 errors.
 .IP "allow [read] [post] [debug] [none] [authentication]"
-Allow read, post, debug for this Client. The default is none. If only authenticated users are allowed for this network, then authentication can be specified. See example "Only authenticated users".
+Allow read, post, debug for this Client. The default is none: a client whose entry allows nothing gets "502 You have no permission to talk" and is disconnected.
+.I authentication
+lets such a client stay connected so that it can log in. It gives no right by itself and doesn't make a login required: whether a login is possible, whether it is required, and what it adds is set by Authentication (see there). If only authenticated users are allowed for this network, specify authentication alone together with a login that adds the rights; see example "Only authenticated users".
 Before the login, such a client gets 480 for the commands that need a right it doesn't have yet; CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT are answered in any case.
 Where no login can add a right (the entry has Authentication none, or the client has logged in already), a command that needs it gets "500 What?", the reply to an unknown command. This includes POST from a client without the post right; RFC 3977 asks for 502 there, and 440 for POST.
 The greeting and MODE READER answer 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
@@ -256,7 +258,12 @@ newsgroup may be substituted by * standing for any string.  Each
 newsgroup is retrieved from the news server with the longest match.
 Examples: * (all newsgroups), at.* (the whole at. hierarchy), *,!alt.binaries.* (all newsgroups without alt.binaries hierarchy).
 .IP Authentication
-Type of authentication plus authenication specific options. A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
+Type of authentication plus authenication specific options.
+Only
+.B unix
+without fields makes the login required: until then every command but CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT gets 480, whatever the entry allows.
+With file:, pam (also without fields), pam+file and unix with fields the login is optional: the client has the rights of its entry from the start, and a login adds those of the user. An entry that allows only authentication still lets nobody in without a login, but for another reason: it gives no rights, so the commands that need one get 480 until the login (those that need none, such as DATE, work).
+A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
 .IP none
 no further authentication necessary
 .IP file:/path/to/file
