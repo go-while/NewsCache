@@ -498,7 +498,9 @@ func TestXrefTrailingBlank(t *testing.T) {
 
 // TestArticleIDServerDown: ARTICLE <message-id> asks one server after the
 // other until one has the article. A server that couldn't be reached
-// ended the search with 503, although the next one had the article.
+// ended the search with 503, although the next one had the article. When
+// no server has it and one couldn't be asked, the reply is 403 (an
+// internal fault, RFC 3977 3.2.1), not 430; it was 503.
 func TestArticleIDServerDown(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
@@ -522,7 +524,7 @@ func TestArticleIDServerDown(t *testing.T) {
 		t.Errorf("ARTICLE %s: %q, want the third server's article", id, lines)
 	}
 	// none has it: 430 only if every server could be asked
-	if code, line := c.Cmd("ARTICLE <none@upstream.test>"); code != 503 {
-		t.Errorf("ARTICLE <none@upstream.test> with a server down: %q, want 503", line)
+	if code, line := c.Cmd("ARTICLE <none@upstream.test>"); code != 403 {
+		t.Errorf("ARTICLE <none@upstream.test> with a server down: %q, want 403", line)
 	}
 }

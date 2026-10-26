@@ -206,6 +206,16 @@ every News Server that supports the @code{list}, @code{group},
 RFC 3977); if the server refuses it, NewsCache does without
 @code{listgroup}, as with @code{Commands not-listgroup}.
 
+When the news server fails while NewsCache fetches something for a
+client (it can't be reached, it closes the connection in the middle,
+it doesn't answer within @code{ReadTimeout}, an article is larger than
+@code{MaxArticleSize}), the client gets @samp{403} (RFC 3977: internal
+fault or problem preventing action being taken), e.g. @samp{403
+upstream failure} for an article by message-ID and @samp{403 internal
+error} for one by number, and the session goes on. Older versions
+answered @samp{503}, which RFC 3977 uses for a feature the server
+doesn't support.
+
 @c *** 
 @c *** General Options
 @c ***
@@ -341,7 +351,7 @@ AuthFailureDelay 5
 NewsCache holds an article in memory as a whole. @code{MaxArticleSize}
 is the largest article, in bytes, that it takes from a news server: a
 larger one is an error, NewsCache closes the connection to that server
-(the rest of the article is unread on it), the client gets an error,
+(the rest of the article is unread on it), the client gets 403,
 nothing is stored, and the log says so. Lines from a news server
 outside articles (status lines, overview records, the active list,
 LISTGROUP) are limited to 16384 bytes each, with the same effect; lines
@@ -539,7 +549,7 @@ an open connection, in seconds; the default is 300, 0 waits for ever.
 It applies to each read and write, not to a whole reply, so a large
 article on a slow line is fine. A server that stops answering ends the
 connection after this time; NewsCache connects again (up to
-@code{Retries} times) and otherwise gives the client an error. Without
+@code{Retries} times) and otherwise answers the client with 403. Without
 it, a session waited for good, holding the group's or the active list's
 lock, so other sessions hung too.
 @item ConnectBackoff

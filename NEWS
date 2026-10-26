@@ -5,7 +5,7 @@ New options:
   server when it sends or accepts nothing for this many seconds (each
   read and write; default 300, 0 waits for ever).
 * MaxArticleSize: the largest article (bytes) taken from a news server
-  (default 1048576). A larger one is refused: the client gets an error,
+  (default 1048576). A larger one is refused: the client gets 403,
   nothing is stored and the connection to that server is closed.
 * MaxPostSize: the largest article (bytes) a client may post (default
   1048576); a larger one gets 441.
@@ -158,7 +158,7 @@ Bug fixes:
 * ARTICLE, HEAD and BODY by number answered "423 no such article" when
   the news server failed to send the article (a timeout, the connection
   closed in the middle, an article cut off), and some newsreaders then
-  take the article as gone. The client now gets "503 internal error",
+  take the article as gone. The client now gets "403 internal error",
   the log says what went wrong, and 423 means the article doesn't exist.
 * In groups of a not-cached server, XOVER, XHDR and the LISTGROUP
   fallback left out articles 1 to 9999 when the news server reported a
@@ -429,6 +429,17 @@ Bug fixes:
   article, if it had one, instead of the number of body lines once a
   client had read the article; before that they showed the count from
   the news server. They now always show the number of body lines.
+* When the news server failed (it couldn't be reached, closed the
+  connection in the middle, didn't answer within ReadTimeout, or sent
+  an article larger than MaxArticleSize), and on other internal errors,
+  the client got 503, RFC 977's "program fault". RFC 3977 made 503
+  "feature not supported" and has 403 for an internal fault. ARTICLE,
+  HEAD, BODY, STAT, XHDR, XPAT and HDR by message-ID now answer "403
+  upstream failure" instead of "503 operation failed", and any command
+  that fails this way before it has sent anything (ARTICLE, HEAD and
+  BODY by number, LIST, ...) answers "403 internal error" or "403 spool
+  database damaged, try again" instead of 503. HDR still answers 503
+  for a field it can't serve, as RFC 3977 asks.
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

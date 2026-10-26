@@ -51,7 +51,7 @@ access. The log gets one line at error level, e.g.
 In a session, the command that ran into the damage is run once more on
 the new database if nothing was sent yet; if part of a reply was sent,
 it is ended properly (a list with its final "."), so the client stays in
-step. Any other error a command doesn't handle gets a 503 reply instead
+step. Any other error a command doesn't handle gets a 403 reply instead
 of ending the session.
 
 newscacheclean logs a damaged database and goes on with the next group;

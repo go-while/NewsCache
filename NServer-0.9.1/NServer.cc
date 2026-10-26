@@ -2064,7 +2064,7 @@ void CServer::article(const char *id, Article * art)
 
 	// A server that can't be reached is skipped, not the end of the
 	// search: the article may be on one of the others. Only if none of
-	// them has it is that passed on (503), instead of 430.
+	// them has it is that passed on (403), instead of 430.
 	bool unreachable = false;
 
 	if (_CurrentServer

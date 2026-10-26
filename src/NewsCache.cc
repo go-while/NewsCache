@@ -1298,8 +1298,8 @@ static int may_read_xref(ClientData * clt, const string & over)
 /*
  * Fetches the article with message-ID id, from the spool if it is there
  * (see spool_article), else from the news server, and checks that the
- * client may read it. Returns 0, or -1 after an error reply (430, the
- * news server's error, 503, or 480/502).
+ * client may read it. Returns 0, or -1 after an error reply (430, 403,
+ * or 480/502).
  */
 static int fetch_readable(ClientData * clt, const char *id, Article & a)
 {
@@ -1311,12 +1311,10 @@ static int fetch_readable(ClientData * clt, const char *id, Article & a)
 		(*clt->co) << "430 no such article id found\r\n";
 		return -1;
 	}
-	catch(const ResponseError & e) {
-		(*clt->co) << e._got << "\r\n";
-		return -1;
-	}
 	catch(const Error & e) {
-		(*clt->co) << "503 operation failed\r\n";
+		// (also a ResponseError: the news server's reply, which may
+		// be a 220 or 381, is not the client's)
+		(*clt->co) << "403 upstream failure\r\n";
 		e.print();
 		return -1;
 	}
@@ -2861,13 +2859,14 @@ static bool multiline_reply(const char *status, const char *cmd)
 /*
  * A command failed with an exception after the reply had written what
  * tracker saw: finish the reply so that the client stays in step. With
- * nothing written yet, the reply is a 503 with what.
+ * nothing written yet, the reply is a 403 (RFC 3977 3.2.1: internal
+ * fault; 503 is "feature not supported") with what.
  */
 static void finish_reply(ostream & co, const ReplyTracker & tracker,
 			 const char *cmd, const char *what)
 {
 	if (tracker.count == 0) {
-		co << "503 " << what << "\r\n";
+		co << "403 " << what << "\r\n";
 	} else if (multiline_reply(tracker.head, cmd)) {
 		// a list had begun: end it
 		if (tracker.last != '\n')

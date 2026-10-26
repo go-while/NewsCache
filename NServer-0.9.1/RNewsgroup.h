@@ -81,7 +81,7 @@ class RNewsgroup:public Newsgroup {
 
 	// NULL only when the article doesn't exist; any other failure (the
 	// news server timed out or cut the article off) reaches the command
-	// loop, which logs it and answers 503 instead of 423.
+	// loop, which logs it and answers 403 instead of 423.
 	virtual Article *getarticle(artnum_t nbr) {
 		Article *a = new Article;
 		try {
