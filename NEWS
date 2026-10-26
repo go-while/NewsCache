@@ -413,7 +413,7 @@ Bug fixes:
   unreachable) was answered "240 Article posted" even when it could not
   be written to the spool (a full disk): the article was lost, or
   updatenews later posted it cut off. POST now answers with an error
-  (449), and nothing half written is left in the spool.
+  (441), and nothing half written is left in the spool.
 * XHDR, XPAT and HDR with a header name longer than 511 characters could
   read past the end of an article that has a header starting with the
   same 511 characters, and send bytes from the session's memory to the
@@ -458,6 +458,45 @@ Bug fixes:
   It now lists only what the client may do at that moment (RFC 3977,
   RFC 4643): AUTHINFO USER before the login, the reading commands and
   POST after it.
+* ARTICLE, HEAD, BODY and STAT by number, NEXT, LAST, LISTGROUP, XOVER,
+  OVER, XHDR, XPAT and HDR answered "412 operation failed" when the
+  current group couldn't be opened (for example, its database in the
+  spool can't be opened). 412 means "no newsgroup selected" in RFC 3977;
+  the reply is now "403 operation failed" (internal fault). 412 is still
+  the answer when no group is selected.
+* NEWGROUPS answered "410 operation failed" when the active list couldn't
+  be read; 410 is no NEWGROUPS reply. It now answers like LIST: "403
+  internal error" (RFC 3977), after one more try on a damaged database.
+* DATE would answer "500 gmtime failed" if the system couldn't convert
+  the time; 500 means "unknown command". It is "403 gmtime failed" now
+  (RFC 3977: internal fault). This doesn't happen in practice.
+* POST answered with codes RFC 3977 doesn't allow after the article has
+  been sent, where only 240 and 441 are: "480 authentication required"
+  for a group outside PostTo while a login could add it, "440 posting
+  not allowed", and "449 operation failed" (for example, when a post
+  for an offline news server couldn't be spooled). All three are 441
+  now; the first says "authentication required" in its text. A client
+  that waited for 480 there to offer a login will show the 441 instead.
+* GROUP and LISTGROUP answered "411 no such news group" also when the
+  news server couldn't be reached or answered GROUP with an error, for a
+  group the spool didn't know yet: the group looked as if it didn't
+  exist. They now answer "403 internal error" then (RFC 3977); 411 is
+  left for groups that don't exist. A group the spool knows is still
+  served from it while the news server is down.
+* A 503 reply of the news server was taken for a closed connection, and
+  the command was sent again on a new connection, up to Retries times,
+  before it failed. In RFC 3977, 503 means "feature not supported": a
+  news server that answered OVER with 503 cost several connections for
+  every overview request, and NewsCache never fell back to XOVER. A 503
+  is now an ordinary reply, except when the server has closed the
+  connection behind it, as old INN versions did with "503 Timeout" on
+  an idle connection.
+* When the current group no longer existed (the news server answered
+  411 for it), ARTICLE, HEAD, BODY and STAT by number, NEXT, LAST,
+  XOVER, OVER, XHDR, XPAT, HDR and LISTGROUP without a group answered
+  "411 no such news group". RFC 3977 asks for 412 when the selected
+  group is invalid, and keeps 411 for a group named in the command; the
+  reply is now "412 current group no longer exists".
 
 Documentation:
 * The manual said that NewsCache uses the most specific AccessList entry

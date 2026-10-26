@@ -1066,12 +1066,14 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	if (strlen(group) >= sizeof(clt->groupname))
 		return NULL;
 
+	// NULL (411) only for a group that doesn't exist or that no news
+	// server carries. Any other error (the news server can't be reached
+	// or doesn't answer, the spool fails) goes to the command loop, which
+	// answers 403 (RFC 3977 3.2.1): 411 told the client that the group
+	// doesn't exist.
 	try {
 		gi = clt->srvr->groupinfo(group);
-	} catch(const NSError & nse) {
-		return NULL;
-	}
-	catch(...) {
+	} catch(const NoSuchGroupError & nsge) {
 		return NULL;
 	}
 	// Reset Article Pointer
@@ -1474,11 +1476,11 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 				    clt->srvr->getgroup(clt->groupname);
 		}
 		catch(const NoSuchGroupError & nsge) {
-			(*clt->co) << "411 no such newsgroup\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 		catch(const Error & e) {
-			(*clt->co) << "412 operation failed\r\n";
+			(*clt->co) << "403 operation failed\r\n";
 			return -1;
 		}
 
@@ -1557,11 +1559,11 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 				    clt->srvr->getgroup(clt->groupname);
 		}
 		catch(const NoSuchGroupError & nsge) {
-			(*clt->co) << "411 no such newsgroup\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 		catch(const Error & e) {
-			(*clt->co) << "412 operation failed\r\n";
+			(*clt->co) << "403 operation failed\r\n";
 			return -1;
 		}
 
@@ -1638,7 +1640,9 @@ int ns_date(ClientData * clt, int argc, char *argv[])
 	}
 	time(&conv);
 	if ((ltm = gmtime_r(&conv, &tmbuf)) == NULL) {
-		(*clt->co) << "500 gmtime failed\r\n";
+		// 403: internal fault (RFC 3977 3.2.1); 500 is "unknown
+		// command"
+		(*clt->co) << "403 gmtime failed\r\n";
 		slog.p(Logger::Error) << "ns_date() gmtime failed\n";
 		return -1;
 	}
@@ -1733,11 +1737,11 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		return -1;
 	}
 
@@ -2074,7 +2078,7 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 	} else {
 		// selects the group anew, the current article is its first
 		if ((gi = selectgroup(clt, clt->groupname)) == NULL) {
-			(*clt->co) << "411 no such news group\r\n";
+			(*clt->co) << "412 current group no longer exists\r\n";
 			return -1;
 		}
 	}
@@ -2086,11 +2090,14 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		if (argc >= 2)
+			(*clt->co) << "411 no such news group\r\n";
+		else
+			(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		e.print();
 		return -1;
 	}
@@ -2234,14 +2241,10 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	if (lt == -1)
 		goto ns_newgroups_error;
 
-	ActiveDB *active;
-	try {
-		active = clt->srvr->active();
-	}
-	catch(const Error & e) {
-		(*clt->co) << "410 operation failed\r\n";
-		return -1;
-	}
+	// An error here goes to the command loop, as for LIST: 403 (RFC 3977
+	// 3.2.1), or once more after a damaged database. (It answered 410,
+	// which isn't a NEWGROUPS reply.)
+	ActiveDB *active = clt->srvr->active();
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
 	ostringstream lines;
@@ -2362,16 +2365,18 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			(*clt->co) << "441 no newsgroups\r\n";
 			return -1;
 		}
+		// After the article, RFC 3977 6.3.1 allows only 240 and 441:
+		// a login that could add the group gets a hint in the text
+		// (it was a 480).
 		for (std::vector<std::string>::size_type i = 0;
 		     i < groups.size(); i++) {
 			if (clt->access_entry->postTo.
 			    matches(groups[i].c_str()) <= 0) {
-				if (clt->auth_state != AUTH_OK)
-					(*clt->co) <<
-					    "480 authentication required\r\n";
-				else
-					(*clt->co) << "441 posting to " <<
-					    groups[i] << " not allowed\r\n";
+				(*clt->co) << "441 posting to " << groups[i]
+				    << " not allowed"
+				    << (clt->auth_state != AUTH_OK ?
+					", authentication required" : "")
+				    << "\r\n";
 				return 0;
 			}
 		}
@@ -2396,11 +2401,14 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	catch(const NotAllowedError & nae) {
-		(*clt->co) << "440 posting not allowed\r\n";
+		// (440 is the reply to POST itself, before the article)
+		(*clt->co) << "441 posting not allowed\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
-		(*clt->co) << "449 operation failed\r\n";
+		// e.g. the article can't be spooled for later; 449 isn't an
+		// NNTP reply
+		(*clt->co) << "441 posting failed\r\n";
 		return -1;
 	}
 }
@@ -2443,7 +2451,11 @@ static int parse_range(const char *s, artnum_t * fst, artnum_t * lst)
 
 /*
  * Selects the client's current group for XOVER/XHDR/XPAT. Returns 0, or
- * -1 after an error reply.
+ * -1 after an error reply. When the news server or the spool fails, the
+ * reply is 403 (RFC 3977 3.2.1), as for ARTICLE, STAT, NEXT/LAST and
+ * LISTGROUP; 412 means that no group is selected, or that the current
+ * one no longer exists (RFC 3977 6.2.1.2; it was 411, which is for a
+ * group named in the command).
  */
 static int current_group(ClientData * clt)
 {
@@ -2452,12 +2464,12 @@ static int current_group(ClientData * clt)
 			clt->grp = clt->srvr->getgroup(clt->groupname);
 	}
 	catch(const NoSuchGroupError & nsge) {
-		(*clt->co) << "411 no such news group\r\n";
+		(*clt->co) << "412 current group no longer exists\r\n";
 		return -1;
 	}
 	catch(const Error & e) {
 		e.print();
-		(*clt->co) << "412 operation failed\r\n";
+		(*clt->co) << "403 operation failed\r\n";
 		return -1;
 	}
 	ASSERT2(clt->grp->testdb());

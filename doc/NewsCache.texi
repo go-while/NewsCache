@@ -214,7 +214,17 @@ fault or problem preventing action being taken), e.g. @samp{403
 upstream failure} for an article by message-ID and @samp{403 internal
 error} for one by number, and the session goes on. Older versions
 answered @samp{503}, which RFC 3977 uses for a feature the server
-doesn't support.
+doesn't support. When the current group can't be opened (its database
+in the spool can't be opened), the commands for the current group
+(@code{article} by number, @code{next}, @code{xover}, @code{listgroup},
+...) answer @samp{403 operation failed}; they answered @samp{412}, which
+means that no group is selected. @code{group} and @code{listgroup}
+answer @samp{411} only for a group that doesn't exist (the news server
+says so, or no news server carries it). When the news server fails for
+a group the spool doesn't know yet, they answer @samp{403}; a group the
+spool knows is served with its stored numbers. When the current group
+no longer exists (the news server answers 411 for it), the commands
+for the current group answer @samp{412}, as RFC 3977 says.
 
 @c *** 
 @c *** General Options
@@ -430,7 +440,11 @@ LogStyle ip-address strict-inn
 @cdindex Retries
 Whenever a News Server closes the connection, NewsCache retries to
 connect to the News Server and to issue the command again. After a
-certain number of retries, NewsCache gives up.
+certain number of retries, NewsCache gives up. A reply of @samp{400}
+counts as a closed connection; @samp{503} (``feature not supported'' in
+RFC 3977) only when the server has closed the connection behind it, as
+old INN versions did with @samp{503 Timeout} on an idle connection.
+Otherwise a @samp{503} is an ordinary error reply and isn't sent again.
 
 @example
 Retries 3
@@ -975,6 +989,10 @@ without fields) or on an entry that allows only the login, it lists
 @samp{AUTHINFO USER} but not @samp{READER}, @samp{HDR}, @samp{OVER},
 @samp{LIST} or @samp{POST}; after the login it lists the rights the
 login gave.
+A post to a group outside @code{PostTo} is refused with @samp{441}
+after the article has been sent, the only failure reply RFC 3977
+allows there; while a login could add the group, the text says
+@samp{authentication required}.
 
 @example
 AccessList @{

@@ -478,8 +478,9 @@ func TestSpoolPostFileSizeLimit(t *testing.T) {
 				if code != 240 || len(files) != 1 {
 					t.Errorf("POST: %d with %q in .artSpool, want 240 and one file", code, files)
 				}
-			} else if code == 240 || len(files) != 0 {
-				t.Errorf("POST that could not be spooled: %d with %q in .artSpool, want an error and nothing", code, files)
+			} else if code != 441 || len(files) != 0 {
+				// after the article only 240 or 441 (RFC 3977 6.3.1); it was 449
+				t.Errorf("POST that could not be spooled: %d with %q in .artSpool, want 441 and nothing", code, files)
 			}
 			e.ServerOptions = ""
 			e.writeConf()

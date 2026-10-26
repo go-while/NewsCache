@@ -1041,3 +1041,235 @@ func TestUpstreamLowZero(t *testing.T) {
 		})
 	}
 }
+
+// TestGroupUpstreamFault403: GROUP and LISTGROUP answered "411 no such
+// news group" whenever the group's numbers couldn't be had, also when the
+// news server couldn't be reached or answered GROUP with an error. 411
+// tells the client that the group doesn't exist; a failure of the server
+// is 403 (RFC 3977 3.2.1). A group the upstream doesn't have still gets
+// 411, and a group the spool knows is still served from it while the
+// upstream is down.
+func TestGroupUpstreamFault403(t *testing.T) {
+	_, deadPort, err := net.SplitHostPort(freeAddr(t)) // nothing listens there
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []struct {
+		name  string
+		setup func(e *env)
+	}{
+		{"unreachable", func(e *env) {
+			e.ServerHost = "127.0.0.1"
+			e.ServerPort = deadPort
+		}},
+		{"error reply", func(e *env) {
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				OverrideLine: map[string][]string{"GROUP test.alpha": {"403 Archive server temporarily offline"}},
+			}})
+		}},
+	} {
+		t.Run(f.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 3)
+			f.setup(e)
+			c := e.session()
+			c.Deadline = 30 * time.Second
+			for _, cmd := range []string{"GROUP test.alpha", "LISTGROUP test.alpha"} {
+				code, line := c.Cmd("%s", cmd)
+				if code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+					c.ReadDotLines()
+				}
+				if code != 403 {
+					t.Errorf("%s with the upstream failing: %q, want 403", cmd, line)
+				}
+			}
+			if code, line := c.Cmd("DATE"); code != 111 {
+				t.Fatalf("DATE: %q, want 111", line)
+			}
+		})
+	}
+
+	t.Run("unchanged", func(t *testing.T) {
+		e := newEnv(t)
+		e.addArticles("test.alpha", 3)
+		c := e.session()
+		if code, line := c.Cmd("GROUP no.such.group"); code != 411 {
+			t.Errorf("GROUP of a group the upstream doesn't have: %q, want 411", line)
+		}
+		if code, line := c.Cmd("LISTGROUP no.such.group"); code != 411 {
+			if code == 211 {
+				c.ReadDotLines()
+			}
+			t.Errorf("LISTGROUP of a group the upstream doesn't have: %q, want 411", line)
+		}
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP test.alpha: %q", line)
+		}
+		c.Cmd("QUIT")
+		// known to the spool: its numbers from there, upstream or not
+		e.ServerHost = "127.0.0.1"
+		e.ServerPort = deadPort
+		c = e.session()
+		c.Deadline = 30 * time.Second
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Errorf("GROUP test.alpha (in the spool) with the upstream down: %q, want 211", line)
+		}
+	})
+}
+
+// TestUpstream503Reply: in RFC 3977, 503 is "feature not supported", a
+// reply like any other. RServer::issue took it for a closed connection
+// (old INN closed idle connections with "503 Timeout") and sent the
+// command again on a new connection, up to Retries times, before it
+// failed. Here the upstream answers OVER with 503: NewsCache must use
+// XOVER instead, on the same connection, also over TLS (where only the
+// TLS layer's records could make the socket look readable).
+func TestUpstream503Reply(t *testing.T) {
+	t.Run("plain", func(t *testing.T) { testUpstream503Reply(t, false) })
+	t.Run("TLS", func(t *testing.T) { testUpstream503Reply(t, true) })
+}
+
+func testUpstream503Reply(t *testing.T, useTLS bool) {
+	e := newEnv(t)
+	if useTLS {
+		requireTLS(t, e.Bin)
+	}
+	e.addArticles("test.alpha", 3)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Override: map[string][]string{"OVER": {"503 Overview not available"}},
+	}})
+	if useTLS {
+		ca := newTestCA(t, e.Dir)
+		p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), false, false)
+		e.ServerHost = "localhost"
+		e.ServerPort = p.port()
+		e.ServerOptions = "ssl"
+		e.ServerLines = "    TLSCAFile " + ca.file
+	}
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	expectXover(t, c, 1, 3, 1, 2, 3)
+	if n := e.Upstream.Count("OVER"); n != 1 {
+		t.Errorf("upstream got OVER %d times, want once", n)
+	}
+	if n := e.Upstream.Accepted(); n != 1 {
+		t.Errorf("%d upstream connections, want 1", n)
+	}
+}
+
+// noticeProxy relays to upstream. On the first client connection, after
+// the reply to the first line that starts with prefix, it sends notice
+// unasked and closes the connection, as old INN did when it closed an
+// idle connection ("503 Timeout ...").
+func noticeProxy(t *testing.T, upstream, prefix, notice string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var first atomic.Bool
+	first.Store(true)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			once := first.Swap(false)
+			go func(c net.Conn) {
+				defer c.Close()
+				up, err := net.Dial("tcp", upstream)
+				if err != nil {
+					return
+				}
+				defer up.Close()
+				go io.Copy(c, up)
+				r := bufio.NewReader(c)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					io.WriteString(up, line)
+					if once && strings.HasPrefix(strings.ToLower(line), prefix) {
+						time.Sleep(200 * time.Millisecond) // the reply goes through
+						io.WriteString(c, notice+"\r\n")
+						return
+					}
+				}
+			}(c)
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	return port
+}
+
+// TestUpstream503TimeoutClose: old INN closed an idle connection with
+// "503 Timeout ..." (400 since RFC 3977). The next command NewsCache
+// sends reads that line; since the connection is closed behind it,
+// NewsCache must still connect again and send the command once more,
+// although a 503 is a plain reply now (TestUpstream503Reply).
+func TestUpstream503TimeoutClose(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	e.GroupTimeout = 3600 // no GROUP before the ARTICLE
+	e.ServerHost = "127.0.0.1"
+	e.ServerPort = noticeProxy(t, e.Upstream.Addr(), "over",
+		"503 Timeout after 1 seconds, closing connection")
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	expectXover(t, c, 1, 3, 1, 2, 3)
+	time.Sleep(time.Second)
+	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
+		t.Fatalf("ARTICLE 2 after the upstream closed with 503: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if n := e.Upstream.Accepted(); n != 2 {
+		t.Errorf("%d upstream connections, want 2", n)
+	}
+}
+
+// TestCurrentGroupGone412: when the current group no longer exists (here
+// the upstream answers 411 to the GROUP that refreshes it), ARTICLE,
+// STAT, NEXT, XOVER and LISTGROUP without a group answer 412, as RFC 3977
+// says for "the currently selected newsgroup is invalid". They answered
+// 411, which is the reply for a group named in the command; LISTGROUP
+// with the name still gets 411.
+func TestCurrentGroupGone412(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"GROUP test.alpha": {"411 No such newsgroup"}},
+		OverrideFrom: map[string]int{"GROUP": 2},
+	}})
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	// GroupTimeout 0: the next use asks the upstream again
+	time.Sleep(1100 * time.Millisecond)
+	for _, tc := range []struct {
+		cmd  string
+		want int
+	}{
+		{"ARTICLE 1", 412}, {"STAT 1", 412}, {"NEXT", 412}, {"XOVER 1-3", 412},
+		{"LISTGROUP", 412}, {"LISTGROUP test.alpha", 411},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code/10 == 22 || code == 211 {
+			if code != 223 {
+				c.ReadDotLines()
+			}
+		}
+		if code != tc.want {
+			t.Errorf("%s with the current group gone: %q, want %d", tc.cmd, line, tc.want)
+		}
+	}
+}
