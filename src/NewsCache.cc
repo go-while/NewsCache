@@ -1358,7 +1358,10 @@ void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
 }
 
 
+// RFC 4643 2.3: 481 for a failed login, 502 only where AUTHINFO isn't
+// available at all (after a login, or no Authentication for the entry).
 #define REJECT_SEQUENCE 		"502"
+#define FAILED_SEQUENCE 		"481"
 #define PASS_NEEDED_SEQUENCE 		"381"
 #define OK_SEQUENCE 			"281"
 #define INCORRECT_ORDER_SEQUENCE 	"482"
@@ -1391,7 +1394,7 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 	if (argc != 3)
 		goto ns_authinfo_error;
 	if (strlen(argv[2]) > sizeof(clt->auth_user) - 1) {
-		(*clt->co) << REJECT_SEQUENCE " argument too long\r\n";
+		(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
 		return -1;
 	}
 
@@ -1417,7 +1420,7 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 			sleep (clt->auth_failure_sleep_time*
 					(++clt->auth_failures));
 			(*clt->
-			 co) << REJECT_SEQUENCE << " Bad authinfo.\r\n";
+			 co) << FAILED_SEQUENCE << " Bad authinfo.\r\n";
 			return -1;
 		}
 

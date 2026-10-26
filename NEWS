@@ -110,6 +110,13 @@ Bug fixes:
   kept the first user's rights under the second user's name. It now gets
   502, as RFC 4643 says. A client whose entry has no Authentication gets
   502 at once too (it got 381, then 502 after the failure delay).
+* A failed login (a wrong password, an unknown user, a stored hash that
+  can't be checked, a refusal by PAM, a user name or password longer
+  than 511 characters) is now answered with 481 instead of 502, as RFC
+  4643 says. 502 means that AUTHINFO isn't available at all; it stays
+  the answer to AUTHINFO after a successful login and where the entry
+  has no Authentication. Behaviour change: a script that looks for 502
+  after a failed login must look for 481.
 * Where a login is required ("Authentication unix" without fields),
   CAPABILITIES and MODE READER got "480 Authentication required" instead
   of their answer, so a newsreader couldn't learn from CAPABILITIES that

@@ -142,15 +142,16 @@ func TestAuthFileCryptHash(t *testing.T) {
 	}
 }
 
-// TestAuthFileWrongPassword: a wrong password is refused. AuthFailureDelay 0
-// skips the delay before the answer (15 s by default).
+// TestAuthFileWrongPassword: a wrong password is refused with 481 (RFC 4643
+// 2.3.2; it was 502). AuthFailureDelay 0 skips the delay before the answer
+// (15 s by default).
 func TestAuthFileWrongPassword(t *testing.T) {
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
 	c := e.session()
 	c.Cmd("AUTHINFO USER tester")
-	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
-		t.Fatalf("AUTHINFO PASS wrong: %q, want 502", line)
+	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
+		t.Fatalf("AUTHINFO PASS wrong: %q, want 481", line)
 	}
 }
 
@@ -170,8 +171,8 @@ func TestAuthFileBadHash(t *testing.T) {
 			if code, line := c.Cmd("AUTHINFO USER bad"); code != 381 {
 				t.Fatalf("AUTHINFO USER bad: %q, want 381", line)
 			}
-			if code, line := c.Cmd("AUTHINFO PASS secret"); code != 502 {
-				t.Fatalf("AUTHINFO PASS with stored hash %q: %q, want 502", hash, line)
+			if code, line := c.Cmd("AUTHINFO PASS secret"); code != 481 {
+				t.Fatalf("AUTHINFO PASS with stored hash %q: %q, want 481", hash, line)
 			}
 			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 				t.Fatalf("GROUP after the refused login: %q, want 211", line)
@@ -193,8 +194,8 @@ func TestAuthFailureDelay(t *testing.T) {
 	for n := 1; n <= 2; n++ {
 		c.Cmd("AUTHINFO USER tester")
 		start := time.Now()
-		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
-			t.Fatalf("failure %d: AUTHINFO PASS wrong: %q, want 502", n, line)
+		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
+			t.Fatalf("failure %d: AUTHINFO PASS wrong: %q, want 481", n, line)
 		}
 		want := time.Duration(n) * time.Second
 		if d := time.Since(start); d < want || d > want+5*time.Second {
@@ -372,8 +373,8 @@ func TestAuthUnixShadowNotReadable(t *testing.T) {
 	if code, line := c.Cmd("AUTHINFO USER %s", u.Username); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
 	}
-	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 502 {
-		t.Fatalf("AUTHINFO PASS: %q, want 502", line)
+	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
+		t.Fatalf("AUTHINFO PASS: %q, want 481", line)
 	}
 	c.Cmd("QUIT")
 	if log := e.logFile(); !strings.Contains(log, "cannot read the shadow password of "+u.Username) {
@@ -402,6 +403,13 @@ func hasShadowPassword(name string) bool {
 // /etc/pam.d (as root; PAM reads services only from there).
 func pamPermitService(t *testing.T, bin string) string {
 	t.Helper()
+	return pamService(t, bin, "pam_permit")
+}
+
+// pamService is pamPermitService with the given module (pam_permit or
+// pam_deny) for auth and account.
+func pamService(t *testing.T, bin, module string) string {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs Linux-PAM")
 	}
@@ -424,17 +432,17 @@ func pamPermitService(t *testing.T, bin string) string {
 	found := false
 	for _, d := range []string{"/usr/lib64/security", "/lib64/security", "/usr/lib/x86_64-linux-gnu/security",
 		"/lib/x86_64-linux-gnu/security", "/usr/lib/aarch64-linux-gnu/security", "/usr/lib/security", "/lib/security"} {
-		if _, err := os.Stat(filepath.Join(d, "pam_permit.so")); err == nil {
+		if _, err := os.Stat(filepath.Join(d, module+".so")); err == nil {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Skip("pam_permit.so not found")
+		t.Skip(module + ".so not found")
 	}
 	name := "newscache-e2e-" + filepath.Base(t.TempDir())
 	path := filepath.Join("/etc/pam.d", name)
-	if err := os.WriteFile(path, []byte("auth required pam_permit.so\naccount required pam_permit.so\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("auth required "+module+".so\naccount required "+module+".so\n"), 0o644); err != nil {
 		t.Skipf("can't write %s: %v", path, err)
 	}
 	t.Cleanup(func() { os.Remove(path) })
@@ -529,8 +537,8 @@ func TestAuthPamFileRights(t *testing.T) {
 	t.Run("no line applies", func(t *testing.T) {
 		setup("hugo:test.alpha:test.alpha::read")
 		c := e.session()
-		if code := loginAs(t, c, "otto"); code == 281 {
-			t.Fatalf("login of a user without any line: %d, want a refusal", code)
+		if code := loginAs(t, c, "otto"); code != 481 {
+			t.Fatalf("login of a user without any line: %d, want 481", code)
 		}
 	})
 }
@@ -560,8 +568,8 @@ func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
 		{"tester", secretHash},
 		{"md5", md5Hash},
 	} {
-		if code := try(tc.user, tc.pass); code == 281 {
-			t.Errorf("AUTHINFO %s / %q: logged in, want a refusal", tc.user, tc.pass)
+		if code := try(tc.user, tc.pass); code != 481 {
+			t.Errorf("AUTHINFO %s / %q: %d, want 481 (refused)", tc.user, tc.pass, code)
 		}
 	}
 	if runtime.GOOS != "darwin" {
@@ -587,8 +595,8 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 	if code, line := c.Cmd(" AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
 	}
-	if code, line := c.Cmd("\tAUTHINFO PASS %s", secret); code != 502 {
-		t.Fatalf("AUTHINFO PASS (wrong): %q, want 502", line)
+	if code, line := c.Cmd("\tAUTHINFO PASS %s", secret); code != 481 {
+		t.Fatalf("AUTHINFO PASS (wrong): %q, want 481", line)
 	}
 	if code, line := c.Cmd("  AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
@@ -628,8 +636,8 @@ func TestAuthMaxFailures(t *testing.T) {
 				if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
 					t.Fatalf("try %d: AUTHINFO USER: %q, want 381", n, line)
 				}
-				if code, line := c.Cmd("AUTHINFO PASS wrong%d", n); code != 502 {
-					t.Fatalf("try %d: AUTHINFO PASS: %q, want 502", n, line)
+				if code, line := c.Cmd("AUTHINFO PASS wrong%d", n); code != 481 {
+					t.Fatalf("try %d: AUTHINFO PASS: %q, want 481", n, line)
 				}
 			}
 			code, line, err := c.ReadStatus()
@@ -676,6 +684,96 @@ func TestAuthinfoAfterLogin(t *testing.T) {
 		if code, line := c.Cmd("AUTHINFO USER tester"); code != 502 {
 			t.Errorf("AUTHINFO USER without Authentication: %q, want 502", line)
 		}
+	})
+}
+
+// TestAuthinfoFailedReplies: every failed login answers 481 (RFC 4643
+// 2.3.2), whatever the backend and the reason; they all answered 502, which
+// means that AUTHINFO isn't available at all. AUTHINFO PASS without a user
+// name stays 482 (out of sequence).
+func TestAuthinfoFailedReplies(t *testing.T) {
+	// tryLogin sends AUTHINFO USER user (381 expected) and AUTHINFO PASS
+	// pass, and returns the reply to the PASS.
+	tryLogin := func(t *testing.T, c interface {
+		Cmd(format string, args ...any) (int, string)
+	}, user, pass string) (int, string) {
+		t.Helper()
+		if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
+			t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
+		}
+		return c.Cmd("AUTHINFO PASS %s", pass)
+	}
+	t.Run("unknown user, file", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+		e.Extra = "AuthFailureDelay 0"
+		c := e.session()
+		if code, line := tryLogin(t, c, "nosuchuser", "secret"); code != 481 {
+			t.Fatalf("AUTHINFO PASS for an unknown user: %q, want 481", line)
+		}
+		login(t, c)
+	})
+	t.Run("unknown user, unix", func(t *testing.T) {
+		e := newEnv(t)
+		e.Extra = "AuthFailureDelay 0"
+		e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication unix::::
+  }
+  Default {
+    allow none
+  }
+}`
+		c := e.session()
+		if code, line := tryLogin(t, c, "nc-e2e-no-such-user", "secret"); code != 481 {
+			t.Fatalf("AUTHINFO PASS for an unknown user: %q, want 481", line)
+		}
+	})
+	t.Run("PAM refuses", func(t *testing.T) {
+		e := newEnv(t)
+		service := pamService(t, e.Bin, "pam_deny")
+		e.Extra = "AuthFailureDelay 0"
+		e.AccessList = `AccessList {
+  Client stdin {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    PAMServicename ` + service + `
+    Authentication pam::::
+  }
+  Default {
+    allow none
+  }
+}`
+		c := e.session()
+		if code, line := tryLogin(t, c, "tester", "secret"); code != 481 {
+			t.Fatalf("AUTHINFO PASS refused by PAM: %q, want 481", line)
+		}
+	})
+	t.Run("argument too long", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+		e.Extra = "AuthFailureDelay 0"
+		c := e.session()
+		long := strings.Repeat("u", 600)
+		if code, line := c.Cmd("AUTHINFO USER %s", long); code != 481 {
+			t.Fatalf("AUTHINFO USER with 600 characters: %q, want 481", line)
+		}
+		if code, line := tryLogin(t, c, "tester", long); code != 481 {
+			t.Fatalf("AUTHINFO PASS with 600 characters: %q, want 481", line)
+		}
+		login(t, c)
+	})
+	t.Run("PASS before USER", func(t *testing.T) {
+		e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+		c := e.session()
+		if code, line := c.Cmd("AUTHINFO PASS secret"); code != 482 {
+			t.Fatalf("AUTHINFO PASS before AUTHINFO USER: %q, want 482", line)
+		}
+		login(t, c)
 	})
 }
 

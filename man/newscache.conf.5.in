@@ -121,7 +121,7 @@ The default values are 3600 seconds for both parameter.
 Terminate the connection after t seconds inactivity. The default value is 1200 seconds. The same limit applies to each write to the client and, plus 10 seconds, to each read inside a command (the article of a POST): a client that stops reading its replies, or stops sending in the middle of an article, is disconnected too.
 .TP
 .I "AuthFailureDelay seconds"
-After a failed login (AUTHINFO PASS), wait this many seconds before answering, multiplied by the number of failed logins in the connection (15, 30 and 45 with the default; after the third failure the connection is closed). This slows down password guessing. The default is 15 seconds; 0 answers at once, the maximum is 3600.
+After a failed login (AUTHINFO PASS), wait this many seconds before answering 481, multiplied by the number of failed logins in the connection (15, 30 and 45 with the default; after the third failure the connection is closed). This slows down password guessing. The default is 15 seconds; 0 answers at once, the maximum is 3600.
 .TP
 .I "History on|off"
 With on, keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
@@ -246,7 +246,7 @@ newsgroup may be substituted by * standing for any string.  Each
 newsgroup is retrieved from the news server with the longest match.
 Examples: * (all newsgroups), at.* (the whole at. hierarchy), *,!alt.binaries.* (all newsgroups without alt.binaries hierarchy).
 .IP Authentication
-Type of authentication plus authenication specific options. Possible values are:
+Type of authentication plus authenication specific options. A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
 .IP none
 no further authentication necessary
 .IP file:/path/to/file

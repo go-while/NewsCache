@@ -209,6 +209,7 @@ CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
 | The pid file was opened as root with `O_CREAT\|O_TRUNC` and without `O_NOFOLLOW`, in a directory newscache.conf(5) tells to make writable for `Username`: that user could replace it with a symlink or hard link to any file (`/etc/shadow`), which root emptied and overwrote with the pid at the next start. Now `O_NOFOLLOW`, and only a regular file with one link is truncated and written | 5 | review (area 5) | #116 |
 | LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS walked the active database without a lock (`NVActiveDB_Iter` takes none and never remaps): when another session's refresh grew the file meanwhile, the walk followed offsets past its mapping and `corrupt()` moved the sound `.active64` to `.bad`. A slow client got a cut-off list ending in "." as if complete, and NEWGROUPS listed every group as new (each got ctime = now). The list is collected into a buffer under a shared lock and sent after it (`collect_active`; the lock isn't held while writing to the client); `updatenews`' prefetch patterns walk under the lock too | 9, 2 | review (area 9) | #117 |
 | newscacheclean followed symlinks in the spool (`stat`): through a link to a directory outside it deleted the `*.bad` and `.art*` files there, renamed a `.db` it took for damaged to `.db.bad` and created a new one, and with `.history` linked away removed the files named like shards; a link loop (`loop -> .`) was walked until the path got too long, counting every file many times, so cached articles were purged for a size the spool didn't have. It uses `lstat` now and doesn't follow links, to directories or files | 11 | review (area 11) | #118 |
+| A failed login answered `502` (RFC 4643 2.3.2: `481`), in every backend (file, unix, pam, pam+file) and for a user name or password longer than 511 characters, so `502` meant both "AUTHINFO not available" and "wrong password". Now `481`; `502` stays for AUTHINFO after a login and for entries without Authentication (#110), `482` for PASS before USER | 3 | review (area 3) | #120 |
 
 ## Open points
 
@@ -218,7 +219,6 @@ that it stays as it is.
 | Point | Area | Found by | Test |
 |---|---|---|---|
 | Upstream error replies reach the client as they are (`fetch_readable` passes a ResponseError's text on): a stray `220` or `381` without data | 2, 7 | review (area 7) |  |
-| A failed AUTHINFO PASS answers 502; RFC 4643 says 481 (three e2e tests expect 502) | 3 | review (area 3) |  |
 | "No such user" and "wrong password" can be told apart by the time the answer takes | 3 | review (area 3) |  |
 | MD5 auth-file hashes are wrong on big-endian hosts: `HIGHFIRST` is never defined | 3 | review (area 3) | unit check of md5 on a big-endian build |
 | `src/crypt.cc` doesn't compile and nothing builds it (dead code); the man page recommends htpasswd, whose default `$apr1$` hashes libxcrypt can't check | 3, 0 | review (area 3) |  |
