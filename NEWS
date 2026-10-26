@@ -523,6 +523,18 @@ Documentation:
   could do nothing (every command got 500), and put the other servers
   in a second NewsServerList inside the first one. It now has "allow
   read post" and one NewsServerList.
+* The man pages and the manual were compared with the code. Retries and
+  ReadTimeout are options of a Server entry, not general ones (at the
+  top level they are an error); ConnectTimeout, ConnectBackoff,
+  LimitGroupSize, User, Password and dontgenmsgid have entries of their
+  own in newscache.conf(5), and Hostname too. Its first example had
+  options in a Server entry that the parser refuses. Only
+  "Authentication unix" without fields requires a login; "allow
+  authentication" only lets a client connect so that it can log in.
+  Where no login can add a right, a command that needs it gets "500
+  What?". newscache(8) lacked -n in its synopsis, updatenews(8) the
+  option -c, newscacheclean(8) -t and -v, and newscache.conf(5) named
+  ConfigVersion 3 instead of 5.
 
 Other changes:
 * NewsCache builds on Debian GNU/Hurd: configure defines MAXPATHLEN
