@@ -11,6 +11,13 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* MODE READER got "480 Authentication required" where the access entry
+  allows only the login ("allow authentication"), although newsreaders
+  send it before AUTHINFO and must not send it after the login (RFC
+  4643). It also answered 200 (posting allowed) to every client; it now
+  answers 201 (posting prohibited) when the client may not post at that
+  moment: read-only entries, and before a login that adds the post
+  right (RFC 3977).
 * Two sessions that started at the same time on a new spool could fail:
   the second one couldn't create the spool directories (EEXIST) and
   ended before its greeting.
