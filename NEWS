@@ -499,6 +499,8 @@ Bug fixes:
   reply is now "412 current group no longer exists".
 
 Documentation:
+* SECURITY.md: how to report a vulnerability privately (GitHub Security
+  Advisories), which versions get security fixes, and the scope.
 * The manual said that NewsCache uses the most specific AccessList entry
   that matches a client. It uses the first one, in the order of the
   file, as newscache.conf-dist says: put narrower entries before broader

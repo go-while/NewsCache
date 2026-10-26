@@ -16,6 +16,8 @@ Herbert Straub's 1.x releases, and Christof Meerwald's IPv6/TLS branch
 Since 2026-10-18, NewsCache continues here, with Christof Meerwald's agreement.
 Releases start at 1.3.17 (see [`NEWS`](NEWS)). Report bugs at
 <https://github.com/go-while/NewsCache/issues>.
+Report security vulnerabilities privately, as described in
+[`SECURITY.md`](SECURITY.md).
 
 The [wiki](https://github.com/go-while/NewsCache/wiki) is the guide for
 administrators: installation, configuration, access and logins, upstream
