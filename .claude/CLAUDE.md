@@ -53,7 +53,12 @@ says the same.
     43/44/45, Alpine 3.24 (musl), Debian 13, FreeBSD, Checkout (Windows),
     Checkout (macOS), macOS (build and test), Container image;
   - CodeQL: `Analyze (c-cpp)`, `Analyze (actions)`.
-  FreeBSD became required on 2026-10-22, after 40 green runs. A direct
+  FreeBSD became required on 2026-10-22, after 40 green runs. Since
+  2026-10-26 the two macOS jobs run only when CI is started by hand
+  (Actions, CI, "Run workflow"), because GitHub's macOS runners often
+  time out in the queue; on pushes and pull requests they are skipped,
+  which counts as passed. Run them when someone reports a macOS
+  problem. A direct
   `git push` to `main` is rejected. If a job is renamed in a workflow, update the ruleset too, or PRs
   wait for a check that never reports.
 - Christof Meerwald (GitHub `cmeerw`) has write access. His commits go to
