@@ -26,16 +26,16 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 | 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | reviewed (2026-10-24) |
 | 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | reviewed (2026-10-24) |
 | 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | reviewed (2026-10-24) |
-| 4 | Access list | `src/AccessList.{h,cc}` (matching, parsing) | ~500 | Address and name matching, IPv4/IPv6, prefix parsing, default entry | in progress (fixes in #20) |
-| 5 | Daemon | `src/NewsCache.cc`: `nntpd()`, signal handlers, `main()`; `src/setugid.{h,cc}` | ~650 | Accept loop, fork, `MaxConnections` accounting, signal safety, privilege drop order (`setgroups`), pid file | not started |
-| 6 | Configuration | `src/NewsCacheConfig.{h,cc}`, `NServer-0.9.1/Lexer.h`, `MPList.{h,cc}` | ~1,000 | Parser limits, fixed-size fields, error reporting, reload | not started |
+| 4 | Access list | `src/AccessList.{h,cc}` (matching, parsing) | ~500 | Address and name matching, IPv4/IPv6, prefix parsing, default entry | reviewed (2026-10-25) |
+| 5 | Daemon | `src/NewsCache.cc`: `nntpd()`, signal handlers, `main()`; `src/setugid.{h,cc}` | ~650 | Accept loop, fork, `MaxConnections` accounting, signal safety, privilege drop order (`setgroups`), pid file | reviewed (2026-10-25) |
+| 6 | Configuration | `src/NewsCacheConfig.{h,cc}`, `NServer-0.9.1/Lexer.h`, `MPList.{h,cc}` | ~1,000 | Parser limits, fixed-size fields, error reporting, reload | reviewed (2026-10-25) |
 | 7 | Upstream connections | `NServer-0.9.1/NServer.{h,cc}`, `sockstream.{h,cc}`, `readline.{h,cc}` | ~3,100 | Parsing replies from an untrusted server, buffer sizes, timeouts and reconnects, TLS, posting | reviewed (2026-10-24; TLS in #16) |
-| 8 | Articles and overview | `Article.{h,cc}`, `OverviewFmt.{h,cc}`, `ArtSpooler.{h,cc}` | ~1,100 | Header parsing, `Xref` filtering, overview fields, large articles | not started |
-| 9 | Spool and databases | `NVClasses-0.9.1/NV*.{h,cc}`, `NServer-0.9.1/NVNewsgroup.*`, `NVActiveDB.*`, `CNewsgroup.*`, `ObjLock.*` | ~3,650 | `mmap` growth and remap, corrupt files, size and offset overflow, locking between processes | not started |
-| 10 | Groups and filters | `Newsgroup.*`, `RNewsgroup.*`, `GroupInfo.*`, `ActiveDB.*`, `NewsgroupFilter.*`, `wildmat.*`, `VirtualIterator.h` | ~1,300 | Pattern matching, group lists, article number ranges | not started |
-| 11 | `newscacheclean` | `src/NewsCacheClean.cc` | ~500 | Purge logic, `SpoolSize`, concurrent use with a running server | not started |
-| 12 | `updatenews` | `src/updatenews.cc` | ~400 | Prefetch file parsing, options | not started |
-| 13 | Logging and errors | `NVClasses-0.9.1/Logger.*`, `Error.h`, `Debug.h`, `NServer-0.9.1/NSError.h`, `util.*` | ~1,200 | Format strings, buffer sizes, exception types and catches | not started |
+| 8 | Articles and overview | `Article.{h,cc}`, `OverviewFmt.{h,cc}`, `ArtSpooler.{h,cc}` | ~1,100 | Header parsing, `Xref` filtering, overview fields, large articles | reviewed (2026-10-25) |
+| 9 | Spool and databases | `NVClasses-0.9.1/NV*.{h,cc}`, `NServer-0.9.1/NVNewsgroup.*`, `NVActiveDB.*`, `CNewsgroup.*`, `ObjLock.*` | ~3,650 | `mmap` growth and remap, corrupt files, size and offset overflow, locking between processes | reviewed (2026-10-25) |
+| 10 | Groups and filters | `Newsgroup.*`, `RNewsgroup.*`, `GroupInfo.*`, `ActiveDB.*`, `NewsgroupFilter.*`, `wildmat.*`, `VirtualIterator.h` | ~1,300 | Pattern matching, group lists, article number ranges | reviewed (2026-10-25) |
+| 11 | `newscacheclean` | `src/NewsCacheClean.cc` | ~500 | Purge logic, `SpoolSize`, concurrent use with a running server | reviewed (2026-10-25) |
+| 12 | `updatenews` | `src/updatenews.cc` | ~400 | Prefetch file parsing, options | reviewed (2026-10-25) |
+| 13 | Logging and errors | `NVClasses-0.9.1/Logger.*`, `Error.h`, `Debug.h`, `NServer-0.9.1/NSError.h`, `util.*` | ~1,200 | Format strings, buffer sizes, exception types and catches | reviewed (2026-10-25) |
 | 14 | Build and packaging | `configure.ac`, `Makefile.am` files, `debian/`, `etc/`, `man/` | | Options, defaults, sample config, man pages against the code | not started |
 | 15 | Tests and CI | `NServer-0.9.1/checks/`, `test/`, `tests/e2e/`, `.github/workflows/` | | Coverage of the areas above, flaky tests | not started |
 
@@ -45,7 +45,9 @@ Line counts are approximate, from 2026-10-20.
 
 Fixed so far. Up to 1.3.22 most were found by the tests in `tests/e2e`, by
 CodeQL or by CI. The first systematic pass (areas 1, 2, 3 and 7, on
-2026-10-24) found 47 problems; those fixed are below, the rest are under
+2026-10-24) found 47 problems; the second (areas 4, 5, 6 and 8 to 13,
+on 2026-10-25, with a follow-up on the RFC 3977/4643 reply codes) added
+the rows of #104 to #124. Those fixed are below, the rest are under
 [Open points](#open-points).
 
 | Finding | Area | Found by | Fixed in |
@@ -235,6 +237,14 @@ that it stays as it is.
 | MD5 auth-file hashes are wrong on big-endian hosts: `HIGHFIRST` is never defined | 3 | review (area 3) | unit check of md5 on a big-endian build |
 | `src/crypt.cc` doesn't compile and nothing builds it (dead code); the man page recommends htpasswd, whose default `$apr1$` hashes libxcrypt can't check | 3, 0 | review (area 3) |  |
 | `underflow` returns a 0xFF byte as EOF when the buffer isn't empty | 7 | review (areas 1, 7) |  |
+| The remap fix (#105) leaves one case: when `lock(UnLock)` goes back to an outer lock and `make_current` fails there (the file grew between the inner and the outer lock), the outer lock stays held with the mapping reset to NULL, and the outer caller's next access dereferences it (the old code crashed on the stale mapping) | 9 | review (area 9, integration of #105) |  |
+| Built with `--enable-headerlog`, GCC warns `-Wformat-truncation` for `snprintf(fn, sizeof(fn), "%s/.headerlog", ...)` in `NServer.cc` (`fn[MAXPATHLEN]`); harmless unless SpoolDirectory is close to PATH_MAX | 13, 14 | review (integration of #111) |  |
+| SIGHUP reload: the startup-only fields (ListenTo, CachePort, Username, Groupname, PidFile, LogDirectory, ServerType, NiceServer) change silently without effect (log "restart needed"); a new Hostname isn't copied to `nntp_hostname`; `Config::init` runs `getfqdn()` (DNS) on every reload; the config must be readable by Username | 5, 6 | review (area 6, L7) |  |
+| A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
+| `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
+| After a failed `AUTHINFO PASS` (481) the user name of the earlier `AUTHINFO USER` is kept (it is cleared only at session start), so a second PASS without a new USER is checked against it instead of getting 482 (RFC 4643 2.3.2) | 3 | review (RFC follow-up, #123) | e2e: USER, wrong PASS, PASS again gets 482 |
+| A known command that the client's entry doesn't allow, where no login can help, answers `500 What?` (it is taken out of the command table); RFC 3977 wants 502 (440 for POST). `TestNoLoginNo480` expects the 500 | 1, 2 | review (RFC follow-up, #124) |  |
+| AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
 
 ## CodeQL dismissals
 
