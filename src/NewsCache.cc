@@ -517,6 +517,7 @@ class ClientData {
 	AccessEntry *access_entry;
 	char auth_user[512];
 	bool auth_user_valid; // a USER is pending for one PASS
+	bool auth_refused;    // the last AUTHINFO checked a password and refused it
 	char auth_pass[512];
 	int auth_state;
 	int auth_failures;
@@ -537,7 +538,8 @@ class ClientData {
 	ClientData()
 		: client_logname(""),
 		  grp(NULL), nbr(0),
-		  access_entry(NULL), auth_user_valid(false), auth_state(AUTH_OK),
+		  access_entry(NULL), auth_user_valid(false), auth_refused(false),
+		  auth_state(AUTH_OK),
 		  auth_failures(0),
 		  auth_max_failures(3), auth_failure_sleep_time(Cfg.AuthFailureDelay),
 		  stat_groups(0), stat_artingrp(0), stat_articles(0)
@@ -1379,6 +1381,7 @@ static void clear_password(char *p)
 //Authinfo
 int ns_authinfo(ClientData * clt, int argc, char *argv[])
 {
+	clt->auth_refused = false;
 	// No AUTHINFO after a login (RFC 4643 2.2: 502); a second login
 	// added that user's rights to the first one's. Entries without an
 	// Authentication start out in AUTH_OK: no login for them either.
@@ -1397,6 +1400,9 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 
 	if (!strcasecmp(argv[1], "user")) {
 		if (strlen(argv[2]) > sizeof(clt->auth_user) - 1) {
+			// a failed USER also ends the pending one: the next
+			// PASS gets 482, not a check against the earlier name
+			clt->auth_user_valid = false;
 			(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
 			return -1;
 		}
@@ -1430,6 +1436,7 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		clt->auth_user_valid = false;
 
 		if (checked < 0) {
+			clt->auth_refused = true;
 			sleep (clt->auth_failure_sleep_time*
 					(++clt->auth_failures));
 			(*clt->
@@ -3383,10 +3390,15 @@ void nnrpd(int fd)
 					slog.p(Logger::Notice) << clt.
 							client_logname << " failed " << oreq <<
 							"\n";
-				else
+				else if (clt.auth_refused)
+					// (the user name only when its password was
+					// checked: not for 482, 501, 502 or too long)
 					slog.p(Logger::Notice) << clt.
 						client_logname << " failed authinfo for user  " <<
 						clt.auth_user << "\n";
+				else
+					slog.p(Logger::Notice) << clt.
+						client_logname << " failed authinfo\n";
 			}
 		}
 		// (whatever the LogStyle: this check used to sit in the
