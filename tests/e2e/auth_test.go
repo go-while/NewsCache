@@ -931,6 +931,39 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 	}
 }
 
+// TestAuthinfoVariantsNotLogged: malformed commands whose first token starts
+// with "auth" were logged with their arguments at Info and Notice. Keep only
+// the command word, and clear the reused request buffer before the next read.
+func TestAuthinfoVariantsNotLogged(t *testing.T) {
+	const secret = "s3cr3t-client-pw"
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	for _, tc := range []struct {
+		command string
+		want    int
+	}{
+		{"auth info pass " + secret, 500},
+		{"authinfo: pass " + secret, 500},
+		{"authinfo pass " + secret, 482},
+	} {
+		if code, line := c.Cmd("%s", tc.command); code != tc.want {
+			t.Errorf("%q: %q, want %d", tc.command, line, tc.want)
+		}
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	if strings.Contains(log, secret) {
+		t.Errorf("the log has the AUTHINFO password:\n%s", grepLines(log, secret))
+	}
+	for _, want := range []string{"unrecognized auth", "unrecognized authinfo:", "failed authinfo"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("the log lacks redacted entry %q:\n%s", want, grepLines(log, "auth"))
+		}
+	}
+}
+
 // TestAuthMaxFailures: after the third failed login the connection is
 // closed (400), with every LogStyle. With "LogStyle strict-inn" the check
 // was skipped (it sat in the block that writes NewsCache's own log lines),
