@@ -85,6 +85,11 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
 
+      - name: Let the PAM tests write their services
+        # The tests run as the runner user, never as root (as newscache
+        # itself); they only need to write their PAM service files.
+        run: sudo setfacl -m "u:$(id -un):rwx" /etc/pam.d
+
       - name: make check
         run: make check
 
@@ -123,7 +128,7 @@ jobs:
         run: |
           dnf -y -q install gcc-c++ make autoconf automake libtool \
             gnutls-devel pam-devel libxcrypt-devel texinfo \
-            redhat-rpm-config golang
+            redhat-rpm-config golang shadow-utils util-linux acl
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -142,8 +147,14 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
 
-      - name: make check
-        run: make check
+      - name: make check, as an unprivileged user
+        # The container runs as root; the tests (and the newscache they
+        # start) must not. The PAM tests need to write /etc/pam.d.
+        run: |
+          useradd -m newscache
+          chown -R newscache .
+          setfacl -m u:newscache:rwx /etc/pam.d
+          runuser -u newscache -- make check
 
       - name: Check that the e2e tests ran
         run: |
@@ -205,7 +216,12 @@ jobs:
             ./autogen
             ./configure \$CONFIGURE_FLAGS
             make -j\$(nproc)
-            make check || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            # the tests (and the newscache they start) as an unprivileged
+            # user, not as the container's root
+            useradd -m newscache 2>/dev/null || adduser -D newscache
+            chown -R newscache /build
+            chgrp newscache /etc/pam.d && chmod g+w /etc/pam.d
+            su newscache -s /bin/sh -c 'make check' || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
           "
 
@@ -229,7 +245,10 @@ jobs:
             ./autogen
             ./configure CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib
             gmake -j"$(sysctl -n hw.ncpu)"
-            gmake check || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            # the tests (and the newscache they start) not as root
+            pw useradd newscache -m
+            chown -R newscache .
+            su -m newscache -c 'HOME=/home/newscache gmake check' || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
 
   container:
