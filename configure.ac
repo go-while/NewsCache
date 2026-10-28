@@ -191,6 +191,8 @@ dnl Checks for header files.
 dnl ****************************************************************
 
 AC_HEADER_SYS_WAIT
+dnl the byte order, for md5lib (WORDS_BIGENDIAN -> HIGHFIRST)
+AC_C_BIGENDIAN
 AC_CHECK_HEADERS(crypt.h fcntl.h limits.h shadow.h sys/file.h sys/time.h syslog.h unistd.h tcpd.h sstream getopt.h)
 dnl PAM is wanted with --with-pam or --with-pam=<service>. (The checks
 dnl tested ${with_pam+set}, which --without-pam sets too.)
