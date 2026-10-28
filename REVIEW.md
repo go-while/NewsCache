@@ -36,8 +36,8 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 | 11 | `newscacheclean` | `src/NewsCacheClean.cc` | ~500 | Purge logic, `SpoolSize`, concurrent use with a running server | reviewed (2026-10-25) |
 | 12 | `updatenews` | `src/updatenews.cc` | ~400 | Prefetch file parsing, options | reviewed (2026-10-25) |
 | 13 | Logging and errors | `NVClasses-0.9.1/Logger.*`, `Error.h`, `Debug.h`, `NServer-0.9.1/NSError.h`, `util.*` | ~1,200 | Format strings, buffer sizes, exception types and catches | reviewed (2026-10-25) |
-| 14 | Build and packaging | `configure.ac`, `Makefile.am` files, `debian/`, `etc/`, `man/` | | Options, defaults, sample config, man pages against the code | not started |
-| 15 | Tests and CI | `NServer-0.9.1/checks/`, `test/`, `tests/e2e/`, `.github/workflows/` | | Coverage of the areas above, flaky tests | not started |
+| 14 | Build and packaging | `configure.ac`, `Makefile.am` files, `debian/`, `etc/`, `man/` | | Options, defaults, sample config, man pages against the code | reviewed (2026-10-28) |
+| 15 | Tests and CI | `NServer-0.9.1/checks/`, `test/`, `tests/e2e/`, `.github/workflows/` | | Coverage of the areas above, flaky tests | reviewed (2026-10-28) |
 
 Line counts are approximate, from 2026-10-20.
 
@@ -236,6 +236,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | `newscacheclean -s -t` skipped `remove_elements`, so all statistics stayed zero. Try mode now collects the found database/article counts and sizes without removing files; the purged counts remain zero | 11 | review (area 11) | #138 |
 | Built with `--enable-headerlog`, GCC warned `-Wformat-truncation` for `snprintf(fn, sizeof(fn), "%s/.headerlog", ...)` in `CServer::post` (`fn[MAXPATHLEN]`). The truncation can't happen (SpoolDirectory is capped at MAXSPOOLDIRLEN, at least 528 bytes below MAXPATHLEN, by Config::read and LServer::init), but GCC can't see that. Now the result is checked (a name that doesn't fit would be logged as an error and the header not logged), which silences the warning | 13, 14 | review (integration of #111) | #139 |
 | configure expanded `sysconfdir` for `SYSCONFDIR` while `prefix` was still `NONE` (autoconf sets the default only at the end): a build without `--prefix` (CI's too) looked for `NONE/etc/newscache.conf`, and `make install` wrote into `./NONE/etc`; README said to always pass `--prefix`. Now an unset prefix is the default (`/usr/local`) before the expansion | 14 | review (area 14) | #140 |
+| A configuration file that can't be opened was reported as `unexpected EOF` by newscache, newscacheclean, updatenews and `cConfig.cc`, hiding both the path and system error. Lexer open failures now name the file and include `strerror(errno)`; read errors retain their existing message | 6 | review (seen with #133) |  |
 
 ## Open points
 
@@ -252,9 +253,11 @@ that it stays as it is.
 | A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
 | AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
-| A configuration file that can't be opened (missing, no read permission) is reported as `unexpected EOF in <file>` by newscache, newscacheclean and updatenews (`cConfig.cc`): the `IOError` of the lexer doesn't say why. Should name the file and `strerror(errno)` | 6 | review (seen with #133) |  |
 | `etc/NewsCache.init.in` is turned into `etc/NewsCache.init` by configure but installed by nothing; it is a Red Hat SysV script for a binary `NewsCache` that doesn't exist (the binary is `newscache`). Remove it and its `AC_CONFIG_FILES` line, or update it | 14 | review (area 14) |  |
 | `--with-gnutls` (and the default) build without TLS when GnuTLS isn't found, silently: `ssl`/`starttls` then give the "ignored without GnuTLS" behaviour. An explicit `--with-gnutls=yes` should fail instead | 14 | review (area 14) |  |
+| Every CI lane installs GnuTLS, so `TestTLSOptionsWithoutGnuTLS` skips in every lane. Run an existing lane, such as Ubuntu (file log, debug), with `--without-gnutls` while retaining TLS-enabled lanes | 15 | review (area 15) |  |
+| No CI lane builds with `--enable-headerlog`, so the header-log code path has only local build coverage | 15 | review (area 15) |  |
+| `newscacheclean -s` always reports `DirCnt: 0`: `stDirCnt` is never incremented. Decide whether directory counts should be implemented or removed | 11, 15 | review (areas 11, 15) |  |
 
 ## CodeQL dismissals
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -26,6 +27,57 @@ func TestDefaultConfigPath(t *testing.T) {
 	out, _ := exec.Command(e.Bin, "-p").CombinedOutput()
 	if strings.Contains(string(out), "NONE/") {
 		t.Errorf("newscache -p uses a NONE/ path: %q", out)
+	}
+}
+
+// TestConfigOpenError: failure to open a configuration file used to be
+// reported as "unexpected EOF", hiding both the path and the system error.
+func TestConfigOpenError(t *testing.T) {
+	bin := binPath(t)
+	missing := filepath.Join(t.TempDir(), "missing.conf")
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		exitCode int
+	}{
+		{name: "newscache", args: []string{"-c", missing}, exitCode: 2},
+		{name: "newscacheclean", args: []string{"-c", missing}, exitCode: 2},
+		{name: "updatenews", args: []string{"-c", missing}, exitCode: 2},
+		{name: "cConfig", args: []string{missing}, exitCode: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(filepath.Dir(bin), tc.name)
+			if tc.name == "newscache" {
+				path = bin
+			} else if _, err := os.Stat(path); err != nil {
+				t.Skipf("%s not found next to %s", tc.name, bin)
+			}
+			cmd := exec.Command(path, tc.args...)
+			cmd.Env = os.Environ()
+			for i, env := range cmd.Env {
+				if strings.HasPrefix(env, "LC_ALL=") {
+					cmd.Env = append(cmd.Env[:i], cmd.Env[i+1:]...)
+					break
+				}
+			}
+			cmd.Env = append(cmd.Env, "LC_ALL=C")
+			out, err := cmd.CombinedOutput()
+			ee, ok := err.(*exec.ExitError)
+			if !ok || ee.ExitCode() != tc.exitCode {
+				t.Fatalf("%s: exit error %v, output %q; want exit %d",
+					tc.name, err, out, tc.exitCode)
+			}
+			text := string(out)
+			if !strings.Contains(text, "cannot open configuration file "+missing+": ") {
+				t.Errorf("%s: output %q does not name the file and open error", tc.name, text)
+			}
+			if !strings.Contains(strings.ToLower(text), strings.ToLower(syscall.ENOENT.Error())) {
+				t.Errorf("%s: output %q does not include strerror(ENOENT)", tc.name, text)
+			}
+			if strings.Contains(text, "unexpected EOF") {
+				t.Errorf("%s: output still reports a misleading EOF: %q", tc.name, text)
+			}
+		})
 	}
 }
 

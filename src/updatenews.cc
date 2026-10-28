@@ -435,8 +435,11 @@ int main(int argc, char **argv)
 		Cfg.read(conffile);
 		strcpy(nntp_hostname, Cfg.Hostname);
 	}
-	catch(IOError & io) {
-		cerr << "unexpected EOF in " << conffile << "\n";
+	catch(const IOError & io) {
+		if (io._errno == -1)
+			cerr << "unexpected EOF in " << conffile << "\n";
+		else
+			cerr << io._errtext << ": " << strerror(io._errno) << "\n";
 		exit(2);
 	}
 	catch(SyntaxError & se) {

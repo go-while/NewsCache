@@ -4,9 +4,11 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <iostream>
 #include <fstream>
+#include <string>
 
 #include "Error.h"
 #include "readline.h"
@@ -45,9 +47,13 @@ class Lexer {
 	}
 
 	void open(const char *fn) {
+		errno = 0;
 		_is.open(fn);
-		if (!_is.good())
-			throw IOError("Stream bad", -1, ERROR_LOCATION);
+		if (!_is.good()) {
+			int err = errno ? errno : EIO;
+			std::string msg = std::string("cannot open configuration file ") + fn;
+			throw IOError(msg, err, ERROR_LOCATION);
+		}
 		_fn = fn;
 		_line = 0;
 		_eof = 0;

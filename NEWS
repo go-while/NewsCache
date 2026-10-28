@@ -38,6 +38,9 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* When a configuration file could not be opened, newscache,
+  newscacheclean, updatenews and cConfig reported "unexpected EOF". They
+  now name the file and show the system error.
 * newscacheclean -s -t now reports the database and article counts and sizes
   found in the spool while leaving purge counters at zero; try mode used to
   skip statistics collection and print zeros for every field.
