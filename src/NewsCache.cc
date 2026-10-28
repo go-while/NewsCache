@@ -3650,6 +3650,9 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 	return sock;
 }
 
+// listen() backlog of the listening sockets
+#define LISTEN_BACKLOG 128
+
 /*
  * Loads TLSCertFile, TLSKeyFile and TLSPriority for client connections.
  * At the start a failure is reported on stderr too (newscache exits then;
@@ -3715,7 +3718,10 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 	struct addrinfo hints;
 
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_flags = AI_ADDRCONFIG | AI_PASSIVE | AI_NUMERICHOST;
+	// No AI_ADDRCONFIG: it ignores loopback addresses, so on a host
+	// without a global IPv6 address (a container) even ListenTo [::1]
+	// failed to resolve. The address is numeric; it is bound as given.
+	hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
@@ -3772,11 +3778,6 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 			}
 		}
 	}
-
-	/* The wildcard address (ListenTo DEFAULT, CachePort) is there even
-	 * where the host has no global IPv6 address yet. */
-	if (nodename == NULL)
-		hints.ai_flags &= ~AI_ADDRCONFIG;
 
 	struct addrinfo *res;
 	if (getaddrinfo(nodename, servname, &hints, &res)) {
@@ -3855,9 +3856,13 @@ void nntpd()
 	write_pid_file();
 
 	setugid(Cfg.Username, Cfg.Groupname);
-	listen(sock, 4);
+	// A queue of 4 connections not accepted yet: a burst of clients (or
+	// a busy moment) overflowed it, and FreeBSD then resets connections.
+	// MaxConnections is the limit for sessions; this only holds
+	// connections until the next accept().
+	listen(sock, LISTEN_BACKLOG);
 	if (tls_sock >= 0)
-		listen(tls_sock, 4);
+		listen(tls_sock, LISTEN_BACKLOG);
 
 	struct pollfd lfd[2];
 	int nlfd = 0;

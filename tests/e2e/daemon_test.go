@@ -82,6 +82,67 @@ func TestSIGHUPReload(t *testing.T) {
 	}
 }
 
+// TestListenToIPv6Loopback: ListenTo [::1]:port listens on the IPv6
+// loopback address. getaddrinfo was called with AI_ADDRCONFIG, which
+// ignores loopback addresses: on a host without a global IPv6 address (a
+// container, for example) the address didn't resolve and newscache exited.
+func TestListenToIPv6Loopback(t *testing.T) {
+	l, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	e := newEnv(t)
+	e.Listen = addr
+	e.AccessList = strings.Replace(DefaultAccessList, "  Default {", `  Client ::1/128 {
+    allow read post
+    List *
+    Read *
+    PostTo *
+    Authentication none
+  }
+  Default {`, 1)
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP over [::1]: %q, want 211", line)
+	}
+}
+
+// TestListenBurstOfClients: 32 clients that connect at the same moment all
+// get their greeting. The listening socket had a backlog of 4: on FreeBSD
+// the connections beyond it were reset ("broken pipe" for the client).
+func TestListenBurstOfClients(t *testing.T) {
+	e := newEnv(t)
+	e.MaxConnections = 64
+	e.standalone()
+	const clients = 32
+	errs := make(chan error, clients)
+	var wg sync.WaitGroup
+	for i := 0; i < clients; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, err := client.TryDial(e.Listen, 10*time.Second)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if !strings.HasPrefix(c.Greeting, "20") {
+				errs <- fmt.Errorf("greeting %q", c.Greeting)
+			}
+			c.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("one of %d simultaneous clients: %v", clients, err)
+	}
+}
+
 // TestListenDefaultIPv6: ListenTo DEFAULT listens on IPv4 and IPv6. The
 // daemon took the first wildcard address getaddrinfo returned, 0.0.0.0 on
 // Linux, so IPv6 clients could not connect. IPv4 clients of the
