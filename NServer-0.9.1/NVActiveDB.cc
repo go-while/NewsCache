@@ -188,7 +188,8 @@ int NVActiveDB::hasgroup(const char *group)
 	return 1;
 }
 
-void NVActiveDB::read(istream & is, const char *filter, int flags)
+void NVActiveDB::read(istream & is, const char *filter, int flags,
+		      unsigned int limit)
 {
 	VERB(slog.
 	     p(Logger::Debug) << "NVActiveDB::read(&is,*filter,flags)\n");
@@ -230,6 +231,12 @@ void NVActiveDB::read(istream & is, const char *filter, int flags)
 			}
 			if (flags & F_STORE_READONLY)
 				gd.setflag('n');
+			// Keep the configured newest-article limit in the active DB,
+			// just as GROUP replies do in RServer::selectgroup().
+			if (limit && gd.last() >= gd.first() &&
+			    gd.last() - gd.first() >= limit)
+				gd.setfln(gd.last() - limit + 1, gd.last(), limit,
+					  gd.flags());
 			if (failed)
 				continue;
 			try {

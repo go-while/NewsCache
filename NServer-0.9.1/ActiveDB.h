@@ -45,7 +45,7 @@ class ActiveDB {
 	virtual int hasgroup(const char *group) = 0;
 
 	virtual void read(std::istream & is, const char *filter,
-			  int flags = 0) = 0;
+			  int flags = 0, unsigned int limit = 0) = 0;
 	virtual void write(std::ostream & os, nvtime_t ctime =
 			   0, int mode = m_active, const char *filter =
 			   NULL) = 0;
