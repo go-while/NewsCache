@@ -34,6 +34,9 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* newscacheclean -s -t now reports the database and article counts and sizes
+  found in the spool while leaving purge counters at zero; try mode used to
+  skip statistics collection and print zeros for every field.
 * MODE READER got "480 Authentication required" where the access entry
   allows only the login ("allow authentication"), although newsreaders
   send it before AUTHINFO and must not send it after the login (RFC
