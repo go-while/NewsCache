@@ -33,6 +33,46 @@ func TestStandaloneSession(t *testing.T) {
 	c.Cmd("QUIT")
 }
 
+// TestReaderQuitWhileConnecting: a reader gets exactly 205 when another
+// client connects at the same time; no late reply follows QUIT.
+func TestReaderQuitWhileConnecting(t *testing.T) {
+	e := newEnv(t)
+	e.standalone()
+	prev := e.dial()
+
+	type dialResult struct {
+		c   *client.Conn
+		err error
+	}
+	for range 20 {
+		next := make(chan dialResult, 1)
+		go func() {
+			c, err := client.TryDial(e.Listen, 10*time.Second)
+			next <- dialResult{c: c, err: err}
+		}()
+
+		if code, line := prev.Cmd("QUIT"); code != 205 {
+			t.Fatalf("QUIT: %q, want 205", line)
+		}
+		if err := prev.ExpectNoPending(300 * time.Millisecond); err != nil {
+			t.Errorf("bytes after QUIT's 205: %v", err)
+		}
+		prev.Close()
+
+		result := <-next
+		if result.err != nil {
+			t.Fatalf("connecting next reader: %v", result.err)
+		}
+		prev = result.c.WithTB(t)
+	}
+	if code, line := prev.Cmd("QUIT"); code != 205 {
+		t.Fatalf("final QUIT: %q, want 205", line)
+	}
+	if err := prev.ExpectNoPending(300 * time.Millisecond); err != nil {
+		t.Errorf("bytes after final QUIT's 205: %v", err)
+	}
+}
+
 // TestMaxConnections: one client over the limit gets exactly
 // "400 too many users\r\n" and nothing else (NC-2: a NUL byte followed).
 func TestMaxConnections(t *testing.T) {
