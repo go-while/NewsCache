@@ -216,6 +216,8 @@ void AccessEntry::printParameters (std::ostream *pOut)
 	}
 	authentication.printParameters (pOut);
 	*pOut << "\t\tPAMServicename " << PAMServicename << endl;
+	if (auth_requires_tls)
+		*pOut << "\t\tAuthRequiresTLS yes" << endl;
 	*pOut << "\t}" << endl;
 }
 
@@ -400,6 +402,16 @@ void AccessList::readClient(Lexer & lex, const char *address)
 			cur.authentication.set (t);
 		} else if (tok == "PAMServicename") {
 			cur.PAMServicename = lex.getToken();
+		} else if (tok == "AuthRequiresTLS") {
+			a1 = lex.getToken();
+			if (a1 == "yes" || a1 == "on")
+				cur.auth_requires_tls = true;
+			else if (a1 == "no" || a1 == "off")
+				cur.auth_requires_tls = false;
+			else
+				throw SyntaxError(lex,
+						  "AuthRequiresTLS expects yes or no",
+						  ERROR_LOCATION);
 		} else if (tok == "}") {
 			break;
 		} else {

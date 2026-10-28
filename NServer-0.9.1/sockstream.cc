@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 #include <poll.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -12,12 +13,19 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <time.h>
+
 #include <map>
 #include <string>
 
 #include "config.h"
 #include "Debug.h"
 #include "sockstream.h"
+
+#if defined(HAVE_GNUTLS)
+#include <gnutls/x509.h>
+#include <gnutls/crypto.h>
+#endif
 
 
 namespace {
@@ -79,6 +87,11 @@ namespace {
     creds[cafile] = cred;
     return cred;
   }
+
+  // The server side's certificate, key and priorities (load_server_tls);
+  // NULL until loaded, server_prio NULL for the system's default.
+  gnutls_certificate_credentials_t server_cred = NULL;
+  gnutls_priority_t server_prio = NULL;
 
   bool is_ip_address(const char *name)
   {
@@ -199,10 +212,17 @@ bool sockstream::sockstreambuf::wait_io(bool for_write)
   p.fd = _fd;
   p.events = for_write ? POLLOUT : POLLIN;
   p.revents = 0;
+  unsigned int limit = for_write ? _wait_write : _wait_read;
+  if (!limit)
+    limit = _io_timeout;
   int rc;
   do
   {
-    rc = poll(&p, 1, _io_timeout ? (int) _io_timeout * 1000 : -1);
+    // the alarm (ClientTimeout) or a signal (SIGTERM) ends the wait, as
+    // it ends a plain recv() or send()
+    if (_alarm_indicator && *_alarm_indicator)
+      return false;
+    rc = poll(&p, 1, limit ? (int) limit * 1000 : -1);
   } while (rc < 0 && errno == EINTR);
   return rc > 0;
 }
@@ -367,14 +387,14 @@ int sockstream::sockstreambuf::underflow()
 
 
 #if defined(HAVE_GNUTLS)
-sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf)
-  : _buf(buf), _connected(false)
+sockstream::sslstreambuf::sslstreambuf(sockstreambuf &buf, bool server)
+  : _buf(buf), _connected(false), _server(server)
 {
   setg(_buf._gbuf, _buf._gbuf + sizeof(_buf._gbuf),
        _buf._gbuf + sizeof(_buf._gbuf));
   setp(_buf._pbuf, _buf._pbuf + sizeof(_buf._pbuf));
 
-  gnutls_init(&_session, GNUTLS_CLIENT);
+  gnutls_init(&_session, server ? GNUTLS_SERVER : GNUTLS_CLIENT);
 
   // The default priorities follow the system's crypto policy (on Fedora
   // update-crypto-policies), so no protocol or cipher list is set here.
@@ -455,6 +475,73 @@ void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
   _connected = true;
 }
 
+void sockstream::sslstreambuf::set_record_timeout(unsigned int seconds)
+{
+  gnutls_record_set_timeout(_session, seconds * 1000);
+}
+
+bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
+{
+  _connected = false;
+  if (!_server || !server_cred)
+  {
+    info = "no server certificate loaded";
+    return false;
+  }
+
+  int rc = gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE,
+				  server_cred);
+  if (rc >= 0)
+  {
+    rc = server_prio ? gnutls_priority_set(_session, server_prio)
+      : gnutls_set_default_priority(_session);
+  }
+  if (rc < 0)
+  {
+    info = gnutls_strerror(rc);
+    return false;
+  }
+  // no client certificates (AUTHINFO is the login)
+  gnutls_certificate_server_set_request(_session, GNUTLS_CERT_IGNORE);
+
+#if defined(HAVE_GNUTLS_RND_REFRESH)
+  // Each session is a fork of the daemon, which loaded the credentials:
+  // new random state for this process before it is used (GnuTLS detects
+  // the fork itself too).
+  gnutls_rnd_refresh();
+#endif
+
+  // The whole handshake, however slowly the client sends it; GnuTLS
+  // waits with poll() on the socket for the rest of this time.
+  gnutls_handshake_set_timeout(_session, timeout ? timeout * 1000
+			       : GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
+  gnutls_transport_set_int(_session, _buf.fd());
+
+  do
+  {
+    // SIGTERM (the daemon stops) ends the handshake too
+    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    {
+      info = "interrupted";
+      return false;
+    }
+    rc = gnutls_handshake(_session);
+  } while ((rc < 0) && !gnutls_error_is_fatal(rc));
+
+  if (rc < 0)
+  {
+    info = gnutls_strerror(rc);
+    return false;
+  }
+
+  char *desc = gnutls_session_get_desc(_session);
+  info = desc ? desc : "";
+  gnutls_free(desc);
+
+  _connected = true;
+  return true;
+}
+
 void sockstream::sslstreambuf::disconnect()
 {
   if (!_connected)
@@ -510,6 +597,11 @@ int sockstream::sslstreambuf::sync()
   while ((pbase() + off) != pptr())
   {
     int rc_write;
+    // no new wait once the alarm indicator is set (as the plain sync)
+    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    {
+      return -1;
+    }
     do
     {
       rc_write = gnutls_write(_session, pbase() + off, pptr() - pbase() - off);
@@ -541,6 +633,13 @@ int sockstream::sslstreambuf::underflow()
   int rc_read;
   do
   {
+    // The alarm (ClientTimeout) or a signal (SIGTERM) ends the read, as
+    // in the plain underflow: GnuTLS returns GNUTLS_E_INTERRUPTED for
+    // the interrupted recv(), and the loop went on waiting.
+    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    {
+      return traits_type::eof();
+    }
     rc_read = gnutls_read(_session, _buf._gbuf, sizeof(_buf._gbuf));
     // GNUTLS_E_AGAIN: the receive timeout ran out, or a record without
     // application data (a TLS 1.3 session ticket) was taken in: go on
@@ -557,6 +656,117 @@ int sockstream::sslstreambuf::underflow()
   {
     return traits_type::eof();
   }
+}
+
+bool sockstream::load_server_tls(const std::string &certfile,
+				 const std::string &keyfile,
+				 const std::string &priority, std::string &err)
+{
+  gnutls_certificate_credentials_t cred;
+  int rc = gnutls_certificate_allocate_credentials(&cred);
+  if (rc < 0)
+  {
+    err = gnutls_strerror(rc);
+    return false;
+  }
+  // (GnuTLS checks that the key belongs to the certificate)
+  rc = gnutls_certificate_set_x509_key_file2(cred, certfile.c_str(),
+					     keyfile.c_str(),
+					     GNUTLS_X509_FMT_PEM, NULL, 0);
+  if (rc < 0)
+  {
+    err = "can't load TLSCertFile " + certfile + " with TLSKeyFile " +
+      keyfile + ": " + gnutls_strerror(rc);
+    gnutls_certificate_free_credentials(cred);
+    return false;
+  }
+
+  gnutls_priority_t prio = NULL;
+  if (!priority.empty())
+  {
+    const char *errpos = NULL;
+    rc = gnutls_priority_init(&prio, priority.c_str(), &errpos);
+    if (rc < 0)
+    {
+      err = "invalid TLSPriority " + priority;
+      if (errpos)
+      {
+	err += std::string(" (at ") + errpos + ")";
+      }
+      err += std::string(": ") + gnutls_strerror(rc);
+      gnutls_certificate_free_credentials(cred);
+      return false;
+    }
+  }
+
+  // TLS 1.0 and 1.1 are deprecated (RFC 8996, RFC 8143 via BCP 195)
+  if (prio)
+  {
+    const unsigned int *protos = NULL;
+    const int n = gnutls_priority_protocol_list(prio, &protos);
+    for (int i = 0; i < n; i++)
+    {
+      if (protos[i] == GNUTLS_SSL3 || protos[i] == GNUTLS_TLS1_0 ||
+	  protos[i] == GNUTLS_TLS1_1)
+      {
+	slog.p(Logger::Warning)
+	  << "TLS: TLSPriority " << priority << " allows "
+	  << gnutls_protocol_get_name((gnutls_protocol_t) protos[i])
+	  << ", which is deprecated (RFC 8996)\n";
+      }
+    }
+  }
+
+  // A key others can read is no secret; group-readable (ssl-cert) is
+  // the usual way to give it to the news user.
+  struct stat st;
+  if (stat(keyfile.c_str(), &st) == 0 && (st.st_mode & S_IROTH))
+  {
+    slog.p(Logger::Warning) << "TLS: TLSKeyFile " << keyfile
+			    << " is readable by every user\n";
+  }
+
+  // An expired certificate, or one not valid yet, still loads (and
+  // clients refuse it): say so.
+  gnutls_x509_crt_t *crts = NULL;
+  unsigned int ncrts = 0;
+  if (gnutls_certificate_get_x509_crt(cred, 0, &crts, &ncrts) == 0)
+  {
+    if (ncrts > 0)
+    {
+      const time_t now = time(NULL);
+      const time_t expires = gnutls_x509_crt_get_expiration_time(crts[0]);
+      const time_t starts = gnutls_x509_crt_get_activation_time(crts[0]);
+      if (expires != (time_t) -1 && expires < now)
+      {
+	slog.p(Logger::Warning) << "TLS: the certificate in " << certfile
+				<< " has expired\n";
+      }
+      if (starts != (time_t) -1 && starts > now)
+      {
+	slog.p(Logger::Warning) << "TLS: the certificate in " << certfile
+				<< " is not valid yet\n";
+      }
+    }
+    for (unsigned int i = 0; i < ncrts; i++)
+    {
+      gnutls_x509_crt_deinit(crts[i]);
+    }
+    gnutls_free(crts);
+  }
+
+  // (sessions already forked keep their own copy)
+  if (server_cred)
+  {
+    gnutls_certificate_free_credentials(server_cred);
+  }
+  if (server_prio)
+  {
+    gnutls_priority_deinit(server_prio);
+  }
+  server_cred = cred;
+  server_prio = prio;
+  return true;
 }
 
 sockstream *sockstream::starttls(const char *hostname)
@@ -576,6 +786,13 @@ sockstream *sockstream::starttls(const char *hostname)
   {
     return NULL;
   }
+}
+#else
+bool sockstream::load_server_tls(const std::string &, const std::string &,
+				 const std::string &, std::string &err)
+{
+  err = "built without GnuTLS (configure --with-gnutls)";
+  return false;
 }
 #endif
 
