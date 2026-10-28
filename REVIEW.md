@@ -249,6 +249,7 @@ that it stays as it is.
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
 | AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
 | A configuration file that can't be opened (missing, no read permission) is reported as `unexpected EOF in <file>` by newscache, newscacheclean and updatenews (`cConfig.cc`): the `IOError` of the lexer doesn't say why. Should name the file and `strerror(errno)` | 6 | review (seen with #133) |  |
+| `XDEBUG dump authorization` and `dump configuration` end their lines with a bare LF: `operator<<(AccessEntry)` and `Config::printParameters` write `endl` straight to the client stream (RFC 3977 3.1 wants CRLF; a strict client stops at the first line). Only with the debug right | 1, 13 | review (seen while updating the xdebug example) |  |
 
 ## CodeQL dismissals
 

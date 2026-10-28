@@ -519,6 +519,15 @@ Bug fixes:
 Documentation:
 * SECURITY.md: how to report a vulnerability privately (GitHub Security
   Advisories), which versions get security fixes, and the scope.
+* Outdated text: the xdebug session in newscache.conf(5) is a current
+  one (201 greeting with the installed version, the entry's file: login,
+  PAMServicename); the
+  server Read entry there had a stray fragment and pointed to RFC 2980;
+  newscache.conf(5) and newscache.conf-dist said the second Timeouts
+  value controls fetching the newsgroup descriptions, which NewsCache
+  doesn't do (LIST NEWSGROUPS reads .newsgroups in the spool, made by
+  hand); newscache.conf-dist called the cached option "not yet
+  implemented" and didn't say that NiceClient has no effect.
 * The manual said that NewsCache uses the most specific AccessList entry
   that matches a client. It uses the first one, in the order of the
   file, as newscache.conf-dist says: put narrower entries before broader
