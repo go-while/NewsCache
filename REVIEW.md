@@ -233,6 +233,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | `XDEBUG dump authorization` and `dump configuration` ended their lines with a bare LF: `operator<<(AccessEntry)` and `Config::printParameters` wrote `endl` straight to the client stream (RFC 3977 3.1 wants CRLF; a strict client stops at the first line), and a line starting with `.` wasn't dot-stuffed. Now the dump is collected first and sent line by line with CRLF and dot-stuffing (`send_text_lines`) | 1, 13 | review (seen with #134) | #135 |
 | `updatenews -l` (lock each group while prefetching it, a modifier of `-g`) counted as a mode of its own: with `-l` alone the default `-g` was dropped and nothing was prefetched; updatenews(8) documented that. Now `-l` alone works as `-g -l`; `-a` alone still only refreshes the active database | 12 | review (area 12) | #136 |
 | `sockstreambuf::underflow` and `sslstreambuf::underflow` returned `*gptr()` as a plain `char` when the buffer wasn't empty: a 0xFF byte is -1 (EOF) where `char` is signed. libstdc++ calls `underflow` only on an empty buffer, so no path reaches it today; both returns now use `traits_type::to_int_type`. No test: the classes are private to `sockstream` | 7 | review (areas 1, 7) | #137 |
+| `newscacheclean -s -t` skipped `remove_elements`, so all statistics stayed zero. Try mode now collects the found database/article counts and sizes without removing files; the purged counts remain zero | 11 | review (area 11) | #138 |
 
 ## Open points
 

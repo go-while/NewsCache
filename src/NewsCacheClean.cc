@@ -146,6 +146,27 @@ bool sort_entries (const Entry *l, const Entry *r)
 }
 
 
+static void collect_statistics(struct cache_statistic *pS)
+{
+	vector<Entry *>::const_iterator begin, end;
+
+	for (begin=pvector.begin(), end=pvector.end(); begin != end; begin++) {
+		const string &path = (*begin)->Path;
+		if (path.length() >= 3 &&
+		    path.compare(path.length() - 3, 3, ".db") == 0) {
+			pS->stDbCnt++;
+			pS->stDbSize += (*begin)->blocks;
+		} else if ((*begin)->atime != 0) {
+			pS->stArtCnt++;
+			pS->stArtSize += (*begin)->blocks;
+		} else {
+			pS->stOutArtCnt++;
+			pS->stOutArtSize += (*begin)->blocks;
+		}
+	}
+}
+
+
 void remove_elements(long long max_blocks, struct cache_statistic *pS)
 {
 	int isDb;
@@ -158,17 +179,8 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 		if (path.length() >= 3 &&
 		    path.compare(path.length() - 3, 3, ".db") == 0) {
 			isDb = 1;
-			pS->stDbCnt++;
-			pS->stDbSize += (*begin)->blocks;
 		} else {
 			isDb = 0;
-			if ((*begin)->atime != 0) {
-				pS->stArtCnt++;
-				pS->stArtSize += (*begin)->blocks;
-			} else {
-				pS->stOutArtCnt++;
-				pS->stOutArtSize += (*begin)->blocks;
-			}
 		}
 		if ((*begin)->atime != 0 && _blocks <= max_blocks)
 			continue;
@@ -617,6 +629,8 @@ int main(int argc, char **argv)
 		}
 		cout << "---------------- Purge table ----------------" << endl;
 	}
+	if (stat)
+		collect_statistics(&Stat);
 	if (!try_flag) {
 		// in 512-byte blocks, as st_blocks counts
 		long long max_blocks = Cfg.SpoolSize * 2;
