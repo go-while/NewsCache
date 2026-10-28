@@ -673,6 +673,13 @@ func pamPermitService(t *testing.T, bin string) string {
 // pam_deny) for auth and account.
 func pamService(t *testing.T, bin, module string) string {
 	t.Helper()
+	return pamServiceText(t, bin, module, "auth required "+module+".so\naccount required "+module+".so\n")
+}
+
+// pamServiceText writes a PAM service with the given text, after the same
+// checks as pamService (Linux, a PAM build, root, module present).
+func pamServiceText(t *testing.T, bin, module, text string) string {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs Linux-PAM")
 	}
@@ -705,11 +712,55 @@ func pamService(t *testing.T, bin, module string) string {
 	}
 	name := "newscache-e2e-" + filepath.Base(t.TempDir())
 	path := filepath.Join("/etc/pam.d", name)
-	if err := os.WriteFile(path, []byte("auth required "+module+".so\naccount required "+module+".so\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Skipf("can't write %s: %v", path, err)
 	}
 	t.Cleanup(func() { os.Remove(path) })
 	return name
+}
+
+// TestPamRhost: NewsCache gives PAM the client's address as PAM_RHOST, so
+// that host-based rules apply. It didn't: pam_access, pam_succeed_if rhost
+// and the like saw no host, and a service that allows logins only from some
+// hosts refused them all (or, written the other way round, didn't restrict).
+// A service that requires rhost 127.0.0.1 lets the local client in; one that
+// requires another address refuses it.
+func TestPamRhost(t *testing.T) {
+	for _, tc := range []struct {
+		rhost string
+		want  int
+	}{
+		{"127.0.0.1", 281},
+		{"192.0.2.1", 481},
+	} {
+		t.Run(tc.rhost, func(t *testing.T) {
+			e := newEnv(t)
+			service := pamServiceText(t, e.Bin, "pam_succeed_if",
+				"auth required pam_succeed_if.so rhost = "+tc.rhost+"\naccount required pam_permit.so\n")
+			e.Extra = "AuthFailureDelay 0"
+			e.AccessList = `AccessList {
+  Client 127.0.0.1 {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    PAMServicename ` + service + `
+    Authentication pam
+  }
+  Default {
+    allow none
+  }
+}`
+			e.standalone()
+			c := e.dialRaw()
+			if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+				t.Fatalf("AUTHINFO USER: %q, want 381", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS anything"); code != tc.want {
+				t.Errorf("AUTHINFO PASS with rhost rule %s: %q, want %d", tc.rhost, line, tc.want)
+			}
+		})
+	}
 }
 
 // TestAuthPamFileRights: with "Authentication pam+file", the rights of the

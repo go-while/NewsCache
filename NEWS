@@ -1,6 +1,12 @@
 Unreleased:
 
 Behaviour changes:
+* PAM logins: NewsCache now gives PAM the client's address (PAM_RHOST),
+  so host-based PAM rules (pam_access, pam_succeed_if rhost, ...) apply.
+  They saw no host before: a service that allows only some hosts refused
+  every login, and one that denies some hosts didn't. Check such rules
+  before upgrading. configure --with-pam= (an empty service name) is now
+  an error.
 * After a failed AUTHINFO PASS (481), the pending USER is invalidated. A
   second PASS without AUTHINFO USER now gets 482 (RFC 4643 2.3.2); the client
   can retry by sending USER again.

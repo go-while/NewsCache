@@ -892,6 +892,16 @@ int check_pam_user_pass (ClientData *clt)
 		      &(clt->conv), &(clt->pamh));
 	slog.p(Logger::Debug) << "check_pam_user_pass: pam_start returns "
 		<< retval << "\n";
+	// The client's address as PAM_RHOST, so that host-based rules
+	// (pam_access, pam_rhosts, ...) apply; without it they saw no host
+	// and didn't restrict anything. If it can't be set, the login fails
+	// rather than going on without the host. (Empty in inetd mode
+	// without a peer address: then there is no host to give.)
+	if (retval == PAM_SUCCESS && clt->client_addr[0] != '\0') {
+		retval = pam_set_item(clt->pamh, PAM_RHOST, clt->client_addr);
+		slog.p(Logger::Debug) << "check_pam_user_pass: PAM_RHOST "
+			<< clt->client_addr << ": " << retval << "\n";
+	}
 	if (retval == PAM_SUCCESS) {
 		retval = pam_authenticate(clt->pamh, 0);	/* is user really user? */
 		slog.p(Logger::Debug) << "check_pam_user_pass: pam_authenticate returns "

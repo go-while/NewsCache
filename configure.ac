@@ -54,6 +54,8 @@ AC_ARG_WITH(pam, [  --with-pam              support for PAM [default=no]],
 	     	;;
 	no)	AC_DEFINE(PAM_DEFAULT_SERVICENAME, "newscache", [PAM default service name])
 		;;
+	"")	AC_MSG_ERROR([--with-pam= needs a PAM service name (or use --with-pam)])
+		;;
 	*)	AC_DEFINE(PAM_AUTH, [1], [support for PAM])
 		AC_DEFINE_UNQUOTED(PAM_DEFAULT_SERVICENAME, "${withval}", [PAM default service name])
 		;;
