@@ -46,7 +46,7 @@ class Config {
 	char PidFile[MAXPATHLEN];
 
 	int ClientTimeout;
-	int AuthFailureDelay;	// seconds, times the number of failed logins
+	int AuthFailureDelay;	// seconds after each failed login, 0 or 1
 	int HistoryEnabled;	// History on: the message-ID history in the spool
 	int MaxConnections;
 	long MaxArticleSize;	// bytes: largest article from a news server

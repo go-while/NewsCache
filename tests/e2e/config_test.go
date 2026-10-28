@@ -481,9 +481,12 @@ func TestAuthFailureDelayConfig(t *testing.T) {
 	for _, c := range []struct {
 		extra, want string
 	}{
-		{"", "AuthFailureDelay 15"},
+		{"", "AuthFailureDelay 1"},
 		{"AuthFailureDelay 0", "AuthFailureDelay 0"},
-		{"AuthFailureDelay 3600", "AuthFailureDelay 3600"},
+		{"AuthFailureDelay 1", "AuthFailureDelay 1"},
+		// larger values are accepted (old configs) but count as 1
+		{"AuthFailureDelay 15", "AuthFailureDelay 1"},
+		{"AuthFailureDelay 3600", "AuthFailureDelay 1"},
 		{"AuthFailureDelay -1", ""},
 		{"AuthFailureDelay 3601", ""},
 		{"AuthFailureDelay 5s", ""},

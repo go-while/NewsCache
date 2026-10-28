@@ -1447,8 +1447,11 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 
 		if (checked < 0) {
 			clt->auth_refused = true;
-			sleep (clt->auth_failure_sleep_time*
-					(++clt->auth_failures));
+			// the same short delay after each failure; it grew with
+			// the failures (15, 30, 45 s by default), which only held
+			// the session's process and memory
+			++clt->auth_failures;
+			sleep(clt->auth_failure_sleep_time);
 			(*clt->
 			 co) << FAILED_SEQUENCE << " Bad authinfo.\r\n";
 			return -1;

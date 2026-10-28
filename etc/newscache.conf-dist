@@ -336,9 +336,9 @@ NewsServerList {
 # stop reading their replies, or stop sending in the middle of a POST)
 ClientTimeout 600
 
-# After a failed login, wait this many seconds before answering, times
-# the number of failed logins in the connection (default 15)
-# AuthFailureDelay 15
+# After a failed login, wait this many seconds before answering 481
+# (0 or 1; default 1). The connection is closed after the third failure.
+# AuthFailureDelay 1
 
 # Serve ARTICLE <message-id> and the like from the spool when it has the
 # article, using a history in SpoolDirectory/.history (default off)
