@@ -105,17 +105,23 @@ namespace {
   // the client liked. (One server handshake per process: each client
   // session is a process of its own.)
   struct timespec handshake_deadline = { 0, 0 };
+  bool handshake_deadline_set = false;
+
+  // Milliseconds left until handshake_deadline (<= 0: past it)
+  long long handshake_ms_left()
+  {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (handshake_deadline.tv_sec - now.tv_sec) * 1000LL +
+      (handshake_deadline.tv_nsec - now.tv_nsec) / 1000000;
+  }
 
   int pull_timeout_once(gnutls_transport_ptr_t ptr, unsigned int ms)
   {
     int wait = (ms == GNUTLS_INDEFINITE_TIMEOUT) ? -1 : (int) ms;
-    if (handshake_deadline.tv_sec)
+    if (handshake_deadline_set)
     {
-      struct timespec now;
-      clock_gettime(CLOCK_MONOTONIC, &now);
-      const long long left =
-	(handshake_deadline.tv_sec - now.tv_sec) * 1000LL +
-	(handshake_deadline.tv_nsec - now.tv_nsec) / 1000000;
+      const long long left = handshake_ms_left();
       if (left <= 0)
       {
 	return 0;	// GNUTLS_E_TIMEDOUT
@@ -561,25 +567,25 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
   // for each wait and checked by the loop for each new call
   clock_gettime(CLOCK_MONOTONIC, &handshake_deadline);
   handshake_deadline.tv_sec += timeout ? timeout : 60;
-  const time_t deadline = time(NULL) + (timeout ? timeout : 60);
+  handshake_deadline_set = true;
   do
   {
     // SIGTERM (the daemon stops) ends the handshake too
     if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
     {
       info = "interrupted";
-      handshake_deadline.tv_sec = 0;
+      handshake_deadline_set = false;
       return false;
     }
-    if (time(NULL) > deadline)
+    if (handshake_ms_left() <= 0)
     {
       info = "timed out";
-      handshake_deadline.tv_sec = 0;
+      handshake_deadline_set = false;
       return false;
     }
     rc = gnutls_handshake(_session);
   } while ((rc < 0) && !gnutls_error_is_fatal(rc));
-  handshake_deadline.tv_sec = 0;
+  handshake_deadline_set = false;
 
   if (rc < 0)
   {
