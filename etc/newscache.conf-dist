@@ -60,7 +60,8 @@ ListenTo DEFAULT
 # for the master server process
 NiceServer 0
 
-# for the client proceses
+# for the client processes: read, but has no effect in this version
+# (the sessions run with the NiceServer value)
 NiceClient 10
 
 # for the clean process
@@ -238,7 +239,9 @@ AccessList {
 #   (not-)offline, semioffline ... retrieve nothing/everything/articles
 #   (not-)setpostflag ... set postflag to n in the active database, if
 #                       posting to the news server is not allowed
-#   (not-)cached ... not yet implemented
+#   (not-)cached ... cache the articles and overview of this server's
+#                    groups in the spool (the default); not-cached
+#                    passes them through without storing them
 #   ssl ... use TLS from the start (usually port 563)
 #   starttls ... switch to TLS with STARTTLS (usually port 119); if the
 #                server refuses it, the connection is dropped, not continued
@@ -321,7 +324,10 @@ NewsServerList {
 # parameter). If a client requests "list active", then newscache
 # checks if the active database timeout is reached and first
 # requests the active informations from the upstream servers before
-# returning the data to the client. Note: if the ServerSpec section
+# returning the data to the client. The second parameter has no effect:
+# NewsCache doesn't fetch newsgroup descriptions; LIST NEWSGROUPS reads
+# the file .newsgroups in the spool directory, which you create yourself.
+# Note: if the ServerSpec section
 # contains the Options offline or semioffline, then the data will
 # be not downloaded from the upstream server. You need updatenews.
 # Timeouts 3600 3600

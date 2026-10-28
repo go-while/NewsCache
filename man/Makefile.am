@@ -20,6 +20,7 @@ SUFFIXES = .in
 	@SED@ \
 		-e 's!@SYSCONFDIR@!$(sysconfdir)!g' \
 		-e 's!@SBINDIR@!$(sbindir)!g' \
+		-e 's!@NC_VERSION@!$(VERSION)!g' \
 		$< > $@-temp
 	@MV@  $@-temp $@
 

@@ -122,7 +122,7 @@ news server. For a detailed description of
 see the ServerSpec Configuration Options section below.
 .TP
 .I "Timeouts active-db group-description"
-Timeouts in seconds for the retrieval of the active database (first parameter) and the description of the newsgroups (second parameter). If a client requests "list active", then newscache checks if the active database timeout is reached and first requests the active informations from the upstream servers before returning the data to the client. Note: if the ServerSpec section contains the Options offline or semioffline, then the data will be not downloaded from the upstream server. You need
+Timeouts in seconds for the retrieval of the active database (first parameter) and the description of the newsgroups (second parameter). If a client requests "list active", then newscache checks if the active database timeout is reached and first requests the active informations from the upstream servers before returning the data to the client. The second parameter is read but has no effect: NewsCache doesn't fetch the newsgroup descriptions; LIST NEWSGROUPS answers from the file .newsgroups in the spool directory, which you create yourself (lines "group description"). Note: if the ServerSpec section contains the Options offline or semioffline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
 The default values are 3600 seconds for both parameter.
 .TP
@@ -337,9 +337,7 @@ is the name of the news server and
 .I Service
 indicates the port, where the news server is listening for connections.
 .IP "Read \fINewsgroupList\fR"
-The comma separated list specifiy the wildmat newsgroup specifications. Each element of the list will be fetched with the list active element. Example: Read at.*,de.* will send to the upstream newsserver the following two commands: list active at.* and list active de.*. For details see section 2.1.2 LIST ACTIVE [WILDMAT] of RFC2980. These parameter can help you saving bandwidth.
-.I AccessSpec Configuration Options
- . No default value.
+A comma separated list of wildmat patterns: the groups NewsCache takes from this server. NewsCache fetches the active list with one LIST ACTIVE command per pattern; for example, Read at.*,de.* sends "list active at.*" and "list active de.*" to the server (RFC 3977 7.6.3). This can save bandwidth. If the server refuses LIST ACTIVE with a pattern, NewsCache asks it for the whole list once instead and keeps the groups that match. No default value.
 .IP "PostTo \fINGSpecification\fR"
 NewsCache post an article to the best matching upstream newsserver. If the article cannot be submitted immediately, it is kept for later transmission. See the example: Multiple Upstream NewsServer.
 .IP "GroupTimeout \fIseconds\fR"
@@ -614,40 +612,54 @@ NewsServerList {
 
 .SH THE xdebug COMMAND
 .IP "telnet localhost 119 and the xdebug command"
-Note: in the configuration file the allow must contain the debug option. The following example show the a typical xdebug session."
+Note: the client's entry must have debug in its allow line. The following example shows a typical xdebug session, for the entry
+.nf
+
+	Client 127.0.0.1 {
+		allow debug
+		List at.*
+		Read at.*
+		PostTo at.*
+		Authentication file:@SYSCONFDIR@/newscache.auth:*:*:*:post,read
+	}
+
+.fi
+where the auth file has a line for myusername with the fields *:*:*:post,read. After the login, the rights of that line are added: the patterns * and the flags read and post.
 .nf
 
 telnet localhost 119
 Trying 127.0.0.1...
-Connected to faultier.
+Connected to localhost.
 Escape character is '^]'.
-200 NewsCache 1.2, accepting NNRP commands
+201 NewsCache @NC_VERSION@, accepting NNRP commands, posting prohibited
 xdebug dump authorization
 100 authorization data follows
-127.0.0.1/255.255.255.255{
+127.0.0.1/32{
   access_flags=4 ( debug)
   list=at.*
   read=at.*
   postto=at.*
-  authentication=unix:*:*:*:post,read
+  PAMServicename newscache
+  authentication=file:@SYSCONFDIR@/newscache.auth:*:*:*:post,read
 
 }
-.
+\&.
 authinfo user myusername
 381 password please
 authinfo pass mypassword
 281 OK.
 xdebug dump authorization
 100 authorization data follows
-127.0.0.1/255.255.255.255{
+127.0.0.1/32{
   access_flags=7 ( read post debug)
   list=at.*,*
   read=at.*,*
   postto=at.*,*
-  authentication=unix:*:*:*:post,read
+  PAMServicename newscache
+  authentication=file:@SYSCONFDIR@/newscache.auth:*:*:*:post,read
 
 }
-.
+\&.
 quit
 205 Good bye
 Connection closed by foreign host.
