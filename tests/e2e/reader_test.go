@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -283,6 +284,88 @@ func TestArticleCached(t *testing.T) {
 	c2.ReadDotLines()
 	if n := e.Upstream.Count("ARTICLE"); n != first {
 		t.Errorf("upstream ARTICLE count went from %d to %d; want served from cache (counts %v)", first, n, e.Upstream.Counts())
+	}
+}
+
+// TestCachedArticleOddXrefAndEmptyPath: the spool preserves an article with
+// an Xref containing only its host and an empty Path header. HEAD and ARTICLE
+// served by a later process must match the first ARTICLE response exactly.
+func TestCachedArticleOddXrefAndEmptyPath(t *testing.T) {
+	const (
+		group = "test.header-cache"
+		id    = "<header-cache@upstream.test>"
+	)
+	e := newEnv(t)
+	e.Store.AddGroup(group, "odd article headers")
+	e.Store.AddArticle(group, fakeserver.Article{
+		Number:    1,
+		MessageID: id,
+		Headers: []string{
+			"Xref: upstream.test",
+			"Path:",
+			"From: poster@upstream.test",
+			"Newsgroups: " + group,
+			"Subject: following header remains intact",
+			"X-After: preserve this header",
+		},
+		Body: []string{"cached body", ".dot-stuffed body"},
+	})
+
+	first := e.session()
+	if code, line := first.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q, want 211", line)
+	}
+	if code, line := first.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("first ARTICLE 1: %q, want 220", line)
+	}
+	firstArticle := first.RawUntilDot()
+	for _, header := range [][]byte{
+		[]byte("Xref: upstream.test\r\n"),
+		[]byte("Path:\r\n"),
+		[]byte("Subject: following header remains intact\r\n"),
+		[]byte("X-After: preserve this header\r\n"),
+	} {
+		if !bytes.Contains(firstArticle, header) {
+			t.Fatalf("first ARTICLE lacks %q: %q", header, firstArticle)
+		}
+	}
+	if got := e.Upstream.Count("ARTICLE"); got != 1 {
+		t.Fatalf("upstream ARTICLE count after first response = %d, want 1", got)
+	}
+	if code, line := first.Cmd("QUIT"); code != 205 {
+		t.Fatalf("first QUIT: %q, want 205", line)
+	}
+
+	// A second process reads the same spool, not the upstream article.
+	cached := e.session()
+	if code, line := cached.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP from spool: %q, want 211", line)
+	}
+	if code, line := cached.Cmd("HEAD 1"); code != 221 {
+		t.Fatalf("cached HEAD 1: %q, want 221", line)
+	}
+	cachedHead := cached.RawUntilDot()
+	separator := bytes.Index(firstArticle, []byte("\r\n\r\n"))
+	if separator < 0 {
+		t.Fatalf("first ARTICLE has no header/body separator: %q", firstArticle)
+	}
+	wantHead := append(append([]byte(nil), firstArticle[:separator+2]...), []byte(".\r\n")...)
+	if !bytes.Equal(cachedHead, wantHead) {
+		t.Errorf("cached HEAD differs from first ARTICLE headers:\n got %q\nwant %q", cachedHead, wantHead)
+	}
+
+	if code, line := cached.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("cached ARTICLE 1: %q, want 220", line)
+	}
+	cachedArticle := cached.RawUntilDot()
+	if !bytes.Equal(cachedArticle, firstArticle) {
+		t.Errorf("cached ARTICLE differs from first response:\n got %q\nwant %q", cachedArticle, firstArticle)
+	}
+	if got := e.Upstream.Count("ARTICLE"); got != 1 {
+		t.Errorf("upstream ARTICLE count after cached reads = %d, want 1", got)
+	}
+	if code, line := cached.Cmd("QUIT"); code != 205 {
+		t.Errorf("cached QUIT: %q, want 205", line)
 	}
 }
 
