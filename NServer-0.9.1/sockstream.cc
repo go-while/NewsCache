@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <poll.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -92,6 +93,19 @@ namespace {
   // NULL until loaded, server_prio NULL for the system's default.
   gnutls_certificate_credentials_t server_cred = NULL;
   gnutls_priority_t server_prio = NULL;
+
+  // GnuTLS's wait for data (handshake and record timeouts), once: its own
+  // goes on after EINTR, so the alarm of ClientTimeout and SIGTERM didn't
+  // end a TLS client's wait; -1 with EINTR makes the read return
+  // GNUTLS_E_INTERRUPTED, and the callers check the alarm indicator.
+  int pull_timeout_once(gnutls_transport_ptr_t ptr, unsigned int ms)
+  {
+    struct pollfd p;
+    p.fd = (int) (intptr_t) ptr;
+    p.events = POLLIN;
+    p.revents = 0;
+    return poll(&p, 1, ms == GNUTLS_INDEFINITE_TIMEOUT ? -1 : (int) ms);
+  }
 
   bool is_ip_address(const char *name)
   {
@@ -516,6 +530,7 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
   gnutls_handshake_set_timeout(_session, timeout ? timeout * 1000
 			       : GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
   gnutls_transport_set_int(_session, _buf.fd());
+  gnutls_transport_set_pull_timeout_function(_session, pull_timeout_once);
 
   do
   {
