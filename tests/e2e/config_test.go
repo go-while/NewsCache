@@ -767,6 +767,31 @@ func grepLines(s, sub string) string {
 	return strings.Join(out, "\n")
 }
 
+// TestXdebugDumpsCRLF: the XDEBUG dumps are multi-line replies with CRLF
+// line ends, read here by the strict client. Their lines came from printers
+// that write endl and went out with a bare LF.
+func TestXdebugDumpsCRLF(t *testing.T) {
+	e := newEnv(t)
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client stdin {\n    allow read post\n", "Client stdin {\n    allow read post debug\n", 1)
+	c := e.session()
+	for _, tc := range []struct{ cmd, want string }{
+		{"XDEBUG dump authorization", "access_flags="},
+		{"XDEBUG dump configuration", "Hostname"},
+	} {
+		if code, line := c.Cmd("%s", tc.cmd); code != 100 {
+			t.Fatalf("%s: %q, want 100", tc.cmd, line)
+		}
+		lines := c.ReadDotLines()
+		if !strings.Contains(strings.Join(lines, "\n"), tc.want) {
+			t.Errorf("%s: no %q in %q", tc.cmd, tc.want, lines)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after XDEBUG: %q, want 111", line)
+	}
+}
+
 // TestXdebugReplies: every XDEBUG command gets a reply with a status code.
 // "XDEBUG dump <unknown>" got none (the client waited for ever), and the
 // other replies had the code "xxx" or none at all.
