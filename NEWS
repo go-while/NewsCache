@@ -61,6 +61,10 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* Authentication file: and pam+file: now warn at server start, and after a
+  successful SIGHUP reload, when an auth file is writable by group or world
+  or is a symbolic link. The warning includes the path and never blocks login;
+  duplicate paths are reported once per configuration read.
 * Malformed commands starting with "auth" could expose their arguments in
   the log, including passwords. The log now keeps only the command word for
   these commands, and the reused request buffer is cleared before each read.

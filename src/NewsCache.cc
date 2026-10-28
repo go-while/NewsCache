@@ -112,6 +112,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -139,6 +140,7 @@ using std::ofstream;
 using std::ostream;
 using std::ostringstream;
 using std::map;
+using std::set;
 using std::string;
 using std::vector;
 
@@ -590,6 +592,45 @@ int pam_conv_func(int num_msg, const struct pam_message **msg, struct pam_respon
   return PAM_SUCCESS;
 }
 #endif /* PAM_AUTH */
+
+// Run in the server parent at startup and after a successful reload, not in
+// seekfile(): the parent forks one child per connection, so child-local state
+// would warn once per login rather than once per configured path.
+static void warn_unsafe_auth_files(const AccessList &access_list)
+{
+	set<string> checked;
+	const vector<AccessEntry> &entries = access_list.entries();
+	for (vector<AccessEntry>::const_iterator i = entries.begin();
+	     i != entries.end(); ++i) {
+		const string &type = i->authentication.getType();
+		if (type != "file" && type != "pam+file")
+			continue;
+		const string &filename = i->authentication.getField(1);
+		if (filename.empty() || checked.find(filename) != checked.end())
+			continue;
+		struct stat st;
+		if (lstat(filename.c_str(), &st) != 0)
+			continue;
+		checked.insert(filename);
+
+		string reason;
+		if (S_ISLNK(st.st_mode))
+			reason = "is a symbolic link";
+		else {
+			bool group_writable = (st.st_mode & S_IWGRP) != 0;
+			bool world_writable = (st.st_mode & S_IWOTH) != 0;
+			if (group_writable && world_writable)
+				reason = "is writable by group and world";
+			else if (group_writable)
+				reason = "is group-writable";
+			else if (world_writable)
+				reason = "is world-writable";
+		}
+		if (!reason.empty())
+			slog.p(Logger::Warning) << "authentication file " << filename << " "
+				<< reason << "\n";
+	}
+}
 
 char **seekfile(const char *filename, const char *username)
 {
@@ -3540,6 +3581,7 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 void nntpd()
 {
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
+	warn_unsafe_auth_files(Cfg.clnts);
 
 	/* set nice value for master server */
 #ifdef HAVE_SETPRIORITY
@@ -3684,6 +3726,7 @@ void nntpd()
 					Config newCfg;
 					newCfg.read(config_file);
 					Cfg = newCfg;
+					warn_unsafe_auth_files(Cfg.clnts);
 					slog.p(Logger::Notice)
 					    << "reread " << config_file << "\n";
 				}
@@ -4130,6 +4173,7 @@ int main(int argc, char **argv)
 		opt_inetd = 1;
 
 	if (opt_inetd) {
+		warn_unsafe_auth_files(Cfg.clnts);
 		if (getuid() == CONF_UIDROOT)
 			setugid(Cfg.Username, Cfg.Groupname);
 		nnrpd(-1);
