@@ -462,7 +462,9 @@ func TestAuthFileLoginOptionalPost(t *testing.T) {
 }
 
 // TestNoLoginNo480: without an Authentication entry no login can help, so a
-// command the entry doesn't allow still gets 500, not 480.
+// command the entry doesn't allow gets 502 (440 for POST), not 480. It got
+// "500 What?", the reply to an unknown command (RFC 3977 3.2.1, 6.3.1).
+// An unknown command still gets 500.
 func TestNoLoginNo480(t *testing.T) {
 	e := newEnv(t)
 	e.AccessList = `AccessList {
@@ -478,8 +480,17 @@ func TestNoLoginNo480(t *testing.T) {
   }
 }`
 	c := e.session()
-	if code, line := c.Cmd("POST"); code != 500 {
-		t.Fatalf("POST: %q, want 500", line)
+	if code, line := c.Cmd("POST"); code != 440 {
+		t.Fatalf("POST: %q, want 440", line)
+	}
+	if code, line := c.Cmd("XDEBUG help"); code != 502 {
+		t.Fatalf("XDEBUG: %q, want 502 (no debug right)", line)
+	}
+	if code, line := c.Cmd("FOOBAR"); code != 500 {
+		t.Fatalf("FOOBAR: %q, want 500 (unknown command)", line)
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE: %q, want 111 (the session goes on)", line)
 	}
 }
 
@@ -507,11 +518,11 @@ func TestAuthFileNegatedFlagGrantsNothing(t *testing.T) {
 		t.Fatalf("GROUP after login: %q, want 211", line)
 	}
 	// XDEBUG without arguments answers 501 when debug is allowed.
-	if code, line := c.Cmd("XDEBUG"); code != 500 {
-		t.Fatalf("XDEBUG after login: %q, want 500 (no debug right)", line)
+	if code, line := c.Cmd("XDEBUG"); code != 502 {
+		t.Fatalf("XDEBUG after login: %q, want 502 (no debug right)", line)
 	}
-	if code, line := c.Cmd("POST"); code != 500 {
-		t.Fatalf("POST after login: %q, want 500 (no post right)", line)
+	if code, line := c.Cmd("POST"); code != 440 {
+		t.Fatalf("POST after login: %q, want 440 (no post right)", line)
 	}
 }
 
@@ -521,8 +532,8 @@ func TestAuthFileNegatedFlagRemoves(t *testing.T) {
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:!post")
 	c := e.session()
 	login(t, c)
-	if code, line := c.Cmd("POST"); code != 500 {
-		t.Fatalf("POST after login: %q, want 500 (post removed)", line)
+	if code, line := c.Cmd("POST"); code != 440 {
+		t.Fatalf("POST after login: %q, want 440 (post removed)", line)
 	}
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP after login: %q, want 211 (read kept)", line)
@@ -919,12 +930,12 @@ func TestAuthinfoAfterLogin(t *testing.T) {
 				t.Errorf("%s after the login: %q, want 502", cmd, line)
 			}
 		}
-		if code, line := c.Cmd("POST"); code != 500 {
+		if code, line := c.Cmd("POST"); code != 440 {
 			if code == 340 {
 				c.Send(".\r\n")
 				c.ReadStatus()
 			}
-			t.Errorf("POST: %q, want 500 (tester has no post right)", line)
+			t.Errorf("POST: %q, want 440 (tester has no post right)", line)
 		}
 		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 			t.Errorf("GROUP: %q, want 211 (tester's rights kept)", line)

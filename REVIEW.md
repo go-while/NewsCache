@@ -228,6 +228,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | After a failed `AUTHINFO PASS` (481), the earlier user name remained set, so another PASS was checked against it instead of getting 482. `ns_authinfo` now invalidates the cached USER after a failed or overlong PASS; a new USER is required before retrying | 3 | review (RFC follow-up, #123) | #130 |
 | After a valid `AUTHINFO USER`, a replacement USER that was too long got 481 but left the earlier user pending, so a following PASS was checked against the earlier name. Now a failed USER ends the pending one (the PASS gets 482) | 3 | review (#130) | #131 |
 | Every failed AUTHINFO was logged as `failed authinfo for user <last USER>`, also a 482, 501 or 502 or an argument too long, where no password of that user was checked: a sequence error after a failed login counted as a second failed login. Now only a refused password names the user; the other failures log `failed authinfo` | 3 | review (#130) | #131 |
+| A known command that the client's entry doesn't allow, where no login can help (Authentication none, or after the login), answered `500 What?`: it is taken out of the client's command table, and the lookup found nothing, as for an unknown command. RFC 3977 3.2.1 wants 502, 6.3.1 440 for POST. Now the command loop tells the two apart: 502 (440 for POST) for a known command, 500 for an unknown one. `TestNoLoginNo480` and three login tests expected the 500 | 1, 2 | review (RFC follow-up, #124) | #132 |
 
 ## Open points
 
@@ -245,7 +246,6 @@ that it stays as it is.
 | SIGHUP reload: the startup-only fields (ListenTo, CachePort, Username, Groupname, PidFile, LogDirectory, ServerType, NiceServer) change silently without effect (log "restart needed"); a new Hostname isn't copied to `nntp_hostname`; `Config::init` runs `getfqdn()` (DNS) on every reload; the config must be readable by Username | 5, 6 | review (area 6, L7) |  |
 | A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
-| A known command that the client's entry doesn't allow, where no login can help, answers `500 What?` (it is taken out of the command table); RFC 3977 wants 502 (440 for POST). `TestNoLoginNo480` expects the 500 | 1, 2 | review (RFC follow-up, #124) |  |
 | AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
 
 ## CodeQL dismissals
