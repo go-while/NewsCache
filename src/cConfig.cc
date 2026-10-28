@@ -12,10 +12,31 @@ using namespace std;
 Logger slog;
 Config cfg;
 
+static int isSafeConfigPath(const char *path)
+{
+	if (!path || !*path)
+		return 0;
+
+	/* Reject absolute paths and traversal */
+	if (path[0] == '/' || path[0] == '\\')
+		return 0;
+	if (strstr(path, ".."))
+		return 0;
+	if (strchr(path, '/') || strchr(path, '\\'))
+		return 0;
+
+	return 1;
+}
+
 int main(int argc, char *argv[])
 {
 	const char *srcdir = getenv("srcdir");
 	const char *fn = argc > 1 ? argv[1] : "../etc/newscache.conf-dist";
+
+	if (argc > 1 && !isSafeConfigPath(fn)) {
+		cerr << "cConfig: invalid configuration filename\n";
+		exit(1);
+	}
 
 	if (srcdir && chdir(srcdir) != 0) {
 		cerr << "cConfig: cannot chdir to " << srcdir << "\n";
