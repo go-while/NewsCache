@@ -1837,7 +1837,15 @@ int CServer::post(Article * article)
 
 	gettimeofday(&tv, NULL);
 
-	snprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory);
+	if (snprintf(fn, sizeof(fn), "%s/.headerlog", _SpoolDirectory) >=
+	    (int) sizeof(fn)) {
+		// can't happen: SpoolDirectory is at most MAXSPOOLDIRLEN
+		// (Config::read, LServer::init), far below MAXPATHLEN; the
+		// check is for GCC (-Wformat-truncation), which can't see that
+		slog.p(Logger::Error) << "SpoolDirectory too long for "
+		    << ".headerlog, article header not logged\n";
+		return 0;
+	}
 	fs.open(fn, ios::app);
 	fs << getpid() << " " << tv.tv_sec << endl;
 	article->write(fs, Article::Head);
