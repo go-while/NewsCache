@@ -3752,6 +3752,8 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 				    Error) << cmnd <<
 				  ": Invalid parameter " << keyword << ": " <<
 				  spec << "\n";
+				cerr << cmnd << ": Invalid parameter " << keyword
+				    << ": " << spec << "\n";
 				exit(1);
 			}
 
@@ -3786,6 +3788,8 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 		    Error) << cmnd <<
 		  ": Can't resolve parameter " << keyword << ": " <<
 		  spec << "\n";
+		cerr << cmnd << ": Can't resolve parameter " << keyword << ": "
+		    << spec << "\n";
 		exit(1);
 	}
 
