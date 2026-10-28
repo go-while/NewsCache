@@ -532,12 +532,20 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
   gnutls_transport_set_int(_session, _buf.fd());
   gnutls_transport_set_pull_timeout_function(_session, pull_timeout_once);
 
+  // (GnuTLS counts the timeout from the handshake's start; the loop
+  // checks the same deadline itself, for each new call)
+  const time_t deadline = time(NULL) + (timeout ? timeout : 60);
   do
   {
     // SIGTERM (the daemon stops) ends the handshake too
     if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
     {
       info = "interrupted";
+      return false;
+    }
+    if (time(NULL) > deadline)
+    {
+      info = "timed out";
       return false;
     }
     rc = gnutls_handshake(_session);
@@ -571,11 +579,24 @@ void sockstream::sslstreambuf::disconnect()
   // Only our close_notify: waiting for the server's (SHUT_RDWR) could
   // wait for ever on a server that doesn't answer, or loop on
   // GNUTLS_E_AGAIN once the socket has a timeout.
+  // A client that reads nothing must not keep the session's process at
+  // its end (it may have no send timeout, ClientTimeout 0): a few
+  // seconds for the close_notify, and none once the alarm or a signal
+  // has come.
+  if (_server)
+  {
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    setsockopt(_buf.fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  }
   int rc_shutdown;
   do
   {
     rc_shutdown = gnutls_bye(_session, GNUTLS_SHUT_WR);
-  } while (rc_shutdown == GNUTLS_E_INTERRUPTED);
+  } while (rc_shutdown == GNUTLS_E_INTERRUPTED &&
+	   !(sockstreambuf::_alarm_indicator &&
+	     *sockstreambuf::_alarm_indicator));
 }
 
 

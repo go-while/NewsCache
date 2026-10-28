@@ -38,6 +38,21 @@ ListenTo DEFAULT
 #ListenTo 133.144.155.166:12000
 #ListenTo 133.144.155.166:telnet
 
+# TLS for clients (NNTP over TLS from the first byte, RFC 8143; needs a
+# build with GnuTLS): a second listening socket, same form as ListenTo,
+# default port 563. Certificate (PEM, followed by its intermediate
+# certificates, e.g. certbot's fullchain.pem) and its unencrypted PEM
+# key. They are loaded at the start, before NewsCache switches to
+# Username; SIGHUP loads them again as Username, so make the key
+# readable by Groupname (mode 0640) or restart after a renewal.
+# TLSPriority is an optional GnuTLS priority string (default: the
+# system's). In inetd mode, newscache -t does TLS on the passed socket.
+# A changed ListenTo or TLSListenTo needs a restart.
+#TLSListenTo DEFAULT:563
+#TLSCertFile /etc/newscache/fullchain.pem
+#TLSKeyFile /etc/newscache/privkey.pem
+#TLSPriority NORMAL:-VERS-ALL:+VERS-TLS1.3:+VERS-TLS1.2
+
 # The port, where NewsCache is listening, if running in standalone
 # mode. Either an entry from /etc/services or a port-number prepended
 # by a #-sign.
@@ -118,12 +133,17 @@ Admin root@localhost
 #	NewsCache checks passwords as Username (news), and only root may
 #	read /etc/shadow, so unix (and pam with pam_unix) can't check
 #	local accounts. Use file:, or PAM modules that work without root.
+# AuthRequiresTLS yes|no:
+#   yes: clients of this entry can log in only over TLS (TLSListenTo or
+#   newscache -t); on a plain connection AUTHINFO gets "483 Encryption
+#   required". Default no.
 #
 # NOTE: The first matching entry is used, so put Default last. Without a
 #       Default entry the file does not load. Nothing is allowed by default:
 #       a client may only read or post if a Client entry for its address or
 #       network (CIDR), or an entry with Authentication (login), allows it.
-#       Inetd mode (newscache -i) needs an entry for the client "stdin".
+#       Inetd mode (newscache -i) needs an entry for the client "stdin";
+#       with newscache -t the client is matched by its address.
 #       Login example: anyone may connect, but must log in first. The
 #       entry allows only the login itself; the rights come from the user
 #       file (user:hash:list:read:postto:allow, e.g. alice:$6$...:*:*:*:read,post).

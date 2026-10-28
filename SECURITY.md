@@ -91,9 +91,10 @@ per issue. Maintainers triage submissions and decide how to proceed.
 
 These are documented and don't need a private report:
 
-- NewsCache has no TLS for clients. Over a plain connection, AUTHINFO sends
-  the password in the clear. Put a TLS proxy such as stunnel or haproxy in
-  front of it (see [doc/newscache-stunnel-ssl.txt](doc/newscache-stunnel-ssl.txt)).
+- Over a plain connection (`ListenTo`), AUTHINFO sends the password in the
+  clear. Use TLS for clients (`TLSListenTo`, from 1.3.23), and
+  `AuthRequiresTLS yes` to refuse logins without it. STARTTLS for clients is
+  not offered.
 - The open points of the code review are public in [REVIEW.md](REVIEW.md).
 
 ## Scope

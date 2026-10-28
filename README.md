@@ -97,6 +97,14 @@ Added by Christof Meerwald (1.3.ipv6, 2008 to 2024):
 - A no-fork mode (`newscache -n`) and a systemd unit
   ([`debian/newscache.service`](debian/newscache.service)).
 
+Added in this repository (1.3.23):
+
+- TLS for clients (RFC 8143, implicit TLS on port 563) through GnuTLS: a
+  second listener `TLSListenTo` next to `ListenTo`, with `TLSCertFile`,
+  `TLSKeyFile` and optionally `TLSPriority`; `newscache -t` for inetd. An
+  `AccessList` entry with `AuthRequiresTLS yes` refuses AUTHINFO on plain
+  connections (483). STARTTLS for clients is not offered.
+
 ## Building
 
 NewsCache uses GNU autoconf/automake.
@@ -143,7 +151,7 @@ Useful `configure` options:
 
 | Option | Meaning |
 |---|---|
-| `--with-gnutls` | TLS to upstream servers (default: yes, if found) |
+| `--with-gnutls` | TLS to upstream servers and for clients (default: yes, if found) |
 | `--with-pam[=service]` | PAM authentication (default: no; service name `newscache`) |
 | `--with-md5`, `--with-md5auto` | MD5 password hashes for `authinfo` (default: yes). `--without-md5auto` checks every stored hash as MD5, so crypt() hashes in an auth file stop working |
 | `--with-shadow` | shadow passwords (default: auto) |
@@ -170,11 +178,12 @@ installed as `newscache.conf-dist` (source:
 [`etc/newscache.conf-dist`](etc/newscache.conf-dist)). Its main parts are:
 
 - **Global settings:** `ListenTo` (address and port, IPv6 as `[addr]:port`),
+  `TLSListenTo`/`TLSCertFile`/`TLSKeyFile`/`TLSPriority` (TLS for clients),
   `CachePort`, `Username`/`Groupname`, `SpoolDirectory`, `SpoolSize`,
   `MaxConnections`, `ClientTimeout`, `PrefetchFile`, logging.
 - **`AccessList`:** one `Client` entry per network or host name, plus a
-  `Default` entry. Each sets `allow`, `List`/`Read`/`PostTo` patterns and
-  `Authentication`. Nothing is allowed by default, not even localhost: the
+  `Default` entry. Each sets `allow`, `List`/`Read`/`PostTo` patterns,
+  `Authentication` and `AuthRequiresTLS`. Nothing is allowed by default, not even localhost: the
   sample config and the container config only have `Default { allow none }`,
   so a client may only connect once a `Client` entry for its address or
   network (CIDR), or an entry that requires a login (`allow authentication`,
@@ -215,14 +224,17 @@ servers don't offer STARTTLS on 119.
 - **systemd:** [`debian/newscache.service`](debian/newscache.service) runs
   `newscache -n`.
 - **SysV init:** an init script is generated as `etc/NewsCache.init`.
-- **inetd:** use `newscache -i`.
+- **inetd:** use `newscache -i`, or `newscache -t` for TLS clients (port 563).
+- **TLS for clients:** set `TLSListenTo`, `TLSCertFile` and `TLSKeyFile`; the
+  key must be readable by `Groupname` for a renewed certificate to load on
+  SIGHUP (otherwise restart). See `newscache.conf(5)`.
 - **cron or a timer:** run `newscacheclean` regularly to keep the spool
   below `SpoolSize`, for example daily with
   [`debian/newscache.newscacheclean.timer`](debian/newscache.newscacheclean.timer),
   and `updatenews` if you prefetch groups.
 
 More notes are in [`doc/`](doc/): PAM (`newscache-pam.txt`), stunnel/SSL for
-clients (`newscache-stunnel-ssl.txt`), debugging, core dumps and corrupt
+clients (`newscache-stunnel-ssl.txt`, from before `TLSListenTo`), debugging, core dumps and corrupt
 database files. The user manual is `doc/NewsCache.texi`; the
 [wiki](https://github.com/go-while/NewsCache/wiki) covers the same ground
 by task.

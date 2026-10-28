@@ -4,7 +4,7 @@
 newscache \- Cache for Network News Transport Protocol (NNTP)
 .SH SYNOPSIS
 .B newscache
-.RI "[\-h] [\-v] [\-f] [\-c config-file] [\-i] [\-d] [\-n] [\-p] [\-o]"
+.RI "[\-h] [\-v] [\-f] [\-c config-file] [\-i] [\-t] [\-d] [\-n] [\-p] [\-o]"
 .br
 .SH DESCRIPTION
 NewsCache is a free cache server for USENET News. NewsCache acts to news reading clients like a news server, except that it stores only those articles that have been requested by at least one client. NewsCache targets problems of the current News System like network bandwidth consumption or the IO load caused by news clients. NewsCache acts to the upstream news server like a news reader programm.
@@ -50,6 +50,16 @@ Read config-file instead of
 .B \-i \-\-inetd
 newscache is used with inetd and read from stdin.
 .TP
+.B \-t \-\-tls
+As \-i, for a client that uses TLS from the first byte (port 563,
+nntps): standard input is the client's socket, and newscache does the
+TLS handshake with TLSCertFile and TLSKeyFile (see
+.BR newscache.conf (5)).
+The certificate and key are loaded before newscache switches to
+Username, so it may be started as root. The client is matched in the
+AccessList by its address (not as stdin, as with \-i). In standalone
+mode, TLSListenTo does this for a second listening socket.
+.TP
 .B \-d \-\-debug
 Do not detach: stay in the foreground (the same as \-n).
 .TP
@@ -58,7 +68,9 @@ Do not fork into the background, as for systemd (Type=simple) or a
 container; the same as \-d.
 .TP
 .B \-p \-\-print-parameter
-Print current parameter settings. Upstream server passwords are not shown;
+Print current parameter settings; with TLSCertFile set, it loads the
+certificate, key and TLSPriority first and exits with status 2 if that
+fails. Upstream server passwords are not shown;
 each one is replaced by the comment
 .IR "# Password set, not shown" .
 .TP
@@ -82,7 +94,8 @@ SIGTERM to all its session processes and ends. SIGPIPE is ignored.
 
 This  signal instruct NewsCache to reread its configuration file
 .I @SYSCONFDIR@/newscache.conf
-\.
+\. With TLSListenTo it loads TLSCertFile and TLSKeyFile again, as
+Username; listening addresses change only with a restart.
 
 .SH NOTES
 Running NewsCache in
@@ -90,6 +103,11 @@ Running NewsCache in
 mode requires a correct inetd configuration. An example configuration line looks like:
 .PP
 .B news stream tcp nowait news /usr/sbin/newscache -i
+.PP
+and for TLS clients (the key readable by user news, or root in the
+user field: newscache switches to Username after loading it):
+.PP
+.B nntps stream tcp nowait root /usr/sbin/newscache -t
 .PP
 
 .SH DIAGNOSTICS

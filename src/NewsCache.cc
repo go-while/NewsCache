@@ -83,6 +83,9 @@ const char * const ConfigurationOptions[] = {
 #ifdef WITH_UNIQUE_PACKAGE_NAME
 	"--with-uniquename",
 #endif
+#ifdef HAVE_GNUTLS
+	"--with-gnutls",
+#endif
 	NULL
 };
 
