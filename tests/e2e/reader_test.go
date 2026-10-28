@@ -34,6 +34,54 @@ func TestModeReader(t *testing.T) {
 	}
 }
 
+// TestReaderRefusesTransitCommands: reader connections neither advertise nor
+// accept the transit-only IHAVE, CHECK, TAKETHIS and MODE STREAM commands.
+func TestReaderRefusesTransitCommands(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+
+	caps := map[string]bool{}
+	for _, line := range capabilities(t, c) {
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			caps[strings.ToUpper(fields[0])] = true
+		}
+	}
+	for _, name := range []string{"IHAVE", "CHECK", "TAKETHIS", "STREAMING"} {
+		if caps[name] {
+			t.Errorf("reader CAPABILITIES advertises %s", name)
+		}
+	}
+
+	const id = "<transit-reader@upstream.test>"
+	for _, tc := range []struct {
+		command string
+		want    int
+	}{
+		{"IHAVE " + id, 500},
+		{"CHECK " + id, 500},
+		{"TAKETHIS " + id, 500},
+		{"MODE STREAM", 501},
+	} {
+		if code, line := c.Cmd("%s", tc.command); code != tc.want {
+			t.Errorf("%s: %q, want %d refusal", tc.command, line, tc.want)
+		}
+	}
+
+	if lines := e.Upstream.Lines(); len(lines) != 0 {
+		t.Errorf("reader transit commands reached the upstream: %q", lines)
+	}
+	if code, line := c.Cmd("STAT %s", id); code != 430 {
+		t.Errorf("STAT %s after refused transit commands: %q, want 430 (not stored)", id, line)
+	}
+	if posted := e.Store.Posted(); len(posted) != 0 {
+		t.Errorf("reader transit commands posted %d articles upstream", len(posted))
+	}
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Errorf("QUIT: %q, want 205", line)
+	}
+}
+
 func TestListActive(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 3)
