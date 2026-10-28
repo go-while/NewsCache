@@ -104,7 +104,12 @@ AC_ARG_WITH(gnutls, [  --with-gnutls           build with GnuTLS support [defaul
 AC_DEFINE(PACKAGE_NEWSCACHECLEAN, ["NewsCacheClean"], [newscacheclean package])
 AC_DEFINE(PACKAGE_UPDATENEWS, ["updatenews"], [updatenews package])
 
-dnl Set CONFDIR in config.h.
+dnl Set CONFDIR in config.h. Autoconf replaces an unset prefix (NONE) by
+dnl the default only at the end of configure, so without --prefix the
+dnl expansion gave "NONE/etc" (the programs looked for
+dnl NONE/etc/newscache.conf, and make install wrote into ./NONE/etc).
+test "x$prefix" = xNONE && prefix=$ac_default_prefix
+test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
 if test x"$sysconfdir" = x"\${prefix}/etc"; then
   # sysconfdir is set to its default value... fine
   sysconfdir=`eval echo "$sysconfdir"`

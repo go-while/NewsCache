@@ -134,8 +134,10 @@ older).
   been built.
 - Socket++ is **no longer** required. NewsCache now ships its own socket
   stream (`NServer-0.9.1/sockstream.*`).
-- Always pass `--prefix` (or `--sysconfdir`) to `configure`. Otherwise the
-  built-in configuration path can end up as the literal `NONE/etc/newscache.conf`.
+- Without `--prefix` or `--sysconfdir`, the configuration file is
+  `/usr/local/etc/newscache.conf`. Packages usually want
+  `--prefix=/usr --sysconfdir=/etc`. (Up to 1.3.22 a plain `configure` made
+  the built-in path the literal `NONE/etc/newscache.conf`.)
 
 Useful `configure` options:
 

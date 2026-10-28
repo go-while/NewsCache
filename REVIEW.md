@@ -235,6 +235,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | `sockstreambuf::underflow` and `sslstreambuf::underflow` returned `*gptr()` as a plain `char` when the buffer wasn't empty: a 0xFF byte is -1 (EOF) where `char` is signed. libstdc++ calls `underflow` only on an empty buffer, so no path reaches it today; both returns now use `traits_type::to_int_type`. No test: the classes are private to `sockstream` | 7 | review (areas 1, 7) | #137 |
 | `newscacheclean -s -t` skipped `remove_elements`, so all statistics stayed zero. Try mode now collects the found database/article counts and sizes without removing files; the purged counts remain zero | 11 | review (area 11) | #138 |
 | Built with `--enable-headerlog`, GCC warned `-Wformat-truncation` for `snprintf(fn, sizeof(fn), "%s/.headerlog", ...)` in `CServer::post` (`fn[MAXPATHLEN]`). The truncation can't happen (SpoolDirectory is capped at MAXSPOOLDIRLEN, at least 528 bytes below MAXPATHLEN, by Config::read and LServer::init), but GCC can't see that. Now the result is checked (a name that doesn't fit would be logged as an error and the header not logged), which silences the warning | 13, 14 | review (integration of #111) | #139 |
+| configure expanded `sysconfdir` for `SYSCONFDIR` while `prefix` was still `NONE` (autoconf sets the default only at the end): a build without `--prefix` (CI's too) looked for `NONE/etc/newscache.conf`, and `make install` wrote into `./NONE/etc`; README said to always pass `--prefix`. Now an unset prefix is the default (`/usr/local`) before the expansion | 14 | review (area 14) | #140 |
 
 ## Open points
 
@@ -252,6 +253,8 @@ that it stays as it is.
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
 | AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
 | A configuration file that can't be opened (missing, no read permission) is reported as `unexpected EOF in <file>` by newscache, newscacheclean and updatenews (`cConfig.cc`): the `IOError` of the lexer doesn't say why. Should name the file and `strerror(errno)` | 6 | review (seen with #133) |  |
+| `etc/NewsCache.init.in` is turned into `etc/NewsCache.init` by configure but installed by nothing; it is a Red Hat SysV script for a binary `NewsCache` that doesn't exist (the binary is `newscache`). Remove it and its `AC_CONFIG_FILES` line, or update it | 14 | review (area 14) |  |
+| `--with-gnutls` (and the default) build without TLS when GnuTLS isn't found, silently: `ssl`/`starttls` then give the "ignored without GnuTLS" behaviour. An explicit `--with-gnutls=yes` should fail instead | 14 | review (area 14) |  |
 
 ## CodeQL dismissals
 
