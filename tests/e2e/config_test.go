@@ -13,6 +13,22 @@ import (
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
+// TestDefaultConfigPath: without -c newscache reads SYSCONFDIR/newscache.conf.
+// configure expanded sysconfdir while the prefix was still unset, so a build
+// without --prefix (as CI's) looked for "NONE/etc/newscache.conf". The file
+// needn't exist here: the error message or the printed parameters must just
+// not name a NONE/ path. (Only newscache -p, which reads nothing but the
+// config: newscacheclean scans the spool of an existing default config even
+// with -t, and opening a damaged group database there moves it aside; the
+// three programs share SYSCONFDIR from config.h.)
+func TestDefaultConfigPath(t *testing.T) {
+	e := newEnv(t)
+	out, _ := exec.Command(e.Bin, "-p").CombinedOutput()
+	if strings.Contains(string(out), "NONE/") {
+		t.Errorf("newscache -p uses a NONE/ path: %q", out)
+	}
+}
+
 // TestConfigurationOptionsWithoutConfig: newscache -o prints the configure
 // options of the binary. It read the configuration file first and failed
 // (exit 2) when that had an error or was missing, although it doesn't use it.

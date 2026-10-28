@@ -22,6 +22,10 @@ Behaviour changes:
 * updatenews -l alone works as -g -l (prefetch the groups, each one
   locked); it prefetched nothing. -a alone still only posts the queue and
   refreshes the active database.
+* configure without --prefix: the built-in configuration path is
+  /usr/local/etc/newscache.conf (the default prefix), and make install puts
+  the files there. It was the literal NONE/etc/newscache.conf, and make
+  install wrote into ./NONE/etc.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
