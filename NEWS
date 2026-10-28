@@ -62,10 +62,10 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
-* LimitGroupSize was not applied when a server's active list was refreshed;
-  until the group information was refreshed separately, LIST ACTIVE and
-  updatenews -g could use the full article range. Active-list entries now
-  keep the same newest-N cut as GROUP replies.
+* LimitGroupSize was not applied to LIST ACTIVE entries. Until a GROUP reply
+  refreshed the active database, LIST ACTIVE and cached GROUP results exposed
+  the full range and updatenews -g could prefetch it. Active-list entries now
+  get the same newest-N cut as GROUP replies.
 * Authentication file: and pam+file: now warn at server start, and after a
   successful SIGHUP reload, when an auth file is writable by group or world
   or is a symbolic link. The warning includes the path and never blocks login;
