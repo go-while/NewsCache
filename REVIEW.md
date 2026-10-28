@@ -232,6 +232,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | `newscache -o` (the configure options of the binary) read the configuration file first and exited with 2 when it was missing or had an error, although it doesn't use it; newscache(8) documented that. Now it prints before the configuration is read, like `-v` | 5 | review (area 5) | #133 |
 | `XDEBUG dump authorization` and `dump configuration` ended their lines with a bare LF: `operator<<(AccessEntry)` and `Config::printParameters` wrote `endl` straight to the client stream (RFC 3977 3.1 wants CRLF; a strict client stops at the first line), and a line starting with `.` wasn't dot-stuffed. Now the dump is collected first and sent line by line with CRLF and dot-stuffing (`send_text_lines`) | 1, 13 | review (seen with #134) | #135 |
 | `updatenews -l` (lock each group while prefetching it, a modifier of `-g`) counted as a mode of its own: with `-l` alone the default `-g` was dropped and nothing was prefetched; updatenews(8) documented that. Now `-l` alone works as `-g -l`; `-a` alone still only refreshes the active database | 12 | review (area 12) | #136 |
+| `sockstreambuf::underflow` and `sslstreambuf::underflow` returned `*gptr()` as a plain `char` when the buffer wasn't empty: a 0xFF byte is -1 (EOF) where `char` is signed. libstdc++ calls `underflow` only on an empty buffer, so no path reaches it today; both returns now use `traits_type::to_int_type`. No test: the classes are private to `sockstream` | 7 | review (areas 1, 7) | #137 |
 
 ## Open points
 
@@ -243,7 +244,6 @@ that it stays as it is.
 | "No such user" and "wrong password" can be told apart by the time the answer takes | 3 | review (area 3) |  |
 | MD5 auth-file hashes are wrong on big-endian hosts: `HIGHFIRST` is never defined | 3 | review (area 3) | unit check of md5 on a big-endian build |
 | `src/crypt.cc` doesn't compile and nothing builds it (dead code); the man page recommends htpasswd, whose default `$apr1$` hashes libxcrypt can't check | 3, 0 | review (area 3) |  |
-| `underflow` returns a 0xFF byte as EOF when the buffer isn't empty | 7 | review (areas 1, 7) |  |
 | The remap fix (#105) leaves one case: when `lock(UnLock)` goes back to an outer lock and `make_current` fails there (the file grew between the inner and the outer lock), the outer lock stays held with the mapping reset to NULL, and the outer caller's next access dereferences it (the old code crashed on the stale mapping) | 9 | review (area 9, integration of #105) |  |
 | Built with `--enable-headerlog`, GCC warns `-Wformat-truncation` for `snprintf(fn, sizeof(fn), "%s/.headerlog", ...)` in `NServer.cc` (`fn[MAXPATHLEN]`); harmless unless SpoolDirectory is close to PATH_MAX | 13, 14 | review (integration of #111) |  |
 | SIGHUP reload: the startup-only fields (ListenTo, CachePort, Username, Groupname, PidFile, LogDirectory, ServerType, NiceServer) change silently without effect (log "restart needed"); a new Hostname isn't copied to `nntp_hostname`; `Config::init` runs `getfqdn()` (DNS) on every reload; the config must be readable by Username | 5, 6 | review (area 6, L7) |  |

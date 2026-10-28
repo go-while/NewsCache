@@ -338,7 +338,8 @@ int sockstream::sockstreambuf::underflow()
 {
   if (gptr() < egptr())
   {
-    return *gptr();
+    // as unsigned: a plain char 0xFF is -1, which is EOF
+    return traits_type::to_int_type(*gptr());
   }
 
   int rc_recv;
@@ -356,7 +357,7 @@ int sockstream::sockstreambuf::underflow()
   if (rc_recv > 0)
   {
     setg(_gbuf, _gbuf, _gbuf + rc_recv);
-    return (unsigned char) *gptr();
+    return traits_type::to_int_type(*gptr());
   }
   else
   {
@@ -533,7 +534,8 @@ int sockstream::sslstreambuf::underflow()
 {
   if (gptr() < egptr())
   {
-    return *gptr();
+    // as unsigned: a plain char 0xFF is -1, which is EOF
+    return traits_type::to_int_type(*gptr());
   }
 
   int rc_read;
@@ -549,7 +551,7 @@ int sockstream::sslstreambuf::underflow()
   if (rc_read > 0)
   {
     setg(_buf._gbuf, _buf._gbuf, _buf._gbuf + rc_read);
-    return (unsigned char) *gptr();
+    return traits_type::to_int_type(*gptr());
   }
   else
   {
