@@ -496,6 +496,82 @@ func TestUpdatenewsLockGroupAlone(t *testing.T) {
 	}
 }
 
+// TestUpdatenewsLimitGroupSize: an active-list refresh applies the server's
+// LimitGroupSize before the active database is used for prefetch or clients.
+func TestUpdatenewsLimitGroupSize(t *testing.T) {
+	e := newEnv(t)
+	group := "test.limited"
+	e.addArticles(group, 20)
+	// The active-list metadata is fresh, so GROUP must not refresh it.
+	e.GroupTimeout = 3600
+	e.ServerLines = "    LimitGroupSize 10"
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	runUpdate := func(mode string) {
+		t.Helper()
+		out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, mode).CombinedOutput()
+		if err != nil {
+			t.Fatalf("updatenews %s: %v\n%s", mode, err, out)
+		}
+	}
+	runUpdate("-a")
+
+	c := e.session()
+	if code, line := c.Cmd("LIST ACTIVE %s", group); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	lines := c.ReadDotLines()
+	found := false
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 4 && fields[0] == group {
+			found = true
+			if fields[1] != "20" || fields[2] != "11" {
+				t.Errorf("LIST ACTIVE %s: %q, want last=20 first=11", group, line)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("LIST ACTIVE omitted %s: %q", group, lines)
+	}
+
+	code, line := c.Cmd("GROUP %s", group)
+	if code != 211 {
+		t.Fatalf("GROUP %s: %q, want 211", group, line)
+	}
+	fields := strings.Fields(line)
+	if len(fields) < 5 || fields[1] != "10" || fields[2] != "11" ||
+		fields[3] != "20" || fields[4] != group {
+		t.Errorf("GROUP %s: %q, want count=10 first=11 last=20", group, line)
+	}
+	c.Cmd("QUIT")
+
+	// Now prefetch from the active entry refreshed by -a above. GroupTimeout
+	// keeps groupinfo from replacing it with a GROUP reply first.
+	runUpdate("-g")
+	var articles []string
+	for _, line := range e.Upstream.Lines() {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.EqualFold(fields[0], "ARTICLE") {
+			articles = append(articles, strings.Join(fields[1:], " "))
+		}
+	}
+	if len(articles) != 10 {
+		t.Fatalf("updatenews fetched %d articles, want 10: %q", len(articles), articles)
+	}
+	for i, article := range articles {
+		if want := fmt.Sprint(i + 11); article != want {
+			t.Errorf("updatenews fetched article %s at request %d, want %s", article, i+1, want)
+		}
+	}
+}
+
 // TestUpdatenewsWorkersOption: -w N and --workers=N (in the man page and the
 // usage text) are accepted, and --lock-groups as the usage text spelled it.
 // -w was never handled: updatenews printed the usage and exited 1 without

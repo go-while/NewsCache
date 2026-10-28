@@ -856,7 +856,8 @@ ActiveDB *RServer::active()
 								 _ServerList->
 								 makeFilter(i,
 									    cgroup.c_str()).c_str(),
-								 flags);
+								 flags,
+								 _CurrentServer->limitgroupsize);
 						}
 						catch(...) {
 							reply_unread();
@@ -886,7 +887,8 @@ ActiveDB *RServer::active()
 					_ActiveDB->read(*_pServerStream,
 							_ServerList->makeFilter(i,
 										"*").c_str(),
-							flags);
+							flags,
+							_CurrentServer->limitgroupsize);
 				}
 				catch(...) {
 					reply_unread();

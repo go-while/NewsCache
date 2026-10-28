@@ -137,11 +137,14 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 
 	/**
 	 * Read active database records and store those matching the filter
-	 * expression in the active database.
+	 * expression in the active database. A nonzero limit keeps only the
+	 * newest article numbers in each stored range.
+	 * \param limit Maximum range size, or 0 for no limit.
 	 * \throw System System Function Errors
 	 * \throw ResponseErr Response Error
 	 */
-	void read(std::istream & is, const char *filter, int flags = 0);
+	void read(std::istream & is, const char *filter, int flags = 0,
+		  unsigned int limit = 0);
 	void write(std::ostream & os, nvtime_t ctime = 0, int mode =
 		   m_active, const char *filter = NULL);
 
