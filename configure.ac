@@ -318,6 +318,7 @@ then
 			AC_DEFINE(HAVE_GNUTLS,, Build with GNUTLS support)
 			LIBS="$LIBS -lgnutls"
 			have_gnutls=yes
+			AC_CHECK_FUNCS(gnutls_rnd_refresh)
 		])
 	],,)
 fi

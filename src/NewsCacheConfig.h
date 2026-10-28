@@ -32,6 +32,13 @@ class Config {
 	char ListenTo[MAXHOSTNAMELEN];
 	int ListenToSet;	// ListenTo is in the file (then CachePort is ignored)
 
+	// Clients with TLS from the first byte (RFC 8143), on a second
+	// listening socket; empty: none
+	char TLSListenTo[MAXHOSTNAMELEN];
+	char TLSCertFile[MAXPATHLEN];	// PEM, the server's certificate first
+	char TLSKeyFile[MAXPATHLEN];	// PEM private key
+	char TLSPriority[1024];	// GnuTLS priority string; empty: the default
+
 
 	enum {
 		LogINN = 0x1,

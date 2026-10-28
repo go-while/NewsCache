@@ -59,6 +59,7 @@ void Config::init(void)
 	CachePort[0] = '\0';
 	strcpy (ListenTo, "DEFAULT");
 	ListenToSet = 0;
+	TLSListenTo[0] = TLSCertFile[0] = TLSKeyFile[0] = TLSPriority[0] = '\0';
 
 	LogDirectory[0] = '\0';
 	LogStyle = LogName + LogAddr;
@@ -131,6 +132,14 @@ void Config::read(const char *fn)
 			STRNCPY(ListenTo, a1);
 			ListenToSet = 1;
 		} else
+			HANDLESTRGARG(TLSListenTo)
+			    else
+			HANDLESTRGARG(TLSCertFile)
+			    else
+			HANDLESTRGARG(TLSKeyFile)
+			    else
+			HANDLESTRGARG(TLSPriority)
+			    else
 			HANDLESTRGARG(Admin)
 			    else
 			HANDLESTRGARG(PidFile)
@@ -250,6 +259,23 @@ void Config::read(const char *fn)
 					  ERROR_LOCATION);
 		}
 	}
+
+	// TLS for clients: a listener needs the certificate and the key,
+	// and the two only make sense together. (They are loaded when the
+	// daemon starts, not here: updatenews and newscacheclean read this
+	// file too, as the news user, who may not read the key.)
+	if ((TLSCertFile[0] != '\0') != (TLSKeyFile[0] != '\0'))
+		throw SyntaxError(lex, "TLSCertFile and TLSKeyFile go together",
+				  ERROR_LOCATION);
+	if (TLSListenTo[0] != '\0') {
+#if !defined(HAVE_GNUTLS)
+		throw SyntaxError(lex, "TLSListenTo needs a build with GnuTLS",
+				  ERROR_LOCATION);
+#endif
+		if (TLSCertFile[0] == '\0')
+			throw SyntaxError(lex, "TLSListenTo needs TLSCertFile "
+					  "and TLSKeyFile", ERROR_LOCATION);
+	}
 }
 
 void Config::printParameters (ostream *pOut)
@@ -276,6 +302,14 @@ void Config::printParameters (ostream *pOut)
 	// (read back, a ListenTo line would make CachePort ignored)
 	if (ListenToSet || CachePort[0] == '\0')
 		*pOut << "ListenTo " << ListenTo << endl;
+	if (TLSListenTo[0] != '\0')
+		*pOut << "TLSListenTo " << TLSListenTo << endl;
+	if (TLSCertFile[0] != '\0')
+		*pOut << "TLSCertFile " << TLSCertFile << endl;
+	if (TLSKeyFile[0] != '\0')
+		*pOut << "TLSKeyFile " << TLSKeyFile << endl;
+	if (TLSPriority[0] != '\0')
+		*pOut << "TLSPriority " << TLSPriority << endl;
 	if (LogDirectory[0] != '\0') {
 		*pOut << "LogDirectory " << LogDirectory << endl;
 	}

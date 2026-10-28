@@ -4,6 +4,11 @@
 							  Author: Herbert Straub
 						  e-mail: herbert@linuxhacker.at
 
+Since 1.3.23 NewsCache can do TLS for clients itself: see TLSListenTo,
+TLSCertFile and TLSKeyFile in newscache.conf(5), and newscache -t for
+inetd. The stunnel setup below still works, but NewsCache then sees
+every client as coming from stunnel's address.
+
 1) Installing stunnel
 ---------------------
 

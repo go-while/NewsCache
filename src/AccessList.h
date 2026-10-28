@@ -120,6 +120,7 @@ class AccessEntry {
 	NewsgroupFilter postTo;	//! groups that clients may post to
 	Authentication authentication;
 	std::string PAMServicename;  //! PAM Service name for this Client
+	bool auth_requires_tls;	//! AuthRequiresTLS: no AUTHINFO without TLS
 
 	AccessEntry() {
 		init();
@@ -130,6 +131,7 @@ class AccessEntry {
 		prefixlen = 0;
 		access_flags = 0x0;
 		PAMServicename = PAM_DEFAULT_SERVICENAME;
+		auth_requires_tls = false;
 	}
 
 	void clear() {

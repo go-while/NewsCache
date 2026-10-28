@@ -218,6 +218,58 @@ can be specified.
 listens on all IPv4 and IPv6 addresses, with one IPv6 socket
 that accepts IPv4 clients too; on a host without IPv6, on all
 IPv4 addresses. Use 0.0.0.0 to listen on IPv4 only.
+A changed ListenTo, TLSListenTo or CachePort takes effect when
+newscache is restarted, not on SIGHUP (it logs a notice then).
+.TP
+.I "TLSListenTo specification"
+A second listening socket, for clients that use TLS from the first
+byte ("implicit TLS", RFC 8143; NNTP over TLS is port 563, nntps).
+The same form as ListenTo; the default port is 563. Unset (the default),
+there is no TLS listener. The daemon serves both: plain NNTP on
+ListenTo, TLS on TLSListenTo, with the same AccessList, MaxConnections
+and spool. STARTTLS is not offered. Needs TLSCertFile and TLSKeyFile,
+and a build with GnuTLS (newscache -o lists --with-gnutls unless it was
+left out); otherwise the configuration is refused. For inetd mode see
+.B \-t
+in
+.BR newscache (8).
+.IP
+The handshake takes at most ClientTimeout seconds, and never more than
+30, also when ClientTimeout is 0: a client that connects and doesn't
+finish it is dropped without a reply. When MaxConnections is reached, a
+TLS client is disconnected without the "400 too many users" a plain
+client gets (it would be plain text in a TLS connection).
+.TP
+.I "TLSCertFile file"
+The server's certificate for TLS clients, in PEM format, followed by
+the intermediate certificates of its chain (a certbot fullchain.pem).
+.TP
+.I "TLSKeyFile file"
+The private key of TLSCertFile, in PEM format, not encrypted.
+newscache loads the certificate and key when it starts, before it
+switches to
+.IR Username ,
+so a key that only root may read works; it exits with an error if they
+can't be loaded or don't belong together.
+.B newscache \-p
+checks them too. On SIGHUP it loads them again (for a renewed
+certificate), but by then it runs as
+.IR Username :
+make the key readable by
+.I Groupname
+(for example mode 0640, group news), or restart newscache after a
+renewal. If the reload fails, the certificate loaded before stays and
+the error is logged. newscache warns about a key that every user may
+read, and about a certificate that has expired or isn't valid yet.
+.TP
+.I "TLSPriority priority-string"
+The GnuTLS priority string for TLS clients (see
+.BR gnutls_priority_init (3)),
+for example NORMAL:-VERS-ALL:+VERS-TLS1.3:+VERS-TLS1.2 for TLS 1.2 and
+1.3 only. The default is the system's default priority (on Fedora and
+RHEL the system-wide crypto policy). An invalid string is refused;
+newscache warns about a string that allows SSL 3.0, TLS 1.0 or TLS 1.1,
+which are deprecated (RFC 8996).
 .SS AccessSpec Configuration Options
 .IP
 .nf
@@ -228,6 +280,7 @@ IPv4 addresses. Use 0.0.0.0 to listen on IPv4 only.
 	\fIRead\fR NGSpecification
 	\fIPostTo\fR NGSpecification
 	\fIAuthentication\fR authenticationSpecification
+	\fIAuthRequiresTLS\fR yes|no
 }
 
 .fi
@@ -298,6 +351,15 @@ hugo:at.test:at.test:at.test:post
 .fi
 The fields are List, Read, PostTo and the allow flags, as in the file: format but without the password. After PAM has accepted the password, the rights of every line that applies are added to those of the entry: the line *, the lines @group of the groups the user is a member of (supplementary groups, as listed in the group database), and the user's own line, in that order. In the example, hugo can list, read and post to at.test and use the post command; if hugo is a member of mygroup, de.* is added; and every user, hugo included, can list and read us.*. A user without a line of their own gets the rights of * and of their groups. If no line applies, the login is refused.
 
+.IP "AuthRequiresTLS yes|no"
+With yes, a client of this entry can log in only over TLS (TLSListenTo,
+or newscache \-t): on a plain connection AUTHINFO USER and AUTHINFO PASS
+are answered with "483 Encryption required" (RFC 4643), and CAPABILITIES
+lists AUTHINFO without USER. The client's other rights don't change; a
+required login (Authentication unix without fields) then means TLS is
+required too. The default is no. newscache warns if the entry has no
+Authentication, or if there is no TLS for clients at all (then nobody of
+this entry can log in).
 .IP "PAMServicename name-of-service"
 This parameter specifiy the name of the PAM Service. The default is newscache. You can use different PAM settings for each Client network. For further explanation of PAM see the System administrators PAM Guide. This Guide can be downloaded from http://www.kernel.org/pub/linux/libs/pam/pre/doc/
 

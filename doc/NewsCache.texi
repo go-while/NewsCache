@@ -277,12 +277,48 @@ CachePort nntp
 PidFile /run/newscache.pid
 @end example
 
+@cdindex TLSListenTo
+@cdindex TLSCertFile
+@cdindex TLSKeyFile
+@cdindex TLSPriority
+@cindex TLS for clients
+NewsCache can also offer NNTP over TLS to its clients (``implicit TLS''
+as RFC 8143 recommends: TLS from the first byte, usually on port 563).
+@code{TLSListenTo} opens a second listening socket, in the same form as
+@code{ListenTo} (default port 563), next to the plain one; both serve
+the same spool with the same access list. The certificate (followed by
+its intermediate certificates, as in certbot's @file{fullchain.pem}) and
+its key are given in PEM files; @code{TLSPriority} optionally sets the
+GnuTLS priority string, for example to allow TLS 1.2 and 1.3 only. This
+needs a build with GnuTLS. STARTTLS is not offered.
+
+@example
+ListenTo DEFAULT
+TLSListenTo DEFAULT:563
+TLSCertFile /etc/newscache/fullchain.pem
+TLSKeyFile /etc/newscache/privkey.pem
+#TLSPriority NORMAL:-VERS-ALL:+VERS-TLS1.3:+VERS-TLS1.2
+@end example
+
+NewsCache loads the certificate and key when it starts, before it
+switches to @code{Username}, and exits if they can't be loaded;
+@code{newscache -p} checks them too. @code{SIGHUP} loads them again,
+for example after a renewal, but then as @code{Username}: make the key
+readable by @code{Groupname} (mode 0640) or restart NewsCache after a
+renewal. A changed @code{ListenTo} or @code{TLSListenTo} needs a
+restart. The TLS handshake must be done within @code{ClientTimeout}
+seconds, at most 30. With inetd, @code{newscache -t} instead of
+@code{-i} does the TLS handshake on the socket inetd passes.
+With @code{AuthRequiresTLS yes} in an @code{AccessList} entry, its
+clients can log in only over TLS (@pxref{Access Control}).
+
 @cdindex MaxConnections
 If NewsCache is started as standalone server, the maximum number of
 connections can be specified using the @code{MaxConnections}
 command. Whenever a new client connects when this limit is reached, it
 will receive a @code{400 too many users} response and the connection
-will be closed afterwards.
+will be closed afterwards (a client on @code{TLSListenTo} is
+disconnected without that reply, which would be plain text).
 
 @example
 MaxConnections 16
@@ -1027,6 +1063,13 @@ without fields) or on an entry that allows only the login, it lists
 @samp{AUTHINFO USER} but not @samp{READER}, @samp{HDR}, @samp{OVER},
 @samp{LIST} or @samp{POST}; after the login it lists the rights the
 login gave.
+@cdindex AuthRequiresTLS
+With @code{AuthRequiresTLS yes}, a client of the entry can log in only
+over TLS (@code{TLSListenTo} or @code{newscache -t}): on a plain
+connection @code{AUTHINFO} gets @samp{483 Encryption required} (RFC
+4643), and @code{CAPABILITIES} lists @samp{AUTHINFO} without
+@samp{USER}. NewsCache warns if the entry has no @code{Authentication},
+or if there is no TLS for clients at all.
 A post to a group outside @code{PostTo} is refused with @samp{441}
 after the article has been sent, the only failure reply RFC 3977
 allows there; while a login could add the group, the text says

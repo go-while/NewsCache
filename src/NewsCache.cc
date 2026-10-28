@@ -48,6 +48,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <time.h>
 #include <limits.h>
 
@@ -81,6 +82,9 @@ const char * const ConfigurationOptions[] = {
 #endif
 #ifdef WITH_UNIQUE_PACKAGE_NAME
 	"--with-uniquename",
+#endif
+#ifdef HAVE_GNUTLS
+	"--with-gnutls",
 #endif
 	NULL
 };
@@ -517,6 +521,7 @@ class ClientData {
 	artnum_t nbr;		// current article, 0 = none
 
 	AccessEntry *access_entry;
+	bool tls;		// the connection is TLS (TLSListenTo, -t)
 	char auth_user[512];
 	bool auth_user_valid; // a USER is pending for one PASS
 	bool auth_refused;    // the last AUTHINFO checked a password and refused it
@@ -540,7 +545,8 @@ class ClientData {
 	ClientData()
 		: client_logname(""),
 		  grp(NULL), nbr(0),
-		  access_entry(NULL), auth_user_valid(false), auth_refused(false),
+		  access_entry(NULL), tls(false),
+		  auth_user_valid(false), auth_refused(false),
 		  auth_state(AUTH_OK),
 		  auth_failures(0),
 		  auth_max_failures(3), auth_failure_sleep_time(Cfg.AuthFailureDelay),
@@ -1443,6 +1449,16 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		else
 			(*clt->co) << REJECT_SEQUENCE
 			    " already authenticated\r\n";
+		return -1;
+	}
+	// AuthRequiresTLS: no user name or password over a plain connection
+	// (RFC 4643 2.2, 2.3.2: 483). Before the name is stored, so that a
+	// PASS after it gets 483 too, not 482.
+	if (clt->access_entry->auth_requires_tls && !clt->tls) {
+		clt->auth_user_valid = false;
+		if (argc >= 3 && !strcasecmp(argv[1], "pass"))
+			clear_password(argv[2]);
+		(*clt->co) << "483 Encryption required, connect with TLS\r\n";
 		return -1;
 	}
 	// check arguments
@@ -2869,7 +2885,12 @@ int ns_capabilities(ClientData * clt, int argc, char *argv[])
 	(*clt->co) << "IMPLEMENTATION " PACKAGE " " VERSION "\r\n";
 	if (clt->access_entry->authentication.getType() != "none" &&
 	    clt->auth_state != AUTH_OK) {
-		(*clt->co) << "AUTHINFO USER\r\n";
+		// without USER where AUTHINFO USER would get 483 (RFC 4643
+		// 2.1: it is not available now)
+		if (clt->access_entry->auth_requires_tls && !clt->tls)
+			(*clt->co) << "AUTHINFO\r\n";
+		else
+			(*clt->co) << "AUTHINFO USER\r\n";
 	}
 	if (rights & AccessEntry::af_read) {
 		(*clt->co) << "READER\r\n";
@@ -3013,19 +3034,37 @@ static void finish_reply(ostream & co, const ReplyTracker & tracker,
  * A send or receive that times out fails; the stream goes bad and the
  * session ends.
  */
-static void set_client_timeouts(int in_fd, int out_fd)
+static void set_socket_timeouts(int in_fd, int out_fd, int rcv, int snd)
 {
-	if (Cfg.ClientTimeout <= 0)
-		return;
 	struct timeval tv;
 	tv.tv_usec = 0;
-	tv.tv_sec = Cfg.ClientTimeout;
+	tv.tv_sec = snd;
 	setsockopt(out_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-	tv.tv_sec = Cfg.ClientTimeout + 10;
+	tv.tv_sec = rcv;
 	setsockopt(in_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
-void nnrpd(int fd)
+static void set_client_timeouts(int in_fd, int out_fd)
+{
+	// (0: no timeout; set anyway, the TLS handshake had its own)
+	if (Cfg.ClientTimeout <= 0)
+		set_socket_timeouts(in_fd, out_fd, 0, 0);
+	else
+		set_socket_timeouts(in_fd, out_fd, Cfg.ClientTimeout + 10,
+				    Cfg.ClientTimeout);
+}
+
+// Seconds a client's TLS handshake may take in all: ClientTimeout, at most
+// 30, also when ClientTimeout is 0 (no limit for commands). Each session is
+// a process counted in MaxConnections, and a client that never finishes
+// the handshake must not keep one for long.
+static int tls_handshake_timeout(void)
+{
+	return (Cfg.ClientTimeout > 0 && Cfg.ClientTimeout < 30)
+	    ? Cfg.ClientTimeout : 30;
+}
+
+void nnrpd(int fd, bool tls)
 {
 	ClientData clt;
 	char req[1024], oreq[1024], *rp;
@@ -3036,8 +3075,10 @@ void nnrpd(int fd)
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
 	int errc = 0;
-	sockstream sock_stream;
+	// (with tls the server side of a TLS connection, see accept_tls)
+	sockstream sock_stream(tls, true);
 	int nice;
+	bool have_peer = false;
 
 	/* set nice value for master server */
 #ifdef HAVE_SETPRIORITY
@@ -3076,6 +3117,7 @@ void nnrpd(int fd)
 			sprintf(clt.client_name, "fd#%d", fd);
 			clt.client_logname = clt.client_name;
 		} else {
+			have_peer = true;
 			// An IPv4 client of the dual-stack socket (ListenTo DEFAULT)
 			// arrives as ::ffff:a.b.c.d; use its plain IPv4 address, so
 			// logs, NNTP-Posting-Host and libwrap see a.b.c.d.
@@ -3171,23 +3213,43 @@ void nnrpd(int fd)
 				clt.client_logname += clt.client_addr;
 				clt.client_logname += ']';
 			}
-			// check whether the client is allowed access according to
-			// libwrap
-#ifdef HAVE_LIBWRAP
-			// Check the hosts_access configuration; emulate INN error message
-			if (!hosts_ctl(PACKAGE,
-				       clt.client_name, clt.client_addr,
-				       STRING_UNKNOWN)) {
-				slog.p(Logger::Notice) << clt.
-				    client_logname << " denied - hosts.allow\n";
-				(*clt.
-				 co) <<
-			       "502 You have no permission to talk.  Goodbye.\r\n";
-				clt.co->flush ();
+		}
+
+		// The TLS handshake, before anything is written to the client
+		// (also the 502 of libwrap) and before anything is read: all
+		// input goes through TLS. Its own timeouts, see
+		// tls_handshake_timeout; ClientTimeout's are set below.
+		if (tls) {
+			const int hs = tls_handshake_timeout();
+			set_socket_timeouts(fd, fd, hs, hs);
+			string info;
+			if (!sock_stream.accept_tls(hs, info)) {
+				slog.p(Logger::Notice) << clt.client_logname
+				    << " TLS handshake failed: " << info << "\n";
 				return;
 			}
-#endif
+			clt.tls = true;
+			slog.p(Logger::Info) << clt.client_logname
+			    << " TLS " << info << "\n";
 		}
+
+		// check whether the client is allowed access according to
+		// libwrap
+#ifdef HAVE_LIBWRAP
+		// Check the hosts_access configuration; emulate INN error message
+		if (have_peer &&
+		    !hosts_ctl(PACKAGE,
+			       clt.client_name, clt.client_addr,
+			       STRING_UNKNOWN)) {
+			slog.p(Logger::Notice) << clt.
+			    client_logname << " denied - hosts.allow\n";
+			(*clt.
+			 co) <<
+		       "502 You have no permission to talk.  Goodbye.\r\n";
+			clt.co->flush ();
+			return;
+		}
+#endif
 	} else {
 		cin.unsetf(ios::skipws);
 		clt.ci = &cin;
@@ -3206,6 +3268,16 @@ void nnrpd(int fd)
 	// longer than ClientTimeout, so that the wait for a command still
 	// ends with the alarm and its "400 ... timed out" reply.
 	set_client_timeouts(fd, clt.ci == &cin ? 1 : fd);
+	if (clt.tls) {
+		// a TLS read gives up when no data came within the receive
+		// timeout; a write 1 s after send() timed out (SO_SNDTIMEO,
+		// ClientTimeout), so about where a plain send() fails. Not 0:
+		// that would be the I/O timeout, i.e. no limit.
+		if (Cfg.ClientTimeout > 0)
+			sock_stream.set_wait_limits(Cfg.ClientTimeout + 10, 1);
+		else
+			sock_stream.set_wait_limits(0, 0);
+	}
 
 #ifdef NO_STREAM_BUFFERING
 	{
@@ -3578,10 +3650,185 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 	return sock;
 }
 
+// listen() backlog of the listening sockets
+#define LISTEN_BACKLOG 128
+
+/*
+ * Loads TLSCertFile, TLSKeyFile and TLSPriority for client connections.
+ * At the start a failure is reported on stderr too (newscache exits then;
+ * not in inetd mode, where stderr is the client's socket); on a reread the
+ * certificate loaded before stays.
+ */
+static bool load_client_tls(bool at_start, bool to_stderr = false)
+{
+	string err;
+	if (Cfg.TLSCertFile[0] == '\0')
+		err = "TLSCertFile and TLSKeyFile are not set";
+	else if (sockstream::load_server_tls(Cfg.TLSCertFile, Cfg.TLSKeyFile,
+					       Cfg.TLSPriority, err)) {
+		slog.p(Logger::Info) << "TLS: loaded " << Cfg.TLSCertFile << "\n";
+		return true;
+	}
+	slog.p(Logger::Error) << "TLS: " << err
+	    << (at_start ? "" : "; the certificate loaded before stays") << "\n";
+	if (to_stderr)
+		cerr << cmnd << ": " << err << "\n";
+	return false;
+}
+
+/*
+ * AuthRequiresTLS where it can't work: without Authentication it does
+ * nothing, without TLS for clients nobody can log in.
+ */
+static void warn_auth_requires_tls(const AccessList &access_list,
+				   bool tls_available)
+{
+	const vector<AccessEntry> &entries = access_list.entries();
+	for (vector<AccessEntry>::const_iterator i = entries.begin();
+	     i != entries.end(); ++i) {
+		if (!i->auth_requires_tls)
+			continue;
+		const string p = i->pattern().empty() ? "Default" : i->pattern();
+		if (i->authentication.getType() == "none")
+			slog.p(Logger::Warning) << "AccessList " << p
+			    << ": AuthRequiresTLS without Authentication does "
+			    "nothing\n";
+		else if (!tls_available)
+			slog.p(Logger::Warning) << "AccessList " << p
+			    << ": AuthRequiresTLS, but no TLS for clients "
+			    "(TLSListenTo, or -t with -i): they can't log in\n";
+	}
+}
+
+/*
+ * The listening socket for spec (ListenTo, TLSListenTo: [address]:port,
+ * address:port, address, DEFAULT; port defaults to nntp, 563 for TLS),
+ * bound, not yet listening. plain: the ListenTo socket, for which CachePort
+ * still works. Exits if it can't be had. The socket is non-blocking: with
+ * two of them, an accept() must not wait on one (a connection that went
+ * away after poll) while clients queue on the other.
+ */
+static int open_listener(const char *spec, const char *keyword, bool plain)
+{
+	const char *defservice = plain ? "nntp" : "563";
+	/* create socket and set some socket options */
+	string hostname;
+	const char *nodename = NULL;
+	const char *servname = NULL;
+	struct addrinfo hints;
+
+	memset(&hints, 0, sizeof(hints));
+	// No AI_ADDRCONFIG: it ignores loopback addresses, so on a host
+	// without a global IPv6 address (a container) even ListenTo [::1]
+	// failed to resolve. The address is numeric; it is bound as given.
+	hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	/* fill the sockaddr with the port we should listen too */
+	if (plain && Cfg.CachePort[0] != '\0' && Cfg.ListenToSet) {
+		slog.p(Logger::Notice) << "CachePort " << Cfg.CachePort
+		    << " ignored: ListenTo is set\n";
+	}
+	if (plain && Cfg.CachePort[0] != '\0' && !Cfg.ListenToSet) {
+		// the old way: all addresses (as ListenTo DEFAULT), on a
+		// service name or a #number. (The test was the wrong way
+		// round: "nntp" became the number "ntp", "#119" stayed
+		// "#119", so CachePort never worked.)
+		if (Cfg.CachePort[0] == '#') {
+			servname = Cfg.CachePort + 1;
+			hints.ai_flags |= AI_NUMERICSERV;
+		} else {
+			servname = Cfg.CachePort;
+		}
+	} else {
+		if (spec[0] == '[') {
+			const char *end = strrchr(spec, ']');
+			if ((end == NULL) ||
+			    ((end[1] != '\0') && (end[1] != ':'))) {
+				slog.
+				  p(Logger::
+				    Error) << cmnd <<
+				  ": Invalid parameter " << keyword << ": " <<
+				  spec << "\n";
+				cerr << cmnd << ": Invalid parameter " << keyword
+				    << ": " << spec << "\n";
+				exit(1);
+			}
+
+			hostname.assign(const_cast<const char *>(spec + 1), end);
+			nodename = hostname.c_str();
+
+			if (end[1] == ':') {
+				servname = end + 2;
+			} else {
+				servname = defservice;
+			}
+		} else {
+			const char *colon = strrchr(spec, ':');
+			if (colon != NULL) {
+				hostname.assign(const_cast<const char *>(spec), colon);
+				servname = colon + 1;
+			} else {
+				hostname.assign(spec);
+				servname = defservice;
+			}
+
+			if (hostname != "DEFAULT") {
+				nodename = hostname.c_str();
+			}
+		}
+	}
+
+	struct addrinfo *res;
+	if (getaddrinfo(nodename, servname, &hints, &res)) {
+		slog.
+		  p(Logger::
+		    Error) << cmnd <<
+		  ": Can't resolve parameter " << keyword << ": " <<
+		  spec << "\n";
+		cerr << cmnd << ": Can't resolve parameter " << keyword << ": "
+		    << spec << "\n";
+		exit(1);
+	}
+
+	/* For the wildcard address, one IPv6 socket takes IPv4 and IPv6
+	 * clients; without IPv6, it falls back to the IPv4 address. Other
+	 * addresses are tried in the order getaddrinfo returns them. */
+	int sock = -1;
+	struct addrinfo *addr;
+	if (nodename == NULL) {
+		for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
+			if (addr->ai_family == AF_INET6)
+				sock = bind_listen_socket(addr, true);
+		}
+	}
+	for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
+		if ((nodename == NULL) && (addr->ai_family == AF_INET6))
+			continue;
+		sock = bind_listen_socket(addr, false);
+	}
+	freeaddrinfo(res);
+	if (sock < 0) {
+		slog.p(Logger::Error) << cmnd << ": can't listen on "
+		    << keyword << " " << spec << "\n";
+		cerr << cmnd << ": can't listen on " << keyword << " " << spec
+		    << "\n";
+		exit(1);
+	}
+
+	int fl = fcntl(sock, F_GETFL);
+	if (fl >= 0)
+		fcntl(sock, F_SETFL, fl | O_NONBLOCK);
+	return sock;
+}
+
 void nntpd()
 {
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
 	warn_unsafe_auth_files(Cfg.clnts);
+	warn_auth_requires_tls(Cfg.clnts, Cfg.TLSListenTo[0] != '\0');
 
 	/* set nice value for master server */
 #ifdef HAVE_SETPRIORITY
@@ -3605,116 +3852,36 @@ void nntpd()
 	/* nobody is connecting to NewsCache currently */
 	nntp_connections = 0;
 
-	/* create socket and set some socket options */
-	string hostname;
-	const char *nodename = NULL;
-	const char *servname = NULL;
-	struct addrinfo hints;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_flags = AI_ADDRCONFIG | AI_PASSIVE | AI_NUMERICHOST;
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-
-	/* fill the sockaddr with the port we should listen too */
-	if (Cfg.CachePort[0] != '\0' && Cfg.ListenToSet) {
-		slog.p(Logger::Notice) << "CachePort " << Cfg.CachePort
-		    << " ignored: ListenTo is set\n";
-	}
-	if (Cfg.CachePort[0] != '\0' && !Cfg.ListenToSet) {
-		// the old way: all addresses (as ListenTo DEFAULT), on a
-		// service name or a #number. (The test was the wrong way
-		// round: "nntp" became the number "ntp", "#119" stayed
-		// "#119", so CachePort never worked.)
-		if (Cfg.CachePort[0] == '#') {
-			servname = Cfg.CachePort + 1;
-			hints.ai_flags |= AI_NUMERICSERV;
-		} else {
-			servname = Cfg.CachePort;
-		}
-	} else {
-		if (Cfg.ListenTo[0] == '[') {
-			const char *end = strrchr(Cfg.ListenTo, ']');
-			if ((end == NULL) ||
-			    ((end[1] != '\0') && (end[1] != ':'))) {
-				slog.
-				  p(Logger::
-				    Error) << cmnd <<
-				  ": Invalid parameter ListenTo: " <<
-				  Cfg.ListenTo << "\n";
-				exit(1);
-			}
-
-			hostname.assign(const_cast<const char *>(Cfg.ListenTo + 1), end);
-			nodename = hostname.c_str();
-
-			if (end[1] == ':') {
-				servname = end + 2;
-			} else {
-				servname = "nntp";
-			}
-		} else {
-			const char *colon = strrchr(Cfg.ListenTo, ':');
-			if (colon != NULL) {
-				hostname.assign(const_cast<const char *>(Cfg.ListenTo), colon);
-				servname = colon + 1;
-			} else {
-				hostname.assign(Cfg.ListenTo);
-				servname = "nntp";
-			}
-
-			if (hostname != "DEFAULT") {
-				nodename = hostname.c_str();
-			}
-		}
-	}
-
-	/* The wildcard address (ListenTo DEFAULT, CachePort) is there even
-	 * where the host has no global IPv6 address yet. */
-	if (nodename == NULL)
-		hints.ai_flags &= ~AI_ADDRCONFIG;
-
-	struct addrinfo *res;
-	if (getaddrinfo(nodename, servname, &hints, &res)) {
-		slog.
-		  p(Logger::
-		    Error) << cmnd <<
-		  ": Can't resolve parameter ListenTo: " << Cfg.
-		  ListenTo << "\n";
-		exit(1);
-	}
-
-	/* For the wildcard address, one IPv6 socket takes IPv4 and IPv6
-	 * clients; without IPv6, it falls back to the IPv4 address. Other
-	 * addresses are tried in the order getaddrinfo returns them. */
-	int sock = -1;
-	struct addrinfo *addr;
-	if (nodename == NULL) {
-		for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
-			if (addr->ai_family == AF_INET6)
-				sock = bind_listen_socket(addr, true);
-		}
-	}
-	for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
-		if ((nodename == NULL) && (addr->ai_family == AF_INET6))
-			continue;
-		sock = bind_listen_socket(addr, false);
-	}
-	freeaddrinfo(res);
-	if (sock < 0) {
-		slog.p(Logger::Error) << cmnd << ": can't listen on "
-		    << Cfg.ListenTo << "\n";
-		exit(1);
-	}
+	int sock = open_listener(Cfg.ListenTo, "ListenTo", true);
+	int tls_sock = -1;
+	if (Cfg.TLSListenTo[0] != '\0')
+		tls_sock = open_listener(Cfg.TLSListenTo, "TLSListenTo", false);
 
 	write_pid_file();
 
 	setugid(Cfg.Username, Cfg.Groupname);
-	listen(sock, 4);
+	// A queue of 4 connections not accepted yet: a burst of clients (or
+	// a busy moment) overflowed it, and FreeBSD then resets connections.
+	// MaxConnections is the limit for sessions; this only holds
+	// connections until the next accept().
+	listen(sock, LISTEN_BACKLOG);
+	if (tls_sock >= 0)
+		listen(tls_sock, LISTEN_BACKLOG);
+
+	struct pollfd lfd[2];
+	int nlfd = 0;
+	lfd[nlfd].fd = sock;
+	lfd[nlfd++].events = POLLIN;
+	if (tls_sock >= 0) {
+		lfd[nlfd].fd = tls_sock;
+		lfd[nlfd++].events = POLLIN;
+	}
+	int next_lfd = 0;	// the listener asked first, in turns
+
 	for (;;) {
 		int clt_fd;
 		int clt_pid = 0;
+		bool clt_tls = false;
 
 		/* Accept connection */
 		do {
@@ -3725,8 +3892,21 @@ void nntpd()
 				try {
 					Config newCfg;
 					newCfg.read(config_file);
+					if (strcmp(newCfg.ListenTo, Cfg.ListenTo) ||
+					    strcmp(newCfg.TLSListenTo, Cfg.TLSListenTo) ||
+					    strcmp(newCfg.CachePort, Cfg.CachePort))
+						slog.p(Logger::Notice)
+						    << "ListenTo, TLSListenTo or CachePort "
+						    "changed: restart newscache for "
+						    "that\n";
 					Cfg = newCfg;
 					warn_unsafe_auth_files(Cfg.clnts);
+					warn_auth_requires_tls(Cfg.clnts,
+							       tls_sock >= 0);
+					// a new certificate (e.g. renewed): the
+					// news user must be able to read the key
+					if (tls_sock >= 0)
+						load_client_tls(false);
 					slog.p(Logger::Notice)
 					    << "reread " << config_file << "\n";
 				}
@@ -3740,9 +3920,32 @@ void nntpd()
 
 			log_ended_sessions();
 			errno = 0;
-			clt_fd = accept(sock, NULL, NULL);
+			clt_fd = -1;
+			for (int i = 0; i < nlfd; i++)
+				lfd[i].revents = 0;
+			if (poll(lfd, nlfd, -1) > 0) {
+				for (int k = 0; k < nlfd; k++) {
+					const int i = (next_lfd + k) % nlfd;
+					if (!(lfd[i].revents & POLLIN))
+						continue;
+					next_lfd = (i + 1) % nlfd;
+					errno = 0;
+					clt_fd = accept(lfd[i].fd, NULL, NULL);
+					clt_tls = (lfd[i].fd == tls_sock);
+					break;
+				}
+				// the connection went away before accept(),
+				// or no listener was ready after all: wait
+				// again
+				if (clt_fd < 0 && (errno == 0 || errno == EAGAIN ||
+						   errno == EWOULDBLOCK ||
+						   errno == ECONNABORTED))
+					errno = EINTR;
+			}
 			if (Xsignal != -1) {
 				close(sock);
+				if (tls_sock >= 0)
+					close(tls_sock);
 				end_sessions();
 				remove_pid_file();
 				slog.p(Logger::Notice) << "NewsCache Server Stop "
@@ -3756,6 +3959,13 @@ void nntpd()
 			      Warning) << "accept failed: " <<
 			    strerror(errno) << "\n";
 			continue;
+		}
+		// blocking, as before: on BSD and macOS the accepted socket
+		// inherits O_NONBLOCK from the listener
+		{
+			int fl = fcntl(clt_fd, F_GETFL);
+			if (fl >= 0 && (fl & O_NONBLOCK))
+				fcntl(clt_fd, F_SETFL, fl & ~O_NONBLOCK);
 		}
 #ifdef CONF_MultiClient
 		// SIGCHLD blocked until the new session is in the table: a
@@ -3771,8 +3981,11 @@ void nntpd()
 				      Error) << "fork failed: " <<
 				    strerror(errno) << "\n";
 			}
+			// not on the TLS listener: there it would be
+			// plain text where the client expects a TLS record
 			static const char too_many[] = "400 too many users\r\n";
-			if (write(clt_fd, too_many, sizeof(too_many) - 1) < 0) {
+			if (!clt_tls &&
+			    write(clt_fd, too_many, sizeof(too_many) - 1) < 0) {
 				// refused anyway; nothing else to do
 			}
 			close(clt_fd);
@@ -3783,13 +3996,15 @@ void nntpd()
 				sigprocmask(SIG_SETMASK, &old_mask, NULL);
 				sessions.clear();
 				close(sock);
+				if (tls_sock >= 0)
+					close(tls_sock);
 				if (pid_file_fd >= 0) {
 					close(pid_file_fd);
 					pid_file_fd = -1;
 				}
 
 				try {
-					nnrpd(clt_fd);
+					nnrpd(clt_fd, clt_tls);
 				} catch (const UsageError &e) {
 					slog.p(Logger::Error) << "nnrpd caught "
 						<< "UsageError ";
@@ -3854,12 +4069,14 @@ void nntpd()
 			}
 		}
 #else
-		nnrpd(clt_fd);
+		nnrpd(clt_fd, clt_tls);
 		close(clt_fd);
 #endif
 	}
 
 	close(sock);
+	if (tls_sock >= 0)
+		close(tls_sock);
 }
 
 void sigchld(int num)
@@ -3973,6 +4190,10 @@ void catchsignal(int num)
 "       -n --no-fork\n"\
 "              Do not fork.\n"\
 "\n"\
+"       -t --tls\n"\
+"              As -i, but the client's connection (standard input, a socket)\n"\
+"              is TLS (TLSCertFile, TLSKeyFile).\n"\
+"\n"\
 "       -o --configuration-options\n"\
 "              Print all options specified in the configure phase.\n"
 
@@ -3984,7 +4205,7 @@ int main(int argc, char **argv)
 	pid_t p;
 #endif
 	int opt_inetd = 0, opt_debug = 0, opt_print_para = 0;
-	int opt_nofork = 0, opt_config_options = 0;
+	int opt_nofork = 0, opt_config_options = 0, opt_tls = 0;
 	int aerr = 0, c;
 
 	snprintf(config_file, sizeof(config_file), "%s/newscache.conf", SYSCONFDIR);
@@ -4001,15 +4222,16 @@ int main(int argc, char **argv)
 			{"inetd", 0, 0, 'i'},
 			{"debug", 0, 0, 'd'},
 			{"no-fork", 0, 0, 'n'},
+			{"tls", 0, 0, 't'},
 			{"print-parameter", 0, 0, 'p'},
 			{"configuration-options", 0, 0, 'o'},
 			{0, 0, 0, 0}
 		};
 
-		c = getopt_long (argc, argv, "vfhc:idnpo", long_options,
+		c = getopt_long (argc, argv, "vfhc:idnpot", long_options,
 				&option_index);
 #else
-		c = getopt (argc, argv, "vfhc:idnpo");
+		c = getopt (argc, argv, "vfhc:idnpot");
 #endif
 		if (c == -1)
 			break;
@@ -4060,6 +4282,12 @@ int main(int argc, char **argv)
 				++opt_nofork;
 				break;
 
+			case 't':
+				// inetd mode with TLS on standard input
+				++opt_tls;
+				++opt_inetd;
+				break;
+
 			default:
 				aerr = 1;
 				break;
@@ -4096,6 +4324,12 @@ int main(int argc, char **argv)
 		cerr << se._errtext << "\n";
 		exit(2);
 	}
+
+	// -p checks the TLS certificate, key and TLSPriority too (it needs
+	// to be able to read the key)
+	if (opt_print_para && Cfg.TLSCertFile[0] != '\0' &&
+	    !load_client_tls(true, true))
+		exit(2);
 
 	if (opt_print_para) {
 		cout << "# This output is generated with newscache -p" << endl;
@@ -4172,11 +4406,26 @@ int main(int argc, char **argv)
 	if (Cfg.ServerType == Config::inetd)
 		opt_inetd = 1;
 
+	// The certificate and key for TLS clients: loaded now, as the user
+	// that starts newscache (often root, who may read the key), before
+	// setugid and before the daemon detaches, so that an error reaches
+	// stderr. The sessions inherit them.
+	if ((opt_inetd && opt_tls) || (!opt_inetd && Cfg.TLSListenTo[0] != '\0')) {
+		if (!load_client_tls(true, !opt_inetd))
+			exit(1);
+	}
+
 	if (opt_inetd) {
 		warn_unsafe_auth_files(Cfg.clnts);
+		warn_auth_requires_tls(Cfg.clnts, opt_tls != 0);
 		if (getuid() == CONF_UIDROOT)
 			setugid(Cfg.Username, Cfg.Groupname);
-		nnrpd(-1);
+		// with -t, standard input is the client's socket; the plain
+		// inetd mode reads cin and writes cout, as before
+		if (opt_tls)
+			nnrpd(STDIN_FILENO, true);
+		else
+			nnrpd(-1, false);
 	} else {
 		if (opt_debug == 0 && opt_nofork == 0) {
 			switch (fork()) {
