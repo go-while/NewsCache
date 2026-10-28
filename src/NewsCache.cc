@@ -80,7 +80,7 @@ const char * const ConfigurationOptions[] = {
 	"--enable-assertions",
 #endif
 #ifdef WITH_UNIQUE_PACKAGE_NAME
-	"--with-uniquenames",
+	"--with-uniquename",
 #endif
 	NULL
 };

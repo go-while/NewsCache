@@ -29,6 +29,10 @@ Behaviour changes:
 * configure --without-pam (or --with-pam=no) no longer requires the PAM
   headers: on a host without them it stopped with "You don't have PAM
   header files", and with them it linked -lpam for nothing.
+* configure --with-uniquename works: newscacheclean and updatenews then log
+  under NewsCache's name. It never defined WITH_UNIQUE_PACKAGE_NAME (the
+  test read a misspelled variable). newscache -o prints it as
+  --with-uniquename (was --with-uniquenames).
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news

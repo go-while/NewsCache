@@ -238,6 +238,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | configure expanded `sysconfdir` for `SYSCONFDIR` while `prefix` was still `NONE` (autoconf sets the default only at the end): a build without `--prefix` (CI's too) looked for `NONE/etc/newscache.conf`, and `make install` wrote into `./NONE/etc`; README said to always pass `--prefix`. Now an unset prefix is the default (`/usr/local`) before the expansion | 14 | review (area 14) | #140 |
 | A configuration file that can't be opened was reported as `unexpected EOF` by newscache, newscacheclean, updatenews and `cConfig.cc`, hiding both the path and system error. Lexer open failures now name the file and include `strerror(errno)`; read errors retain their existing message | 6 | review (seen with #133) | #141 |
 | Both PAM checks in `configure.ac` tested `${with_pam+set}`, which `--without-pam` and `--with-pam=no` set too: without PAM headers `configure --without-pam` stopped with "You don't have PAM header files", with them `-lpam` was linked although `PAM_AUTH` stays undefined. Now one `use_pam` is set when `with_pam` is set and not `no` (`--with-pam=` with an empty value still goes through the checks, as before) | 14 | review (area 14) | #142 |
+| `--with-uniquename` never defined `WITH_UNIQUE_PACKAGE_NAME`: configure.ac tested `$with_uniquenames` (never set) against `no`. Now `--with-uniquename` (any value but `no`) defines it, so newscacheclean and updatenews log under NewsCache's name; `newscache -o` spells it `--with-uniquename` | 14 | review (area 14) | #143 |
 
 ## Open points
 

@@ -94,7 +94,8 @@ AC_DEFINE(ENABLE_ASSERTIONS, [1], [turn on assertions])
 )
 
 AC_ARG_WITH(uniquename, [  --with-uniquename       with unique package name [default=no]],
-if eval " test x$with_uniquenames = xno"; then
+dnl (it tested $with_uniquenames, never set, against "no": never defined)
+if test "x$with_uniquename" != xno; then
   AC_DEFINE(WITH_UNIQUE_PACKAGE_NAME, [1], [with unique package name])
 fi,
 )
