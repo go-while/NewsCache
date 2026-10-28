@@ -115,3 +115,42 @@ func TestLogFileNoFollow(t *testing.T) {
 		}
 	})
 }
+
+// TestGeneralLogNotWritable: when the file log cannot be opened, NewsCache
+// reports the error and continues serving clients. This needs the file-log
+// build and a non-root user so the read-only log is actually unwritable.
+func TestGeneralLogNotWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: root can write a read-only log file")
+	}
+	e := newEnv(t)
+	e.addArticles("test.log", 1)
+	requireFileLog(e)
+	log := filepath.Join(e.LogDir, "newscache.log")
+	if err := os.WriteFile(log, nil, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(log, 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	p := e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.log"); code != 211 {
+		t.Fatalf("GROUP with an unwritable log: %q, want 211", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE with an unwritable log: %q, want 220", line)
+	}
+	c.ReadDotLines()
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Errorf("QUIT: %q, want 205", line)
+	}
+	c.Close()
+	p.Signal(syscall.SIGTERM)
+	p.Wait()
+
+	if !strings.Contains(p.Stderr(), "cannot open log file") {
+		t.Errorf("NewsCache did not report the unwritable log; stderr:\n%s", p.Stderr())
+	}
+}
