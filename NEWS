@@ -55,6 +55,9 @@ New options:
   1048576); a larger one gets 441.
 
 Bug fixes:
+* Malformed commands starting with "auth" could expose their arguments in
+  the log, including passwords. The log now keeps only the command word for
+  these commands, and the reused request buffer is cleared before each read.
 * When a configuration file could not be opened, newscache,
   newscacheclean, updatenews and cConfig reported "unexpected EOF". They
   now name the file and show the system error.

@@ -3250,6 +3250,10 @@ void nnrpd(int fd)
 
 	send_ready(&clt);
 	do {
+		// getline writes only the current line and its terminator; clear
+		// the old request first so a shorter line cannot leave an AUTHINFO
+		// password behind in the reused buffer.
+		memset(req, 0, sizeof(req));
 		flush(*clt.co);
 		if (!clt.co->good()) {
 			// the client doesn't read its replies (send timed out)
@@ -3313,12 +3317,20 @@ void nnrpd(int fd)
 				*rp = '\0';
 		}
 		// oreq, for the log, without leading blanks either: the split
-		// below skips them, so " AUTHINFO PASS x" is an AUTHINFO
-		// command, and its password must not be logged.
+		// below skips them. AUTHINFO and malformed auth* commands can
+		// contain a password, so retain only their command word.
 		rp = req;
 		while (isspace((unsigned char)*rp))
 			rp++;
-		strcpy(oreq, rp);
+		if (!strncasecmp(rp, "auth", 4)) {
+			char *cmd_end = rp;
+			while (*cmd_end && !isspace((unsigned char)*cmd_end))
+				cmd_end++;
+			size_t cmd_len = (size_t) (cmd_end - rp);
+			memcpy(oreq, rp, cmd_len);
+			oreq[cmd_len] = '\0';
+		} else
+			strcpy(oreq, rp);
 		if (strncasecmp(oreq, "authinfo", 8))
 			slog.p(Logger::Info) << clt.
 			    client_logname << " " << oreq << "\n";
