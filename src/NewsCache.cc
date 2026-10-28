@@ -3270,7 +3270,9 @@ void nnrpd(int fd, bool tls)
 	set_client_timeouts(fd, clt.ci == &cin ? 1 : fd);
 	if (clt.tls) {
 		// a TLS read gives up when no data came within the receive
-		// timeout; a write once send() timed out (see sockstream)
+		// timeout; a write 1 s after send() timed out (SO_SNDTIMEO,
+		// ClientTimeout), so about where a plain send() fails. Not 0:
+		// that would be the I/O timeout, i.e. no limit.
 		if (Cfg.ClientTimeout > 0)
 			sock_stream.set_wait_limits(Cfg.ClientTimeout + 10, 1);
 		else

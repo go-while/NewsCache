@@ -11,7 +11,3 @@ New options:
   entry with "AuthRequiresTLS yes" answers AUTHINFO on a plain connection
   with 483 and lists AUTHINFO without USER in CAPABILITIES (RFC 4643).
   STARTTLS for clients is not offered. newscache -o lists --with-gnutls.
-* TLS connections to upstream servers: a read or write interrupted by
-  SIGTERM or the alarm was retried, so a session waiting for an upstream
-  TLS server ended only when the server answered; now it ends at once,
-  as with a plain connection.
