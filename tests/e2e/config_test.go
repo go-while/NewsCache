@@ -13,6 +13,30 @@ import (
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
+// TestConfigurationOptionsWithoutConfig: newscache -o prints the configure
+// options of the binary. It read the configuration file first and failed
+// (exit 2) when that had an error or was missing, although it doesn't use it.
+func TestConfigurationOptionsWithoutConfig(t *testing.T) {
+	e := newEnv(t)
+	e.writeConf()
+	want, err := exec.Command(e.Bin, "-c", e.Conf, "-o").Output()
+	if err != nil {
+		t.Fatalf("newscache -o with a good config: %v", err)
+	}
+	broken := filepath.Join(e.Dir, "broken.conf")
+	if err := os.WriteFile(broken, []byte("NoSuchKeyword 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, conf := range []string{broken, filepath.Join(e.Dir, "missing.conf")} {
+		out, err := exec.Command(e.Bin, "-c", conf, "-o").CombinedOutput()
+		if err != nil {
+			t.Errorf("newscache -c %s -o: %v\n%s", filepath.Base(conf), err, out)
+		} else if string(out) != string(want) {
+			t.Errorf("newscache -c %s -o: %q, want %q", filepath.Base(conf), out, want)
+		}
+	}
+}
+
 // TestPrintServerOptions: newscache -p prints every server option it parsed.
 // ssl, starttls and dontgenmsgid were parsed but left out of the output.
 func TestPrintServerOptions(t *testing.T) {

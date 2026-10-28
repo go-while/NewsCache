@@ -229,6 +229,7 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | After a valid `AUTHINFO USER`, a replacement USER that was too long got 481 but left the earlier user pending, so a following PASS was checked against the earlier name. Now a failed USER ends the pending one (the PASS gets 482) | 3 | review (#130) | #131 |
 | Every failed AUTHINFO was logged as `failed authinfo for user <last USER>`, also a 482, 501 or 502 or an argument too long, where no password of that user was checked: a sequence error after a failed login counted as a second failed login. Now only a refused password names the user; the other failures log `failed authinfo` | 3 | review (#130) | #131 |
 | A known command that the client's entry doesn't allow, where no login can help (Authentication none, or after the login), answered `500 What?`: it is taken out of the client's command table, and the lookup found nothing, as for an unknown command. RFC 3977 3.2.1 wants 502, 6.3.1 440 for POST. Now the command loop tells the two apart: 502 (440 for POST) for a known command, 500 for an unknown one. `TestNoLoginNo480` and three login tests expected the 500 | 1, 2 | review (RFC follow-up, #124) | #132 |
+| `newscache -o` (the configure options of the binary) read the configuration file first and exited with 2 when it was missing or had an error, although it doesn't use it; newscache(8) documented that. Now it prints before the configuration is read, like `-v` | 5 | review (area 5) | #133 |
 
 ## Open points
 
@@ -247,6 +248,7 @@ that it stays as it is.
 | A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
 | AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
+| A configuration file that can't be opened (missing, no read permission) is reported as `unexpected EOF in <file>` by newscache, newscacheclean and updatenews (`cConfig.cc`): the `IOError` of the lexer doesn't say why. Should name the file and `strerror(errno)` | 6 | review (seen with #133) |  |
 
 ## CodeQL dismissals
 
