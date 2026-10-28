@@ -4177,8 +4177,8 @@ void catchsignal(int num)
 "              Do not fork.\n"\
 "\n"\
 "       -t --tls\n"\
-"              With -i: the client's connection (standard input) is TLS\n"\
-"              (TLSCertFile, TLSKeyFile).\n"\
+"              As -i, but the client's connection (standard input, a socket)\n"\
+"              is TLS (TLSCertFile, TLSKeyFile).\n"\
 "\n"\
 "       -o --configuration-options\n"\
 "              Print all options specified in the configure phase.\n"
@@ -4269,7 +4269,9 @@ int main(int argc, char **argv)
 				break;
 
 			case 't':
+				// inetd mode with TLS on standard input
 				++opt_tls;
+				++opt_inetd;
 				break;
 
 			default:
@@ -4308,6 +4310,12 @@ int main(int argc, char **argv)
 		cerr << se._errtext << "\n";
 		exit(2);
 	}
+
+	// -p checks the TLS certificate, key and TLSPriority too (it needs
+	// to be able to read the key)
+	if (opt_print_para && Cfg.TLSCertFile[0] != '\0' &&
+	    !load_client_tls(true, true))
+		exit(2);
 
 	if (opt_print_para) {
 		cout << "# This output is generated with newscache -p" << endl;
@@ -4383,12 +4391,6 @@ int main(int argc, char **argv)
 
 	if (Cfg.ServerType == Config::inetd)
 		opt_inetd = 1;
-
-	if (opt_tls && !opt_inetd) {
-		cerr << cmnd << ": -t is for inetd mode (-i or ServerType inetd);"
-		    " the daemon uses TLSListenTo\n";
-		exit(1);
-	}
 
 	// The certificate and key for TLS clients: loaded now, as the user
 	// that starts newscache (often root, who may read the key), before
