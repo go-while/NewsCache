@@ -186,7 +186,12 @@ dnl ****************************************************************
 
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS(crypt.h fcntl.h limits.h shadow.h sys/file.h sys/time.h syslog.h unistd.h tcpd.h sstream getopt.h)
-if eval "test x${with_pam+set} = xset"; then
+dnl PAM is wanted with --with-pam or --with-pam=<service>. (The checks
+dnl tested ${with_pam+set}, which --without-pam sets too.)
+use_pam=no
+dnl (set and not "no": --with-pam= with an empty value still checks, as before)
+if test "x${with_pam+set}" = xset && test "x$with_pam" != xno; then use_pam=yes; fi
+if test $use_pam = yes; then
 	 AC_CHECK_HEADERS(security/pam_appl.h)
 	 if test $ac_cv_header_security_pam_appl_h = no; then
 	 	AC_MSG_ERROR(You don't have PAM header files.)
@@ -215,7 +220,7 @@ AC_CHECK_LIB(nsl, gethostbyname)
 AC_CHECK_LIB(crypt, crypt)
 
 
-if eval "test x${with_pam+set} = xset"; then
+if test $use_pam = yes; then
     dnl AC_CHECK_LIB(pam,    [pam_start], [], [AC_MSG_ERROR([library 'pam' is required for PAM])])
     AC_CHECK_LIB(dl, dlopen, LIBS="$LIBS -ldl")
     AC_CHECK_LIB(pam, pam_start, LIBS="$LIBS -lpam",
