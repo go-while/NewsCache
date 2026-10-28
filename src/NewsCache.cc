@@ -2741,6 +2741,26 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 	return 0;
 }
 
+// Sends text, whose lines end with "\n", as the lines of a multi-line
+// reply: with CRLF and dot-stuffed (RFC 3977 3.1.1). XDEBUG's dumps
+// come from printers that write endl, which went out as bare LF.
+static void send_text_lines(std::ostream & os, const std::string & text)
+{
+	std::string::size_type b = 0;
+	while (b < text.size()) {
+		std::string::size_type e = text.find('\n', b);
+		if (e == std::string::npos)
+			e = text.size();
+		std::string l = text.substr(b, e - b);
+		if (!l.empty() && l[l.size() - 1] == '\r')
+			l.erase(l.size() - 1);
+		if (!l.empty() && l[0] == '.')
+			os << '.';
+		os << l << "\r\n";
+		b = e + 1;
+	}
+}
+
 // The replies are multi-line ones with the informative code 100: they
 // had the code "xxx" (help none), and an unknown "xdebug dump" argument
 // got no reply at all.
@@ -2748,14 +2768,18 @@ int ns_xdebug(ClientData * clt, int argc, char *argv[])
 {
 	if (argc == 3 && strcmp(argv[1], "dump") == 0) {
 		if (strcmp(argv[2], "authorization") == 0) {
+			ostringstream text;
+			text << *clt->access_entry << "\n";
 			(*clt->co) << "100 authorization data follows\r\n";
-			(*clt->co) << *clt->access_entry << "\r\n";
+			send_text_lines(*clt->co, text.str());
 			(*clt->co) << ".\r\n";
 			return 0;
 		}
 		if (strcmp(argv[2], "configuration") == 0) {
+			ostringstream text;
+			Cfg.printParameters (&text);
 			(*clt->co) << "100 configuration data follows\r\n";
-			Cfg.printParameters (clt->co);
+			send_text_lines(*clt->co, text.str());
 			(*clt->co) << ".\r\n";
 			return 0;
 		}

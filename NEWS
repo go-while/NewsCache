@@ -17,6 +17,8 @@ Behaviour changes:
 * newscache -o (the configure options) no longer reads the configuration
   file, so it works when that is missing or has an error (it exited with
   2).
+* XDEBUG dump authorization and dump configuration send their lines with
+  CRLF, and dot-stuffed, as RFC 3977 wants; they ended with a bare LF.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
