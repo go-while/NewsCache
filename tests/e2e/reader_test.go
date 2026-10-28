@@ -257,6 +257,37 @@ func TestStat(t *testing.T) {
 	}
 }
 
+// TestReaderReplyCodeGaps covers the reply-code cases not already exercised
+// by TestStat, TestHdr and TestOverNoCurrentArticle.
+func TestReaderReplyCodeGaps(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Store.AddGroup("test.empty", "no articles")
+	c := e.session()
+
+	for _, cmd := range []string{"NEXT", "LAST"} {
+		if code, line := c.Cmd("%s", cmd); code != 412 {
+			t.Errorf("%s without a group: %q, want 412", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("GROUP test.empty"); code != 211 {
+		t.Fatalf("GROUP test.empty: %q, want 211", line)
+	}
+	for _, cmd := range []string{"NEXT", "LAST"} {
+		if code, line := c.Cmd("%s", cmd); code != 420 {
+			t.Errorf("%s without a current article: %q, want 420", cmd, line)
+		}
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP test.alpha: %q, want 211", line)
+	}
+	for _, cmd := range []string{"ARTICLE abc", "ARTICLE -1", "ARTICLE 1x"} {
+		if code, line := c.Cmd("%s", cmd); code != 501 {
+			t.Errorf("%s: %q, want 501 syntax error", cmd, line)
+		}
+	}
+}
+
 // TestArticleCached: once fetched by number, an article is served from the
 // spool; a second NewsCache process on the same spool does not ask upstream.
 func TestArticleCached(t *testing.T) {
