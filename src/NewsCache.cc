@@ -3339,6 +3339,21 @@ void nnrpd(int fd)
 			    ")\r\n";
 			continue;
 		}
+		if (cmdp == clt.client_command_map.end() &&
+		    nnrp_commands.find(argv[0]) != end) {
+			// A known command that the client's entry doesn't
+			// allow, and no login can add it: 440 for POST
+			// (RFC 3977 6.3.1), 502 otherwise (3.2.1). It got
+			// "500 What?", as if the command didn't exist.
+			slog.p(Logger::Notice) << clt.client_logname
+			    << " not allowed " << cmd << "\n";
+			if (!strcasecmp(cmd, "post"))
+				(*clt.co) << "440 posting not permitted\r\n";
+			else
+				(*clt.co) << "502 access denied (" << cmd <<
+				    ")\r\n";
+			continue;
+		}
 		if (cmdp == clt.client_command_map.end() || !cmdp->second->func) {
 			slog.p(Logger::Notice) << clt.client_logname
 			    << " unrecognized " << oreq << "\n";

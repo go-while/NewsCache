@@ -10,6 +10,10 @@ Behaviour changes:
   user's password was checked and refused. Other AUTHINFO failures (482, 501,
   502, an argument too long) are logged as "failed authinfo"; they were
   logged as a failed login of the last USER.
+* A known command that the client's entry doesn't allow, where no login
+  can help (Authentication none, or after the login), gets "502 access
+  denied", and POST "440 posting not permitted" (RFC 3977). Both got
+  "500 What?", the reply to an unknown command, which still gets 500.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news

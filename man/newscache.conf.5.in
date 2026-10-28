@@ -242,7 +242,7 @@ Allow read, post, debug for this Client. The default is none: a client whose ent
 .I authentication
 lets such a client stay connected so that it can log in. It gives no right by itself and doesn't make a login required: whether a login is possible, whether it is required, and what it adds is set by Authentication (see there). If only authenticated users are allowed for this network, specify authentication alone together with a login that adds the rights; see example "Only authenticated users".
 Before the login, such a client gets 480 for the commands that need a right it doesn't have yet; CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT are answered in any case.
-Where no login can add a right (the entry has Authentication none, or the client has logged in already), a command that needs it gets "500 What?", the reply to an unknown command. This includes POST from a client without the post right; RFC 3977 asks for 502 there, and 440 for POST.
+Where no login can add a right (the entry has Authentication none, or the client has logged in already), a command that needs it gets "502 access denied", and POST from a client without the post right gets "440 posting not permitted" (RFC 3977). An unknown command gets "500 What?".
 The greeting and MODE READER answer 200 only if the client may post at that moment, and 201 (posting prohibited) otherwise, also before a login that would add the post right (RFC 3977, RFC 4643).
 CAPABILITIES lists only what the client may do at that moment: before a required login (Authentication unix without fields) or on an entry that allows only the login, it lists AUTHINFO USER but not READER, HDR, OVER, LIST or POST; after the login it lists the rights the login gave.
 .IP "List \fINGSpecification\fR"
