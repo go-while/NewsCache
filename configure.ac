@@ -27,9 +27,12 @@ fi,
 AC_DEFINE(MD5_CRYPT, [1], [enable md5 hashes for authinfo])
 )
 
-dnl md5auto
-AC_ARG_WITH(md5_auto, [  --with-md5auto          enable autodetection of md5 hashes [default=yes]],
-if eval "test x$with_md5auto = xyes"; then
+dnl md5auto (declared as md5_auto, the option was --with-md5_auto and set
+dnl $with_md5_auto, which nothing read: --without-md5auto was unknown)
+AC_ARG_WITH(md5auto, [  --with-md5auto          check a stored hash as MD5 only when it looks like
+                          one, else with crypt(); on by default; without it
+                          every stored hash is checked as MD5],
+if test "x$with_md5auto" != xno; then
   AC_DEFINE(MD5_AUTO, [1], [enable autodetection of md5 hashes])
 fi,
 AC_DEFINE(MD5_AUTO, [1], [enable autodetection of md5 hashes])
