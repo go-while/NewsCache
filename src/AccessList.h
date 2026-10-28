@@ -51,13 +51,13 @@ class Authentication {
 	 * AuthenticationType.
 	 * \param AuthString the authentication string (unix:*:*::debug)
 	 */
-	const std::string& getType (void);
+	const std::string& getType (void) const;
 
 	/*
 	 * Returns the value of field with the number nr, or an empty
 	 * string if there is no such field.
 	 */
-	const std::string& getField(int nr);
+	const std::string& getField(int nr) const;
 
 	/*
 	 * Returns the number of stored fields.
@@ -179,6 +179,9 @@ class AccessList {
 
 	AccessEntry *client(const char *name, const struct sockaddr *addr,
 						socklen_t addrlen);
+	const std::vector < AccessEntry > &entries() const {
+		return vector;
+	}
 
 	void init() {
 		vector.clear();
@@ -196,7 +199,7 @@ class AccessList {
 
 
 // Inline methods
-inline const std::string& Authentication::getType (void)
+inline const std::string& Authentication::getType (void) const
 {
 	if (fields.size() == 0) {
 		return defAuth;
@@ -205,7 +208,7 @@ inline const std::string& Authentication::getType (void)
 	}
 }
 
-inline const std::string& Authentication::getField(int nr)
+inline const std::string& Authentication::getField(int nr) const
 {
 	// Missing fields are empty, as in "unix" without ":list:read:...".
 	static const std::string empty;

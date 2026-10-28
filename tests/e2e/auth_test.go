@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -84,6 +85,126 @@ func TestAuthFileShortLine(t *testing.T) {
 		t.Fatalf("ARTICLE 1 after login: %q, want 220", line)
 	}
 	c.ReadDotLines()
+}
+
+// TestAuthFileSecurityWarnings: permissions and symlinks on an auth file
+// produce one warning per path per config read, but never change login outcomes.
+func TestAuthFileSecurityWarnings(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason string
+		setup  func(*testing.T, string)
+	}{
+		{name: "private"},
+		{
+			name:   "group-and-world-writable",
+			reason: "writable by group and world",
+			setup: func(t *testing.T, path string) {
+				if err := os.Chmod(path, 0o666); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:   "symlink",
+			reason: "symbolic link",
+			setup: func(t *testing.T, path string) {
+				target := path + ".target"
+				if err := os.Rename(path, target); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("can't create symlink: %v", err)
+				}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+			authFile := filepath.Join(e.Dir, "newscache.auth")
+			if tc.setup != nil {
+				tc.setup(t, authFile)
+			}
+			e.AccessList = strings.Replace(e.AccessList, "Client stdin {",
+				"Client 127.0.0.0/8 {", 1)
+			p := e.standalone()
+			for n := 1; n <= 2; n++ {
+				c := e.dial()
+				if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+					t.Fatalf("connection %d AUTHINFO USER: %q, want 381", n, line)
+				}
+				if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+					t.Fatalf("connection %d AUTHINFO PASS: %q, want 281", n, line)
+				}
+				c.Cmd("QUIT")
+				c.Close()
+			}
+			p.Stop()
+			log := e.logFile()
+			prefix := "authentication file " + authFile
+			warningLines := grepLines(log, prefix)
+			var lines []string
+			if warningLines != "" {
+				lines = strings.Split(warningLines, "\n")
+			}
+			if tc.reason == "" {
+				if len(lines) != 0 {
+					t.Errorf("private auth file produced a warning:\n%s", strings.Join(lines, "\n"))
+				}
+				return
+			}
+			if len(lines) != 1 {
+				t.Fatalf("got %d warning lines for %s, want one:\n%s", len(lines), authFile, strings.Join(lines, "\n"))
+			}
+			if !strings.Contains(lines[0], tc.reason) {
+				t.Errorf("warning lacks reason %q:\n%s", tc.reason, lines[0])
+			}
+		})
+	}
+}
+
+func TestAuthFileSecurityWarningsOnReload(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	requireFileLog(e)
+	authFile := filepath.Join(e.Dir, "newscache.auth")
+	if err := os.Chmod(authFile, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = strings.Replace(e.AccessList, "Client stdin {",
+		"Client 127.0.0.0/8 {", 1)
+	p := e.standalone()
+	e.writeConf()
+	if err := p.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "authentication file " + authFile
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log"))
+		if err == nil && strings.Count(string(log), prefix) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("SIGHUP reload did not log the auth-file warning again:\n%s", log)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	c := e.dial()
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER after SIGHUP: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS after SIGHUP: %q, want 281", line)
+	}
+	c.Cmd("QUIT")
+	c.Close()
+	p.Stop()
+	log := e.logFile()
+	warnings := grepLines(log, prefix)
+	if n := strings.Count(warnings, prefix); n != 2 {
+		t.Errorf("got %d warning lines for startup and SIGHUP reload, want 2:\n%s", n, warnings)
+	}
 }
 
 // TestAuthFileUserHashOnly: an auth-file line with only user and hash is
