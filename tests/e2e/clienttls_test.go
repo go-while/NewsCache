@@ -32,15 +32,20 @@ type clientTLSFixture struct {
 	addr  string
 }
 
-// clientTLSBuilt follows requireTLS's binary check, but lets the no-GnuTLS
-// test assert that TLS options are rejected rather than silently ignored.
+// clientTLSBuilt uses the configure options the binary reports, rather than
+// depending on a GnuTLS symbol surviving compiler/linker changes.
 func clientTLSBuilt(t *testing.T, bin string) bool {
 	t.Helper()
-	b, err := os.ReadFile(bin)
+	b, err := exec.Command(bin, "-o").CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("newscache -o: %v\n%s", err, b)
 	}
-	return bytes.Contains(b, []byte("gnutls_handshake"))
+	for _, option := range strings.Fields(string(b)) {
+		if option == "--with-gnutls" {
+			return true
+		}
+	}
+	return false
 }
 
 func requireClientTLS(t *testing.T, bin string) {
@@ -176,13 +181,24 @@ func TestClientTLSListenerAndCommands(t *testing.T) {
 
 func TestClientTLSDefaultPort563(t *testing.T) {
 	f := newClientTLSFixture(t)
-	probe, err := net.Listen("tcp", "127.0.0.1:563")
-	if err != nil {
-		t.Skipf("TLS default port 563 is unavailable: %v", err)
-	}
-	probe.Close()
 	f.e.Extra = ""
 	addClientTLSConfig(f.e, "127.0.0.1", f.files, "")
+	f.e.writeConf()
+	out, err := exec.Command(f.e.Bin, "-c", f.e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p with default TLS port: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "\nTLSListenTo 127.0.0.1\n") {
+		t.Fatalf("newscache -p did not preserve the TLS listener with its omitted default port:\n%s", out)
+	}
+	// The configuration assertion above runs without privilege. Keep a live
+	// handshake as an extra where the runner can bind the privileged default.
+	probe, err := net.Listen("tcp", "127.0.0.1:563")
+	if err != nil {
+		t.Logf("live default-port handshake unavailable: %v", err)
+		return
+	}
+	probe.Close()
 	f.e.standalone()
 	c, _ := clientTLSSession(t, "127.0.0.1:563", f.ca)
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
