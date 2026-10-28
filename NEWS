@@ -64,6 +64,10 @@ Bug fixes:
 * Malformed commands starting with "auth" could expose their arguments in
   the log, including passwords. The log now keeps only the command word for
   these commands, and the reused request buffer is cleared before each read.
+* MD5 passwords in the auth file work on big-endian hosts (s390x, ppc64,
+  sparc64, ...): the MD5 code never reversed its words there
+  (HIGHFIRST was not defined), so every digest was wrong and no MD5
+  password matched. configure now checks the byte order.
 * When a configuration file could not be opened, newscache,
   newscacheclean, updatenews and cConfig reported "unexpected EOF". They
   now name the file and show the system error.

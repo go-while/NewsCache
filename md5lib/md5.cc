@@ -19,6 +19,13 @@
 #include <string.h>		/* for memcpy() */
 #include "md5.h"
 
+// The code works on little-endian words; on a big-endian host it must
+// reverse them (HIGHFIRST). Nothing defined HIGHFIRST, so MD5 hashes came
+// out wrong there and the auth file's MD5 passwords never matched.
+#if defined(WORDS_BIGENDIAN) && !defined(HIGHFIRST)
+#define HIGHFIRST 1
+#endif
+
 #ifndef HIGHFIRST
 #define byteReverse(buf, len)	/* Nothing */
 #else
