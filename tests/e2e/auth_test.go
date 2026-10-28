@@ -799,7 +799,9 @@ func pamService(t *testing.T, bin, module string) string {
 }
 
 // pamServiceText writes a PAM service with the given text, after the same
-// checks as pamService (Linux, a PAM build, root, module present).
+// checks as pamService (Linux, a PAM build, module present). It needs write
+// access to /etc/pam.d: root, or (better, newscache never runs as root) a
+// test user given it, e.g. setfacl -m u:newscache:rwx /etc/pam.d.
 func pamServiceText(t *testing.T, bin, module, text string) string {
 	t.Helper()
 	if runtime.GOOS != "linux" {
@@ -818,9 +820,6 @@ func pamServiceText(t *testing.T, bin, module, text string) string {
 	if !pam {
 		t.Skip("newscache built without PAM (configure --with-pam)")
 	}
-	if os.Geteuid() != 0 {
-		t.Skip("needs root to write a PAM service to /etc/pam.d")
-	}
 	found := false
 	for _, d := range []string{"/usr/lib64/security", "/lib64/security", "/usr/lib/x86_64-linux-gnu/security",
 		"/lib/x86_64-linux-gnu/security", "/usr/lib/aarch64-linux-gnu/security", "/usr/lib/security", "/lib/security"} {
@@ -835,7 +834,7 @@ func pamServiceText(t *testing.T, bin, module, text string) string {
 	name := "newscache-e2e-" + filepath.Base(t.TempDir())
 	path := filepath.Join("/etc/pam.d", name)
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Skipf("can't write %s: %v", path, err)
+		t.Skipf("can't write %s (needs write access to /etc/pam.d): %v", path, err)
 	}
 	t.Cleanup(func() { os.Remove(path) })
 	return name
@@ -874,8 +873,15 @@ func TestPamRhost(t *testing.T) {
   }
 }`
 			e.standalone()
+			// An existing user: pam_succeed_if before Linux-PAM 1.4
+			// (openSUSE Leap 15.6 has 1.3.0) looks the user up first and
+			// refuses an unknown one, whatever the condition tests.
+			u, err := user.Current()
+			if err != nil {
+				t.Fatal(err)
+			}
 			c := e.dialRaw()
-			if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+			if code, line := c.Cmd("AUTHINFO USER %s", u.Username); code != 381 {
 				t.Fatalf("AUTHINFO USER: %q, want 381", line)
 			}
 			if code, line := c.Cmd("AUTHINFO PASS anything"); code != tc.want {
