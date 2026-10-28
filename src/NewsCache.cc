@@ -3979,6 +3979,16 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	// -o prints how the binary was built: no configuration needed, so
+	// that it works on a broken or missing one too (like -v)
+	if (opt_config_options) {
+		for (int i=0; ConfigurationOptions[i] != NULL; i++) {
+			cout << ConfigurationOptions[i] << " ";
+		}
+		cout << endl;
+		exit (0);
+	}
+
 	try {
 		Cfg.read(config_file);
 		snprintf(nntp_hostname, sizeof(nntp_hostname), "%s", Cfg.Hostname);
@@ -3995,14 +4005,6 @@ int main(int argc, char **argv)
 	if (opt_print_para) {
 		cout << "# This output is generated with newscache -p" << endl;
 		Cfg.printParameters (&cout);
-		exit (0);
-	}
-
-	if (opt_config_options) {
-		for (int i=0; ConfigurationOptions[i] != NULL; i++) {
-			cout << ConfigurationOptions[i] << " ";
-		}
-		cout << endl;
 		exit (0);
 	}
 

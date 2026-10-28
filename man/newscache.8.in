@@ -63,8 +63,8 @@ each one is replaced by the comment
 .IR "# Password set, not shown" .
 .TP
 .B \-o \-\-configuration-options
-Print all options specified in the configure phase. Like \-p, it
-reads the configuration file first, and fails if that has an error.
+Print all options specified in the configure phase. It doesn't read
+the configuration file, so it works when that is missing or has an error.
 
 .SH SIGNALS
 
