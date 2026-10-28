@@ -247,6 +247,12 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | A failed login slept `AuthFailureDelay` (default 15, up to 3600) times the number of failures in the connection, so each guessing connection held a process and its memory for 90 s by default and up to 6 hours. The counter is per connection, so it didn't stop parallel guessing either. Per the user, the delay is now at most 1 s, the same after each failure (default 1; larger configured values count as 1, 0 still allowed); the close after the third failure stays | 3 | review (security pass, F5) | #147 |
 | MD5 auth-file hashes were wrong on big-endian hosts: md5lib reverses its words only with `HIGHFIRST`, which nothing defined, so every digest was wrong and no MD5 password matched. Now configure runs `AC_C_BIGENDIAN` and md5.cc defines `HIGHFIRST` from `WORDS_BIGENDIAN`. Unit check cMD5 (RFC 1321 vectors, md5crypt); run under qemu-s390x: main fails every vector, the fix passes | 3 | review (area 3) | #148 |
 | `LimitGroupSize` was applied to upstream GROUP replies but not to LIST ACTIVE entries stored in the active database; after an active-list refresh, LIST ACTIVE, cached GROUP results, and `updatenews -g` could see/use the full range until a GROUP refresh. The limit is now applied while each server's active list is read | 7, 9, 10 | real-upstream report; e2e test | #151 |
+| `TestPamRhost` logged in as a user that doesn't exist: before Linux-PAM 1.4 (openSUSE Leap 15.6 has 1.3.0) `pam_succeed_if` looks the user up first and refuses an unknown one, so the 127.0.0.1 case got 481. And the PAM tests ran only as root, to write their service file; they now need only write access to `/etc/pam.d` | 15 | full machine run (openSUSE 15.6) | #155 |
+| The CI container lanes (Fedora 43/44/45, Alpine, Debian 13) and FreeBSD ran `make check`, and with it every newscache the e2e tests start, as root; tests that skip as root never ran there. They run as an unprivileged user now, and the Ubuntu lanes run the PAM tests | 15 | user rule (never as root, also in tests) | #156 |
+| No TLS for clients: AUTHINFO USER/PASS was offered and accepted only in plain text (RFC 4643 2.1, 483 never used; the open point from #120). `TLSListenTo`, `TLSCertFile`, `TLSKeyFile`, `TLSPriority`, `newscache -t`, and `AuthRequiresTLS` per AccessList entry (483 on a plain connection) | 3, 5 | review (RFC follow-up, #120); user decision | #160 |
+| TLS connections to upstream servers retried a read or write interrupted by SIGTERM or the alarm (`GNUTLS_E_INTERRUPTED` without the alarm-indicator check of the plain path), and GnuTLS's own pull-timeout function retried `poll()` after EINTR: a session waiting for an upstream TLS server ended only when the server answered | 7 | review of #160 (nc-oc-ds4.1f-free), test by nc-oc-gpt | #160 |
+| `ListenTo` with an IPv6 address such as `[::1]` failed on a host without a global IPv6 address (a container): `getaddrinfo` was called with `AI_ADDRCONFIG`, which ignores loopback addresses. The listen address is numeric and is now used as given | 5 | CI of #160 (Debian 13 container lane) | #160 |
+| The listening socket's backlog was 4: a burst of clients overflowed it and FreeBSD reset the extra connections. Now 128; `MaxConnections` still limits the sessions | 5 | CI of #160 (FreeBSD lane) | #160 |
 
 ## Open points
 
@@ -261,7 +267,6 @@ that it stays as it is.
 | SIGHUP reload: the startup-only fields (ListenTo, CachePort, Username, Groupname, PidFile, LogDirectory, ServerType, NiceServer) change silently without effect (log "restart needed"); a new Hostname isn't copied to `nntp_hostname`; `Config::init` runs `getfqdn()` (DNS) on every reload; the config must be readable by Username | 5, 6 | review (area 6, L7) |  |
 | A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
 | `NiceClient` is never used: in standalone sessions `nnrpd` adds NiceServer a second time instead | 5 | review (area 5, L9; the NiceClean half was fixed in #107) |  |
-| AUTHINFO USER/PASS is offered and accepted in plain text, and NewsCache has no TLS or STARTTLS towards clients (483 is never used). RFC 4643 2.1: a server SHOULD NOT offer it without a strong encryption layer and MUST NOT implement it without TLS support. In practice a TLS proxy in front (haproxy on 563) covers it; a fix means client TLS, which is a feature | 3 | review (RFC follow-up, #120) |  |
 | `etc/NewsCache.init.in` is turned into `etc/NewsCache.init` by configure but installed by nothing; it is a Red Hat SysV script for a binary `NewsCache` that doesn't exist (the binary is `newscache`). Remove it and its `AC_CONFIG_FILES` line, or update it | 14 | review (area 14) |  |
 | `--with-gnutls` (and the default) build without TLS when GnuTLS isn't found, silently: `ssl`/`starttls` then give the "ignored without GnuTLS" behaviour. An explicit `--with-gnutls=yes` should fail instead | 14 | review (area 14) |  |
 | Every CI lane installs GnuTLS, so `TestTLSOptionsWithoutGnuTLS` skips in every lane. Run an existing lane, such as Ubuntu (file log, debug), with `--without-gnutls` while retaining TLS-enabled lanes | 15 | review (area 15) |  |
@@ -273,17 +278,22 @@ that it stays as it is.
 | With `--enable-headerlog`, `CServer::post` doesn't check `fs.open` of `.headerlog`: an unwritable spool skips the header log silently | 13 | review (pre-review of #139) |  |
 | `--sysconfdir='${prefix}/x'` (anything but the default) leaves a literal `${prefix}` in `SYSCONFDIR`: only the default value is expanded in configure.ac | 14 | review (pre-review of #140) |  |
 | Built `--without-syslog`, GCC `-Wall` warns about the unused variables `t` and `p` in `main()` of newscache, newscacheclean and updatenews | 13, 14 | review (verification of #139) |  |
+| NEWGROUPS and LIST ACTIVE.TIMES use the time NewsCache first saw a group (the active database's ctime, set to now when a record is first stored, `NVActiveDB::set`), not the group's creation time: a fresh cache lists every group as new (45982 groups for "since 2026-01-01" against news.blueworldhosting.com). Fix: read LIST ACTIVE.TIMES from the upstream at active-list refresh and store its times, with today's behaviour as the fallback for a 501. Feature-sized, for 1.3.24 | 2, 9 | real-upstream run (mbox-mo1, 2026-10-28) |  |
+| `listen()`'s return value isn't checked on the listening sockets (a failure would only show as clients that can't connect) | 5 | review of #160 |  |
+| With LeakSanitizer on (CI's ASan lane sets `detect_leaks=0`), the e2e suite reports leaks: a `CNewsgroup` of about 13 KB (`NServer.cc:1814`, via the last selected group, `clt.grp`, which isn't deleted when the session ends) and smaller ones in `newscacheclean`. Each session is a process of its own, so memory kept until exit is harmless; whether anything grows within a session (many GROUP/XOVER in one connection) hasn't been measured yet | 9, 11, 15 | ASan+LSan run (nc-oc-gpt61t) |  |
+
+UBSan (`-fsanitize=undefined`, which no CI lane uses) reports "invalid vptr ... memory cannot be printed" only in `TestSpoolFewFiles`, for any object (also the config file's `std::ifstream` at startup): UBSan itself needs free descriptors (a pipe) to check an object, and that test runs newscache with 5 to 16. `prlimit --nofile=5 newscache -p` shows them, 6 or more doesn't. Not a NewsCache bug; for UBSan runs, run without `halt_on_error`/`print_stacktrace` or leave that test out.
 
 ## CodeQL dismissals
 
-13 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22). They were
+14 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22, #27 on 2026-10-28). They were
 rechecked against main on 2026-10-22, after the review fixes; each still
 holds:
 
 | Alerts | Rule | Code | Why dismissed |
 |---|---|---|---|
 | #3-#8, #20, #21, #25 | `cpp/path-injection` | `NServer-0.9.1/checks/cArticle.cc`, `cOverviewFmt.cc`, `test/tartspool.cc` | Test programs opening the data files named on their own command line |
-| #2 | `cpp/path-injection` | `NServer-0.9.1/Lexer.h` | The config file given with `-c` by the admin who starts the daemon |
+| #2, #27 | `cpp/path-injection` | `NServer-0.9.1/Lexer.h` | The config file given with `-c` by the admin who starts the daemon (#27 is the same line after it moved, dismissed 2026-10-28) |
 | #11 | `cpp/unbounded-write` | `NVClasses-0.9.1/Logger.cc` (`Logger::append`) | The buffer is resized to at least `buflen + strlen(s) + 1` before the `strcat`, and is an empty string from the constructors on |
 | #14, #15 | `cpp/potential-system-data-exposure` | `src/setugid.cc` | Only the configured user's uid or group's gid, on stderr, when switching to it fails at startup. No longer reported since setugid was rewritten (initgroups) |
 

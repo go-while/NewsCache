@@ -95,11 +95,15 @@ merges.
 
 Several pull requests can be open at once (see "Parallel agents"), so they
 don't edit the same lines of shared files:
-- NEWS: a pull request doesn't edit NEWS. It adds its entry as a file
-  `changes/<branch name with / as ->.md` (for example
-  `changes/fix-hostname-buffer.md`), in NEWS's wording and with the NEWS
-  section it belongs to as its first line (`Behaviour changes:`, `Bug
-  fixes:`, ...). The release pull request moves them into NEWS.
+- NEWS: a pull request doesn't edit NEWS. It adds its entry as a file in
+  `changes/`, named after the branch with each `/` replaced by `-` (branch
+  `fix/hostname-buffer` gives `changes/fix-hostname-buffer.md`), in NEWS's
+  wording and with the NEWS section it belongs to as its first line
+  (`Behaviour changes:`, `Bug fixes:`, ...). Entries for different
+  sections go into separate files with the same prefix
+  (`changes/feat-client-tls-listeners.md`). A pull request that changes
+  only tests or CI adds none. The release pull request moves them into
+  NEWS.
 - REVIEW.md: a fix pull request doesn't edit REVIEW.md. After a batch of
   merges, one docs pull request moves the open points that were fixed to
   the fixed table, with their pull request numbers, and adds new findings.
