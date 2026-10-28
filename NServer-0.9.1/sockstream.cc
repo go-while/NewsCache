@@ -98,13 +98,38 @@ namespace {
   // goes on after EINTR, so the alarm of ClientTimeout and SIGTERM didn't
   // end a TLS client's wait; -1 with EINTR makes the read return
   // GNUTLS_E_INTERRUPTED, and the callers check the alarm indicator.
+  //
+  // During a server handshake it also keeps the handshake's absolute
+  // deadline: GnuTLS waited its full timeout again for each piece of a
+  // ClientHello sent a byte at a time, so the handshake took as long as
+  // the client liked. (One server handshake per process: each client
+  // session is a process of its own.)
+  struct timespec handshake_deadline = { 0, 0 };
+
   int pull_timeout_once(gnutls_transport_ptr_t ptr, unsigned int ms)
   {
+    int wait = (ms == GNUTLS_INDEFINITE_TIMEOUT) ? -1 : (int) ms;
+    if (handshake_deadline.tv_sec)
+    {
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      const long long left =
+	(handshake_deadline.tv_sec - now.tv_sec) * 1000LL +
+	(handshake_deadline.tv_nsec - now.tv_nsec) / 1000000;
+      if (left <= 0)
+      {
+	return 0;	// GNUTLS_E_TIMEDOUT
+      }
+      if (wait < 0 || left < wait)
+      {
+	wait = (int) left;
+      }
+    }
     struct pollfd p;
     p.fd = (int) (intptr_t) ptr;
     p.events = POLLIN;
     p.revents = 0;
-    return poll(&p, 1, ms == GNUTLS_INDEFINITE_TIMEOUT ? -1 : (int) ms);
+    return poll(&p, 1, wait);
   }
 
   bool is_ip_address(const char *name)
@@ -532,8 +557,10 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
   gnutls_transport_set_int(_session, _buf.fd());
   gnutls_transport_set_pull_timeout_function(_session, pull_timeout_once);
 
-  // (GnuTLS counts the timeout from the handshake's start; the loop
-  // checks the same deadline itself, for each new call)
+  // The deadline for the whole handshake, kept by pull_timeout_once()
+  // for each wait and checked by the loop for each new call
+  clock_gettime(CLOCK_MONOTONIC, &handshake_deadline);
+  handshake_deadline.tv_sec += timeout ? timeout : 60;
   const time_t deadline = time(NULL) + (timeout ? timeout : 60);
   do
   {
@@ -541,15 +568,18 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
     if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
     {
       info = "interrupted";
+      handshake_deadline.tv_sec = 0;
       return false;
     }
     if (time(NULL) > deadline)
     {
       info = "timed out";
+      handshake_deadline.tv_sec = 0;
       return false;
     }
     rc = gnutls_handshake(_session);
   } while ((rc < 0) && !gnutls_error_is_fatal(rc));
+  handshake_deadline.tv_sec = 0;
 
   if (rc < 0)
   {
