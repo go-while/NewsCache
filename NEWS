@@ -1,5 +1,10 @@
 Unreleased:
 
+Behaviour changes:
+* After a failed AUTHINFO PASS (481), the pending USER is invalidated. A
+  second PASS without AUTHINFO USER now gets 482 (RFC 4643 2.3.2); the client
+  can retry by sending USER again.
+
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
   server when it sends or accepts nothing for this many seconds (each

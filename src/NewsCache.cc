@@ -516,6 +516,7 @@ class ClientData {
 
 	AccessEntry *access_entry;
 	char auth_user[512];
+	bool auth_user_valid; // a USER is pending for one PASS
 	char auth_pass[512];
 	int auth_state;
 	int auth_failures;
@@ -536,7 +537,8 @@ class ClientData {
 	ClientData()
 		: client_logname(""),
 		  grp(NULL), nbr(0),
-		  access_entry(NULL), auth_state(AUTH_OK), auth_failures(0),
+		  access_entry(NULL), auth_user_valid(false), auth_state(AUTH_OK),
+		  auth_failures(0),
 		  auth_max_failures(3), auth_failure_sleep_time(Cfg.AuthFailureDelay),
 		  stat_groups(0), stat_artingrp(0), stat_articles(0)
 	{
@@ -1399,12 +1401,13 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		strcpy(clt->auth_user, argv[2]);
+		clt->auth_user_valid = true;
 		(*clt->co) << PASS_NEEDED_SEQUENCE " password please\r\n";
 		return 0;
 	}
 
 	if (!strcasecmp(argv[1], "pass")) {
-		if (clt->auth_user[0] == '\0') {
+		if (!clt->auth_user_valid || clt->auth_user[0] == '\0') {
 			(*clt->
 			 co) << INCORRECT_ORDER_SEQUENCE
 		      " issue authinfo user first\r\n";
@@ -1414,6 +1417,7 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		// any case, RFC 4643 2.3.2)
 		if (strlen(argv[2]) > sizeof(clt->auth_pass) - 1) {
 			clear_password(argv[2]);
+			clt->auth_user_valid = false;
 			(*clt->co) << FAILED_SEQUENCE " argument too long\r\n";
 			return -1;
 		}
@@ -1421,6 +1425,9 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		clear_password(argv[2]);
 		int checked = check_authentication(clt);
 		clear_password(clt->auth_pass);
+		// Keep the name for the failed-login audit log, but require another
+		// USER before a subsequent PASS (RFC 4643 2.3.2).
+		clt->auth_user_valid = false;
 
 		if (checked < 0) {
 			sleep (clt->auth_failure_sleep_time*
