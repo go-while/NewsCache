@@ -159,6 +159,41 @@ func TestAuthFileWrongPassword(t *testing.T) {
 	}
 }
 
+// TestFailedPassRequiresNewUser: RFC 4643 2.3.2 requires PASS to follow USER.
+// After any failed PASS, another PASS must be out of sequence; a fresh USER
+// lets the client retry successfully.
+func TestFailedPassRequiresNewUser(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+	}{
+		{"wrong password", "wrong"},
+		{"password too long", strings.Repeat("p", 600)},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+			e.Extra = "AuthFailureDelay 0"
+			c := e.session()
+			if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+				t.Fatalf("AUTHINFO USER: %q, want 381", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS %s", tc.password); code != 481 {
+				t.Fatalf("AUTHINFO PASS failure: %q, want 481", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS secret"); code != 482 {
+				t.Fatalf("AUTHINFO PASS after failure: %q, want 482", line)
+			}
+			if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+				t.Fatalf("AUTHINFO USER retry: %q, want 381", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+				t.Fatalf("AUTHINFO PASS retry: %q, want 281", line)
+			}
+		})
+	}
+}
+
 // TestAuthFileBadHash: a stored hash that is no hash ("*" or "!", the
 // locked-account markers of shadow files, an empty field, or a method
 // crypt() doesn't know) refuses the login and leaves the session usable;
@@ -770,8 +805,8 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 			t.Errorf("the log has the password (%q):\n%s", s, grepLines(log, s))
 		}
 	}
-	if !strings.Contains(log, "failed authinfo for user") {
-		t.Errorf("no masked AUTHINFO failure in the log:\n%s", grepLines(log, "uthinfo"))
+	if !strings.Contains(log, "failed authinfo for user  tester") {
+		t.Errorf("AUTHINFO failure log does not name tester:\n%s", grepLines(log, "uthinfo"))
 	}
 }
 
