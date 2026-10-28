@@ -236,7 +236,8 @@ the rows of #104 to #124. Those fixed are below, the rest are under
 | `newscacheclean -s -t` skipped `remove_elements`, so all statistics stayed zero. Try mode now collects the found database/article counts and sizes without removing files; the purged counts remain zero | 11 | review (area 11) | #138 |
 | Built with `--enable-headerlog`, GCC warned `-Wformat-truncation` for `snprintf(fn, sizeof(fn), "%s/.headerlog", ...)` in `CServer::post` (`fn[MAXPATHLEN]`). The truncation can't happen (SpoolDirectory is capped at MAXSPOOLDIRLEN, at least 528 bytes below MAXPATHLEN, by Config::read and LServer::init), but GCC can't see that. Now the result is checked (a name that doesn't fit would be logged as an error and the header not logged), which silences the warning | 13, 14 | review (integration of #111) | #139 |
 | configure expanded `sysconfdir` for `SYSCONFDIR` while `prefix` was still `NONE` (autoconf sets the default only at the end): a build without `--prefix` (CI's too) looked for `NONE/etc/newscache.conf`, and `make install` wrote into `./NONE/etc`; README said to always pass `--prefix`. Now an unset prefix is the default (`/usr/local`) before the expansion | 14 | review (area 14) | #140 |
-| A configuration file that can't be opened was reported as `unexpected EOF` by newscache, newscacheclean, updatenews and `cConfig.cc`, hiding both the path and system error. Lexer open failures now name the file and include `strerror(errno)`; read errors retain their existing message | 6 | review (seen with #133) |  |
+| A configuration file that can't be opened was reported as `unexpected EOF` by newscache, newscacheclean, updatenews and `cConfig.cc`, hiding both the path and system error. Lexer open failures now name the file and include `strerror(errno)`; read errors retain their existing message | 6 | review (seen with #133) | #141 |
+| Both PAM checks in `configure.ac` tested `${with_pam+set}`, which `--without-pam` and `--with-pam=no` set too: without PAM headers `configure --without-pam` stopped with "You don't have PAM header files", with them `-lpam` was linked although `PAM_AUTH` stays undefined. Now one `use_pam` is set when `with_pam` is set and not `no` (`--with-pam=` with an empty value still goes through the checks, as before) | 14 | review (area 14) | #142 |
 
 ## Open points
 
@@ -258,6 +259,12 @@ that it stays as it is.
 | Every CI lane installs GnuTLS, so `TestTLSOptionsWithoutGnuTLS` skips in every lane. Run an existing lane, such as Ubuntu (file log, debug), with `--without-gnutls` while retaining TLS-enabled lanes | 15 | review (area 15) |  |
 | No CI lane builds with `--enable-headerlog`, so the header-log code path has only local build coverage | 15 | review (area 15) |  |
 | `newscacheclean -s` always reports `DirCnt: 0`: `stDirCnt` is never incremented. Decide whether directory counts should be implemented or removed | 11, 15 | review (areas 11, 15) |  |
+| A directory given as `-c` (or a config path that is one) still reports `unexpected EOF in <dir>`: `fopen` of a directory succeeds and the read fails with EISDIR, which takes the read-error path (#141 covers only open errors). `Lexer::open` could reject non-regular files | 6 | review (verification of #141) |  |
+| `PAMServicename` naming a PAM service that doesn't exist shows only as refused logins (`pam_start` fails, or libpam falls back to the `other` service); the lexer has no quoting, so `PAMServicename ""` names a service called `""`. Could be checked at startup | 3 | review (security pass, F4) |  |
+| `cConfig` is a `check_PROGRAMS` target, so `TestConfigOpenError`'s cConfig subtest skips in lanes that run e2e without `make check` | 15 | review (verification of #141) |  |
+| With `--enable-headerlog`, `CServer::post` doesn't check `fs.open` of `.headerlog`: an unwritable spool skips the header log silently | 13 | review (pre-review of #139) |  |
+| `--sysconfdir='${prefix}/x'` (anything but the default) leaves a literal `${prefix}` in `SYSCONFDIR`: only the default value is expanded in configure.ac | 14 | review (pre-review of #140) |  |
+| Built `--without-syslog`, GCC `-Wall` warns about the unused variables `t` and `p` in `main()` of newscache, newscacheclean and updatenews | 13, 14 | review (verification of #139) |  |
 
 ## CodeQL dismissals
 

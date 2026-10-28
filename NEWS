@@ -26,6 +26,9 @@ Behaviour changes:
   /usr/local/etc/newscache.conf (the default prefix), and make install puts
   the files there. It was the literal NONE/etc/newscache.conf, and make
   install wrote into ./NONE/etc.
+* configure --without-pam (or --with-pam=no) no longer requires the PAM
+  headers: on a host without them it stopped with "You don't have PAM
+  header files", and with them it linked -lpam for nothing.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
