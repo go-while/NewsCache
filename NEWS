@@ -46,7 +46,8 @@ Behaviour changes:
   test read a misspelled variable). newscache -o prints it as
   --with-uniquename (was --with-uniquenames).
 * configure --with-md5auto / --without-md5auto are accepted as documented
-  (configure knew only --with-md5_auto). The default is unchanged. Note:
+  (configure knew only --with-md5_auto, and that one turned autodetection
+  off, whatever its value). The default is unchanged. Note:
   without md5auto every stored hash is checked as MD5, so crypt() hashes
   in an auth file stop working.
 

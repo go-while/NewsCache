@@ -145,7 +145,7 @@ Useful `configure` options:
 |---|---|
 | `--with-gnutls` | TLS to upstream servers (default: yes, if found) |
 | `--with-pam[=service]` | PAM authentication (default: no; service name `newscache`) |
-| `--with-md5`, `--with-md5auto` | MD5 password hashes for `authinfo` (default: yes) |
+| `--with-md5`, `--with-md5auto` | MD5 password hashes for `authinfo` (default: yes). `--without-md5auto` checks every stored hash as MD5, so crypt() hashes in an auth file stop working |
 | `--with-shadow` | shadow passwords (default: auto) |
 | `--with-syslog` | log to syslog (default: auto) |
 | `--enable-plainpass` | plain-text passwords in the password file |
