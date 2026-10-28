@@ -390,8 +390,9 @@ int main(int argc, char **argv)
 				break;
 
 			case 'l':
+				// a modifier of -g, not a mode: -l alone works
+				// as -g -l (it prefetched nothing)
 				opt_flags |= F_PREFETCH_LOCKGROUP;
-				opt_flagsset = 1;
 				break;
 
 			case 'w':
@@ -423,7 +424,7 @@ int main(int argc, char **argv)
 
 	}
 	if (!opt_flagsset)
-		opt_flags = F_PREFETCH_GROUP;
+		opt_flags |= F_PREFETCH_GROUP;
 
 	if (aerr || optind != argc) {
 		cerr << "Usage: " << cmnd << " [options]\n" << USAGE;
