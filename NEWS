@@ -19,6 +19,9 @@ Behaviour changes:
   2).
 * XDEBUG dump authorization and dump configuration send their lines with
   CRLF, and dot-stuffed, as RFC 3977 wants; they ended with a bare LF.
+* updatenews -l alone works as -g -l (prefetch the groups, each one
+  locked); it prefetched nothing. -a alone still only posts the queue and
+  refreshes the active database.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news

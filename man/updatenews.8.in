@@ -8,10 +8,10 @@ updatenews \- post articles from outgoing spool directory and prefetch newsgroup
 .SH DESCRIPTION
 Updatenews  submits  all those articles that have been stored within NewsCache's outgoing-queue. If necessary the ActiveDB will be updated (see the \-a option to force the update). Afterwards  retrieves all the articles from the newsgroups listed in the PrefetchFile (This can be configured in newscache.conf).  
 .PP
-Without any of \-a, \-g, \-o and \-l, updatenews works as with \-g.
+Without any of \-a, \-g and \-o, updatenews works as with \-g
+(\-l doesn't count: \-l alone works as \-g \-l).
 Once one of them is given, it prefetches groups only with \-g or \-o:
-\-a or \-l alone only posts the queue and refreshes the active
-database.
+\-a alone only posts the queue and refreshes the active database.
 .PP
 The outgoing queue is the directory .artSpool in the spool. An article
 stays there until a news server takes it; when no news server can be

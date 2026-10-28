@@ -451,6 +451,51 @@ func TestUpdatenewsConnectTimeout(t *testing.T) {
 	t.Logf("updatenews -a gave up after %v", time.Since(start).Round(100*time.Millisecond))
 }
 
+// TestUpdatenewsLockGroupAlone: -l only changes how -g prefetches (it locks
+// each group), so -l alone works as -g -l. It counted as a mode of its own,
+// and the default -g was dropped: updatenews -l prefetched nothing. -a alone
+// still only refreshes the active database, as updatenews(8) says.
+func TestUpdatenewsLockGroupAlone(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-l"}, "de.test at.test"},
+		{[]string{"--lock-group"}, "de.test at.test"},
+		{[]string{"-a"}, ""},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			e := newEnv(t)
+			for _, g := range []string{"de.test", "at.test"} {
+				e.Store.AddGroup(g, g)
+				e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+			}
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte("de.test\nat.test\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+			out, err := exec.Command(updatenewsBin(t, e), append([]string{"-c", e.Conf}, tc.args...)...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews %v: %v\n%s", tc.args, err, out)
+			}
+			if got := strings.Join(prefetched(e), " "); got != tc.want {
+				t.Errorf("updatenews %v prefetched %q, want %q", tc.args, got, tc.want)
+			}
+			articles := 0
+			for _, l := range e.Upstream.Lines() {
+				if strings.HasPrefix(strings.ToLower(l), "article ") {
+					articles++
+				}
+			}
+			if tc.want != "" && articles == 0 {
+				t.Errorf("updatenews %v fetched no article (works as -o, not -g): %q", tc.args, e.Upstream.Lines())
+			}
+		})
+	}
+}
+
 // TestUpdatenewsWorkersOption: -w N and --workers=N (in the man page and the
 // usage text) are accepted, and --lock-groups as the usage text spelled it.
 // -w was never handled: updatenews printed the usage and exited 1 without
