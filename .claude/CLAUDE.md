@@ -37,6 +37,8 @@ says the same.
   Billy G. <newscache-maintainer@pugleaf.net>.
 - For a release, set the version in `configure.ac` (`AC_INIT`), add a
   `debian/changelog` entry and a NEWS section, on a branch with a pull request.
+  The NEWS section is made from the files in `changes/` (see below), which
+  the release pull request then removes.
   After it is merged, tag the merge commit on `main` (tags aren't blocked by
   the pull-request rule) and push the tag.
 - 1.3.16 exists only as a `debian/changelog` entry in r80. SVN never tagged it,
@@ -89,8 +91,18 @@ Changes flow in one direction: a fix starts on a branch from `main`, reaches
 `main` by pull request, and gets into `features` (or any other long-lived
 branch) by merging `main` in. Don't cherry-pick from a feature branch to
 `main`; the same change twice under different commits conflicts on later
-merges. Edit NEWS only in the pull request that brings a change to `main`,
-because every release rewrites the top of NEWS.
+merges.
+
+Several pull requests can be open at once (see "Parallel agents"), so they
+don't edit the same lines of shared files:
+- NEWS: a pull request doesn't edit NEWS. It adds its entry as a file
+  `changes/<branch name with / as ->.md` (for example
+  `changes/fix-hostname-buffer.md`), in NEWS's wording and with the NEWS
+  section it belongs to as its first line (`Behaviour changes:`, `Bug
+  fixes:`, ...). The release pull request moves them into NEWS.
+- REVIEW.md: a fix pull request doesn't edit REVIEW.md. After a batch of
+  merges, one docs pull request moves the open points that were fixed to
+  the fixed table, with their pull request numbers, and adds new findings.
 
 Code review findings get one short branch each, from `main`, named
 `fix/<topic>` (for example `fix/hostname-buffer`), with one pull request per
@@ -172,9 +184,23 @@ database, and never touch keys of other prefixes.
   (`chat.py claim <id> <topic> "<branch>"`), so that two agents don't fix
   the same thing. Give a claim or lock that must not outlive the session
   a `--ttl <seconds>`.
-- One pull request open at a time, for all agents together: take
-  `chat.py lock <id> pr-slot "<branch>"` before opening one, and
-  `chat.py unlock <id> pr-slot` after the merge.
+- At most 4 pull requests open at a time, for all agents together, drafts
+  included. Before `gh pr create`, take `chat.py lock <id> pr-open --ttl
+  120 "<branch>"`, count with `gh pr list --state open`, open the pull
+  request only if fewer than 4 are open, then `chat.py unlock <id>
+  pr-open`.
+- Each pull request is one concern. Review it with
+  `git diff origin/main...<branch>` (three dots: what the branch adds), not
+  a two-dot diff, which shows a branch on an older base as reverting what
+  was merged since.
+- Before a merge, check the merge result, not only the branch: `git
+  merge-tree --write-tree origin/main <branch>` must merge cleanly, and the
+  merged tree must build and pass the tests touched by the pull request
+  (a clean textual merge can still break, e.g. when another pull request
+  changed a function the branch calls). Rebase when it doesn't.
+- The verifier's verdict names the exact head: "verified: PR #n (head
+  <full sha>)". Merge only when that sha is still the pull request's head
+  (`gh pr view <n> --json headRefOid`); any new push needs a new verdict.
 - Requests and bug reports for `chat.py` go to its maintainers' room:
   `chat.py --prefix prac- say <id> chatroom-maint "request: ..."`. They
   don't read our room; replies come back to our room, to your id.
