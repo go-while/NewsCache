@@ -567,7 +567,10 @@ int main(int argc, char **argv)
 //    strcpy(nntp_hostname,Cfg.Hostname);
 	}
 	catch(const IOError & io) {
-		cerr << "unexpected EOF in " << conffile << "\n";
+		if (io._errno == -1)
+			cerr << "unexpected EOF in " << conffile << "\n";
+		else
+			cerr << io._errtext << ": " << strerror(io._errno) << "\n";
 		exit(2);
 	}
 	catch(const SyntaxError & se) {

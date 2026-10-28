@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "Logger.h"
@@ -28,7 +29,11 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	catch(const IOError & io) {
-		cerr << "cConfig: unexpected EOF in " << fn << "\n";
+		if (io._errno == -1)
+			cerr << "cConfig: unexpected EOF in " << fn << "\n";
+		else
+			cerr << "cConfig: " << io._errtext << ": "
+			     << strerror(io._errno) << "\n";
 		exit(1);
 	}
 

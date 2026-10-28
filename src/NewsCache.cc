@@ -4018,7 +4018,10 @@ int main(int argc, char **argv)
 		snprintf(nntp_hostname, sizeof(nntp_hostname), "%s", Cfg.Hostname);
 	}
 	catch(const IOError & io) {
-		cerr << "unexpected EOF in " << config_file << "\n";
+		if (io._errno == -1)
+			cerr << "unexpected EOF in " << config_file << "\n";
+		else
+			cerr << io._errtext << ": " << strerror(io._errno) << "\n";
 		exit(2);
 	}
 	catch(const SyntaxError & se) {
