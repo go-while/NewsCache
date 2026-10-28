@@ -1,6 +1,12 @@
 Unreleased:
 
 Behaviour changes:
+* A failed login (AUTHINFO PASS) waits at most 1 second before the 481,
+  the same after each failure; the connection is still closed after the
+  third. The delay was AuthFailureDelay times the number of failures (15,
+  30 and 45 s by default, up to 3 hours with 3600), which only kept the
+  session's process and memory busy. AuthFailureDelay now defaults to 1;
+  larger values are accepted but count as 1, 0 still answers at once.
 * PAM logins: NewsCache now gives PAM the client's address (PAM_RHOST),
   so host-based PAM rules (pam_access, pam_succeed_if rhost, ...) apply.
   They saw no host before: a service that allows only some hosts refused

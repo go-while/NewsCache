@@ -67,7 +67,7 @@ void Config::init(void)
 	PrefetchFile[0] = PidFile[0] = '\0';
 
 	ClientTimeout = 1200;
-	AuthFailureDelay = 15;
+	AuthFailureDelay = 1;
 	HistoryEnabled = 0;
 	MaxConnections = 32;
 	MaxArticleSize = 1024 * 1024;
@@ -209,7 +209,10 @@ void Config::read(const char *fn)
 				throw SyntaxError(lex,
 						  "AuthFailureDelay expects seconds, 0 to 3600",
 						  ERROR_LOCATION);
-			AuthFailureDelay = (int) v;
+			// at most 1 s: a longer (and, before, growing) sleep
+			// only kept a process and its memory busy per guessing
+			// connection; values up to 3600 are still accepted
+			AuthFailureDelay = v > 1 ? 1 : (int) v;
 		} else if (tok == "MaxArticleSize" || tok == "MaxPostSize") {
 			char *e;
 			long v;

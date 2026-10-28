@@ -280,9 +280,10 @@ func TestAuthFileBadHash(t *testing.T) {
 	}
 }
 
-// TestAuthFailureDelay: after a failed login NewsCache waits AuthFailureDelay
-// seconds times the number of failures before it answers; a later correct
-// password still logs in. The delay was a fixed 15 seconds.
+// TestAuthFailureDelay: after each failed login NewsCache waits
+// AuthFailureDelay seconds (at most 1) before it answers; a later correct
+// password still logs in. The delay was a fixed 15 seconds, then (1.3.22)
+// AuthFailureDelay times the number of failures.
 func TestAuthFailureDelay(t *testing.T) {
 	t.Parallel()
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
@@ -295,8 +296,8 @@ func TestAuthFailureDelay(t *testing.T) {
 		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
 			t.Fatalf("failure %d: AUTHINFO PASS wrong: %q, want 481", n, line)
 		}
-		want := time.Duration(n) * time.Second
-		if d := time.Since(start); d < want || d > want+5*time.Second {
+		want := time.Second
+		if d := time.Since(start); d < want || d > want+2*time.Second {
 			t.Errorf("failure %d: answered after %v, want about %v", n, d.Round(time.Millisecond), want)
 		}
 	}
@@ -960,6 +961,29 @@ func TestAuthinfoVariantsNotLogged(t *testing.T) {
 	for _, want := range []string{"unrecognized auth", "unrecognized authinfo:", "failed authinfo"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("the log lacks redacted entry %q:\n%s", want, grepLines(log, "auth"))
+		}
+	}
+}
+
+// TestAuthFailureDelayFixed: each failed login waits the same short delay,
+// at most 1 s, also with an AuthFailureDelay from an older configuration.
+// The delay was AuthFailureDelay times the number of failures (15, 30 and
+// 45 s by default, up to 3 h with 3600), which only held the session's
+// process and memory for each guessing connection.
+func TestAuthFailureDelayFixed(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 15"
+	c := e.session()
+	for i := 1; i <= 2; i++ {
+		if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+			t.Fatalf("AUTHINFO USER: %q, want 381", line)
+		}
+		start := time.Now()
+		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
+			t.Fatalf("AUTHINFO PASS (wrong) #%d: %q, want 481", i, line)
+		}
+		if d := time.Since(start); d < 900*time.Millisecond || d > 3*time.Second {
+			t.Errorf("failed login #%d answered after %v, want about 1 s", i, d.Round(10*time.Millisecond))
 		}
 	}
 }
