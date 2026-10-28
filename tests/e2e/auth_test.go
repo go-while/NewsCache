@@ -194,6 +194,65 @@ func TestFailedPassRequiresNewUser(t *testing.T) {
 	}
 }
 
+// TestOverlongUserEndsPendingUser: a replacement AUTHINFO USER that is too
+// long gets 481 and also ends the pending USER, so the next PASS gets 482
+// instead of being checked against the earlier name (RFC 4643 2.3.2).
+func TestOverlongUserEndsPendingUser(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO USER %s", strings.Repeat("u", 600)); code != 481 {
+		t.Fatalf("AUTHINFO USER (too long): %q, want 481", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 482 {
+		t.Fatalf("AUTHINFO PASS after a failed USER: %q, want 482", line)
+	}
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER retry: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+		t.Fatalf("AUTHINFO PASS retry: %q, want 281", line)
+	}
+}
+
+// TestAuthinfoFailureLogNamesCheckedUser: "failed authinfo for user <name>"
+// is logged only when that user's password was checked and refused. A PASS
+// out of sequence (482) or too long, after an earlier failure, is logged as
+// "failed authinfo" without a name; it was logged as a second failed login
+// of the earlier user, whose password wasn't checked again.
+func TestAuthinfoFailureLogNamesCheckedUser(t *testing.T) {
+	const wrong = "wr0ng-client-pw"
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS %s", wrong); code != 481 {
+		t.Fatalf("AUTHINFO PASS (wrong): %q, want 481", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS %s", wrong); code != 482 {
+		t.Fatalf("AUTHINFO PASS again: %q, want 482", line)
+	}
+	c.Cmd("QUIT")
+	time.Sleep(100 * time.Millisecond)
+	log := e.logFile()
+	if strings.Contains(log, wrong) {
+		t.Errorf("the log has the password:\n%s", grepLines(log, wrong))
+	}
+	if n := strings.Count(log, "failed authinfo for user  tester"); n != 1 {
+		t.Errorf("%d failed logins of tester logged, want 1 (the 482 isn't one):\n%s",
+			n, grepLines(log, "uthinfo"))
+	}
+	if n := strings.Count(log, "failed authinfo\n"); n != 1 {
+		t.Errorf("%d nameless AUTHINFO failures logged, want 1 (the 482):\n%s",
+			n, grepLines(log, "uthinfo"))
+	}
+}
+
 // TestAuthFileBadHash: a stored hash that is no hash ("*" or "!", the
 // locked-account markers of shadow files, an empty field, or a method
 // crypt() doesn't know) refuses the login and leaves the session usable;

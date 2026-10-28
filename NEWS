@@ -4,6 +4,12 @@ Behaviour changes:
 * After a failed AUTHINFO PASS (481), the pending USER is invalidated. A
   second PASS without AUTHINFO USER now gets 482 (RFC 4643 2.3.2); the client
   can retry by sending USER again.
+* An AUTHINFO USER that is too long (481) also ends a pending USER, so a
+  following PASS gets 482 instead of being checked against the earlier name.
+* The log names the user in "failed authinfo for user <name>" only when that
+  user's password was checked and refused. Other AUTHINFO failures (482, 501,
+  502, an argument too long) are logged as "failed authinfo"; they were
+  logged as a failed login of the last USER.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
