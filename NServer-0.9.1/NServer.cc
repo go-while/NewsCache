@@ -45,6 +45,7 @@
 
 #include "NServer.h"
 #include "RNewsgroup.h"
+#include "md5.h"
 #include "readline.h"
 
 using namespace std;
@@ -1429,7 +1430,27 @@ int RServer::post(Article * article)
 
 		TOBASE36(i, pc, p);
 		*p++ = '@';
-		snprintf(p, sizeof(mid) - (p - mid), "%s", nntp_hostname);
+		// RFC 3977 limits the complete Message-ID, including < and >,
+		// to 250 octets. Preserve the hostname when it fits; otherwise
+		// use its deterministic MD5 without changing time/pid/counter.
+		const char *hostname = nntp_hostname;
+		char hosthash[33];
+		if (sizeof("<newscache$") - 1 + (size_t) (p - mid) +
+		    strlen(hostname) + 1 > 250) {
+			MD5_CTX ctx;
+			unsigned char digest[16];
+			static const char hex[] = "0123456789abcdef";
+			MD5Init(&ctx);
+			MD5Update(&ctx, (const unsigned char *) hostname, strlen(hostname));
+			MD5Final(digest, &ctx);
+			for (size_t k = 0; k < sizeof(digest); k++) {
+				hosthash[k * 2] = hex[digest[k] >> 4];
+				hosthash[k * 2 + 1] = hex[digest[k] & 15];
+			}
+			hosthash[32] = '\0';
+			hostname = hosthash;
+		}
+		snprintf(p, sizeof(mid) - (p - mid), "%s", hostname);
 		pc++;
 
 		// Both buffers are sized for the longest host name
