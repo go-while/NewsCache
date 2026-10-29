@@ -42,14 +42,37 @@ func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
 		t.Skipf("configure script not found in %s: %v", source, err)
 	}
 	configureSource := filepath.Join(t.TempDir(), "source")
-	if out, err := exec.Command("cp", "-R", source, configureSource).CombinedOutput(); err != nil {
-		t.Fatalf("copy configure source: %v\n%s", err, out)
+	// Copy only configure inputs: copying the full tree would also copy .git,
+	// private ignored files, and read-only distcheck output into the temp dir.
+	// Keep this list aligned with the configure inputs in tests/configure-gnutls.sh.
+	configureInputs := []string{
+		"configure", "config.h.in", "config.guess", "config.sub", "install-sh",
+		"missing", "compile", "depcomp", "test-driver", "Makefile.in",
+		"src/NewsCache.cc", "src/Makefile.in", "md5lib/Makefile.in",
+		"NVClasses-0.9.1/Makefile.in", "NServer-0.9.1/Makefile.in",
+		"NServer-0.9.1/checks/Makefile.in", "man/Makefile.in", "doc/Makefile.in",
+		"etc/Makefile.in", "etc/NewsCache.init.in", "test/Makefile.in",
 	}
-	// A configured in-tree build cannot be used as the source of another
-	// out-of-tree configure. Remove that state from the throwaway copy.
-	for _, name := range []string{".git", "config.status", "config.cache", "config.log"} {
-		if err := os.RemoveAll(filepath.Join(configureSource, name)); err != nil {
-			t.Fatal(err)
+	executableInputs := map[string]bool{
+		"configure": true, "config.guess": true, "config.sub": true,
+		"install-sh": true, "missing": true, "compile": true,
+		"depcomp": true, "test-driver": true,
+	}
+	for _, name := range configureInputs {
+		data, err := os.ReadFile(filepath.Join(source, name))
+		if err != nil {
+			t.Fatalf("read configure input %s: %v", name, err)
+		}
+		dest := filepath.Join(configureSource, name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatalf("create configure input directory for %s: %v", name, err)
+		}
+		mode := os.FileMode(0o644)
+		if executableInputs[name] {
+			mode = 0o755
+		}
+		if err := os.WriteFile(dest, data, mode); err != nil {
+			t.Fatalf("write configure input %s: %v", name, err)
 		}
 	}
 	configure := filepath.Join(configureSource, "configure")
