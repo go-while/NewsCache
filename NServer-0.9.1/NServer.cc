@@ -384,7 +384,7 @@ void RServer::connect()
 				throw ResponseError(c, e, resp);
 			}
 			sockstream *sslStream = _pServerStream->starttls(
-				_CurrentServer->hostname.c_str());
+				_CurrentServer->hostname.c_str(), _CurrentServer->connectTimeout);
 			if (!sslStream || !sslStream->connected()) {
 				delete sslStream;
 				delete _pServerStream;

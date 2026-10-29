@@ -46,7 +46,8 @@ class sockstream
     // (unless it is an IP address) and, with verify, the server's
     // certificate must chain to cafile (or the system trust store if
     // cafile is empty) and match hostname.
-    void connect(const char *hostname, bool verify, const std::string &cafile);
+    void connect(const char *hostname, bool verify, const std::string &cafile,
+		 unsigned int connect_timeout);
 
     // TLS handshake as the server, with the credentials of
     // load_server_tls(), at most timeout seconds (0: GnuTLS's default).
@@ -60,7 +61,7 @@ class sockstream
     inline bool connected() const
     { return false; }
 
-    inline void connect(const char *, bool, const std::string &)
+    inline void connect(const char *, bool, const std::string &, unsigned int)
     { }
     inline bool accept(unsigned int, std::string &info)
     { info = "built without GnuTLS"; return false; }
@@ -118,6 +119,9 @@ class sockstream
 
     inline int fd() const
     { return _fd; }
+
+    inline unsigned int io_timeout() const
+    { return _io_timeout; }
 
     void connect(const char *name, const char *service,
 		 const struct sockaddr *from, socklen_t fromlen,
@@ -208,7 +212,7 @@ class sockstream
 		      socklen_t fromlen = 0, unsigned int timeout = 0)
   {
     _buf.connect(name, service, from, fromlen, timeout);
-    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile);
+    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile, timeout);
     clear(connected() ? std::ios::goodbit : std::ios::badbit);
   }
 
@@ -216,7 +220,7 @@ class sockstream
 		      unsigned int timeout = 0)
   {
     _buf.connect(name, service, NULL, 0, timeout);
-    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile);
+    if (_ssl && _buf.connected()) _ssl->connect(name, _tls_verify, _tls_cafile, timeout);
     clear(connected() ? std::ios::goodbit : std::ios::badbit);
   }
 
@@ -302,7 +306,7 @@ class sockstream
   // Hands the socket to a new TLS stream and runs the handshake. Returns
   // NULL if there is nothing to upgrade; otherwise check connected() on
   // the result, which is false if the handshake or verification failed.
-  sockstream *starttls(const char *hostname);
+  sockstream *starttls(const char *hostname, unsigned int connect_timeout);
 #endif
 };
 

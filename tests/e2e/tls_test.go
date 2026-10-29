@@ -9,6 +9,7 @@ package e2e
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,13 +17,17 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -249,6 +254,265 @@ func requireTLS(t *testing.T, bin string) {
 	}
 	if !bytes.Contains(b, []byte("gnutls_handshake")) {
 		t.Skip("newscache built without GnuTLS")
+	}
+}
+
+// A peer that sends a valid TLS record header but never completes the
+// record. Every 150 ms it sends another byte: a per-read timeout alone
+// cannot bound the whole handshake.
+func dribblingTLSUpstream(t *testing.T, starttls bool) (*fakeserver.Server, <-chan time.Time, *atomic.Int32) {
+	t.Helper()
+	started := make(chan time.Time, 1)
+	var drips atomic.Int32
+	s := fakeserver.New(t, fakeserver.Options{
+		NoGreeting: !starttls,
+		Handler: func(c *fakeserver.Conn) {
+			if starttls {
+				for {
+					line, err := c.ReadLine()
+					if err != nil {
+						return
+					}
+					switch strings.ToUpper(strings.TrimSpace(line)) {
+					case "MODE READER":
+						if c.WriteLines("200 reader ready") != nil {
+							return
+						}
+					case "STARTTLS":
+						if c.WriteLines("382 begin TLS") != nil {
+							return
+						}
+						goto handshake
+					default:
+						return
+					}
+				}
+			}
+		handshake:
+			raw := c.Raw()
+			raw.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var header [5]byte
+			if _, err := io.ReadFull(raw, header[:]); err != nil || header[0] != 22 {
+				return
+			}
+			n := int(header[3])<<8 | int(header[4])
+			if _, err := io.CopyN(io.Discard, raw, int64(n)); err != nil {
+				return
+			}
+			raw.SetReadDeadline(time.Time{})
+			// An incomplete 16383-byte handshake record, well within TLS's
+			// record limit, so the client keeps waiting rather than rejecting it.
+			if _, err := raw.Write([]byte{22, 3, 3, 0x3f, 0xff}); err != nil {
+				return
+			}
+			select {
+			case started <- time.Now():
+			default:
+			}
+			tick := time.NewTicker(150 * time.Millisecond)
+			defer tick.Stop()
+			for range tick.C {
+				if _, err := raw.Write([]byte{0}); err != nil {
+					return
+				}
+				drips.Add(1)
+			}
+		},
+	})
+	return s, started, &drips
+}
+
+func testUpstreamTLSHandshakeBound(t *testing.T, starttls bool, readTimeout, connectTimeout int, signal bool, bound, minimum time.Duration) {
+	t.Helper()
+	e := newEnv(t)
+	requireTLS(t, e.Bin)
+	server, started, drips := dribblingTLSUpstream(t, starttls)
+	_, port, err := net.SplitHostPort(server.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.ServerHost, e.ServerPort = "127.0.0.1", port
+	e.ServerOptions = "ssl noverify"
+	if starttls {
+		e.ServerOptions = "starttls noverify"
+	}
+	e.ServerLines = fmt.Sprintf("    ReadTimeout %d\n    ConnectTimeout %d\n    Retries 1", readTimeout, connectTimeout)
+	e.writeConf()
+	ctx, cancel := context.WithTimeout(context.Background(), bound+15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a")
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var begin time.Time
+	select {
+	case begin = <-started:
+	case err := <-done:
+		t.Fatalf("updatenews exited before the TLS handshake: %v\n%s", err, output.String())
+	case <-time.After(10 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("updatenews did not start the TLS handshake")
+	}
+	if signal {
+		time.Sleep(350 * time.Millisecond)
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			cancel()
+			<-done
+			t.Fatal(err)
+		}
+		begin = time.Now()
+	}
+	select {
+	case err := <-done:
+		elapsed := time.Since(begin)
+		if elapsed < minimum || elapsed > bound {
+			t.Errorf("handshake ended after %v, want %v..%v (err %v, drips %d)\n%s", elapsed, minimum, bound, err, drips.Load(), output.String())
+		}
+		if !signal && drips.Load() < 4 {
+			t.Errorf("peer sent only %d bytes; handshake was not actually dribbling", drips.Load())
+		}
+	case <-time.After(bound):
+		cancel()
+		<-done
+		t.Fatalf("updatenews did not stop within %v (drips %d)\n%s", bound, drips.Load(), output.String())
+	}
+}
+
+func TestUpstreamTLSHandshakeDeadline(t *testing.T) {
+	for _, starttls := range []bool{false, true} {
+		name := "implicit"
+		if starttls {
+			name = "starttls"
+		}
+		t.Run(name, func(t *testing.T) {
+			testUpstreamTLSHandshakeBound(t, starttls, 2, 8, false, 5*time.Second, time.Second)
+		})
+	}
+}
+
+func TestUpstreamTLSHandshakeSIGTERM(t *testing.T) {
+	for _, starttls := range []bool{false, true} {
+		name := "implicit"
+		if starttls {
+			name = "starttls"
+		}
+		t.Run(name, func(t *testing.T) {
+			testUpstreamTLSHandshakeBound(t, starttls, 0, 0, true, 2500*time.Millisecond, 0)
+		})
+	}
+}
+
+// The ordinary client session, as well as updatenews, must stop when its
+// upstream handshake is interrupted by SIGTERM.
+func TestClientSessionUpstreamTLSSIGTERM(t *testing.T) {
+	for _, starttls := range []bool{false, true} {
+		name := "implicit"
+		if starttls {
+			name = "starttls"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			requireTLS(t, e.Bin)
+			server, started, _ := dribblingTLSUpstream(t, starttls)
+			_, port, err := net.SplitHostPort(server.Addr())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.ServerHost, e.ServerPort = "127.0.0.1", port
+			e.ServerOptions = "ssl noverify"
+			if starttls {
+				e.ServerOptions = "starttls noverify"
+			}
+			e.ServerLines = "    ReadTimeout 0\n    Retries 1"
+			e.writeConf()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, e.Bin, "-c", e.Conf, "-i")
+			input, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			greeting, err := bufio.NewReader(output).ReadString('\n')
+			if err != nil || !strings.HasPrefix(greeting, "200 ") {
+				cancel()
+				<-done
+				t.Fatalf("client greeting %q: %v", greeting, err)
+			}
+			if _, err := io.WriteString(input, "GROUP test.alpha\r\n"); err != nil {
+				cancel()
+				<-done
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case err := <-done:
+				t.Fatalf("client session exited before TLS handshake: %v\n%s", err, stderr.String())
+			case <-time.After(10 * time.Second):
+				cancel()
+				<-done
+				t.Fatal("client session did not start the upstream TLS handshake")
+			}
+			time.Sleep(350 * time.Millisecond)
+			if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+				cancel()
+				<-done
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+			case <-time.After(2500 * time.Millisecond):
+				cancel()
+				<-done
+				t.Fatalf("client session did not stop promptly on SIGTERM\n%s", stderr.String())
+			}
+		})
+	}
+}
+
+// When ReadTimeout is zero, ConnectTimeout bounds the whole handshake.
+func TestUpstreamTLSHandshakeZeroTimeout(t *testing.T) {
+	for _, starttls := range []bool{false, true} {
+		name := "implicit"
+		if starttls {
+			name = "starttls"
+		}
+		t.Run(name, func(t *testing.T) {
+			testUpstreamTLSHandshakeBound(t, starttls, 0, 2, false, 5*time.Second, time.Second)
+		})
+	}
+}
+
+// With neither configured timeout there is still a 60-second hard limit.
+// Opt in for the slow boundary test; normal CI covers the 2-second fallback.
+func TestUpstreamTLSHandshakeBothTimeoutsZero(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SLOW_TLS_DEADLINE") != "1" {
+		t.Skip("set NEWSCACHE_SLOW_TLS_DEADLINE=1 for the 60-second fallback test")
+	}
+	for _, starttls := range []bool{false, true} {
+		name := "implicit"
+		if starttls {
+			name = "starttls"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testUpstreamTLSHandshakeBound(t, starttls, 0, 0, false, 68*time.Second, 55*time.Second)
+		})
 	}
 }
 
