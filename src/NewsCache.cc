@@ -2431,6 +2431,37 @@ static int read_post_article(istream & is, string & text, size_t max)
 	return over ? 1 : 0;
 }
 
+// Inspect every header name so that a valid first Message-ID cannot hide a
+// malformed second one. A POST may omit the field; then post() generates it.
+static bool valid_post_msgid(const string &text, const Article &art)
+{
+	size_t start = 0, count = 0;
+	while (start < text.size()) {
+		size_t end = text.find("\r\n", start);
+		if (end == string::npos || end == start)
+			break;
+		if (end - start >= 11 &&
+		    strncasecmp(text.c_str() + start, "Message-ID:", 11) == 0)
+			count++;
+		start = end + 2;
+	}
+	if (count == 0)
+		return true;
+	if (count != 1)
+		return false;
+	string id;
+	try {
+		id = art.getfield("message-id:");
+	}
+	catch(const Error &) {
+		return false;
+	}
+	// RFC 5536 permits whitespace around the field value, not within it.
+	while (!id.empty() && (id[id.size() - 1] == ' ' || id[id.size() - 1] == '\t'))
+		id.erase(id.size() - 1);
+	return strlen(id.c_str()) == id.size() && valid_msgid_5536(id.c_str());
+}
+
 int ns_post(ClientData * clt, int argc, char *argv[])
 {
 	VERB(slog.p(Logger::Debug) << "NewsCache::ns_post\n");
@@ -2466,6 +2497,10 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		art.settext(text);
+		if (!valid_post_msgid(text, art)) {
+			(*clt->co) << "441 invalid Message-ID header\r\n";
+			return -1;
+		}
 
 		// check whether client is authorized to post this article.
 		// The same split as RServer::post, which picks the servers
@@ -3481,6 +3516,17 @@ void nnrpd(int fd, bool tls)
 			slog.p(Logger::Notice) << clt.client_logname << " ClientTimeout reached\n";
 			goto client_exit;
 		}
+		// gcount includes a discarded newline only when getline found it.
+		// At EOF it counts just the stored bytes, including a trailing NUL.
+		if (!too_long && !clt.ci->bad() && clt.ci->gcount() > 0) {
+			std::streamsize n = clt.ci->gcount() - (clt.ci->eof() ? 0 : 1);
+			if (memchr(req, '\0', (size_t) n) != NULL) {
+				(*clt.co) << "501 NUL in command\r\n";
+				if (clt.ci->eof())
+					break;
+				continue;
+			}
+		}
 		if (clt.ci->eof()) {
 			slog.p(Logger::Debug) << "NewsCache.cc input stream eof!\n";
 			break;
@@ -3592,6 +3638,24 @@ void nnrpd(int fd, bool tls)
 			slog.p(Logger::Notice) << clt.client_logname
 			    << " unrecognized " << oreq << "\n";
 			(*clt.co) << "500 What?\r\n";
+			continue;
+		}
+
+		// Validate client-supplied Message-IDs before any command can
+		// consult the spool or contact an upstream. Numeric arguments
+		// remain with each command's existing range/number parser.
+		int idarg = 0;
+		if (argc == 2 && (!strcmp(cmd, "article") || !strcmp(cmd, "head") ||
+		    !strcmp(cmd, "body") || !strcmp(cmd, "stat") || !strcmp(cmd, "over") ||
+		    !strcmp(cmd, "xover")))
+			idarg = 1;
+		else if (argc == 3 && (!strcmp(cmd, "hdr") || !strcmp(cmd, "xhdr")))
+			idarg = 2;
+		else if (argc >= 4 && !strcmp(cmd, "xpat"))
+			idarg = 2;
+		if (idarg && (!isdigit((unsigned char) argv[idarg][0]) ||
+		    strpbrk(argv[idarg], "<>@")) && !valid_msgid(argv[idarg])) {
+			(*clt.co) << "501 invalid message-id\r\n";
 			continue;
 		}
 

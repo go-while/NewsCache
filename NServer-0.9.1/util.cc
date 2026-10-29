@@ -74,6 +74,74 @@ const char *group2dir(const char *name)
 	return buf;
 }
 
+// RFC 5322 atext, used by RFC 5536's dot-atom-text. Do not use isalnum:
+// Message-IDs are ASCII even when the process locale is not.
+static bool msgid_atext(unsigned char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	    (c >= '0' && c <= '9') || strchr("!#$%&'*+-/=?^_`{|}~", c);
+}
+
+static bool msgid_dot_atom(const char *first, const char *end)
+{
+	if (first == end || *first == '.' || end[-1] == '.')
+		return false;
+	bool dot = false;
+	for (const char *p = first; p != end; ++p) {
+		if (*p == '.') {
+			if (dot)
+				return false;
+			dot = true;
+		} else {
+			if (!msgid_atext((unsigned char) *p))
+				return false;
+			dot = false;
+		}
+	}
+	return true;
+}
+
+bool valid_msgid(const char *id)
+{
+	if (!id)
+		return false;
+	size_t n = strlen(id);
+	if (n < 3 || n > 250 || id[0] != '<' || id[n - 1] != '>')
+		return false;
+	for (size_t i = 1; i < n - 1; ++i) {
+		unsigned char c = (unsigned char) id[i];
+		if (c < 33 || c > 126 || c == '>')
+			return false;
+	}
+	return true;
+}
+
+bool valid_msgid_5536(const char *id)
+{
+	if (!valid_msgid(id))
+		return false;
+	size_t n = strlen(id);
+	const char *end = id + n - 1;
+	const char *at = strchr(id + 1, '@');
+	if (!at || at >= end || !msgid_dot_atom(id + 1, at))
+		return false;
+	const char *right = at + 1;
+	if (right == end)
+		return false;
+	if (*right != '[')
+		return msgid_dot_atom(right, end);
+	if (end[-1] != ']' || right + 1 == end)
+		return false;
+	// no-fold-literal: mdtext is ASCII 33-61, 63-90 or 94-126.
+	for (const char *p = right + 1; p < end - 1; ++p) {
+		unsigned char c = (unsigned char) *p;
+		if (!((c >= 33 && c <= 61) || (c >= 63 && c <= 90) ||
+		      (c >= 94 && c <= 126)))
+			return false;
+	}
+	return true;
+}
+
 bool split_newsgroups(const std::string & ngs,
 		      std::vector < std::string > &groups)
 {

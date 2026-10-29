@@ -20,6 +20,11 @@ extern const char *group2dir(const char *name);
 extern bool split_newsgroups(const std::string & ngs,
 			     std::vector < std::string > &groups);
 
+/* NNTP's opaque RFC 3977 Message-ID, at most 250 octets. */
+extern bool valid_msgid(const char *id);
+/* The stricter RFC 5536 Message-ID header form, at most 250 octets. */
+extern bool valid_msgid_5536(const char *id);
+
 /**
  * \author Thomas Gschwind
  * Checks whether a newsgroup matches a given list of patterns. 
