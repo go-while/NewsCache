@@ -112,10 +112,26 @@ AC_DEFINE(PACKAGE_UPDATENEWS, ["updatenews"], [updatenews package])
 
 dnl Set CONFDIR in config.h. Autoconf replaces an unset prefix (NONE) by
 dnl the default only at the end of configure, so expand sysconfdir after
-dnl setting the default. Custom sysconfdir values may also refer to prefix.
+dnl setting the default. Custom values may contain nested Autoconf variables.
 test "x$prefix" = xNONE && prefix=$ac_default_prefix
 test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-CONFDIR=`eval echo "$sysconfdir"`
+CONFDIR=$sysconfdir
+for i in 1 2 3 4 5; do
+  case "$CONFDIR" in
+    *'$'*)
+      expanded=$CONFDIR
+      eval "expanded=\"$CONFDIR\""
+      test "x$expanded" = "x$CONFDIR" && break
+      CONFDIR=$expanded
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+case "$CONFDIR" in
+  *'$'*) AC_MSG_ERROR([cannot expand variables in sysconfdir: $sysconfdir]) ;;
+esac
 
 AC_DEFINE_UNQUOTED(SYSCONFDIR, ["$CONFDIR"], [sysconfdir])
 

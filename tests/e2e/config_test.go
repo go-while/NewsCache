@@ -31,32 +31,55 @@ func TestDefaultConfigPath(t *testing.T) {
 }
 
 // TestCustomSysconfdirPrefixExpansion: custom sysconfdir values that refer to
-// prefix must be expanded in SYSCONFDIR, just like the default ${prefix}/etc.
+// configure variables must be expanded in SYSCONFDIR, including nested ones.
 func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("cannot locate config_test.go")
 	}
 	source := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	configure := filepath.Join(source, "configure")
-	if _, err := os.Stat(configure); err != nil {
-		t.Skipf("configure script not found at %s: %v", configure, err)
+	if _, err := os.Stat(filepath.Join(source, "configure")); err != nil {
+		t.Skipf("configure script not found in %s: %v", source, err)
 	}
-
+	configureSource := filepath.Join(t.TempDir(), "source")
+	if out, err := exec.Command("cp", "-R", source, configureSource).CombinedOutput(); err != nil {
+		t.Fatalf("copy configure source: %v\n%s", err, out)
+	}
+	// A configured in-tree build cannot be used as the source of another
+	// out-of-tree configure. Remove that state from the throwaway copy.
+	for _, name := range []string{".git", "config.status", "config.cache", "config.log"} {
+		if err := os.RemoveAll(filepath.Join(configureSource, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configure := filepath.Join(configureSource, "configure")
 	const prefix = "/opt/newscache"
-	build := t.TempDir()
-	cmd := exec.Command(configure, "--prefix="+prefix, "--sysconfdir=${prefix}/x")
-	cmd.Dir = build
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("configure: %v\n%s", err, out)
-	}
-	config, err := os.ReadFile(filepath.Join(build, "config.h"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `#define SYSCONFDIR "/opt/newscache/x"`
-	if !strings.Contains(string(config), want) {
-		t.Errorf("config.h does not expand custom sysconfdir prefix; want %q in:\n%s", want, config)
+	for _, tc := range []struct {
+		name       string
+		sysconfdir string
+		want       string
+	}{
+		{"prefix", "${prefix}/x", "/opt/newscache/x"},
+		{"exec_prefix", "${exec_prefix}/x", "/opt/newscache/x"},
+		{"datarootdir", "${datarootdir}/x", "/opt/newscache/share/x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			build := t.TempDir()
+			cmd := exec.Command(configure, "--prefix="+prefix,
+				"--sysconfdir="+tc.sysconfdir)
+			cmd.Dir = build
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("configure: %v\n%s", err, out)
+			}
+			config, err := os.ReadFile(filepath.Join(build, "config.h"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `#define SYSCONFDIR "` + tc.want + `"`
+			if !strings.Contains(string(config), want) {
+				t.Errorf("config.h does not expand custom sysconfdir; want %q in:\n%s", want, config)
+			}
+		})
 	}
 }
 
