@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"text/template"
 
@@ -311,14 +313,63 @@ func knownBug(t *testing.T, id, what string) {
 	t.Skipf("known bug %s: %s (NEWSCACHE_KNOWN_BUGS=fail to run)", id, what)
 }
 
-// logFile returns the NewsCache log, or skips when the binary logs to syslog.
+var logModes = struct {
+	sync.Mutex
+	byBin map[string]string
+}{byBin: make(map[string]string)}
+
+// logMode determines the build mode from the actual binary, independently of
+// whether a particular test's log exists. -o needs no configuration file.
+// Cache successful queries: some tests poll logFile every 50 milliseconds.
+func logMode(bin string) (string, error) {
+	logModes.Lock()
+	defer logModes.Unlock()
+	if mode, ok := logModes.byBin[bin]; ok {
+		return mode, nil
+	}
+	b, err := exec.Command(bin, "-o").Output()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine logging mode from %s -o: %w", bin, err)
+	}
+	for _, option := range strings.Fields(string(b)) {
+		if option == "--with-syslog" {
+			logModes.byBin[bin] = "syslog"
+			return "syslog", nil
+		}
+	}
+	logModes.byBin[bin] = "file"
+	return "file", nil
+}
+
+func readLogFile(mode, path string) (string, bool, error) {
+	if mode == "syslog" {
+		return "", true, nil
+	}
+	if mode != "file" {
+		return "", false, fmt.Errorf("invalid logging mode %q", mode)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, fmt.Errorf("file-log build: cannot read %s: %w", path, err)
+	}
+	return string(b), false, nil
+}
+
+// logFile returns the NewsCache log, or skips only for a syslog build.
 func (e *env) logFile() string {
 	e.t.Helper()
-	b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log"))
+	mode, err := logMode(e.Bin)
 	if err != nil {
-		e.t.Skip("no newscache.log: binary built with syslog (configure --without-syslog to test logging)")
+		e.t.Fatal(err)
 	}
-	return string(b)
+	log, skip, err := readLogFile(mode, filepath.Join(e.LogDir, "newscache.log"))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if skip {
+		e.t.Skip("binary built with syslog (configure --without-syslog to test logging)")
+	}
+	return log
 }
 
 // dialRaw connects without failing on a non-2xx greeting.

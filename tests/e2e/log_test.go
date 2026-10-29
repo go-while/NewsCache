@@ -9,6 +9,69 @@ import (
 	"testing"
 )
 
+// TestLogFileHelper runs in a subprocess so its Skip or Fatal result can be
+// distinguished by TestLogFileErrors, including against the old harness.
+func TestLogFileHelper(t *testing.T) {
+	if os.Getenv("NC_LOGFILE_HELPER") != "1" {
+		return
+	}
+	e := &env{t: t, Bin: os.Getenv("NC_LOGFILE_BIN"), LogDir: os.Getenv("NC_LOGFILE_DIR")}
+	for i := 0; i < 2; i++ {
+		if got := e.logFile(); got != "expected log\n" {
+			t.Fatalf("log content = %q", got)
+		}
+	}
+}
+
+func TestLogFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "newscache-options")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf x >> \"$NC_LOGFILE_CALLS\"\nif [ \"$NC_LOGFILE_OPTIONS\" = fail ]; then exit 1; fi\nprintf '%s\\n' \"$NC_LOGFILE_OPTIONS\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, options, entry, want string
+	}{
+		{"file-present", "--with-md5", "file", "--- PASS: TestLogFileHelper"},
+		{"file-missing", "--with-md5", "missing", "--- FAIL: TestLogFileHelper"},
+		{"file-unreadable", "--with-md5", "directory", "--- FAIL: TestLogFileHelper"},
+		{"syslog-missing", "--with-syslog", "missing", "--- SKIP: TestLogFileHelper"},
+		{"options-error", "fail", "missing", "--- FAIL: TestLogFileHelper"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logdir := t.TempDir()
+			path := filepath.Join(logdir, "newscache.log")
+			switch tc.entry {
+			case "file":
+				if err := os.WriteFile(path, []byte("expected log\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command(exe, "-test.run=^TestLogFileHelper$", "-test.v")
+			calls := filepath.Join(logdir, "options-calls")
+			cmd.Env = append(os.Environ(), "NC_LOGFILE_HELPER=1", "NC_LOGFILE_BIN="+bin,
+				"NC_LOGFILE_DIR="+logdir, "NC_LOGFILE_OPTIONS="+tc.options, "NC_LOGFILE_CALLS="+calls)
+			out, _ := cmd.CombinedOutput()
+			if !strings.Contains(string(out), tc.want) {
+				t.Errorf("want %s, got:\n%s", tc.want, out)
+			}
+			if tc.name == "file-present" {
+				if got, err := os.ReadFile(calls); err != nil || string(got) != "x" {
+					t.Errorf("two log reads must query options once: calls=%q err=%v", got, err)
+				}
+			}
+		})
+	}
+}
+
 // requireFileLog skips the test unless the binary writes its own log file
 // (configure --without-syslog). It writes the config.
 func requireFileLog(e *env) {
