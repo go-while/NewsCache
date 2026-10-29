@@ -679,6 +679,70 @@ static void warn_unsafe_auth_files(const AccessList &access_list)
 	}
 }
 
+#ifdef PAM_AUTH
+/*
+ * Whether PAM has a configuration for the service: a file /etc/pam.d/<name>
+ * (or in a vendor directory, where Linux-PAM looks next), or a line for it in
+ * /etc/pam.conf. A service name with a slash is a file name.
+ */
+static bool pam_service_exists(const string &name)
+{
+	struct stat st;
+	if (name.find('/') != string::npos)
+		return stat(name.c_str(), &st) == 0;
+	static const char *const dirs[] = {
+		"/etc/pam.d/", "/usr/lib/pam.d/", "/usr/share/pam.d/",
+		"/usr/etc/pam.d/", NULL
+	};
+	for (int d = 0; dirs[d]; d++)
+		if (stat((string(dirs[d]) + name).c_str(), &st) == 0)
+			return true;
+	FILE *F = fopen("/etc/pam.conf", "r");
+	if (F == NULL)
+		return false;
+	char *buf = NULL;
+	size_t bufsize = 0;
+	bool found = false;
+	while (!found && getline(&buf, &bufsize, F) != -1) {
+		char *p = buf;
+		while (isspace((unsigned char) *p))
+			p++;
+		if (*p == '#' || *p == '\0')
+			continue;
+		char *e = p;
+		while (*e && !isspace((unsigned char) *e))
+			e++;
+		*e = '\0';
+		found = strcasecmp(p, name.c_str()) == 0;
+	}
+	free(buf);
+	fclose(F);
+	return found;
+}
+
+// Advisory, at startup and after a reload (like warn_unsafe_auth_files):
+// PAM falls back to its "other" service for a name it has no configuration
+// for, which usually denies everything or, worse, something else than the
+// administrator meant. The logins are unchanged.
+static void warn_missing_pam_services(const AccessList &access_list)
+{
+	set<string> checked;
+	const vector<AccessEntry> &entries = access_list.entries();
+	for (vector<AccessEntry>::const_iterator i = entries.begin();
+	     i != entries.end(); ++i) {
+		const string &type = i->authentication.getType();
+		if (type != "pam" && type != "pam+file")
+			continue;
+		const string &service = i->PAMServicename;
+		if (!checked.insert(service).second || pam_service_exists(service))
+			continue;
+		slog.p(Logger::Warning) << "PAM service " << service
+			<< " not found in /etc/pam.d or /etc/pam.conf; PAM may fall"
+			" back to the 'other' service\n";
+	}
+}
+#endif /* PAM_AUTH */
+
 char **seekfile(const char *filename, const char *username)
 {
 	FILE *F;
@@ -4103,6 +4167,9 @@ void nntpd()
 
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
 	warn_unsafe_auth_files(Cfg.clnts);
+#ifdef PAM_AUTH
+	warn_missing_pam_services(Cfg.clnts);
+#endif
 	warn_auth_requires_tls(Cfg.clnts, Cfg.TLSListenTo[0] != '\0');
 
 	/* set nice value for master server */
@@ -4219,6 +4286,9 @@ void nntpd()
 					newCfg.NiceServer = startNiceServer;
 					Cfg = newCfg;
 					warn_unsafe_auth_files(Cfg.clnts);
+#ifdef PAM_AUTH
+					warn_missing_pam_services(Cfg.clnts);
+#endif
 					warn_auth_requires_tls(Cfg.clnts,
 							       tls_sock >= 0);
 					// a new certificate (e.g. renewed): the
@@ -4753,6 +4823,9 @@ int main(int argc, char **argv)
 
 	if (opt_inetd) {
 		warn_unsafe_auth_files(Cfg.clnts);
+#ifdef PAM_AUTH
+		warn_missing_pam_services(Cfg.clnts);
+#endif
 		warn_auth_requires_tls(Cfg.clnts, opt_tls != 0);
 		if (getuid() == CONF_UIDROOT)
 			setugid(Cfg.Username, Cfg.Groupname);
