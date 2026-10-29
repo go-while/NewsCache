@@ -144,6 +144,9 @@ jobs:
             ./configure CC=gcc CXX=g++ MAKE=gmake --without-gnutls --without-pam \
               > configure.log 2>&1 || { tail -60 config.log; exit 1; }
             gmake -j"$(getconf NPROCESSORS_ONLN)" > make.log 2>&1 || { tail -60 make.log; exit 1; }
+            # cConfig is a check program (built by make check); the e2e
+            # suite's config tests run it next to newscache
+            gmake -C src cConfig >> make.log 2>&1 || { tail -60 make.log; exit 1; }
             cp "$top"/dist/e2e.test.illumos ./e2e.test
             chmod 755 ./e2e.test
             useradd -m -d /var/tmp/newscache -s /bin/sh newscache 2>/dev/null || true
