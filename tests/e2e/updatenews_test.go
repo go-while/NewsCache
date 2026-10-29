@@ -947,3 +947,18 @@ func TestUpdatenewsPrefetchFileNotRegular(t *testing.T) {
 		})
 	}
 }
+
+// /dev/null as PrefetchFile ("no groups") keeps working.
+func TestUpdatenewsPrefetchFileDevNull(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "PrefetchFile /dev/null"
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err != nil {
+		t.Fatalf("updatenews with PrefetchFile /dev/null: %v\n%s", err, out)
+	}
+	if groups := prefetched(e); len(groups) != 0 {
+		t.Errorf("PrefetchFile /dev/null prefetched groups %q", groups)
+	}
+}
