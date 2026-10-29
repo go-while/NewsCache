@@ -50,6 +50,20 @@ The ranges: ClientTimeout 0 to 86400 seconds; MaxConnections 1 to
 1000000; NiceServer, NiceClient and NiceClean \-20 to 20; the two
 Timeouts 0 to 2147483647. The options of a Server entry have their
 ranges below, under ServerSpec Configuration Options.
+.PP
+A standalone server rereads its configuration on SIGHUP. New sessions use
+the new access list, upstream servers and other session settings; existing
+sessions keep their previous settings. MaxConnections applies to the
+running server, and client TLS certificates, keys and priority are reloaded
+when a TLS listener is active. A failed configuration read keeps the old
+settings; a failed TLS reload keeps the previous TLS material. The running
+user must be able to read the configuration and any TLS files.
+.PP
+Username, Groupname, PidFile, ServerType, ListenTo, TLSListenTo,
+CachePort, Hostname and NiceServer require a restart. LogDirectory also
+requires a restart in a file-log build. A change to whether ListenTo is
+specified requires a restart too, because that affects CachePort. On every
+reload the server logs each such setting that differs from its startup value.
 .TP
 .I "ConfigVersion version"
 Specifies the syntax version of the configuration file. The only
@@ -191,7 +205,8 @@ Increment priority of the server process by n. See also
 .BR nice(1) .
 The default value is 0. In this version, the session processes (one per
 client) use NiceServer too: a session forked by the standalone server
-adds it once more to the priority it inherits.
+adds it once more to the priority it inherits. A change to NiceServer
+requires a restart; sessions created after SIGHUP use the startup value.
 .TP
 .I "NiceClient n"
 Meant as the increment for the client (session) processes. The default
@@ -751,4 +766,3 @@ Report bugs at <https://github.com/go-while/NewsCache/issues>.
 is released under the
 .B GNU General Public License (GPL).
 There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-
