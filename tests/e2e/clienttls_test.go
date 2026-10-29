@@ -113,7 +113,12 @@ func newClientTLSFixture(t *testing.T) *clientTLSFixture {
 	e.addArticles("test.alpha", 2)
 	ca := newTestCA(t, e.Dir)
 	files := makeClientTLSFiles(t, e, ca, "server")
+	// never the plain listener's port: freeAddr can hand out the same
+	// port twice, and the TLS client then talked to the plain listener
 	addr := freeAddr(t)
+	for addr == e.Listen {
+		addr = freeAddr(t)
+	}
 	addClientTLSConfig(e, addr, files, "")
 	return &clientTLSFixture{e: e, ca: ca, files: files, addr: addr}
 }
@@ -514,5 +519,40 @@ func TestClientTLSInetdFlag(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("newscache -t did not exit after QUIT; stderr: %s", stderr.String())
+	}
+}
+
+// TestClientTLSListenerOnTheSamePort: TLSListenTo on the port of ListenTo
+// is a startup error. On Linux both binds succeed (SO_REUSEADDR) and only
+// listen() fails; its result wasn't checked, so the daemon ran with the
+// plain listener alone and a TLS client got plain text.
+func TestClientTLSListenerOnTheSamePort(t *testing.T) {
+	e := newEnv(t)
+	requireClientTLS(t, e.Bin)
+	ca := newTestCA(t, e.Dir)
+	files := makeClientTLSFiles(t, e, ca, "server")
+	addClientTLSConfig(e, e.Listen, files, "")
+	e.writeConf()
+	cmd := exec.Command(e.Bin, "-c", e.Conf, "-n")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("newscache exited 0 with TLSListenTo = ListenTo %s", e.Listen)
+		}
+		if !strings.Contains(stderr.String(), "TLSListenTo") {
+			t.Errorf("stderr doesn't name TLSListenTo: %q", stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatalf("newscache kept running with TLSListenTo = ListenTo %s; stderr: %q",
+			e.Listen, stderr.String())
 	}
 }
