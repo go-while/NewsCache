@@ -917,21 +917,39 @@ func TestSigchldStress(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// the good config again: a session must get its greeting
-	if err := os.WriteFile(e.Conf, good, 0o644); err != nil {
+	// The good config again: a session must get its greeting. Written to
+	// a new file and renamed, so that a reread can't see it half written,
+	// and with SIGHUP again until a session gets it: a SIGHUP of the
+	// burst may still be pending, and the reread it causes can come just
+	// before the rename, while the next SIGHUP merges with it (one flag).
+	// That made the test fail now and then on slow CI runners.
+	tmp := e.Conf + ".new"
+	if err := os.WriteFile(tmp, good, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p.Signal(syscall.SIGHUP)
-	time.Sleep(300 * time.Millisecond)
-	c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
-	if err != nil {
-		t.Fatalf("daemon after the stress: %v", err)
+	if err := os.Rename(tmp, e.Conf); err != nil {
+		t.Fatal(err)
 	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(10 * time.Second))
-	if l, err := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(l, "200") {
+	var greeting string
+	var gerr error
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); {
+		p.Signal(syscall.SIGHUP)
+		time.Sleep(200 * time.Millisecond)
+		c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
+		if err != nil {
+			gerr = err
+			continue
+		}
+		c.SetDeadline(time.Now().Add(10 * time.Second))
+		greeting, gerr = bufio.NewReader(c).ReadString('\n')
+		c.Close()
+		if strings.HasPrefix(greeting, "200") {
+			break
+		}
+	}
+	if !strings.HasPrefix(greeting, "200") {
 		wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
-		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", l, err, wchan)
+		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", greeting, gerr, wchan)
 	}
 	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
 		!strings.Contains(string(b), " returned 1") {
