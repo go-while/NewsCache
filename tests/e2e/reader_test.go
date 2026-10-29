@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/md5"
 	"fmt"
 	"strings"
 	"testing"
@@ -598,42 +599,116 @@ func TestNewgroupsTime(t *testing.T) {
 	}
 }
 
-// TestPostMessageIDLongHostname: for a post without a Message-ID, NewsCache
-// generates one from its host name. With a long Hostname (255 characters
-// are allowed) the whole header must still come through, including its
-// closing ">". (The buffers are now sized from the host name limit.)
+// TestPostMessageIDLongHostname: generated IDs preserve the configured host
+// when they fit, and use its MD5 when the complete ID would exceed 250 bytes.
 func TestPostMessageIDLongHostname(t *testing.T) {
-	e := newEnv(t)
-	e.addArticles("test.alpha", 1)
-	host := strings.Repeat("h", 60) + "." + strings.Repeat("o", 60) + "." +
-		strings.Repeat("s", 60) + "." + strings.Repeat("t", 60) + ".test"
-	e.Extra = "Hostname " + host
-	c := e.session()
-	if code, line := c.Cmd("POST"); code != 340 {
-		t.Fatalf("POST: %q", line)
+	post := func(t *testing.T, host string) string {
+		t.Helper()
+		e := newEnv(t)
+		e.addArticles("test.alpha", 1)
+		e.Extra = "Hostname " + host
+		c := e.session()
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+			"Subject: no message-id\r\n\r\nhello\r\n.\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+			t.Fatalf("POST result: %q %v", line, err)
+		}
+		posted := e.Store.Posted()
+		if len(posted) != 1 {
+			t.Fatalf("upstream got %d posted articles, want 1", len(posted))
+		}
+		mid := posted[0].MessageID
+		for _, h := range posted[0].Headers {
+			if strings.HasPrefix(strings.ToLower(h), "message-id:") {
+				mid = strings.TrimSpace(h[len("message-id:"):])
+			}
+		}
+		if len(mid) > 250 || !strings.HasPrefix(mid, "<newscache$") ||
+			!strings.HasSuffix(mid, ">") || strings.Count(mid, "$") != 3 {
+			t.Errorf("generated Message-ID %q (%d bytes): want <newscache$time$pid$counter@host>, at most 250 bytes", mid, len(mid))
+		}
+		return mid
 	}
-	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
-		"Subject: no message-id\r\n\r\nhello\r\n.\r\n"); err != nil {
-		t.Fatal(err)
+
+	for _, host := range []string{"news.example.test", strings.Repeat("a", 50) + "." +
+		strings.Repeat("b", 50) + "." + strings.Repeat("c", 50) + "." + strings.Repeat("d", 47)} {
+		t.Run("fits-"+fmt.Sprint(len(host)), func(t *testing.T) {
+			mid := post(t, host)
+			if !strings.HasSuffix(mid, "@"+host+">") {
+				t.Errorf("fitting hostname changed: %q", mid)
+			}
+		})
 	}
-	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
-		t.Fatalf("POST result: %q %v", line, err)
+	// Derive the size of the generated left side from a real session, then
+	// exercise the 250/251-byte boundary. The PID and clock may change the
+	// left-side width, so check the actual candidate length for each post.
+	probe := post(t, "probe.test")
+	at := strings.LastIndexByte(probe, '@')
+	if at < 0 {
+		t.Fatalf("generated Message-ID lacks @: %q", probe)
 	}
-	posted := e.Store.Posted()
-	if len(posted) != 1 {
-		t.Fatalf("upstream got %d posted articles, want 1", len(posted))
+	limit := 250 - (at + 2) // prefix through @ and the final >
+	hostOfLength := func(length int) string {
+		var host string
+		for len(host) < length {
+			if host != "" {
+				host += "."
+			}
+			n := min(60, length-len(host))
+			host += strings.Repeat("b", n)
+		}
+		return host
 	}
-	var mid string
-	for _, h := range posted[0].Headers {
-		if strings.HasPrefix(strings.ToLower(h), "message-id:") {
-			mid = strings.TrimSpace(h[len("message-id:"):])
+	seen250, seen251 := false, false
+	for n := limit - 2; n <= limit+2; n++ {
+		host := hostOfLength(n)
+		mid := post(t, host)
+		at := strings.LastIndexByte(mid, '@')
+		if at < 0 {
+			t.Fatalf("generated Message-ID lacks @: %q", mid)
+		}
+		candidateLen := at + 2 + len(host)
+		seen250 = seen250 || candidateLen == 250
+		seen251 = seen251 || candidateLen == 251
+		suffix := "@" + host + ">"
+		if candidateLen > 250 {
+			digest := md5.Sum([]byte(host))
+			suffix = fmt.Sprintf("@%x>", digest)
+		}
+		if !strings.HasSuffix(mid, suffix) {
+			t.Errorf("candidate length %d: generated ID %q, want suffix %q", candidateLen, mid, suffix)
 		}
 	}
-	if mid == "" {
-		mid = posted[0].MessageID
+	if !seen250 || !seen251 {
+		t.Errorf("boundary fixtures did not exercise both 250 and 251-byte candidates")
 	}
-	if !strings.HasPrefix(mid, "<") || !strings.HasSuffix(mid, "@"+host+">") {
-		t.Errorf("generated Message-ID %q (%d characters), want <...@%s>", mid, len(mid), host[:20]+"...")
+	long := strings.Repeat("h", 60) + "." + strings.Repeat("o", 60) + "." +
+		strings.Repeat("s", 60) + "." + strings.Repeat("t", 60) + ".test"
+	other := "x" + long[1:]
+	if len(long) != 248 || len(other) != 248 {
+		t.Fatal("long hostname fixture must be 248 bytes")
+	}
+	var suffixes []string
+	for _, host := range []string{long, long, other} {
+		mid := post(t, host) // separate sessions, including two for the same host
+		digest := md5.Sum([]byte(host))
+		want := fmt.Sprintf("@%x>", digest)
+		if !strings.HasSuffix(mid, want) {
+			t.Errorf("generated Message-ID %q: want hostname hash suffix %s", mid, want)
+		}
+		at := strings.LastIndexByte(mid, '@')
+		if at < 0 {
+			t.Fatalf("generated Message-ID lacks @: %q", mid)
+		}
+		suffixes = append(suffixes, mid[at:])
+	}
+	if suffixes[0] != suffixes[1] || suffixes[0] == suffixes[2] {
+		t.Errorf("hostname suffixes %q: same host must match and different hosts must differ", suffixes)
 	}
 }
 
