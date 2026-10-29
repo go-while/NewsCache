@@ -223,7 +223,17 @@ servers don't offer STARTTLS on 119.
 
 - **systemd:** [`debian/newscache.service`](debian/newscache.service) runs
   `newscache -n`.
-- **SysV init:** an init script is generated as `etc/NewsCache.init`.
+- **SysV init (Linux only, optional):** configure with
+  `--enable-sysv-init` to install `newscache` under `$(sysconfdir)/init.d`
+  (by default, `/usr/local/etc/init.d/newscache`; use
+  `--with-initdir=/etc/init.d` for the conventional system-wide location).
+  Installation does not register or enable the service. The script runs
+  `newscache -n` as root so it can bind privileged NNTP ports and then drop to
+  `Username`/`Groupname`. It keeps its own PID file under
+  `$(localstatedir)/run`, separate from the optional `PidFile` setting in the
+  NewsCache config. Use its `start`, `stop`, `restart`, `reload` and `status`
+  actions. This option is unavailable on FreeBSD, where service management
+  uses the native system tools.
 - **inetd:** use `newscache -i`, or `newscache -t` for TLS clients (port 563).
 - **TLS for clients:** set `TLSListenTo`, `TLSCertFile` and `TLSKeyFile`; the
   key must be readable by `Groupname` for a renewed certificate to load on

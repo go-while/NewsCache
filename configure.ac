@@ -5,6 +5,7 @@ dnl "NewsCache"; by default autoconf would lower-case it.
 AC_INIT([NewsCache], [1.3.22], [https://github.com/go-while/NewsCache/issues],
 	[NewsCache], [https://github.com/go-while/NewsCache])
 AC_PREREQ([2.69])
+AC_CANONICAL_HOST
 AC_CONFIG_SRCDIR([src/NewsCache.cc])
 
 dnl Specify a header configuration file
@@ -76,6 +77,27 @@ if eval "test x$enable_headerlog = xyes"; then
   AC_DEFINE(ENABLE_HEADERLOG, [1], [enable logging of postings])
 fi,
 )
+
+AC_ARG_ENABLE(sysv-init,
+  [  --enable-sysv-init      install the optional Linux SysV init script [default=no]],
+  [case "$enableval" in
+    yes|no) enable_sysv_init=$enableval ;;
+    *) AC_MSG_ERROR([--enable-sysv-init accepts yes or no]) ;;
+  esac],
+  [enable_sysv_init=no])
+if test "x$enable_sysv_init" = xyes; then
+  case $host_os in
+    linux*) ;;
+    *) AC_MSG_ERROR([--enable-sysv-init is supported only on Linux]) ;;
+  esac
+fi
+AM_CONDITIONAL([ENABLE_SYSV_INIT], [test "x$enable_sysv_init" = xyes])
+
+AC_ARG_WITH(initdir,
+  [  --with-initdir=DIR      install the SysV init script in DIR [default=sysconfdir/init.d]],
+  [sysv_initdir=$withval],
+  [sysv_initdir='$(sysconfdir)/init.d'])
+AC_SUBST([sysv_initdir])
 
 AC_ARG_ENABLE(debug, [  --enable-debug          turn on verbosity [default=no]],
 if eval "test x$enable_debug = xyes"; then
@@ -161,6 +183,27 @@ case $CONFDIR in
 esac
 
 AC_DEFINE_UNQUOTED(SYSCONFDIR, ["$CONFDIR"], [sysconfdir])
+
+dnl Resolve the default Autoconf directory references for the init script.
+sysv_sbindir=$sbindir
+sysv_localstatedir=$localstatedir
+for i in 1 2 3 4 5; do
+  case "$sysv_sbindir" in
+    '${exec_prefix}'*) sysv_sbindir=$exec_prefix${sysv_sbindir#'${exec_prefix}'} ;;
+    '${prefix}'*) sysv_sbindir=$prefix${sysv_sbindir#'${prefix}'} ;;
+    '${datarootdir}'*) sysv_sbindir=$datarootdir${sysv_sbindir#'${datarootdir}'} ;;
+  esac
+  case "$sysv_localstatedir" in
+    '${exec_prefix}'*) sysv_localstatedir=$exec_prefix${sysv_localstatedir#'${exec_prefix}'} ;;
+    '${prefix}'*) sysv_localstatedir=$prefix${sysv_localstatedir#'${prefix}'} ;;
+    '${datarootdir}'*) sysv_localstatedir=$datarootdir${sysv_localstatedir#'${datarootdir}'} ;;
+  esac
+done
+case "$sysv_sbindir:$sysv_localstatedir" in
+  *'${'*) AC_MSG_ERROR([cannot expand standard directories for SysV init script]) ;;
+esac
+AC_SUBST([sysv_sbindir])
+AC_SUBST([sysv_localstatedir])
 
 dnl ****************************************************************
 dnl Checks for programs.
@@ -384,7 +427,7 @@ AC_CONFIG_FILES([
 		man/Makefile
 		doc/Makefile
 		etc/Makefile
-		etc/NewsCache.init
+		etc/newscache:etc/NewsCache.init.in
 		test/Makefile
 	  ])
 AC_OUTPUT

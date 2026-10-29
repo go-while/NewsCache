@@ -1,33 +1,174 @@
-#!/bin/bash
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          newscache
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: NewsCache NNTP caching server
+# Description:       Caching proxy for NNTP news servers
+### END INIT INFO
 
-# source function library
-. /etc/rc.d/init.d/functions
+DAEMON='@sysv_sbindir@/newscache'
+PIDFILE='@sysv_localstatedir@/run/newscache.init.pid'
+STOP_TIMEOUT=30
 
-prefix=@prefix@
-exec_prefix=@exec_prefix@
-Daemon=@sbindir@/NewsCache
+read_pid()
+{
+	[ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ] && [ -r "$PIDFILE" ] || return 1
+	IFS= read -r PID < "$PIDFILE" || return 1
+	case "$PID" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$PID" -gt 1 ] 2>/dev/null
+}
 
-case "$1" in
-  start)
-        echo -n "Starting @PACKAGE@: "
-        if [ -x "$Daemon" ]; then
-                daemon $Daemon
-        else
-                echo "(cannot find $Daemon)"
-                exit 0
-        fi
-        echo
-        touch /var/lock/subsys/@PACKAGE@
-        ;;
-  stop)
-        echo -n "Shutting down @PACKAGE@ service: "
-        killproc $Daemon
-        rm -f /var/lock/subsys/@PACKAGE@
-        echo
-        ;;
-  *)
-        echo "Usage: NewsCache {start|stop}"
-        exit 1
+pid_is_newscache()
+{
+	pid=$1
+	case "$pid" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$pid" -gt 1 ] 2>/dev/null || return 1
+	kill -0 "$pid" 2>/dev/null || return 1
+	[ -r "/proc/$pid/comm" ] || return 1
+	IFS= read -r process_name < "/proc/$pid/comm" || return 1
+	[ "$process_name" = newscache ] || return 1
+	IFS=' ' read -r proc_pid proc_comm proc_state rest < "/proc/$pid/stat" || return 1
+	[ "$proc_state" != Z ]
+}
+
+start_service()
+{
+	if [ ! -x "$DAEMON" ]; then
+		echo "newscache: executable not found: $DAEMON" >&2
+		return 5
+	fi
+	if read_pid && pid_is_newscache "$PID"; then
+		echo "newscache is already running (pid $PID)"
+		return 0
+	fi
+	if ! "$DAEMON" -p >/dev/null 2>&1; then
+		echo "newscache: configuration check failed; service not started" >&2
+		return 1
+	fi
+	if [ -L "$PIDFILE" ]; then
+		echo "newscache: refusing symlink pid file: $PIDFILE" >&2
+		return 1
+	fi
+	if [ -e "$PIDFILE" ] && [ ! -f "$PIDFILE" ]; then
+		echo "newscache: refusing non-regular pid file: $PIDFILE" >&2
+		return 1
+	fi
+	if [ -f "$PIDFILE" ] && ! rm -f "$PIDFILE"; then
+		echo "newscache: cannot remove stale pid file: $PIDFILE" >&2
+		return 1
+	fi
+	pid_dir=${PIDFILE%/*}
+	if [ ! -d "$pid_dir" ] && ! mkdir -p "$pid_dir"; then
+		echo "newscache: cannot create pid directory: $pid_dir" >&2
+		return 1
+	fi
+	"$DAEMON" -n </dev/null >/dev/null 2>&1 &
+	PID=$!
+	if ! (umask 077; set -C; printf '%s\n' "$PID" > "$PIDFILE") 2>/dev/null; then
+		kill -TERM "$PID" 2>/dev/null || :
+		echo "newscache: cannot create pid file: $PIDFILE" >&2
+		return 1
+	fi
+	sleep 1
+	if pid_is_newscache "$PID"; then
+		echo "newscache started (pid $PID)"
+		return 0
+	fi
+	rm -f "$PIDFILE"
+	echo "newscache failed to stay running; check its log" >&2
+	return 1
+}
+
+stop_service()
+{
+	if ! read_pid; then
+		if [ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ]; then
+			rm -f "$PIDFILE" || return 1
+		fi
+		echo "newscache is not running"
+		return 0
+	fi
+	if ! pid_is_newscache "$PID"; then
+		rm -f "$PIDFILE" || return 1
+		echo "newscache is not running (removed stale pid file)"
+		return 0
+	fi
+	if ! kill -TERM "$PID" 2>/dev/null && pid_is_newscache "$PID"; then
+		echo "newscache: cannot signal pid $PID" >&2
+		return 1
+	fi
+	i=0
+	while [ "$i" -lt "$STOP_TIMEOUT" ]; do
+		if ! pid_is_newscache "$PID"; then
+			rm -f "$PIDFILE" || return 1
+			echo "newscache stopped"
+			return 0
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
+	echo "newscache: pid $PID did not stop within ${STOP_TIMEOUT}s" >&2
+	return 1
+}
+
+reload_service()
+{
+	if ! read_pid || ! pid_is_newscache "$PID"; then
+		echo "newscache is not running" >&2
+		return 1
+	fi
+	if ! kill -HUP "$PID"; then
+		echo "newscache: cannot send SIGHUP to pid $PID" >&2
+		return 1
+	fi
+	echo "newscache reloaded"
+}
+
+status_service()
+{
+	if read_pid; then
+		if pid_is_newscache "$PID"; then
+			echo "newscache is running (pid $PID)"
+			return 0
+		fi
+		echo "newscache is not running (stale pid file)"
+		return 1
+	fi
+	echo "newscache is not running"
+	return 3
+}
+
+case "${1-}" in
+	start)
+		start_service
+		exit $?
+		;;
+	stop)
+		stop_service
+		exit $?
+		;;
+	restart)
+		stop_service || exit $?
+		start_service
+		exit $?
+		;;
+	reload|force-reload)
+		reload_service
+		exit $?
+		;;
+	status)
+		status_service
+		exit $?
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+		exit 2
+		;;
 esac
-
-exit 0
