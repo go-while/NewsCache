@@ -64,7 +64,7 @@ func TestNewscachecleanTryModeStats(t *testing.T) {
 		t.Fatalf("newscacheclean -s -t: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"DbCnt: 1\n", "ArtCnt: 2\n", "PurgedDbCnt: 0\n", "PurgedArtCnt: 0\n",
+		"DbCnt: 1\n", "DirCnt: 1\n", "ArtCnt: 2\n", "PurgedDbCnt: 0\n", "PurgedArtCnt: 0\n",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("newscacheclean -s -t output %q does not contain %q", out, want)
@@ -81,7 +81,7 @@ func TestNewscachecleanTryModeStats(t *testing.T) {
 		t.Fatalf("newscacheclean -s: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"DbCnt: 1\n", "ArtCnt: 2\n", "PurgedDbCnt: 0\n", "PurgedArtCnt: 0\n",
+		"DbCnt: 1\n", "DirCnt: 1\n", "ArtCnt: 2\n", "PurgedDbCnt: 0\n", "PurgedArtCnt: 0\n",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("newscacheclean -s output %q does not contain %q", out, want)

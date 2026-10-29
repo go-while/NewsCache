@@ -100,7 +100,7 @@ struct cache_statistic {
 	size_t stPurgedOutArtCnt;
 				/* purged outdated .art* file count */
 	size_t stDbCnt;		/* overall .db file count before purge */
-	size_t stDirCnt;	/* overall directory count before purge */
+	size_t stDirCnt;	/* group directories with a database before purge */
 	size_t stArtCnt;	/* overall .art file count before purge */
 	size_t stOutArtCnt;	/* overall outdated .art file count before p.*/
 	size_t stPurgedDbSize;	/* purged .db filesize */
@@ -155,6 +155,7 @@ static void collect_statistics(struct cache_statistic *pS)
 		if (path.length() >= 3 &&
 		    path.compare(path.length() - 3, 3, ".db") == 0) {
 			pS->stDbCnt++;
+			pS->stDirCnt++;
 			pS->stDbSize += (*begin)->blocks;
 		} else if ((*begin)->atime != 0) {
 			pS->stArtCnt++;
