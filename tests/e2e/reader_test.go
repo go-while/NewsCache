@@ -108,6 +108,32 @@ func TestListActive(t *testing.T) {
 	}
 }
 
+// TestListOverviewFmtMetadataNames: RFC 3977 names the overview metadata
+// fields :bytes and :lines, not the internal Bytes:/Lines: header names.
+func TestListOverviewFmtMetadataNames(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+	code, line := c.Cmd("LIST OVERVIEW.FMT")
+	if code != 215 {
+		t.Fatalf("LIST OVERVIEW.FMT: %q, want 215", line)
+	}
+	got := append([]string{line}, c.ReadDotLines()...)
+	want := []string{
+		"215 Order of fields in overview database",
+		"Subject:",
+		"From:",
+		"Date:",
+		"Message-ID:",
+		"References:",
+		":bytes",
+		":lines",
+		"Xref:full",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("LIST OVERVIEW.FMT response:\n  got  %q\n  want %q", got, want)
+	}
+}
+
 // TestListActiveTimesLongPattern: a LIST ACTIVE.TIMES pattern longer than a
 // newsgroup name (513 bytes) is only a pattern that matches nothing; the
 // session answers and goes on. It was copied into a fixed buffer of the
