@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/param.h>
 
 #include <iostream>
 #include <string>
@@ -72,8 +73,31 @@ static bool exists(const string & fn)
 	return stat(fn.c_str(), &st) == 0;
 }
 
-int main()
+static bool lookup_path_fits(const char *dir)
 {
+	return strlen(dir) < MAXPATHLEN - sizeof("/.history/0") + 1;
+}
+
+int main(int argc, char **argv)
+{
+	// Test-only inspection for the cleaner end-to-end test. Using the
+	// history API avoids mistaking freed bytes for live hash records.
+	if (argc == 4 && strcmp(argv[1], "--lookup") == 0) {
+		// History appends /.history/ and a single shard digit.
+		if (!lookup_path_fits(argv[2])) {
+			cerr << "history lookup: spool path too long\n";
+			return 2;
+		}
+		History::setspooldir(argv[2]);
+		cout << locs(argv[3]) << endl;
+		return 0;
+	}
+	if (argc != 1)
+		return 2;
+	string fits(MAXPATHLEN - sizeof("/.history/0"), 'x');
+	string too_long = fits + "x";
+	CHECK(lookup_path_fits(fits.c_str()));
+	CHECK(!lookup_path_fits(too_long.c_str()));
 	char tmpl[] = "cHistory.XXXXXX";
 	if (!mkdtemp(tmpl)) {
 		perror("mkdtemp");

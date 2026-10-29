@@ -24,6 +24,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -91,6 +92,38 @@ static int tryget(NVActiveDB & db, const char *name)
 		cerr << "  get(" << name << "): " << e._errtext << "\n";
 		return -1;
 	}
+}
+
+// A rejected overlong path must not overflow the filename buffer or close
+// the database already in use. MAXPATHLEN itself has no room for the NUL.
+class PathTestContainer: public NVcontainer {
+  public:
+	PathTestContainer(): NVcontainer() {}
+};
+
+static void long_open_path(const string & dir)
+{
+	string fn = dir + "/long-path.active64";
+	{
+		PathTestContainer db;
+		db.open(fn.c_str());
+		string path(MAXPATHLEN, 'x');
+		bool rejected = false;
+		try {
+			db.open(path.c_str());
+		}
+		catch(const SystemError & e) {
+			rejected = e._errno == ENAMETOOLONG;
+			CHECK(e._errtext.size() < 256);
+		}
+		CHECK(rejected);
+		CHECK(db.is_open());
+		if (db.is_open()) {
+			CHECK(db.lock(NVcontainer::ShrdLock) == 0);
+			CHECK(db.lock(NVcontainer::UnLock) == 0);
+		}
+	}
+	unlink(fn.c_str());
 }
 
 static void lost_file(const string & dir)
@@ -567,6 +600,7 @@ int main(int argc, char *argv[])
 
 	bool race_only = argc > 1 && strcmp(argv[1], "race") == 0;
 	if (!race_only) {
+		long_open_path(dir);
 		lost_file(dir);
 		free_overlap(dir);
 		map_fails(dir);

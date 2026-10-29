@@ -789,6 +789,14 @@ void NVcontainer::open(const char *dbname, int flags)
 	       ("NVContainer::open() called with null-pointer\n",
 		ERROR_LOCATION));
 
+	// Reject before closing an already-open database or touching mem_fn.
+	// Keep the diagnostic bounded even if the caller supplied a huge name.
+	size_t namelen = strlen(dbname);
+	if (namelen >= sizeof(mem_fn)) {
+		string msg = "NVcontainer::open(): path too long: ";
+		msg.append(dbname, namelen < 120 ? namelen : 120);
+		throw SystemError(msg, ENAMETOOLONG, ERROR_LOCATION);
+	}
 	if (strcmp(mem_fn, dbname) == 0)
 		return;
 
@@ -798,7 +806,7 @@ void NVcontainer::open(const char *dbname, int flags)
 	struct stat st;
 
 	flags = 0;
-	strcpy(mem_fn, dbname);
+	memcpy(mem_fn, dbname, namelen + 1);
 	if ((mem_fd =::open(mem_fn, O_RDWR | O_CREAT, 0644)) < 0) {
 		int e = errno;
 		mem_fn[0] = '\0';	// not open (a later open() must try again)
