@@ -354,7 +354,7 @@ Use pam authentication. For additional description of the fields see:
 The PAM Servicename can be specified with the configuration parameter
 .I PAMServicename
 .br
-pam_unix, the usual module for local accounts, can't check them either: run as a user other than root, its helper unix_chkpwd only checks that user's own password. NewsCache logs PAM's error together with this hint. Modules that work without root, such as pam_sss (SSSD), pam_ldap or pam_pwdfile, are fine.
+pam_unix, the usual module for local accounts, can't check them either: run as a user other than root, its helper unix_chkpwd only checks that user's own password. NewsCache logs PAM's error with a hint about this limitation; the hint may not explain a failure from another module, such as pam_deny. Modules that work without root, such as pam_sss (SSSD), pam_ldap or pam_pwdfile, are fine.
 
 .IP pam+file:/path/to/file
 The authentication is handled over pam and the additional permission values are taken from the file. The recordformats in the file are valid:
@@ -376,7 +376,11 @@ required too. The default is no. newscache warns if the entry has no
 Authentication, or if there is no TLS for clients at all (then nobody of
 this entry can log in).
 .IP "PAMServicename name-of-service"
-This parameter specifiy the name of the PAM Service. The default is newscache. You can use different PAM settings for each Client network. For further explanation of PAM see the System administrators PAM Guide. This Guide can be downloaded from http://www.kernel.org/pub/linux/libs/pam/pre/doc/
+Selects the PAM service used for this client. The default is \fBnewscache\fR, or the service selected at build time with \fB--with-pam=name\fR; different Client networks can use different services. The name must refer to an installed PAM service. Depending on the PAM implementation and system configuration, a missing service name may be rejected or may fall back to the system's \fBother\fR policy. That policy may deny authentication or may accept it.
+.br
+The configuration syntax does not support quoted values: \fBPAMServicename ""\fR names the service whose name is the two literal quote characters, not an empty value.
+.br
+For further explanation of PAM see the System Administrators' PAM Guide at http://www.kernel.org/pub/linux/libs/pam/pre/doc/.
 
 .SS ServerSpec Configuration Options
 .nf
