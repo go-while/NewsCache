@@ -125,12 +125,24 @@ chmod 755 "$tmp" "$tmp/lifecycle" "$tmp/lifecycle/prefix" \
 chmod 777 "$tmp/lifecycle/var"
 if [ "$(id -u)" = 0 ]; then
 	if command -v runuser >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then
-		runuser -u nobody -- "$tmp/sysv-init-lifecycle.sh" \
-			"$lifecycle_script" "$lifecycle_daemon" "$lifecycle_pidfile"
+		if runuser -u nobody -- "$tmp/sysv-init-lifecycle.sh" \
+			"$lifecycle_script" "$lifecycle_daemon" "$lifecycle_pidfile"; then
+			:
+		else
+			rc=$?
+			[ "$rc" = 77 ] || exit "$rc"
+			echo "SKIP: non-root SysV lifecycle test lacks procfs identity files" >&2
+		fi
 	else
 		echo "SKIP: non-root SysV lifecycle test (run as a non-root user)" >&2
 	fi
 else
-	"$tmp/sysv-init-lifecycle.sh" \
-		"$lifecycle_script" "$lifecycle_daemon" "$lifecycle_pidfile"
+	if "$tmp/sysv-init-lifecycle.sh" \
+		"$lifecycle_script" "$lifecycle_daemon" "$lifecycle_pidfile"; then
+		:
+	else
+		rc=$?
+		[ "$rc" = 77 ] || exit "$rc"
+		echo "SKIP: SysV lifecycle test lacks procfs identity files" >&2
+	fi
 fi

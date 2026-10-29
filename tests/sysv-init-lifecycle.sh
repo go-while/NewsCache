@@ -32,9 +32,10 @@ else
 	status_rc=$?
 fi
 if [ "$status_rc" != 3 ]; then
-	if grep -E 'mount procfs|compatible procfs' "$tmp/proc-check" >/dev/null; then
-		echo "SysV lifecycle skipped: required procfs identity files are unavailable"
-		exit 0
+	if grep -E 'mount procfs|compatible procfs|readlink is required' \
+		"$tmp/proc-check" >/dev/null; then
+		echo "SKIP: SysV lifecycle requires procfs PID identity files"
+		exit 77
 	fi
 	cat "$tmp/proc-check" >&2
 	exit 1
@@ -89,7 +90,16 @@ done
 # valid, and stop must leave that unrelated process alone.
 sleep 60 &
 other_pid=$!
-other_start=$(awk '{ print $22 }' "/proc/$other_pid/stat")
+other_stat=
+IFS= read -r other_stat < "/proc/$other_pid/stat"
+case "$other_stat" in
+	*') '*) other_stat=${other_stat##*) } ;;
+	*) echo "cannot parse unrelated process stat" >&2; exit 1 ;;
+esac
+set -- $other_stat
+[ "$#" -ge 20 ] || { echo "incomplete unrelated process stat" >&2; exit 1; }
+shift 19
+other_start=$1
 case "$other_start" in ''|*[!0-9]*) echo "cannot read unrelated process start time" >&2; exit 1 ;; esac
 printf '%s %s\n' "$other_pid" "$other_start" > "$pidfile"
 if "$script" status >"$tmp/stale-exe" 2>&1; then

@@ -29,19 +29,25 @@ read_pid()
 proc_info()
 {
 	[ -r "/proc/$1/stat" ] || return 1
-	awk '
-	{
-		line = $0
-		if (!sub(/^[0-9]+ \(.*\) /, "", line)) exit
-		n = split(line, field, /[[:space:]]+/)
-		if (n < 20 || field[1] !~ /^[[:alpha:]]$/ ||
-		    field[20] !~ /^[0-9]+$/) exit
-		print field[1], field[20]
-		found = 1
-		exit
-	}
-	END { if (!found) exit 1 }
-	' "/proc/$1/stat"
+	line=
+	IFS= read -r line < "/proc/$1/stat" || return 1
+	case "$line" in
+		*') '*) line=${line##*) } ;;
+		*) return 1 ;;
+	esac
+	set -- $line
+	[ "$#" -ge 20 ] || return 1
+	proc_state=$1
+	shift 19
+	proc_start=$1
+	case "$proc_state" in
+		[A-Za-z]) ;;
+		*) return 1 ;;
+	esac
+	case "$proc_start" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	printf '%s %s\n' "$proc_state" "$proc_start"
 }
 
 require_procfs()
