@@ -180,7 +180,7 @@ func TestMessageIDCrosspost(t *testing.T) {
 
 // TestMessageIDStaleEntry: when the group's database is gone (as after
 // newscacheclean removed it), the history's entry is stale; the article
-// comes from upstream by message-ID, and newscacheclean prunes the entry.
+// comes from upstream by message-ID.
 func TestMessageIDStaleEntry(t *testing.T) {
 	e := historyEnv(t)
 	ids := e.addArticles("test.alpha", 1)
@@ -204,12 +204,74 @@ func TestMessageIDStaleEntry(t *testing.T) {
 		t.Errorf("upstream got %d requests for %s, want 1", n, ids[0])
 	}
 	c2.Cmd("QUIT")
+}
 
+// TestHistoryCleanerPrunesStaleEntry checks the live hash records, not bytes
+// left in free space. A client lookup would itself remove the stale entry, so
+// no client session is opened between removing the database and the cleaner.
+func TestHistoryCleanerPrunesStaleEntry(t *testing.T) {
+	e := historyEnv(t)
 	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
-	if _, err := os.Stat(clean); err == nil {
-		if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
-			t.Errorf("newscacheclean: %v\n%s", err, out)
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean unavailable: %v", err)
+	}
+	lookup := filepath.Join(filepath.Dir(e.Bin), "..", "NServer-0.9.1", "checks", "cHistory")
+	if _, err := os.Stat(lookup); err != nil {
+		t.Skipf("history inspection helper unavailable (build checks/cHistory): %v", err)
+	}
+	stale := e.addArticles("test.stale", 1)[0]
+	keep := e.addArticles("test.keep", 1)[0]
+	c := e.session()
+	for _, group := range []string{"test.stale", "test.keep"} {
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatalf("GROUP %s: %q", group, line)
 		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("ARTICLE 1 in %s: %q", group, line)
+		}
+		c.ReadDotLines()
+	}
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Fatalf("QUIT: %q", line)
+	}
+	locations := func(id string) string {
+		t.Helper()
+		out, err := exec.Command(lookup, "--lookup", e.Spool, id).CombinedOutput()
+		if err != nil {
+			t.Fatalf("history lookup %s: %v\n%s", id, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := locations(stale); got != "test.stale:1" {
+		t.Fatalf("history before cleanup: stale ID has %q, want test.stale:1", got)
+	}
+	if got := locations(keep); got != "test.keep:1" {
+		t.Fatalf("history before cleanup: retained ID has %q, want test.keep:1", got)
+	}
+	if err := os.Remove(filepath.Join(e.Spool, "test", "stale", ".db")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	if got := locations(stale); got != "" {
+		t.Errorf("history after cleanup: stale ID still has %q", got)
+	}
+	if got := locations(keep); got != "test.keep:1" {
+		t.Errorf("history after cleanup: retained ID has %q, want test.keep:1", got)
+	}
+}
+
+func TestHistoryLookupLongPath(t *testing.T) {
+	lookup := filepath.Join(filepath.Dir(binPath(t)), "..", "NServer-0.9.1", "checks", "cHistory")
+	if _, err := os.Stat(lookup); err != nil {
+		t.Skipf("history inspection helper unavailable (build checks/cHistory): %v", err)
+	}
+	cmd := exec.Command(lookup, "--lookup", strings.Repeat("x", 8192), "<a@b>")
+	out, err := cmd.CombinedOutput()
+	if e, ok := err.(*exec.ExitError); !ok || e.ExitCode() != 2 ||
+		!strings.Contains(string(out), "spool path too long") {
+		t.Fatalf("overlong history path: %v, %q; want exit 2 and a diagnostic", err, out)
 	}
 }
 
