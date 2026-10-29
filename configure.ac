@@ -115,22 +115,49 @@ dnl the default only at the end of configure, so expand sysconfdir after
 dnl setting the default. Custom values may contain nested Autoconf variables.
 test "x$prefix" = xNONE && prefix=$ac_default_prefix
 test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-CONFDIR=$sysconfdir
-for i in 1 2 3 4 5; do
-  case "$CONFDIR" in
-    *'$'*)
-      expanded=$CONFDIR
-      eval "expanded=\"$CONFDIR\""
-      test "x$expanded" = "x$CONFDIR" && break
-      CONFDIR=$expanded
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
-case "$CONFDIR" in
-  *'$'*) AC_MSG_ERROR([cannot expand variables in sysconfdir: $sysconfdir]) ;;
+dnl The value itself is never passed to eval: only ${name} of the standard
+dnl directory variables is replaced by that variable's value, so shell
+dnl syntax in --prefix or --sysconfdir (such as $(...)) stays literal.
+dnl Values nest (sysconfdir -> prefix, datarootdir -> prefix), hence the
+dnl rounds; a replacement is not scanned again within a round.
+nc_expand_dirs()
+{
+  nc_val=$1
+  for nc_round in 1 2 3 4 5 6 7 8; do
+    case $nc_val in
+      *'${'*) ;;
+      *) break ;;
+    esac
+    for nc_var in prefix exec_prefix bindir sbindir libexecdir datarootdir \
+        datadir sysconfdir sharedstatedir localstatedir runstatedir \
+        libdir includedir; do
+      eval "nc_set=\${$nc_var+set}"
+      test "x$nc_set" = xset || continue
+      eval "nc_rep=\$$nc_var"
+      nc_pat="\${$nc_var}"
+      nc_out=
+      nc_rest=$nc_val
+      while :; do
+        case $nc_rest in
+          *"$nc_pat"*)
+            nc_out=$nc_out${nc_rest%%"$nc_pat"*}$nc_rep
+            nc_rest=${nc_rest#*"$nc_pat"}
+            ;;
+          *)
+            nc_out=$nc_out$nc_rest
+            break
+            ;;
+        esac
+      done
+      nc_val=$nc_out
+    done
+  done
+  nc_expanded=$nc_val
+}
+nc_expand_dirs "$sysconfdir"
+CONFDIR=$nc_expanded
+case $CONFDIR in
+  *'${'*) AC_MSG_ERROR([cannot expand variables in sysconfdir: $sysconfdir]) ;;
 esac
 
 AC_DEFINE_UNQUOTED(SYSCONFDIR, ["$CONFDIR"], [sysconfdir])
