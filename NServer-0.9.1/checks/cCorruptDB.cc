@@ -480,6 +480,81 @@ static void longer_file(const string & dir)
 	unlink(fn.c_str());
 }
 
+// 7. Back to the caller's outer lock: the file grew while the inner one
+// was given up (fcntl unlocks before it relocks), and the outer remap
+// fails. The outer lock must not stay held with no mapping.
+class PeekArray:public NVArray {
+public:
+	PeekArray(const char *fn):NVArray(fn) {}
+	void *mapping() { return mem_p; }
+};
+
+static void outer_remap_fails(const string & dir)
+{
+#if defined(__SANITIZE_ADDRESS__)
+	return;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+	return;
+#endif
+#endif
+	string fn = dir + "/outer.db";
+	string big(8 << 20, 'b');
+	struct rlimit old;
+	PeekArray a(fn.c_str());
+	a.setsize(0, 9);
+	a.set(1, "one", 4);
+
+	a.lock(NVcontainer::ShrdLock);		// outer
+	a.lock(NVcontainer::ExclLock);		// inner
+	// 'The other process' grows the file. (A second object of this
+	// process: fcntl locks are per process, so it isn't kept out by the
+	// inner lock; it must live to the end, closing would drop all locks.)
+	NVArray b(fn.c_str());
+	b.set(3, big.data(), big.size());
+	if (!limit_as(&old)) {
+		cerr << "outer_remap_fails: no address space limit here, skipped\n";
+		a.lock(NVcontainer::UnLock);
+		a.lock(NVcontainer::UnLock);
+		unlink(fn.c_str());
+		return;
+	}
+	bool threw = false;
+	try {
+		a.lock(NVcontainer::UnLock);	// back to the outer lock
+	}
+	catch(const Error & e) {
+		threw = true;
+	}
+	setrlimit(RLIMIT_AS, &old);
+	cerr << "outer: threw=" << threw << " get_lock=" << a.get_lock()
+	     << " mem_p=" << a.mapping()
+	     << " other_can_lock=" << other_can_lock(fn) << "\n";
+	// The caller got the exception for the unlock of the inner lock:
+	// it must not hold anything now, or hold a lock with a mapping.
+	if (a.get_lock() != NVcontainer::UnLock) {
+		CHECK(a.mapping() != NULL);		// (held lock without mapping)
+	}
+	// the outer caller's next access
+	const char *d;
+	size_t sz;
+	try {
+		a.get(1, &d, &sz);
+		CHECK(d && strcmp(d, "one") == 0);
+	}
+	catch(const Error & e) {
+	}
+	// the outer caller's release
+	try {
+		a.lock(NVcontainer::UnLock);
+	}
+	catch(const Error & e) {
+	}
+	CHECK(a.get_lock() == NVcontainer::UnLock);
+	CHECK(other_can_lock(fn));
+	unlink(fn.c_str());
+}
+
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
@@ -495,6 +570,7 @@ int main(int argc, char *argv[])
 		lost_file(dir);
 		free_overlap(dir);
 		map_fails(dir);
+		outer_remap_fails(dir);
 		lock_eintr(dir);
 		longer_file(dir);
 	}
