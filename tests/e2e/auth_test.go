@@ -66,6 +66,50 @@ func authEnv(t *testing.T, rights string, lines ...string) *env {
 	return e
 }
 
+// TestAuthUnknownUserTiming: an unknown user was refused at once, while a
+// wrong password first computed the hash, so the time of the reply told
+// whether a user name exists. With a costly hash in the auth file (SHA-512,
+// 600000 rounds, some 0.3 s) the unknown user's reply must take about as
+// long: at least half of the wrong password's, a generous bound (the
+// unfixed code needs a few milliseconds). The same for a locked line.
+func TestAuthUnknownUserTiming(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS crypt() has no SHA-512 ($6$)")
+	}
+	const slow = "$6$rounds=600000$ncslowsalt$UzZarigsENPa9S.5Y2jR3OczOpyLqiOROQovOdMlqMP5Z..Q8R/wyv.AsdE/gb1JHc3.wDy2PFQrL6c0EPKvA."
+	e := authFileEnv(t, "tester:"+slow+":*:*:*:", "locked:*")
+	e.Extra = "AuthFailureDelay 0"
+	// the shortest of three replies to a wrong password for user
+	fastest := func(user string) time.Duration {
+		best := time.Duration(1 << 62)
+		for i := 0; i < 3; i++ {
+			c := e.session()
+			if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
+				t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
+			}
+			start := time.Now()
+			code, line := c.Cmd("AUTHINFO PASS wrong")
+			d := time.Since(start)
+			if code != 481 {
+				t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
+			}
+			if d < best {
+				best = d
+			}
+		}
+		return best
+	}
+	wrong := fastest("tester")
+	if wrong < 50*time.Millisecond {
+		t.Skipf("the costly hash took only %v here; can't measure", wrong)
+	}
+	for _, u := range []string{"nobody-here", "locked"} {
+		if d := fastest(u); d < wrong/2 {
+			t.Errorf("reply for %s took %v, a wrong password for an existing user %v: the time tells whether the user exists", u, d, wrong)
+		}
+	}
+}
+
 // TestAuthFileShortLine: an auth-file line with only user, password and the
 // List field is valid. The Read, PostTo and flags fields are missing, and
 // reading them must not run past the end of the field list.
