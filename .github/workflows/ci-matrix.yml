@@ -59,6 +59,7 @@ jobs:
           make dist
           mkdir out
           mv NewsCache-*.tar.gz out/
+          cp .github/ci/e2e-skip-summary.sh out/
 
       - name: Compile the e2e suite (linux, illumos; amd64; CGO off)
         working-directory: tests/e2e
@@ -108,7 +109,7 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         run: |
-          # Only the tarball, the test binary and the script go into the
+          # Only the tarball, the test binary and the test scripts go into the
           # container, read-only: no checkout, no .git, no token.
           cp dist/e2e.test.linux dist/e2e.test
           cp .github/ci/distro-test.sh dist/
@@ -148,4 +149,8 @@ jobs:
             useradd -m -d /var/tmp/newscache -s /bin/sh newscache 2>/dev/null || true
             chown -R newscache .
             cd tests/e2e
-            su newscache -c "NEWSCACHE_BIN=$src/src/newscache NNTP_TEST_DEADLINE=30s $src/e2e.test -test.count=1 -test.timeout=1200s"
+            status=0
+            su newscache -c "NEWSCACHE_BIN=$src/src/newscache NNTP_TEST_DEADLINE=30s $src/e2e.test -test.v -test.count=1 -test.timeout=1200s" > "$src/e2e-matrix.log" 2>&1 || status=$?
+            sh "$top/dist/e2e-skip-summary.sh" "$src/e2e-matrix.log" || echo 'e2e skips: summary failed'
+            if [ "$status" -ne 0 ]; then cat "$src/e2e-matrix.log"; fi
+            exit "$status"

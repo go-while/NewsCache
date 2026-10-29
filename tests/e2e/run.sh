@@ -31,4 +31,15 @@ if [ -z "${GOTOOLCHAIN+set}" ] && [ -n "$need" ] && [ -n "$have" ] &&
 	echo "e2e: install Go $need or later, or set GOTOOLCHAIN=go$need to let Go fetch it"
 	exit 77
 fi
-exec "$GO" test -count=1 ./...
+# The namespace-dependent tests perform the same unprivileged probe. Make
+# its result visible without changing the runner's namespace permissions.
+if command -v unshare >/dev/null 2>&1; then
+	if unshare -rm true >/dev/null 2>&1; then
+		echo 'e2e unshare probe: available'
+	else
+		echo 'e2e unshare probe: unavailable'
+	fi
+else
+	echo 'e2e unshare probe: command not found'
+fi
+exec "$GO" test -v -count=1 ./...
