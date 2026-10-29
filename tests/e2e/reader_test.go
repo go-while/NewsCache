@@ -565,9 +565,8 @@ func TestNewgroups(t *testing.T) {
 
 // TestNewgroupsTime: NEWGROUPS takes the given date and time as UTC with
 // GMT, and as local time (DST as on that date) without. The server runs in
-// US Eastern time (a POSIX TZ rule, no tzdata needed). The 231 line ends
-// with the instant NewsCache compares against. On glibc, GMT wasn't
-// applied at all, and the DST flag came from the current time.
+// US Eastern time (a POSIX TZ rule, no tzdata needed). The 231 response
+// follows RFC 3977 and does not echo the parsed timestamp.
 func TestNewgroupsTime(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
@@ -579,23 +578,43 @@ func TestNewgroupsTime(t *testing.T) {
 	if _, err := c.ReadGreeting(); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		args string
-		want string
-	}{
-		{"20260101 000000 GMT", "1767225600"},
-		{"20260101 000000", "1767243600"}, // EST, UTC-5
-		{"20260701 120000", "1782921600"}, // EDT, UTC-4
-		{"260701 160000 GMT", "1782921600"},
+	for _, args := range []string{
+		"20260101 000000 GMT",
+		"20260101 000000", // EST, UTC-5
+		"20260701 120000", // EDT, UTC-4
+		"260701 160000 GMT",
 	} {
-		code, line := c.Cmd("NEWGROUPS %s", tc.args)
+		code, line := c.Cmd("NEWGROUPS %s", args)
 		if code != 231 {
-			t.Fatalf("NEWGROUPS %s: %q, want 231", tc.args, line)
+			t.Fatalf("NEWGROUPS %s: %q, want 231", args, line)
 		}
 		c.ReadDotLines()
-		if f := strings.Fields(line); f[len(f)-1] != tc.want {
-			t.Errorf("NEWGROUPS %s: %q, want the instant %s", tc.args, line, tc.want)
+		if line != "231 list of new groups follows" {
+			t.Errorf("NEWGROUPS %s: %q, want the RFC 3977 reply line", args, line)
 		}
+	}
+}
+
+// TestNewgroupsRejectsExtraArgumentsAndUsesRFCReplyLine: NEWGROUPS accepts
+// only date, time, and optional GMT, and its 231 text has no timestamp suffix.
+func TestNewgroupsRejectsExtraArgumentsAndUsesRFCReplyLine(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	code, line := c.Cmd("NEWGROUPS 20000101 000000 GMT")
+	if code != 231 {
+		t.Fatalf("NEWGROUPS: %q, want 231", line)
+	}
+	if line != "231 list of new groups follows" {
+		t.Errorf("NEWGROUPS: %q, want exact 231 reply line", line)
+	}
+	c.ReadDotLines()
+	code, line = c.Cmd("NEWGROUPS 20000101 000000 GMT extra")
+	if code != 501 || line != "501 Syntax: NEWGROUPS date time [GMT]" {
+		t.Errorf("NEWGROUPS with an extra argument: %q, want 501 syntax", line)
+	}
+	if code == 231 {
+		c.ReadDotLines()
 	}
 }
 
