@@ -187,8 +187,8 @@ void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 
 	if (!ifs.is_open()) {
 		int err = errno ? errno : EIO;
-		throw SystemError("cannot open PrefetchFile " + string(fn), err,
-				  ERROR_LOCATION);
+		throw SystemError("cannot open PrefetchFile " + string(fn) +
+				  ": " + strerror(err), err, ERROR_LOCATION);
 	}
 
 	for (; Xsignal < 0;) {

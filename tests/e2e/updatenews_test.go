@@ -288,8 +288,9 @@ func TestUpdatenewsMissingPrefetchFile(t *testing.T) {
 	if err == nil {
 		t.Fatalf("updatenews with a missing PrefetchFile succeeded; output: %s", out)
 	}
-	if !strings.Contains(string(out), "cannot open PrefetchFile") {
-		t.Errorf("updatenews did not report the missing PrefetchFile: %s", out)
+	if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+		!strings.Contains(string(out), "No such file or directory") {
+		t.Errorf("updatenews did not report the missing PrefetchFile and why: %s", out)
 	}
 }
 
@@ -309,8 +310,9 @@ func TestUpdatenewsUnreadablePrefetchFile(t *testing.T) {
 	if err == nil {
 		t.Fatalf("updatenews with an unreadable PrefetchFile succeeded; output: %s", out)
 	}
-	if !strings.Contains(string(out), "cannot open PrefetchFile") {
-		t.Errorf("updatenews did not report the unreadable PrefetchFile: %s", out)
+	if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+		!strings.Contains(string(out), "Permission denied") {
+		t.Errorf("updatenews did not report the unreadable PrefetchFile and why: %s", out)
 	}
 }
 
