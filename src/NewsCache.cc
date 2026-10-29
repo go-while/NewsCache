@@ -586,6 +586,9 @@ class ClientData {
 	{
 		auth_user[0] = auth_pass[0] = '\0';
 		groupname[0] = '\0';
+		// not set in inetd mode or when getpeername fails; PAM_RHOST
+		// reads it
+		client_addr[0] = '\0';
 		// no address (AF_UNSPEC) for inetd mode and when getpeername
 		// fails: the access list's address entries read it
 		memset(&sock, 0, sizeof(sock));
