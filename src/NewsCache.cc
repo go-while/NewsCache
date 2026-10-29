@@ -3654,6 +3654,23 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 #define LISTEN_BACKLOG 128
 
 /*
+ * listen() failed: the daemon would run without that listener. On Linux
+ * two sockets with SO_REUSEADDR can both bind the same address and port
+ * (TLSListenTo the same as ListenTo, or another process's socket), and
+ * only listen() then fails.
+ */
+static void listen_failed(const char *keyword, const char *spec)
+{
+	const int err = errno;
+	slog.p(Logger::Error) << cmnd << ": can't listen on " << keyword << " "
+	    << spec << ": " << strerror(err) << "\n";
+	cerr << cmnd << ": can't listen on " << keyword << " " << spec << ": "
+	    << strerror(err) << "\n";
+	remove_pid_file();
+	exit(1);
+}
+
+/*
  * Loads TLSCertFile, TLSKeyFile and TLSPriority for client connections.
  * At the start a failure is reported on stderr too (newscache exits then;
  * not in inetd mode, where stderr is the client's socket); on a reread the
@@ -3864,9 +3881,10 @@ void nntpd()
 	// a busy moment) overflowed it, and FreeBSD then resets connections.
 	// MaxConnections is the limit for sessions; this only holds
 	// connections until the next accept().
-	listen(sock, LISTEN_BACKLOG);
-	if (tls_sock >= 0)
-		listen(tls_sock, LISTEN_BACKLOG);
+	if (listen(sock, LISTEN_BACKLOG) < 0)
+		listen_failed("ListenTo", Cfg.ListenTo);
+	if (tls_sock >= 0 && listen(tls_sock, LISTEN_BACKLOG) < 0)
+		listen_failed("TLSListenTo", Cfg.TLSListenTo);
 
 	struct pollfd lfd[2];
 	int nlfd = 0;
