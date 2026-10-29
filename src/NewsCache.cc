@@ -1770,7 +1770,13 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 		      "423 no such article number in this group\r\n";
 			return -1;
 		}
-		nsh_particle(clt, argv[0], nbr, a);
+		try {
+			nsh_particle(clt, argv[0], nbr, a);
+		}
+		catch(...) {
+			clt->grp->freearticle(a);
+			throw;
+		}
 		clt->grp->freearticle(a);
 		clt->nbr = nbr;
 		clt->stat_artingrp++;
@@ -3881,6 +3887,11 @@ void nnrpd(int fd, bool tls)
 	    << " exit articles " << clt.stat_articles
 	    << " groups " << clt.stat_groups << "\n";
 	clt.co->flush();
+	// the last selected group belongs to the server that made it
+	if (clt.grp) {
+		clt.srvr->freegroup(clt.grp);
+		clt.grp = NULL;
+	}
 	delete clt.srvr;
 }
 
