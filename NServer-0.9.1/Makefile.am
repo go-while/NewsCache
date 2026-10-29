@@ -40,6 +40,7 @@ libnserver_a_SOURCES =		ActiveDB.cc\
 	OverviewFmt.h\
 	RNewsgroup.cc\
 	RNewsgroup.h\
+	ReplyBudget.h\
 	VirtualIterator.h\
 	artnum.h\
 	sockstream.cc\

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,60 @@ import (
 	"github.com/go-while/nntp-testkit/client"
 	"github.com/go-while/nntp-testkit/proc"
 )
+
+// A dead secondary upstream must not make every client re-download the
+// healthy server's active list. In the short-limit build, also prove that
+// the retry actually happens after the shortened retry interval.
+func TestIncompleteActiveRetry(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	_, port, err := net.SplitHostPort(freeAddr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "Timeouts 300 3600"
+	e.ExtraServers = fmt.Sprintf(`  Server 127.0.0.1 %s {
+    Read test.dead.*
+    PostTo test.dead.*
+    Retries 0
+    ConnectTimeout 1
+  }`, port)
+	c := e.session()
+	list := func() {
+		t.Helper()
+		if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE: %q", line)
+		}
+		if lines := c.ReadDotLines(); !containsPrefix(lines, "test.alpha ") {
+			t.Fatalf("LIST ACTIVE missing healthy server's group: %q", lines)
+		}
+	}
+	activeRequests := func() int {
+		n := 0
+		for _, line := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToLower(line), "list active") {
+				n++
+			}
+		}
+		return n
+	}
+	list()
+	initial := activeRequests()
+	if initial == 0 {
+		t.Fatal("healthy upstream was not asked for LIST ACTIVE")
+	}
+	list()
+	if got := activeRequests(); got != initial {
+		t.Fatalf("healthy upstream refetched immediately: %d then %d", initial, got)
+	}
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") == "1" {
+		time.Sleep(2300 * time.Millisecond)
+		list()
+		if got := activeRequests(); got <= initial {
+			t.Fatalf("incomplete active list was not retried: %d then %d", initial, got)
+		}
+	}
+}
 
 // TestLongGroupName: the upstream offers a group whose name is longer than
 // NewsCache's limit (511 characters). GROUP for it is refused with 411, the

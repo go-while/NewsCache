@@ -18,9 +18,11 @@
  * \param keepnl Keep newline (Default=1).
  * \param max Longest line in bytes (Default=0: no limit). A longer
  * 	line is dropped (strg is empty), the stream gets eofbit and badbit.
+ * \param wire_bytes Optional number of bytes consumed before newline
+ * normalization, including the newline if present.
  */
 int nlreadline(std::istream & is, std::string & strg, int keepnl = 1,
-		size_t max = 0);
+		size_t max = 0, size_t *wire_bytes = NULL);
 
 /**
  * \author Thomas Gschwind

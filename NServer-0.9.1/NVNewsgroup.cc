@@ -14,6 +14,7 @@
 #include"Error.h"
 #include"NVNewsgroup.h"
 #include"History.h"
+#include"sockstream.h"
 
 using namespace std;
 
@@ -809,7 +810,8 @@ void NVNewsgroup::setover(const string & over)
 	ASSERT2(testdb());
 }
 
-artnum_t NVNewsgroup::readoverdb(istream & is)
+artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
+				 artnum_t first, artnum_t last)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::readoverdb(&is)\n");
 
@@ -818,44 +820,43 @@ artnum_t NVNewsgroup::readoverdb(istream & is)
 	artnum_t n, high = 0;
 	HistoryBatch hb;	// one history lock per shard for the reply
 
-	// No space for a record (disk full): the rest of the reply is read
-	// all the same, so the connection to the news server stays in step
-	// (the next command read the rest for its reply), and the error is
-	// thrown at the end.
-	bool failed = false, done = false;
-	SystemError err;
+	bool done = false;
 
 	NVLock guard(*this, NVcontainer::ExclLock);
 	for (;;) {
-		nlreadline(is, line1, 0, NNTP_MAXLINE);
+		size_t wire_bytes = 0;
+		nlreadline(is, line1, 0, NNTP_MAXLINE, &wire_bytes);
+		if (budget.expired())
+			throw ReplyLimitError(budget);
+		if (!is.good()) {
+			sockstream *socket = dynamic_cast<sockstream *>(&is);
+			if (socket && socket->reply_expired())
+				throw ReplyLimitError(budget, true);
+			break;
+		}
 		if (line1 == ".") {
+			if (!budget.finish(wire_bytes))
+				throw ReplyLimitError(budget);
 			done = true;
 			break;
 		}
-		if (is.eof())
-			break;
-		if ((n = leading_artnum(line1.c_str())) > high)
-			high = n;
-		if (failed)
+		if (!budget.add(wire_bytes))
+			throw ReplyLimitError(budget);
+		n = leading_artnum(line1.c_str());
+		if (!n || n < first || n > last)
 			continue;
-		try {
-			if (_OverviewFormat->dotrans) {
-				// Convert Record
-				_OverviewFormat->convert(line1, line2);
-			} else {
-				line2 = line1;
-			}
-			if (_RecordFilter)
-				_RecordFilter->filter(line2);
-			setover(line2);
+		if (n > high)
+			high = n;
+		if (_OverviewFormat->dotrans) {
+			// Convert Record
+			_OverviewFormat->convert(line1, line2);
+		} else {
+			line2 = line1;
 		}
-		catch(const SystemError & e) {
-			failed = true;
-			err = e;
-		}
+		if (_RecordFilter)
+			_RecordFilter->filter(line2);
+		setover(line2);
 	}
-	if (failed)
-		throw err;
 
 	// (a reply cut off isn't complete: overviewrange throws for it)
 	if (done) {

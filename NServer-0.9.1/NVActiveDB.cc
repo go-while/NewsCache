@@ -14,6 +14,8 @@
 #include "NSError.h"
 #include "NVActiveDB.h"
 #include "readline.h"
+#include "ReplyBudget.h"
+#include "sockstream.h"
 
 using namespace std;
 
@@ -197,11 +199,8 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 	GroupInfo gd;
 	string line;
 	time_t now;
-	// No space for a group (disk full): the rest of the list is read
-	// all the same, so the connection to the news server stays in step,
-	// and the error is thrown at the end.
-	bool failed = false, done = false;
-	SystemError err;
+	bool done = false;
+	ReplyBudget budget(ACTIVE_REPLY_ROWS, ACTIVE_REPLY_BYTES, ACTIVE_REPLY_SECONDS);
 
 	NVLock guard(*this, NVcontainer::ExclLock);
 	if (flags & F_CLEAR)
@@ -209,11 +208,24 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 	while (!is.eof()) {
 		// Each line has the following form
 		// GroupName Last First Flags
-		nlreadline(is, line, 0, NNTP_MAXLINE);
+		size_t wire_bytes = 0;
+		nlreadline(is, line, 0, NNTP_MAXLINE, &wire_bytes);
+		if (budget.expired())
+			throw ReplyLimitError(budget);
+		if (!is.good()) {
+			sockstream *socket = dynamic_cast<sockstream *>(&is);
+			if (socket && socket->reply_expired())
+				throw ReplyLimitError(budget, true);
+			break;
+		}
 		if (line == ".") {
+			if (!budget.finish(wire_bytes))
+				throw ReplyLimitError(budget);
 			done = true;
 			break;
 		}
+		if (!budget.add(wire_bytes))
+			throw ReplyLimitError(budget);
 
 		if (!filter || matchgroup(filter, line.c_str()) > 0) {
 			// Add group. Skip a line we can't parse (e.g. a group
@@ -237,19 +249,10 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 			    gd.last() - gd.first() >= limit)
 				gd.setfln(gd.last() - limit + 1, gd.last(), limit,
 					  gd.flags());
-			if (failed)
-				continue;
-			try {
-				sset(gd);
-			}
-			catch(const SystemError & e) {
-				failed = true;
-				err = e;
-			}
+			// The caller closes an unread reply on storage failure.
+			sset(gd);
 		}
 	}
-	if (failed)
-		throw err;
 	// A list cut off (the connection ended before the ".") isn't
 	// complete: without the new mtime it is fetched again next time.
 	if (!done)

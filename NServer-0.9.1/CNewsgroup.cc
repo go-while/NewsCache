@@ -37,6 +37,10 @@ void CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 		      Error) <<
 		    "news server does not support listgroup command\n";
 		memset(lstgrp, 1, l - f + 1);
+	} catch(const ReplyLimitError &) {
+		// A limit is not an unsupported LISTGROUP: do not mark an
+		// incomplete reply as a successful synchronization.
+		throw;
 	} catch(Error & e) {
 		memset(lstgrp, 1, l - f + 1);
 	} catch(...) {

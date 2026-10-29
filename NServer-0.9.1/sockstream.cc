@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -263,6 +264,47 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
   freeaddrinfo(res);
 }
 
+long long sockstream::sockstreambuf::reply_ms_left() const
+{
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+    return 0;
+  long long ns = ((long long) _reply_deadline.tv_sec - now.tv_sec) * 1000000000LL;
+  ns += (long long) _reply_deadline.tv_nsec - now.tv_nsec;
+  return ns > 0 ? (ns + 999999) / 1000000 : 0;
+}
+
+bool sockstream::sockstreambuf::reply_expired() const
+{
+  return _reply_deadline_active && reply_ms_left() <= 0;
+}
+
+bool sockstream::sockstreambuf::begin_reply(unsigned int seconds)
+{
+  if (_fd < 0 || _reply_deadline_active || !seconds)
+    return false;
+  int flags = fcntl(_fd, F_GETFL);
+  if (flags < 0 || clock_gettime(CLOCK_MONOTONIC, &_reply_deadline) != 0)
+    return false;
+  if (fcntl(_fd, F_SETFL, flags | O_NONBLOCK) < 0)
+    return false;
+  _reply_saved_flags = flags;
+  _reply_deadline.tv_sec += seconds;
+  _reply_deadline_active = true;
+  return true;
+}
+
+bool sockstream::sockstreambuf::end_reply()
+{
+  bool ok = true;
+  if (_reply_deadline_active) {
+    if (_fd >= 0 && fcntl(_fd, F_SETFL, _reply_saved_flags) < 0)
+      ok = false;
+    _reply_deadline_active = false;
+  }
+  return ok;
+}
+
 bool sockstream::sockstreambuf::wait_io(bool for_write)
 {
   struct pollfd p;
@@ -279,7 +321,15 @@ bool sockstream::sockstreambuf::wait_io(bool for_write)
     // it ends a plain recv() or send()
     if (_alarm_indicator && *_alarm_indicator)
       return false;
-    rc = poll(&p, 1, limit ? (int) limit * 1000 : -1);
+    int wait = limit ? (int) limit * 1000 : -1;
+    if (_reply_deadline_active) {
+      long long left = reply_ms_left();
+      if (left <= 0)
+        return false;
+      if (wait < 0 || left < wait)
+        wait = left > INT_MAX ? INT_MAX : (int) left;
+    }
+    rc = poll(&p, 1, wait);
   } while (rc < 0 && errno == EINTR);
   return rc > 0;
 }
@@ -312,6 +362,18 @@ void sockstream::sockstreambuf::disconnect()
     while (::close(_fd) && (errno == EINTR))
     { }
 
+    _fd = -1;
+  }
+}
+
+void sockstream::sockstreambuf::abort()
+{
+  if (_fd >= 0)
+  {
+    setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
+    setp(_pbuf, _pbuf + sizeof(_pbuf));
+    while (::close(_fd) && errno == EINTR)
+    { }
     _fd = -1;
   }
 }
@@ -427,9 +489,20 @@ int sockstream::sockstreambuf::underflow()
   }
   do
   {
+    if (reply_expired())
+      return traits_type::eof();
     rc_recv = ::recv(_fd, _gbuf, sizeof(_gbuf), 0);
-  } while ((rc_recv < 0) && (errno == EINTR) &&
-	   (!_alarm_indicator || !*_alarm_indicator));
+    if (rc_recv < 0 && _reply_deadline_active &&
+	(errno == EAGAIN || errno == EWOULDBLOCK)) {
+      if (!wait_io(false))
+	return traits_type::eof();
+      continue;
+    }
+    if (rc_recv < 0 && errno == EINTR &&
+	(!_alarm_indicator || !*_alarm_indicator))
+      continue;
+    break;
+  } while (true);
 
   if (rc_recv > 0)
   {
@@ -463,6 +536,14 @@ sockstream::sslstreambuf::~sslstreambuf()
   disconnect();
 
   gnutls_deinit(_session);
+}
+
+void sockstream::sslstreambuf::abandon()
+{
+  _connected = false;
+  setg(_buf._gbuf, _buf._gbuf + sizeof(_buf._gbuf),
+       _buf._gbuf + sizeof(_buf._gbuf));
+  setp(_buf._pbuf, _buf._pbuf + sizeof(_buf._pbuf));
 }
 
 
@@ -750,7 +831,8 @@ int sockstream::sslstreambuf::underflow()
     // The alarm (ClientTimeout) or a signal (SIGTERM) ends the read, as
     // in the plain underflow: GnuTLS returns GNUTLS_E_INTERRUPTED for
     // the interrupted recv(), and the loop went on waiting.
-    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    if ((sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator) ||
+	_buf.reply_expired())
     {
       return traits_type::eof();
     }
@@ -760,7 +842,8 @@ int sockstream::sslstreambuf::underflow()
     // while data is pending or arrives in time
   } while (rc_read == GNUTLS_E_INTERRUPTED ||
 	   (rc_read == GNUTLS_E_AGAIN &&
-	    (gnutls_record_check_pending(_session) > 0 || _buf.wait_io(false))));
+	    (gnutls_record_check_pending(_session) > 0 ||
+	     _buf.wait_io(gnutls_record_get_direction(_session) != 0))));
   if (rc_read > 0)
   {
     setg(_buf._gbuf, _buf._gbuf, _buf._gbuf + rc_read);

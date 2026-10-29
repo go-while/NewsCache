@@ -17,12 +17,15 @@ using namespace std;
  * read, eofbit is set: the callers' loops end on eof(), and a stream
  * that is only bad would make them read empty lines for ever.
  */
-static int readline_max(istream & is, string & strg, size_t max)
+static int readline_max(istream & is, string & strg, size_t max,
+			 size_t *wire_bytes = NULL)
 {
 	ios::iostate st = ios::goodbit;
 	int r = 0, c;
 
 	strg.clear();
+	if (wire_bytes)
+		*wire_bytes = 0;
 	istream::sentry ok(is, true);
 	if (!ok) {
 		is.setstate(ios::failbit | ios::eofbit);
@@ -38,6 +41,8 @@ static int readline_max(istream & is, string & strg, size_t max)
 					st |= ios::failbit;
 				break;
 			}
+			if (wire_bytes)
+				++*wire_bytes;
 			if (c == '\n')
 				break;
 			if (max && strg.size() >= max) {
@@ -82,10 +87,11 @@ static void setnl(string & strg, int keepnl)
 int nlreadline(istream & is,	// Input-Stream
 	       string & strg,	// String to store line
 	       int keepnl,	// Keep newline
-	       size_t max	// Longest line (0: no limit)
+	       size_t max,	// Longest line (0: no limit)
+	       size_t *wire_bytes // raw bytes before line-ending normalization
     )
 {
-	if (readline_max(is, strg, max) < 0) {
+	if (readline_max(is, strg, max, wire_bytes) < 0) {
 		slog.p(Logger::Warning) << "a line longer than " << max
 		    << " bytes from the news server, reply dropped\n";
 		return 0;
