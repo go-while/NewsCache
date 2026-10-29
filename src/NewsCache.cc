@@ -802,6 +802,74 @@ int auto_cryptcheck(const char *key, const char *pass)
 	return r;
 }
 
+/*
+ * Does the work of checking a password against a stored hash and throws
+ * the result away. A login for a user that does not exist (or whose
+ * password field is locked) returned at once, while one with a wrong
+ * password first computed a hash, so a remote client could tell existing
+ * user names by the time of the reply. Calling this for the user that
+ * isn't there makes both take about as long. hash is the setting to hash
+ * with: for "Authentication file" a hash from the same file (so that the
+ * cost is the one the administrator chose), else a fixed $6$ hash.
+ */
+static void dummy_password_check(const char *key, const char *hash)
+{
+	static const char fixed[] = "$6$ncdummysalt$kRpQqp7lXkZrlvI2YTvvoD8gQyPz4FcoZGD0UUmeCjxyAHweanwg9PP.vyX39TuZJREeQYHSxL/GTjyoHuXzM/";
+
+	if (hash == NULL || hash[0] == '\0')
+		hash = fixed;
+	bool md5 = false;
+#ifdef MD5_CRYPT
+#ifdef MD5_AUTO
+	md5 = strlen(hash) == 24 && hash[23] == '=' && hash[22] == '=';
+#else
+	md5 = true;
+#endif
+#endif
+	if (md5) {
+#ifdef MD5_CRYPT
+		free(md5crypt(key));
+#endif
+	} else {
+		(void) crypt(key, hash);
+	}
+}
+
+/*
+ * A hash that looks usable from the first line of the auth file that has
+ * one (for dummy_password_check), or "" if there is none.
+ */
+static std::string auth_file_sample_hash(const char *filename)
+{
+	std::string res;
+	FILE *F = fopen(filename, "r");
+	if (F == NULL)
+		return res;
+	char *buf = NULL;
+	size_t bufsize = 0;
+	while (getline(&buf, &bufsize, F) != -1) {
+		char *c1 = strchr(buf, ':');
+		if (buf[0] == '#' || c1 == NULL)
+			continue;
+		char *h = c1 + 1;
+		char *c2 = strchr(h, ':');
+		size_t n = c2 ? (size_t) (c2 - h) : strlen(h);
+		while (n > 0 && isspace((unsigned char) h[n - 1]))
+			n--;
+		if (n > 3 && h[0] == '$') {
+			res.assign(h, n);
+			break;
+		}
+		if (n == 24 && h[22] == '=' && h[23] == '=') {
+			res.assign(h, n);
+			break;
+		}
+	}
+	free(buf);
+	fclose(F);
+	return res;
+}
+
 #ifdef PLAIN_TEXT_PASSWORDS
 /*
  * Whether an auth-file password field may be compared as plain text: not
@@ -842,8 +910,10 @@ int check_auth_unix (ClientData *clt)
 	struct passwd *pw = NULL;
 	pw = getpwnam(clt->auth_user);
 	if (!pw || !(pw->pw_name) || !(pw->pw_passwd)
-	    || !(pw->pw_passwd[0]))
+	    || !(pw->pw_passwd[0])) {
+		dummy_password_check(clt->auth_pass, NULL);
 		return -1;
+	}
 	pass = pw->pw_passwd;
 	if ((pass[0] == 'x') && (pass[1] == '\0')) {
 #ifdef SHADOW_PASSWORD
@@ -922,19 +992,25 @@ int check_auth_file (ClientData *clt)
 	int authc = 0;
 	int passf=-1;
 
-	if (!authv)
+	if (!authv) {
+		// no such user: same work as for a wrong password
+		dummy_password_check(clt->auth_pass,
+				     auth_file_sample_hash(authfile.c_str()).c_str());
 		return -1;
+	}
 
 	// user:hash is enough; missing list, read, postto and allow fields
 	// add nothing, like empty ones.
 	while (authv[authc])
 		authc++;
-	if (authc < 2)
+	// no password, or a locked or empty field, never matches (and takes
+	// as long as a wrong password, like an unknown user)
+	if (authc < 2 || authv[1][0] == '\0' || authv[1][0] == '*'
+	    || authv[1][0] == '!') {
+		dummy_password_check(clt->auth_pass,
+				     auth_file_sample_hash(authfile.c_str()).c_str());
 		return -1;
-
-	// a locked or empty field never matches
-	if (authv[1][0] == '\0' || authv[1][0] == '*' || authv[1][0] == '!')
-		return -1;
+	}
 	passf = auto_cryptcheck(clt->auth_pass, authv[1]);
 #ifdef PLAIN_TEXT_PASSWORDS
 	// (only for a field that is no hash; the plain comparison came
