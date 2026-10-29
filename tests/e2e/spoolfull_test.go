@@ -100,6 +100,19 @@ func wholeArticles(t *testing.T, e *env) {
 var spoolCmds = []string{"GROUP test.alpha", "XOVER 1-8", "ARTICLE 1", "ARTICLE 4", "ARTICLE 5",
 	"ARTICLE <test-alpha.2@upstream.test>", "ARTICLE 6", "ARTICLE 7", "ARTICLE 8", "XOVER 1-8"}
 
+// requireFullSpool checks a statfs probe made inside the mount namespace;
+// unlike an error log, this is independent of NewsCache's own reporting.
+func requireFullSpool(t *testing.T, path string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("tmpfs free-block probe: %v", err)
+	}
+	if got := strings.TrimSpace(string(b)); got != "0" {
+		t.Fatalf("tmpfs free-block probe = %q, want 0 available blocks", got)
+	}
+}
+
 // TestSpoolFewFiles: newscache with few file descriptors (ulimit -n): it
 // cannot open the upstream connection, the group databases or the history
 // files. It must answer and leave the spool usable.
@@ -190,6 +203,7 @@ func TestSpoolDiskFull(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%dk-history-%v", tc.kb, tc.history), func(t *testing.T) {
 			e := newEnv(t)
+			probe := filepath.Join(e.Dir, "tmpfs-free-blocks")
 			if tc.history {
 				e.Extra += "History on\n"
 			}
@@ -210,14 +224,20 @@ func TestSpoolDiskFull(t *testing.T) {
 				if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
 					t.Fatal(err)
 				}
-				o.Env = append(o.Env, "FIRST="+tc.first)
+				o.Env = append(o.Env, "FIRST="+tc.first, "PROBE="+probe)
 				o.Args = append([]string{"-rm", "/bin/sh", "-c",
 					fmt.Sprintf(`mount -t tmpfs -o size=%dk tmpfs "$0" || exit 99
 [ -z "$FIRST" ] || printf "$FIRST" | "$@" >/dev/null 2>&1
-exec "$@"`, tc.kb),
+"$@"
+rc=$?
+stat -f -c %%a "$0" > "$PROBE" || echo probe-failed > "$PROBE"
+# Preserve the signal status that exec previously exposed to p.Wait().
+if [ "$rc" -gt 128 ]; then kill -"$((rc - 128))" "$$"; fi
+exit "$rc"`, tc.kb),
 					e.Spool, o.Path}, o.Args...)
 				o.Path = "unshare"
 			}, spoolCmds...)
+			requireFullSpool(t, probe)
 		})
 	}
 }
@@ -225,8 +245,8 @@ exec "$@"`, tc.kb),
 // TestSpoolDiskFullDaemon: the daemon on a nearly full spool (tmpfs in a
 // user namespace), History on. Client 1 reads the active list of an
 // upstream with 3000 groups and the overview of a group of 20000
-// articles, so the group database and the history shards grow until the
-// disk is full; then 2000 new groups make the active list grow; client 1
+// articles, then an independent filler exhausts any remaining tmpfs space.
+// Then 2000 new groups make the active list grow on the full disk; client 1
 // stays connected. Client 2 (its
 // own session process) must still be answered: a lock left held by
 // client 1's session after the error (the flock of .active64, a group
@@ -285,7 +305,20 @@ func testDiskFullDaemon(t *testing.T, kb int, clean string) {
 	// when it is stopped it checks the spool before it ends.
 	script := fmt.Sprintf(`mount -t tmpfs -o size=%dk tmpfs "$SPOOL" || exit 99
 "$@" & pid=$!
-trap 'kill $pid; wait $pid
+(
+  while [ ! -e "$OUT/probe-request" ]; do sleep 0.05; done
+  LC_ALL=C dd if=/dev/zero of="$SPOOL/.test-full-padding" bs=4096 2> "$OUT/fill.log"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -q 'No space left on device' "$OUT/fill.log"; then
+    echo filler-failed > "$OUT/probe.tmp"
+    mv "$OUT/probe.tmp" "$OUT/probe-result"
+    exit
+  fi
+  stat -f -c %%a "$SPOOL" > "$OUT/probe.tmp" || echo probe-failed > "$OUT/probe.tmp"
+  mv "$OUT/probe.tmp" "$OUT/probe-result"
+) & probe_pid=$!
+trap 'kill $probe_pid 2>/dev/null; wait $probe_pid 2>/dev/null
+kill $pid; wait $pid
 find "$SPOOL" -name "*.bad" > "$OUT/bad.txt"
 "$CLEAN" -c "$CONF" > "$OUT/clean.txt" 2>&1; echo $? > "$OUT/clean.rc"
 exit 0' TERM
@@ -337,7 +370,22 @@ wait $pid`, kb)
 	}
 	c1 := session("client 1", true, "LIST", "GROUP "+hugeGroup, "XOVER 1-20000",
 		"ARTICLE 19999")
-	// the disk is full now: new groups make the active list grow
+	// The helper fills any remaining tmpfs blocks before the next LIST,
+	// which must grow the active database while the filesystem is full.
+	if err := os.WriteFile(filepath.Join(out, "probe-request"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	probe := filepath.Join(out, "probe-result")
+	until := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(probe); err == nil {
+			break
+		} else if !os.IsNotExist(err) || time.Now().After(until) {
+			t.Fatalf("tmpfs free-block probe did not finish: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	requireFullSpool(t, probe)
 	for i := 0; i < 2000; i++ {
 		e.Store.AddGroup(fmt.Sprintf("test.more.group-with-a-longer-name.%04d", i), "")
 	}
