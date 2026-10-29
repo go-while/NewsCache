@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -106,13 +107,58 @@ func TestReaderQuitWhileConnecting(t *testing.T) {
 
 // TestMaxConnections: one client over the limit gets exactly
 // "400 too many users\r\n" and nothing else (NC-2: a NUL byte followed).
+// The harness readiness connection may still occupy a slot after StartTCP
+// returns. Keep the first accepted client while retrying only a temporary
+// 400 for the second; never retry the actual over-limit third connection.
+func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	var clients []*client.Conn
+	fail := func(err error) ([]*client.Conn, error) {
+		for _, c := range clients {
+			c.Close()
+		}
+		return nil, err
+	}
+	for len(clients) < 2 {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fail(fmt.Errorf("readiness timed out with %d of 2 clients accepted", len(clients)))
+		}
+		if remaining > time.Second {
+			remaining = time.Second
+		}
+		c, err := client.TryDial(addr, remaining)
+		if err != nil {
+			return fail(fmt.Errorf("client %d greeting: %w", len(clients)+1, err))
+		}
+		if strings.HasPrefix(c.Greeting, "200 ") {
+			clients = append(clients, c)
+			continue
+		}
+		greeting := c.Greeting
+		c.Close()
+		if greeting != "400 too many users" {
+			return fail(fmt.Errorf("client %d unexpected greeting %q", len(clients)+1, greeting))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return clients, nil
+}
+
 func TestMaxConnections(t *testing.T) {
 	e := newEnv(t)
 	e.MaxConnections = 2
-	e.standalone()
-	time.Sleep(300 * time.Millisecond) // let the readiness probe's child exit
-	e.dial()
-	e.dial()
+	p := e.standalone()
+	if runtime.GOOS == "linux" {
+		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
+	}
+	clients, err := maxConnectionsClients(e.Listen, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range clients {
+		defer c.Close()
+	}
 
 	c3 := e.dialRaw()
 	defer c3.Close()
@@ -121,6 +167,65 @@ func TestMaxConnections(t *testing.T) {
 	}
 	if err := c3.ExpectNoPending(200 * time.Millisecond); err != nil {
 		t.Errorf("bytes after the 400 reply: %v", err)
+	}
+}
+
+// The readiness retry must be bounded, retain the first client, and never
+// treat a wrong greeting as a transient over-limit response.
+func TestMaxConnectionsReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		responses []string
+		wantErr   bool
+	}{
+		{"transient", []string{"200 ready", "400 too many users", "200 ready"}, false},
+		{"persistent", []string{"200 ready", "400 too many users"}, true},
+		{"wrong-response", []string{"200 ready", "503 unexpected"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ln.Close()
+			var count atomic.Int32
+			go func() {
+				for {
+					c, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					i := int(count.Add(1)) - 1
+					if i >= len(tc.responses) {
+						i = len(tc.responses) - 1
+					}
+					response := tc.responses[i]
+					fmt.Fprintf(c, "%s\r\n", response)
+					if strings.HasPrefix(response, "200 ") {
+						go func() { io.Copy(io.Discard, c); c.Close() }()
+					} else {
+						c.Close()
+					}
+				}
+			}()
+			started := time.Now()
+			clients, err := maxConnectionsClients(ln.Addr().String(), 250*time.Millisecond)
+			for _, c := range clients {
+				c.Close()
+			}
+			if (err != nil) != tc.wantErr {
+				t.Errorf("clients=%d, error=%v, want error=%v", len(clients), err, tc.wantErr)
+			}
+			if time.Since(started) > 2*time.Second {
+				t.Error("readiness retry exceeded its bounded deadline")
+			}
+			if tc.name == "transient" && count.Load() != 3 {
+				t.Errorf("connections=%d, want 3", count.Load())
+			}
+			if tc.name == "wrong-response" && count.Load() != 2 {
+				t.Errorf("wrong response was retried: connections=%d", count.Load())
+			}
+		})
 	}
 }
 
