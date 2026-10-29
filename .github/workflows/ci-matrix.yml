@@ -6,14 +6,20 @@
 #   - containers: AlmaLinux 10, Rocky Linux 9 (EPEL 10/9), openSUSE Leap 15.6
 #     and 16.0, Arch (rolling), Ubuntu 22.04 (oldest GnuTLS, 3.7) and 26.04;
 #   - illumos (OmniOS), best effort: allowed to fail.
-# Debian 13, Alpine, Fedora and FreeBSD are covered by ci.yml.
+# Debian 13, Alpine, Fedora and FreeBSD are covered by ci.yml. None of these
+# jobs is a required check: a red one shows on a pull request (its state is
+# "unstable") but doesn't block the merge; making one required is a change of
+# the repository's ruleset.
 
 name: CI matrix
 
+# Not for changes to documentation only.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'doc/**', 'changes/**']
   pull_request:
+    paths-ignore: ['**.md', 'doc/**', 'changes/**']
   workflow_dispatch:
 
 permissions:
