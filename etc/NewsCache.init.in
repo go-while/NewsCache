@@ -50,6 +50,22 @@ proc_info()
 	printf '%s %s\n' "$proc_state" "$proc_start"
 }
 
+wait_proc_info()
+{
+	proc_pid=$1
+	proc_attempt=0
+	while [ "$proc_attempt" -lt 20 ]; do
+		if proc_data=$(proc_info "$proc_pid" 2>/dev/null); then
+			printf '%s\n' "$proc_data"
+			return 0
+		fi
+		kill -0 "$proc_pid" 2>/dev/null || return 1
+		sleep 0.1
+		proc_attempt=$((proc_attempt + 1))
+	done
+	return 1
+}
+
 require_procfs()
 {
 	if ! command -v readlink >/dev/null 2>&1; then
@@ -128,9 +144,9 @@ start_service()
 		"$DAEMON" -n </dev/null >/dev/null 2>&1 &
 	fi
 	PID=$!
-	PID_INFO=$(proc_info "$PID") || {
+	PID_INFO=$(wait_proc_info "$PID") || {
 		kill -TERM "$PID" 2>/dev/null || :
-		echo "newscache: cannot read start time for new process $PID from /proc; service not started" >&2
+		echo "newscache: cannot read start time for new process $PID from /proc after waiting 2s; service not started" >&2
 		return 1
 	}
 	set -- $PID_INFO
