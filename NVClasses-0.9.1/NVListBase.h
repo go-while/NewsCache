@@ -61,6 +61,7 @@ class NVListBase:public NVcontainer {
 	}
 
 	int sis_empty(nvoff_t proot) {
+		need_mapping();
 		return *(nvoff_t *) (mem_p + proot) == 0;
 	}
 	void sprepend(nvoff_t proot, const char *data, size_t szdata);

@@ -85,6 +85,7 @@ char *NVArray::sextra(size_t *sz)
 
 void NVArray::sset(unsigned long i, const char *data, size_t szdata)
 {
+	need_mapping();
 	// the new block first: when nvalloc throws (disk full), the old
 	// record stays in place instead of a freed block in the index
 	nvoff_t x, old = arrtab[i];
@@ -99,6 +100,7 @@ void NVArray::sset(unsigned long i, const char *data, size_t szdata)
 
 void NVArray::sdel(unsigned long i)
 {
+	need_mapping();
 	if (arrtab[i]) {
 		nvfree(arrtab[i]);
 		arrtab[i] = 0;

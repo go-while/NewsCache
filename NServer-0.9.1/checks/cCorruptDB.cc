@@ -520,6 +520,11 @@ class PeekArray:public NVArray {
 public:
 	PeekArray(const char *fn):NVArray(fn) {}
 	void *mapping() { return mem_p; }
+	// a write of a caller that holds its own lock (an s-method)
+	void unlocked_set(unsigned long i, const char *d, size_t n) {
+		sset(i, d, n);
+	}
+	void unlocked_del(unsigned long i) { sdel(i); }
 };
 
 static void outer_remap_fails(const string & dir)
@@ -567,6 +572,26 @@ static void outer_remap_fails(const string & dir)
 	// it must not hold anything now, or hold a lock with a mapping.
 	if (a.get_lock() != NVcontainer::UnLock) {
 		CHECK(a.mapping() != NULL);		// (held lock without mapping)
+	}
+	// The outer caller writes with the lock it believes it holds, with
+	// no mapping: an Error, not a crash through the NULL table.
+	if (a.mapping() == NULL) {
+		bool wthrew = false;
+		try {
+			a.unlocked_set(1, "two", 4);
+		}
+		catch(const Error & e) {
+			wthrew = true;
+		}
+		CHECK(wthrew);
+		wthrew = false;
+		try {
+			a.unlocked_del(1);
+		}
+		catch(const Error & e) {
+			wthrew = true;
+		}
+		CHECK(wthrew);
 	}
 	// the outer caller's next access
 	const char *d;

@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "Debug.h"
+#include "Error.h"
 
 #define NVcontainer_LOCKSTACKSIZE 16
 
@@ -140,6 +141,19 @@ class NVcontainer {
 	 * nothing uses the old mapping if no new file can be opened.
 	 */
 	virtual void forget(void) {
+	}
+	/*
+	 * For the s-methods, which work under the caller's lock without
+	 * one of their own: a remap that failed while the caller's outer
+	 * lock was restored (lock() gives that lock up, see lck_orphans)
+	 * leaves no mapping until the next lock(). Throws then, instead of
+	 * writing through the NULL pointers.
+	 */
+	void need_mapping(void) {
+		if (!mem_p)
+			throw Error("NVContainer: database " + std::string(mem_fn) +
+				    " is not mapped (a remap failed)",
+				    ERROR_LOCATION);
 	}
   public:
 	enum {
