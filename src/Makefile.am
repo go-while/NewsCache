@@ -6,14 +6,11 @@ AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/NServer-0.9.1 -I@top_s
 LDADD = ../NServer-0.9.1/libnserver.a ../NVClasses-0.9.1/libnvcontainer.a ../md5lib/libmd5.a @LDADD@
 
 ## Programs
-EXTRA_PROGRAMS= crypt
 check_PROGRAMS= cConfig
 bin_PROGRAMS  = updatenews
 sbin_PROGRAMS = newscache newscacheclean
 
 TESTS=cConfig
-
-crypt_SOURCES = crypt.cc
 
 cConfig_SOURCES = 	AccessList.cc\
 	AccessList.h\
