@@ -1849,6 +1849,11 @@ int CServer::post(Article * article)
 		return 0;
 	}
 	fs.open(fn, ios::app);
+	if (!fs.is_open()) {
+		slog.p(Logger::Error) << "cannot open " << fn
+		    << " for header logging; article header not logged\n";
+		return 0;
+	}
 	fs << getpid() << " " << tv.tv_sec << endl;
 	article->write(fs, Article::Head);
 	fs.close();
