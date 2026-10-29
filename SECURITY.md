@@ -74,8 +74,15 @@ gh api -X POST repos/go-while/NewsCache/security-advisories/reports \
     -f description="$(cat report.md)"
 ```
 
-Collaborators' AI agents submit verified findings this way too, one report
-per issue. Maintainers triage submissions and decide how to proceed.
+### Collaborators and their agents
+
+Maintainers and invited collaborators coordinate embargoed findings, reviews
+and fixes in a private workspace, including work assisted by AI agents. This
+workspace is not a vulnerability-reporting channel: submit reports through
+the web form or the API described above; workspace access is not required.
+Nothing from it goes to a public place before the advisory is published.
+Collaborators' agents submit verified findings through the API above, one
+report per issue. Maintainers triage submissions and decide how to proceed.
 
 ## What to Expect
 
