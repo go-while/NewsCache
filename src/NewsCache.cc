@@ -3954,7 +3954,8 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 	 * clients; without IPv6, it falls back to the IPv4 address. Other
 	 * addresses are tried in the order getaddrinfo returns them. */
 	int sock = -1;
-	int bind_error = 0;
+	// reported if no address was tried at all (not "Success")
+	int bind_error = EADDRNOTAVAIL;
 	struct addrinfo *addr;
 	if (nodename == NULL) {
 		for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
