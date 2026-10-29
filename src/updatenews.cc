@@ -73,6 +73,8 @@ sig_atomic_t alarmed = 0;
 void catchsignal(int num)
 {
 	Xsignal = num;
+	// End upstream socket and TLS waits as well as the outer loop.
+	alarmed = 1;
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;

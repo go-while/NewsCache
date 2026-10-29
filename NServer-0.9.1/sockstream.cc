@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -99,7 +100,7 @@ namespace {
   // end a TLS client's wait; -1 with EINTR makes the read return
   // GNUTLS_E_INTERRUPTED, and the callers check the alarm indicator.
   //
-  // During a server handshake it also keeps the handshake's absolute
+  // During a TLS handshake it also keeps the handshake's absolute
   // deadline: GnuTLS waited its full timeout again for each piece of a
   // ClientHello sent a byte at a time, so the handshake took as long as
   // the client liked. (One server handshake per process: each client
@@ -118,7 +119,8 @@ namespace {
 
   int pull_timeout_once(gnutls_transport_ptr_t ptr, unsigned int ms)
   {
-    int wait = (ms == GNUTLS_INDEFINITE_TIMEOUT) ? -1 : (int) ms;
+    int wait = (ms == GNUTLS_INDEFINITE_TIMEOUT) ? -1 :
+      (ms > INT_MAX ? INT_MAX : (int) ms);
     if (handshake_deadline_set)
     {
       const long long left = handshake_ms_left();
@@ -128,7 +130,7 @@ namespace {
       }
       if (wait < 0 || left < wait)
       {
-	wait = (int) left;
+        wait = left > INT_MAX ? INT_MAX : (int) left;
       }
     }
     struct pollfd p;
@@ -455,7 +457,8 @@ sockstream::sslstreambuf::~sslstreambuf()
 
 
 void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
-				       const std::string &cafile)
+				       const std::string &cafile,
+				       unsigned int connect_timeout)
 {
   _connected = false;
   const char *name = (hostname && *hostname) ? hostname : NULL;
@@ -483,14 +486,43 @@ void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
       << " (Options noverify)\n";
   }
 
-  gnutls_handshake_set_timeout(_session, GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
+  // Bound the whole handshake. If ReadTimeout is disabled, use the
+  // connection timeout, with a finite last resort when both are zero.
+  const unsigned int timeout = _buf._io_timeout ? _buf._io_timeout :
+    (connect_timeout ? connect_timeout : 60);
+  gnutls_handshake_set_timeout(_session, timeout * 1000);
   gnutls_transport_set_int(_session, _buf.fd());
+  gnutls_transport_set_pull_timeout_function(_session, pull_timeout_once);
 
+  clock_gettime(CLOCK_MONOTONIC, &handshake_deadline);
+  handshake_deadline.tv_sec += timeout;
+  handshake_deadline_set = true;
   int rc;
   do
   {
+    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    {
+      rc = GNUTLS_E_INTERRUPTED;
+      break;
+    }
+    if (handshake_ms_left() <= 0)
+    {
+      rc = GNUTLS_E_TIMEDOUT;
+      break;
+    }
     rc = gnutls_handshake(_session);
+    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    {
+      rc = GNUTLS_E_INTERRUPTED;
+      break;
+    }
+    if (rc < 0 && !gnutls_error_is_fatal(rc) && handshake_ms_left() <= 0)
+    {
+      rc = GNUTLS_E_TIMEDOUT;
+      break;
+    }
   } while ((rc < 0) && !gnutls_error_is_fatal(rc));
+  handshake_deadline_set = false;
 
   if (rc < 0)
   {
@@ -841,15 +873,18 @@ bool sockstream::load_server_tls(const std::string &certfile,
   return true;
 }
 
-sockstream *sockstream::starttls(const char *hostname)
+sockstream *sockstream::starttls(const char *hostname, unsigned int connect_timeout)
 {
   if (!_ssl && _buf.connected())
   {
     sockstream * const ssl_stream = new sockstream(true);
     ssl_stream->set_tls(_tls_verify, _tls_cafile);
     ssl_stream->attach(_buf.fd());
+    // The TLS stream needs the original ReadTimeout, including while
+    // computing the whole-handshake deadline and later waiting for I/O.
+    ssl_stream->set_io_timeout(_buf.io_timeout());
     _buf.dispose();
-    ssl_stream->_ssl->connect(hostname, _tls_verify, _tls_cafile);
+    ssl_stream->_ssl->connect(hostname, _tls_verify, _tls_cafile, connect_timeout);
     ssl_stream->clear(ssl_stream->connected() ? std::ios::goodbit
 		      : std::ios::badbit);
     return ssl_stream;
