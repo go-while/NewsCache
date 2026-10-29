@@ -3000,7 +3000,7 @@ int ns_capabilities(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "HDR\r\n";
 		(*clt->co) << "OVER\r\n";
 		(*clt->co) <<
-		    "LIST ACTIVE ACTIVE.TIMES HEADERS NEWSGROUPS OVERVIEW.FMT\r\n";
+		    "LIST ACTIVE ACTIVE.TIMES EXTENSIONS HEADERS NEWSGROUPS OVERVIEW.FMT\r\n";
 	}
 	if (rights & AccessEntry::af_post) {
 		(*clt->co) << "POST\r\n";
