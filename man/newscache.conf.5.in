@@ -380,7 +380,7 @@ Selects the PAM service used for this client. The default is \fBnewscache\fR, or
 .br
 The configuration syntax does not support quoted values: \fBPAMServicename ""\fR names the service whose name is the two literal quote characters, not an empty value.
 .br
-For further explanation of PAM see the System Administrators' PAM Guide at http://www.kernel.org/pub/linux/libs/pam/pre/doc/.
+For further information about PAM, see \fBpam(8)\fR, \fBpam.conf(5)\fR, or the Linux-PAM project at https://github.com/linux-pam/linux-pam.
 
 .SS ServerSpec Configuration Options
 .nf
