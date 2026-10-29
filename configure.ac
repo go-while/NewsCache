@@ -79,7 +79,7 @@ fi,
 )
 
 AC_ARG_ENABLE(sysv-init,
-  [  --enable-sysv-init      install the optional Linux SysV init script [default=no]],
+  [  --enable-sysv-init      install the optional Linux and GNU/Hurd SysV init script [default=no]],
   [case "$enableval" in
     yes|no) enable_sysv_init=$enableval ;;
     *) AC_MSG_ERROR([--enable-sysv-init accepts yes or no]) ;;
@@ -87,8 +87,8 @@ AC_ARG_ENABLE(sysv-init,
   [enable_sysv_init=no])
 if test "x$enable_sysv_init" = xyes; then
   case $host_os in
-    linux*) ;;
-    *) AC_MSG_ERROR([--enable-sysv-init is supported only on Linux]) ;;
+    linux*|gnu*) ;;
+    *) AC_MSG_ERROR([--enable-sysv-init is supported only on Linux and GNU/Hurd]) ;;
   esac
 fi
 AM_CONDITIONAL([ENABLE_SYSV_INIT], [test "x$enable_sysv_init" = xyes])
@@ -184,24 +184,20 @@ esac
 
 AC_DEFINE_UNQUOTED(SYSCONFDIR, ["$CONFDIR"], [sysconfdir])
 
-dnl Resolve the default Autoconf directory references for the init script.
-sysv_sbindir=$sbindir
-sysv_localstatedir=$localstatedir
-for i in 1 2 3 4 5; do
-  case "$sysv_sbindir" in
-    '${exec_prefix}'*) sysv_sbindir=$exec_prefix${sysv_sbindir#'${exec_prefix}'} ;;
-    '${prefix}'*) sysv_sbindir=$prefix${sysv_sbindir#'${prefix}'} ;;
-    '${datarootdir}'*) sysv_sbindir=$datarootdir${sysv_sbindir#'${datarootdir}'} ;;
+dnl Expand install directories for the init script only when requested.  The
+dnl helper substitutes known Autoconf directory variables as data; it never
+dnl evaluates user-supplied path text as shell code.
+sysv_sbindir=
+sysv_localstatedir=
+if test "x$enable_sysv_init" = xyes; then
+  nc_expand_dirs "$sbindir"
+  sysv_sbindir=$nc_expanded
+  nc_expand_dirs "$localstatedir"
+  sysv_localstatedir=$nc_expanded
+  case "$sysv_sbindir:$sysv_localstatedir" in
+    *'${'*) AC_MSG_ERROR([cannot expand standard directories for SysV init script]) ;;
   esac
-  case "$sysv_localstatedir" in
-    '${exec_prefix}'*) sysv_localstatedir=$exec_prefix${sysv_localstatedir#'${exec_prefix}'} ;;
-    '${prefix}'*) sysv_localstatedir=$prefix${sysv_localstatedir#'${prefix}'} ;;
-    '${datarootdir}'*) sysv_localstatedir=$datarootdir${sysv_localstatedir#'${datarootdir}'} ;;
-  esac
-done
-case "$sysv_sbindir:$sysv_localstatedir" in
-  *'${'*) AC_MSG_ERROR([cannot expand standard directories for SysV init script]) ;;
-esac
+fi
 AC_SUBST([sysv_sbindir])
 AC_SUBST([sysv_localstatedir])
 

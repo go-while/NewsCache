@@ -16,26 +16,71 @@ STOP_TIMEOUT=30
 read_pid()
 {
 	[ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ] && [ -r "$PIDFILE" ] || return 1
-	IFS= read -r PID < "$PIDFILE" || return 1
+	IFS=' ' read -r PID PID_START extra < "$PIDFILE" || return 1
 	case "$PID" in
 		''|*[!0-9]*) return 1 ;;
 	esac
-	[ "$PID" -gt 1 ] 2>/dev/null
+	case "$PID_START" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ -z "${extra:-}" ] && [ "$PID" -gt 1 ] 2>/dev/null
+}
+
+proc_info()
+{
+	[ -r "/proc/$1/stat" ] || return 1
+	awk '
+	{
+		line = $0
+		if (!sub(/^[0-9]+ \(.*\) /, "", line)) exit
+		n = split(line, field, /[[:space:]]+/)
+		if (n < 20 || field[1] !~ /^[[:alpha:]]$/ ||
+		    field[20] !~ /^[0-9]+$/) exit
+		print field[1], field[20]
+		found = 1
+		exit
+	}
+	END { if (!found) exit 1 }
+	' "/proc/$1/stat"
+}
+
+require_procfs()
+{
+	if ! command -v readlink >/dev/null 2>&1; then
+		echo "newscache: readlink is required to verify service PIDs" >&2
+		return 1
+	fi
+	if [ ! -r "/proc/$$/stat" ]; then
+		echo "newscache: required /proc process files are unavailable (/proc/$$/stat); mount procfs before using this init script" >&2
+		return 1
+	fi
+	if ! proc_info "$$" >/dev/null 2>&1; then
+		echo "newscache: cannot read process start times from /proc/$$/stat; mount a compatible procfs before using this init script" >&2
+		return 1
+	fi
+	if ! readlink "/proc/$$/exe" >/dev/null 2>&1; then
+		echo "newscache: required /proc process files are unavailable (/proc/$$/exe); mount procfs before using this init script" >&2
+		return 1
+	fi
 }
 
 pid_is_newscache()
 {
 	pid=$1
+	expected_start=$2
 	case "$pid" in
 		''|*[!0-9]*) return 1 ;;
 	esac
 	[ "$pid" -gt 1 ] 2>/dev/null || return 1
 	kill -0 "$pid" 2>/dev/null || return 1
-	[ -r "/proc/$pid/comm" ] || return 1
-	IFS= read -r process_name < "/proc/$pid/comm" || return 1
-	[ "$process_name" = newscache ] || return 1
-	IFS=' ' read -r proc_pid proc_comm proc_state rest < "/proc/$pid/stat" || return 1
-	[ "$proc_state" != Z ]
+	process_exe=$(readlink "/proc/$pid/exe" 2>/dev/null) || return 1
+	case "$process_exe" in
+		"$DAEMON"|"$DAEMON (deleted)") ;;
+		*) return 1 ;;
+	esac
+	process_info=$(proc_info "$pid") || return 1
+	set -- $process_info
+	[ "$#" = 2 ] && [ "$1" != Z ] && [ "$2" = "$expected_start" ]
 }
 
 start_service()
@@ -44,7 +89,7 @@ start_service()
 		echo "newscache: executable not found: $DAEMON" >&2
 		return 5
 	fi
-	if read_pid && pid_is_newscache "$PID"; then
+	if read_pid && pid_is_newscache "$PID" "$PID_START"; then
 		echo "newscache is already running (pid $PID)"
 		return 0
 	fi
@@ -69,15 +114,33 @@ start_service()
 		echo "newscache: cannot create pid directory: $pid_dir" >&2
 		return 1
 	fi
-	"$DAEMON" -n </dev/null >/dev/null 2>&1 &
+	if command -v setsid >/dev/null 2>&1; then
+		# Init scripts run without job control, so setsid can exec the daemon
+		# in this process and $! remains the daemon PID.
+		setsid "$DAEMON" -n </dev/null >/dev/null 2>&1 &
+	else
+		"$DAEMON" -n </dev/null >/dev/null 2>&1 &
+	fi
 	PID=$!
-	if ! (umask 077; set -C; printf '%s\n' "$PID" > "$PIDFILE") 2>/dev/null; then
+	PID_INFO=$(proc_info "$PID") || {
+		kill -TERM "$PID" 2>/dev/null || :
+		echo "newscache: cannot read start time for new process $PID from /proc; service not started" >&2
+		return 1
+	}
+	set -- $PID_INFO
+	if [ "$#" != 2 ] || [ "$1" = Z ]; then
+		kill -TERM "$PID" 2>/dev/null || :
+		echo "newscache: new process $PID exited before it could be verified" >&2
+		return 1
+	fi
+	PID_START=$2
+	if ! (umask 077; set -C; printf '%s %s\n' "$PID" "$PID_START" > "$PIDFILE") 2>/dev/null; then
 		kill -TERM "$PID" 2>/dev/null || :
 		echo "newscache: cannot create pid file: $PIDFILE" >&2
 		return 1
 	fi
 	sleep 1
-	if pid_is_newscache "$PID"; then
+	if pid_is_newscache "$PID" "$PID_START"; then
 		echo "newscache started (pid $PID)"
 		return 0
 	fi
@@ -95,18 +158,18 @@ stop_service()
 		echo "newscache is not running"
 		return 0
 	fi
-	if ! pid_is_newscache "$PID"; then
+	if ! pid_is_newscache "$PID" "$PID_START"; then
 		rm -f "$PIDFILE" || return 1
 		echo "newscache is not running (removed stale pid file)"
 		return 0
 	fi
-	if ! kill -TERM "$PID" 2>/dev/null && pid_is_newscache "$PID"; then
+	if ! kill -TERM "$PID" 2>/dev/null && pid_is_newscache "$PID" "$PID_START"; then
 		echo "newscache: cannot signal pid $PID" >&2
 		return 1
 	fi
 	i=0
 	while [ "$i" -lt "$STOP_TIMEOUT" ]; do
-		if ! pid_is_newscache "$PID"; then
+		if ! pid_is_newscache "$PID" "$PID_START"; then
 			rm -f "$PIDFILE" || return 1
 			echo "newscache stopped"
 			return 0
@@ -120,7 +183,7 @@ stop_service()
 
 reload_service()
 {
-	if ! read_pid || ! pid_is_newscache "$PID"; then
+	if ! read_pid || ! pid_is_newscache "$PID" "$PID_START"; then
 		echo "newscache is not running" >&2
 		return 1
 	fi
@@ -134,7 +197,7 @@ reload_service()
 status_service()
 {
 	if read_pid; then
-		if pid_is_newscache "$PID"; then
+		if pid_is_newscache "$PID" "$PID_START"; then
 			echo "newscache is running (pid $PID)"
 			return 0
 		fi
@@ -147,23 +210,28 @@ status_service()
 
 case "${1-}" in
 	start)
+		require_procfs || exit 1
 		start_service
 		exit $?
 		;;
 	stop)
+		require_procfs || exit 1
 		stop_service
 		exit $?
 		;;
 	restart)
+		require_procfs || exit 1
 		stop_service || exit $?
 		start_service
 		exit $?
 		;;
 	reload|force-reload)
+		require_procfs || exit 1
 		reload_service
 		exit $?
 		;;
 	status)
+		require_procfs || exit 1
 		status_service
 		exit $?
 		;;

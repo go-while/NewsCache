@@ -223,7 +223,7 @@ servers don't offer STARTTLS on 119.
 
 - **systemd:** [`debian/newscache.service`](debian/newscache.service) runs
   `newscache -n`.
-- **SysV init (Linux only, optional):** configure with
+- **SysV init (Linux and GNU/Hurd, optional):** configure with
   `--enable-sysv-init` to install `newscache` under `$(sysconfdir)/init.d`
   (by default, `/usr/local/etc/init.d/newscache`; use
   `--with-initdir=/etc/init.d` for the conventional system-wide location).
@@ -232,8 +232,13 @@ servers don't offer STARTTLS on 119.
   `Username`/`Groupname`. It keeps its own PID file under
   `$(localstatedir)/run`, separate from the optional `PidFile` setting in the
   NewsCache config. Use its `start`, `stop`, `restart`, `reload` and `status`
-  actions. This option is unavailable on FreeBSD, where service management
-  uses the native system tools.
+  actions. Register the installed script with the system's SysV tooling, for
+  example `update-rc.d newscache defaults` on Debian or
+  `chkconfig --add newscache` on systems that provide `chkconfig`; installation
+  alone does not create runlevel links. The script requires procfs with
+  per-process `stat` and `exe` entries so it can validate the PID file, and
+  refuses to run when those files are unavailable. This option is unavailable
+  on FreeBSD, where service management uses the native system tools.
 - **inetd:** use `newscache -i`, or `newscache -t` for TLS clients (port 563).
 - **TLS for clients:** set `TLSListenTo`, `TLSCertFile` and `TLSKeyFile`; the
   key must be readable by `Groupname` for a renewed certificate to load on
