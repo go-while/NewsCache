@@ -47,7 +47,7 @@ fi
 # socket, and nobody looks at their exit codes: a leak report would be lost.
 # Send the reports to files instead, and fail when there are any.
 case ${ASAN_OPTIONS-} in
-*detect_leaks=1*)
+*detect_leaks=1*|*detect_leaks=true*)
 	case $ASAN_OPTIONS in
 	*log_path=*) ;;
 	*)
