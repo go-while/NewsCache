@@ -10,6 +10,7 @@ using namespace std;
 
 void NVListBase::sprepend(nvoff_t proot, const char *data, size_t szdata)
 {
+	need_mapping();
 	Record *tail;
 	Record *nr;
 	// A new block: its record isn't filled in yet, so not o2r. (nvalloc
@@ -30,6 +31,7 @@ void NVListBase::sprepend(nvoff_t proot, const char *data, size_t szdata)
 
 void NVListBase::sappend(nvoff_t proot, const char *data, size_t szdata)
 {
+	need_mapping();
 	Record *tail;
 	Record *nr;
 	// A new block: its record isn't filled in yet, so not o2r. (nvalloc
@@ -50,6 +52,7 @@ void NVListBase::sappend(nvoff_t proot, const char *data, size_t szdata)
 
 void NVListBase::sremove(nvoff_t proot)
 {
+	need_mapping();
 	Record *tail = o2r(*(nvoff_t *) (mem_p + proot));
 	Record *nr = o2r(tail->next);
 
@@ -63,6 +66,7 @@ void NVListBase::sremove(nvoff_t proot)
 
 void NVListBase::sclear(nvoff_t proot)
 {
+	need_mapping();
 	while (*(nvoff_t *) (mem_p + proot))
 		sremove(proot);
 }
