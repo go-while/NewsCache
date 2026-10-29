@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"github.com/go-while/nntp-testkit/fakeserver"
 	"io"
@@ -20,6 +21,36 @@ import (
 	"github.com/go-while/nntp-testkit/client"
 	"github.com/go-while/nntp-testkit/proc"
 )
+
+// TestListenerBindError reports why a foreground daemon cannot bind.
+func TestListenerBindError(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	e := newEnv(t)
+	e.Listen = listener.Addr().String()
+	e.writeConf()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.Bin, "-n", "-c", e.Conf)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("daemon did not fail for occupied listener: %v", ctx.Err())
+	}
+	if err == nil {
+		t.Fatal("daemon unexpectedly started on an occupied port")
+	}
+	prefix := strings.ToLower("can't listen on ListenTo " + e.Listen + ": ")
+	text := strings.ToLower(string(out))
+	// libc implementations use different EADDRINUSE descriptions.
+	if !strings.Contains(text, prefix+"address already in use") &&
+		!strings.Contains(text, prefix+"address in use") {
+		t.Errorf("startup output %q does not report address-in-use after %q", out, prefix)
+	}
+}
 
 // TestStandaloneSession: the daemon accepts a TCP client and serves it.
 func TestStandaloneSession(t *testing.T) {
