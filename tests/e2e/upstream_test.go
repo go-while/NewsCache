@@ -280,6 +280,7 @@ func TestHistoryUnusualMessageIDs(t *testing.T) {
 		`<id@[127.0.0.1]>`,
 		`<UPPER.lower@Upstream.TEST>`,
 		long,
+		`<no-at>`,
 	}
 	e.Store.AddGroup("test.ids", "unusual ids")
 	for i, id := range ids {
@@ -292,7 +293,7 @@ func TestHistoryUnusualMessageIDs(t *testing.T) {
 	}
 	c := e.session()
 	c.Cmd("GROUP test.ids")
-	expectOver(t, c, 1, 5, 1, 2, 3, 4, 5)
+	expectOver(t, c, 1, 6, 1, 2, 3, 4, 5, 6)
 	for _, id := range ids {
 		if code, line := c.Cmd("ARTICLE %s", id); code != 220 || !strings.Contains(line, id) {
 			t.Errorf("ARTICLE %s: %q", id, line)
@@ -746,8 +747,7 @@ func TestUpstreamCutOffArticle(t *testing.T) {
 }
 
 // TestUpstreamLongCommand: the commands to the upstream were built in fixed
-// buffers (1024 bytes for ARTICLE <message-id>, 513 for the STAT <message-id>
-// before a POST), which cut a long message-ID off together with the CRLF.
+// buffers, which cut a long message-ID off together with the CRLF.
 // The upstream waited for the end of the line and the session for the reply,
 // until ReadTimeout (default 300 s).
 func TestUpstreamLongCommand(t *testing.T) {
@@ -756,9 +756,11 @@ func TestUpstreamLongCommand(t *testing.T) {
 	c := e.session()
 	c.Deadline = 15 * time.Second
 
-	// a client line of 1022 characters fits NewsCache's line buffer; the
-	// upstream command is 1024 with its CRLF
-	id := "<" + strings.Repeat("a", 1005) + "@x.test>"
+	// The largest RFC 5536 message-ID must be sent in full.
+	id := "<" + strings.Repeat("a", 241) + "@x.test>"
+	if len(id) != 250 {
+		t.Fatalf("fixture length: %d, want 250", len(id))
+	}
 	code, line, err := c.TryCmd("ARTICLE %s", id)
 	if err != nil {
 		t.Fatalf("ARTICLE <%d characters>: %v", len(id), err)
@@ -770,7 +772,7 @@ func TestUpstreamLongCommand(t *testing.T) {
 		t.Errorf("the upstream didn't get the whole ARTICLE command")
 	}
 
-	id = "<" + strings.Repeat("p", 600) + "@newscache.test>"
+	id = "<" + strings.Repeat("p", 241) + "@x.test>"
 	if code, line := c.Cmd("POST"); code != 340 {
 		t.Fatalf("POST: %q", line)
 	}
@@ -787,6 +789,145 @@ func TestUpstreamLongCommand(t *testing.T) {
 	}
 	if !containsLine(e.Upstream.Lines(), "stat "+id) {
 		t.Errorf("the upstream didn't get the whole STAT command")
+	}
+}
+
+// Invalid client IDs must be rejected before a spool lookup or upstream
+// command; a rejection must leave the NNTP session in step.
+func TestClientMessageIDValidation(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	tooLong := "<" + strings.Repeat("a", 242) + "@x.test>" // 251 octets
+	if len(tooLong) != 251 {
+		t.Fatalf("fixture length %d, want 251", len(tooLong))
+	}
+	badIDs := []string{tooLong, "<>", "<a>b@c>", "<id@x", "id@x>", "12@x>",
+		"<id@x>extra", "<id@x>\x00extra", "<id@x\x7f>"}
+	commands := []string{"ARTICLE %s", "HEAD %s", "BODY %s", "STAT %s", "OVER %s",
+		"XOVER %s", "HDR subject %s", "XHDR subject %s", "XPAT subject %s *"}
+	for _, selected := range []bool{false, true} {
+		if selected {
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q", line)
+			}
+		}
+		before := len(e.Upstream.Lines())
+		for _, id := range badIDs {
+			for _, command := range commands {
+				code, line := c.Cmd(command, id)
+				if code == 220 || code == 221 || code == 222 || code == 224 || code == 225 {
+					c.ReadDotLines()
+				}
+				if code != 501 {
+					t.Errorf("selected=%v %s ID length %d: %q, want 501", selected, command, len(id), line)
+				}
+			}
+		}
+		if got := e.Upstream.Lines(); len(got) != before {
+			t.Errorf("selected=%v invalid IDs reached upstream: %q", selected, got[before:])
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after invalid IDs: %q, want 111", line)
+	}
+}
+
+// An EOF without a newline leaves gcount without a delimiter; the last
+// byte can itself be the NUL that must be rejected.
+func TestClientNULAtEOF(t *testing.T) {
+	e := newEnv(t)
+	e.standalone()
+	conn, err := net.DialTimeout("tcp", e.Listen, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	r := bufio.NewReader(conn)
+	if greeting, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(greeting, "200 ") {
+		t.Fatalf("greeting: %q %v", greeting, err)
+	}
+	if _, err := io.WriteString(conn, "ARTICLE <x@y>\x00"); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(line, "501 ") {
+		t.Fatalf("NUL at EOF: %q %v, want 501", line, err)
+	}
+}
+
+func TestPostMessageIDValidation(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	tooLong := "<" + strings.Repeat("p", 242) + "@x.test>"
+	for _, header := range []string{
+		"Message-ID: " + tooLong + "\r\n",
+		"Message-ID: <no-at>\r\n",
+		"Message-ID: \r\n",
+		"Message-ID: <a@b@c>\r\n",
+		"Message-ID: <a..b@c>\r\n",
+		"Message-ID: <\"quoted\"@x>\r\n",
+		"Message-ID: <a@b>extra\r\n",
+		"Message-ID: <a@b>\x00extra\r\n",
+		"Message-ID: <valid@host>\r\nMessage-ID: <no-at>\r\n",
+		"Message-ID: <valid@host>\r\nMessage-ID: <valid2@host>\r\n",
+	} {
+		before := len(e.Upstream.Lines())
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@x.test\r\n" +
+			"Subject: bad id\r\n" + header + "\r\nbody\r\n.\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		code, line, err := c.ReadStatus()
+		if err != nil || code != 441 || !strings.Contains(strings.ToLower(line), "message-id") {
+			t.Errorf("POST header %q: %q %v, want 441 with Message-ID reason", header, line, err)
+		}
+		if got := e.Upstream.Lines(); len(got) != before {
+			t.Errorf("invalid POST reached upstream: %q", got[before:])
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after invalid posts: %q, want 111", line)
+	}
+}
+
+// Invalid IDs received from an upstream are still cached and readable by
+// article number; only a client request by such an ID is refused.
+func TestUpstreamLongMessageIDByNumber(t *testing.T) {
+	e := historyEnv(t)
+	e.GroupTimeout = 3600
+	id := "<" + strings.Repeat("u", 242) + "@x.test>"
+	e.Store.AddGroup("test.longid", "long upstream id")
+	a := groupArticle("test.longid", 1, []string{"long-id body"})
+	a.MessageID = id
+	e.Store.AddArticle("test.longid", a)
+	for n := 0; n < 2; n++ {
+		c := e.session()
+		if code, line := c.Cmd("GROUP test.longid"); code != 211 {
+			t.Fatalf("GROUP: %q", line)
+		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("ARTICLE by number, session %d: %q", n, line)
+		}
+		if lines := c.ReadDotLines(); !containsLine(lines, "long-id body") {
+			t.Errorf("ARTICLE by number, session %d: %q", n, lines)
+		}
+		if code, line := c.Cmd("ARTICLE %s", id); code != 501 {
+			t.Errorf("ARTICLE by long ID, session %d: %q, want 501", n, line)
+			if code == 220 {
+				c.ReadDotLines()
+			}
+		}
+		c.Cmd("QUIT")
+	}
+	if n := e.Upstream.Count("ARTICLE"); n != 1 {
+		t.Errorf("upstream received %d ARTICLE requests, want one initial fetch", n)
 	}
 }
 

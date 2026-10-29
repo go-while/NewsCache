@@ -41,6 +41,37 @@ static bool is_dir(const string & p)
 	return stat(p.c_str(), &s) == 0 && S_ISDIR(s.st_mode);
 }
 
+static void check_msgids()
+{
+	const char *valid[] = {"<a@b>", "<a.b+foo@host.example>",
+		"<a/b=c?d{e}%f!g@host>", "<id@[127.0.0.1]>",
+		"<id@[a@b]>", "<id@[]>"};
+	const char *opaque_only[] = {"<a>", "<@b>", "<a@>", "<a@b@c>",
+		"<.a@b>", "<a.@b>", "<a..b@c>", "<a@.b>", "<a@b..c>",
+		"<\"quoted\"@b>", "<a@[b\\c]>", "<a@[b[c]>", "<<>"};
+	const char *invalid[] = {"", "<>", "<a@b", "a@b>",
+		"<a@b>extra", "<a>b@c>", "<a b@c>", "<a@b\tc>",
+		"<a@b\177>", "<a@b\200>"};
+	for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+		CHECK(valid_msgid(valid[i]));
+		CHECK(valid_msgid_5536(valid[i]));
+	}
+	for (size_t i = 0; i < sizeof(opaque_only) / sizeof(opaque_only[0]); ++i) {
+		CHECK(valid_msgid(opaque_only[i]));
+		CHECK(!valid_msgid_5536(opaque_only[i]));
+	}
+	for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+		CHECK(!valid_msgid(invalid[i]));
+		CHECK(!valid_msgid_5536(invalid[i]));
+	}
+	CHECK(!valid_msgid(NULL));
+	CHECK(!valid_msgid_5536(NULL));
+	string exact = "<" + string(246, 'a') + "@b>";
+	CHECK(exact.size() == 250 && valid_msgid(exact.c_str()) && valid_msgid_5536(exact.c_str()));
+	string long_id = "<" + string(247, 'a') + "@b>";
+	CHECK(long_id.size() == 251 && !valid_msgid(long_id.c_str()) && !valid_msgid_5536(long_id.c_str()));
+}
+
 // procs processes call mkpdir(path) at the same moment; returns how many
 // of them failed
 static int race(const string & path, int procs)
@@ -76,6 +107,7 @@ static int race(const string & path, int procs)
 
 int main()
 {
+	check_msgids();
 	char tmpl[] = "/tmp/cUtil.XXXXXX";
 	if (!mkdtemp(tmpl)) {
 		perror("mkdtemp");

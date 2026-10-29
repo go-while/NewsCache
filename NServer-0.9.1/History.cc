@@ -14,6 +14,7 @@
 #include "NVHash.h"
 #include "History.h"
 #include "md5.h"
+#include "util.h"
 
 using namespace std;
 
@@ -319,13 +320,6 @@ string unparse(const vector < History::Location > &v)
 bool valid_group(const char *g)
 {
 	return *g && !strpbrk(g, ":,\r\n\t ") && strlen(g) < 512;
-}
-
-bool valid_msgid(const char *m)
-{
-	size_t n = strlen(m);
-	return n >= 3 && n < 1024 && m[0] == '<' && m[n - 1] == '>' &&
-	    !strpbrk(m, "\r\n");
 }
 
 // Applies one add or remove to shard s (which must be locked).
