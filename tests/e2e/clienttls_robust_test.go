@@ -319,8 +319,19 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > secondBound {
 		t.Errorf("second client waited %v for the group lock, want under %v (well before another ClientTimeout)", elapsed, secondBound)
 	}
-	if log := f.e.logFile(); !strings.Contains(log, "can't be written to, session ended") {
-		t.Errorf("stalled TLS writer was not logged as ended after its write timed out:\n%s", log)
+	// Releasing the group lock and logging the writer's exit are separate
+	// steps. The second client can finish before the first session logs.
+	deadline := time.Now().Add(time.Duration(f.e.ClientTimeout+3) * time.Second)
+	for {
+		log := f.e.logFile()
+		if strings.Contains(log, "can't be written to, session ended") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("stalled TLS writer was not logged as ended after its write timed out:\n%s", log)
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
