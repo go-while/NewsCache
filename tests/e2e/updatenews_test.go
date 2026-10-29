@@ -274,6 +274,60 @@ func TestPrefetchLiteral(t *testing.T) {
 	}
 }
 
+// A configured PrefetchFile must be opened successfully; the missing path
+// case is tested as an unprivileged user so root cannot mask permissions.
+func TestUpdatenewsMissingPrefetchFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("PrefetchFile open-error test requires a non-root process")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "PrefetchFile " + filepath.Join(e.Dir, "missing-prefetch")
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err == nil {
+		t.Fatalf("updatenews with a missing PrefetchFile succeeded; output: %s", out)
+	}
+	if !strings.Contains(string(out), "cannot open PrefetchFile") {
+		t.Errorf("updatenews did not report the missing PrefetchFile: %s", out)
+	}
+}
+
+// The configured file is unreadable to the non-root updatenews process.
+func TestUpdatenewsUnreadablePrefetchFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("PrefetchFile open-error test requires a non-root process")
+	}
+	e := newEnv(t)
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte("test.alpha\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err == nil {
+		t.Fatalf("updatenews with an unreadable PrefetchFile succeeded; output: %s", out)
+	}
+	if !strings.Contains(string(out), "cannot open PrefetchFile") {
+		t.Errorf("updatenews did not report the unreadable PrefetchFile: %s", out)
+	}
+}
+
+// An empty PrefetchFile remains the supported way to disable group prefetch.
+func TestUpdatenewsEmptyPrefetchFile(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err != nil {
+		t.Fatalf("updatenews with no PrefetchFile: %v\n%s", err, out)
+	}
+	if groups := prefetched(e); len(groups) != 0 {
+		t.Errorf("empty PrefetchFile prefetched groups %q", groups)
+	}
+}
+
 // A recently refreshed empty group needs no upstream GROUP during prefetch.
 // With the old override of zero it was refreshed again after one second,
 // even though the active-list entry was still fresh for the new 60s policy.

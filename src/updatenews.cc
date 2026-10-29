@@ -174,12 +174,21 @@ static bool is_pattern(const string & line)
  */
 void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 {
+	// An unset PrefetchFile means that no groups are configured for
+	// prefetching. A configured path, however, must be readable: silently
+	// treating a typo or a permission error as an empty file hides a failed
+	// update from both the operator and cron.
+	if (!fn || !*fn)
+		return;
+	errno = 0;
 	ifstream ifs(fn);
 	string line;
 	vector < string > want, skip;
 
-	if (!ifs.good()) {
-		return;
+	if (!ifs.is_open()) {
+		int err = errno ? errno : EIO;
+		throw SystemError("cannot open PrefetchFile " + string(fn), err,
+				  ERROR_LOCATION);
 	}
 
 	for (; Xsignal < 0;) {
