@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -16,6 +17,48 @@ import (
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
+
+func badSpoolFiles(spool string) ([]string, error) {
+	var bad []string
+	err := filepath.WalkDir(spool, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".bad") {
+			bad = append(bad, path)
+		}
+		return nil
+	})
+	return bad, err
+}
+
+// dumpUpdatenewsFailure records enough detail to distinguish a retry, a
+// corrupt spool and a missed group when a prefetch assertion fails.
+func dumpUpdatenewsFailure(t *testing.T, e *env, out string) {
+	t.Helper()
+	t.Logf("updatenews output:\n%s", out)
+	t.Logf("upstream conversation:\n  %s", strings.Join(e.Upstream.Lines(), "\n  "))
+	path := filepath.Join(e.LogDir, "newscache_updatenews.log")
+	if b, err := os.ReadFile(path); err == nil {
+		var lines []string
+		for _, line := range strings.Split(string(b), "\n") {
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "prefetch") || strings.Contains(lower, "corrupt") ||
+				strings.Contains(lower, "error") || strings.Contains(lower, "failed") ||
+				strings.Contains(lower, "retry") {
+				lines = append(lines, line)
+			}
+		}
+		t.Logf("updatenews log (prefetch/corrupt/error/retry):\n  %s", strings.Join(lines, "\n  "))
+	} else {
+		t.Logf("updatenews file log unavailable: %v", err)
+	}
+	bad, err := badSpoolFiles(e.Spool)
+	if err != nil {
+		t.Logf("scan spool for .bad files: %v", err)
+	}
+	t.Logf("spool .bad files: %v", bad)
+}
 
 // updatenewsBin returns the updatenews binary next to newscache, or skips.
 func updatenewsBin(t *testing.T, e *env) string {
@@ -36,6 +79,61 @@ func prefetched(e *env) []string {
 		}
 	}
 	return groups
+}
+
+// Collapse only identical GROUP commands adjacent in the full conversation,
+// not a later repeat separated by another command or a reconnect.
+func groupsWithoutAdjacentRepeats(lines []string) []string {
+	var groups []string
+	previous := ""
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && strings.EqualFold(fields[0], "GROUP") {
+			if previous != fields[1] {
+				groups = append(groups, fields[1])
+			}
+			previous = fields[1]
+		} else {
+			previous = ""
+		}
+	}
+	return groups
+}
+
+func TestGroupsWithoutAdjacentRepeats(t *testing.T) {
+	for _, tc := range []struct {
+		lines []string
+		want  string
+	}{
+		{[]string{"GROUP a", "group a", "GROUP b"}, "a b"},
+		{[]string{"GROUP a", "OVER 1-1", "GROUP a"}, "a a"},
+		{[]string{"GROUP a", "MODE READER", "GROUP a", "GROUP b"}, "a a b"},
+	} {
+		if got := strings.Join(groupsWithoutAdjacentRepeats(tc.lines), " "); got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.lines, got, tc.want)
+		}
+	}
+}
+
+func logicalPrefetches(log []byte, groups []string) []string {
+	var logical []string
+	for _, line := range strings.Split(string(log), "\n") {
+		for _, group := range groups {
+			if strings.HasSuffix(line, "prefetching "+group) {
+				logical = append(logical, group)
+			}
+		}
+	}
+	return logical
+}
+
+func prefetchFailed(log []byte, groups []string) bool {
+	for _, group := range groups {
+		if strings.Contains(string(log), "prefetching "+group+" failed") {
+			return true
+		}
+	}
+	return false
 }
 
 // spooledIn returns the article files in a directory of the spool
@@ -355,10 +453,9 @@ func TestUpdatenewsSpoolError(t *testing.T) {
 	}
 }
 
-// TestUpdatenewsSigpipe: SIGPIPE doesn't end the prefetch. updatenews took
-// it as a termination signal (newscache already ignores it), so a
-// write to an upstream connection the server had closed ended the run after
-// the current group, with exit status 0. Here the signal is sent directly.
+// TestUpdatenewsSigpipe: a directly delivered SIGPIPE does not end the
+// prefetch. This tests the signal disposition; it does not simulate an EPIPE
+// from a socket write. A former handler stopped after the current group.
 func TestUpdatenewsSigpipe(t *testing.T) {
 	e := newEnv(t)
 	groups := []string{"test.a", "test.b", "test.c", "test.d"}
@@ -376,7 +473,9 @@ func TestUpdatenewsSigpipe(t *testing.T) {
 	e.Extra = "PrefetchFile " + prefetch
 	e.writeConf()
 
-	cmd := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-o")
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
@@ -386,14 +485,126 @@ func TestUpdatenewsSigpipe(t *testing.T) {
 	for len(prefetched(e)) == 0 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
+	if len(prefetched(e)) == 0 {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		dumpUpdatenewsFailure(t, e, out.String())
+		t.Fatal("updatenews never began prefetching a group")
+	}
 	if err := cmd.Process.Signal(syscall.SIGPIPE); err != nil {
+		_ = cmd.Wait()
+		dumpUpdatenewsFailure(t, e, out.String())
 		t.Fatal(err)
 	}
 	if err := cmd.Wait(); err != nil {
+		dumpUpdatenewsFailure(t, e, out.String())
 		t.Fatalf("updatenews -o: %v\n%s", err, out.String())
 	}
-	if got := prefetched(e); strings.Join(got, " ") != strings.Join(groups, " ") {
-		t.Errorf("prefetched groups after SIGPIPE:\n  got  %q\n  want %q", got, groups)
+	wire := groupsWithoutAdjacentRepeats(e.Upstream.Lines())
+	bad, scanErr := badSpoolFiles(e.Spool)
+	log, logErr := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+	fileLog := true
+	if os.IsNotExist(logErr) {
+		options, err := exec.Command(e.Bin, "-c", e.Conf, "-o").Output()
+		if err != nil {
+			t.Fatalf("newscache -o: %v", err)
+		}
+		fileLog = !strings.Contains(string(options), "--with-syslog")
+		if !fileLog {
+			t.Log("syslog build: file-log prefetch assertions unavailable")
+		}
+	}
+	logical := logicalPrefetches(log, groups)
+	if strings.Join(wire, " ") != strings.Join(groups, " ") || scanErr != nil || len(bad) != 0 ||
+		(fileLog && (logErr != nil || strings.Join(logical, " ") != strings.Join(groups, " ") ||
+			strings.Contains(strings.ToLower(string(log)), "corrupt database") || prefetchFailed(log, groups))) {
+		dumpUpdatenewsFailure(t, e, out.String())
+		t.Errorf("SIGPIPE: wire=%q logical=%q bad=%v scan=%v log=%v; want %q in order, no corruption",
+			wire, logical, bad, scanErr, logErr, groups)
+	}
+}
+
+// TestUpdatenewsReconnect closes the first upstream connection after the
+// first GROUP reply. The next connection uses the ordinary store handler.
+// Unlike TestUpdatenewsSigpipe, this tests recovery from a real disconnect;
+// a graceful close does not guarantee that a write returns EPIPE.
+func TestUpdatenewsReconnect(t *testing.T) {
+	e := newEnv(t)
+	groups := []string{"test.a", "test.b", "test.c", "test.d"}
+	for _, g := range groups {
+		e.Store.AddGroup(g, g)
+		e.Store.AddArticle(g, groupArticle(g, 1, []string{"body of " + g}))
+	}
+	storeHandler := fakeserver.StoreHandler(e.Store, fakeserver.StoreOptions{})
+	upstreamWith(t, e, fakeserver.Options{Handler: func(c *fakeserver.Conn) {
+		if c.ID() != 1 {
+			storeHandler(c)
+			return
+		}
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				return
+			}
+			switch strings.ToUpper(fields[0]) {
+			case "MODE":
+				err = c.WriteLines("200 reader")
+			case "CAPABILITIES":
+				err = c.WriteLines("101 capabilities", "VERSION 2", "READER", ".")
+			case "LIST":
+				if len(fields) > 1 && strings.EqualFold(fields[1], "OVERVIEW.FMT") {
+					err = c.WriteLines("215 overview follows", "Subject:", "From:", "Date:",
+						"Message-ID:", "References:", ":bytes", ":lines", ".")
+				} else {
+					err = c.WriteLines("215 active follows", "test.a 1 1 y", "test.b 1 1 y",
+						"test.c 1 1 y", "test.d 1 1 y", ".")
+				}
+			case "GROUP":
+				if len(fields) == 2 {
+					_ = c.WriteLines("211 1 1 1 " + fields[1])
+				}
+				return // close once; the next connection uses the store
+			default:
+				err = c.WriteLines("500 unknown")
+			}
+			if err != nil {
+				return
+			}
+		}
+	}})
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(strings.Join(groups, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	requireFileLog(e) // logical prefetches are recorded in updatenews' log
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput()
+	if err != nil {
+		dumpUpdatenewsFailure(t, e, string(out))
+		t.Fatalf("updatenews -o: %v", err)
+	}
+	log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := logicalPrefetches(log, groups)
+	// Reconnecting reselects test.a, so it appears twice on the wire even
+	// though the application starts the logical prefetch only once.
+	wantWire := []string{"test.a", "test.a", "test.b", "test.c", "test.d"}
+	wire := groupsWithoutAdjacentRepeats(e.Upstream.Lines())
+	bad, scanErr := badSpoolFiles(e.Spool)
+	if e.Upstream.Accepted() != 2 || strings.Join(logical, " ") != strings.Join(groups, " ") ||
+		strings.Join(wire, " ") != strings.Join(wantWire, " ") || scanErr != nil || len(bad) != 0 ||
+		strings.Contains(strings.ToLower(string(log)), "corrupt database") || prefetchFailed(log, groups) {
+		dumpUpdatenewsFailure(t, e, string(out))
+		t.Errorf("connections=%d logical=%q wire=%q bad=%v scan=%v; want 2, %q, %q, no bad files or corruption",
+			e.Upstream.Accepted(), logical, wire, bad, scanErr, groups, wantWire)
 	}
 }
 
