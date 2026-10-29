@@ -239,3 +239,39 @@ func TestPostHeaderLog(t *testing.T) {
 		t.Errorf(".headerlog should hold the header only:\n%s", b)
 	}
 }
+
+// TestPostHeaderLogOpenFailure: failure to open .headerlog must be reported,
+// without changing the successful NNTP result after the upstream accepted the
+// article. The CI header-log build uses a file logger so the error is visible.
+func TestPostHeaderLogOpenFailure(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-o").Output()
+	if err != nil {
+		t.Fatalf("newscache -o: %v", err)
+	}
+	if !strings.Contains(string(out), "--enable-headerlog") {
+		t.Skip("binary built without --enable-headerlog")
+	}
+	headerLog := filepath.Join(e.Spool, ".headerlog")
+	if err := os.Mkdir(headerLog, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
+		"Subject: header log\r\nMessage-ID: <headerlog-fail@newscache.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("posting: %q %v", line, err)
+	}
+	c.Cmd("QUIT")
+	if log := e.logFile(); !strings.Contains(log, "cannot open "+headerLog+" for header logging") {
+		t.Errorf("failed header-log open was not reported:\n%s", log)
+	}
+}
