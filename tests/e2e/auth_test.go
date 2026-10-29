@@ -719,17 +719,9 @@ const unixUser = "nc-e2e-unix-tester"
 
 // unixSession starts an inetd session for e in which "Authentication unix"
 // can log in as unixUser: newscache runs in a user and mount namespace
-// with an /etc/passwd of the test's own bind-mounted over the system's
-// (skipped where the system doesn't allow one). It runs as root of the
-// namespace, so Username and Groupname are left out.
+// with an /etc/passwd of the test's own bind-mounted over the system's.
 func unixSession(t *testing.T, e *env) *client.Conn {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("needs Linux namespaces")
-	}
-	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
-		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
-	}
 	b, err := os.ReadFile("/etc/passwd")
 	if err != nil {
 		t.Fatal(err)
@@ -738,6 +730,22 @@ func unixSession(t *testing.T, e *env) *client.Conn {
 	passwd := filepath.Join(e.Dir, "passwd")
 	if err := os.WriteFile(passwd, b, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	return namespaceSession(t, e, map[string]string{passwd: "/etc/passwd"})
+}
+
+// namespaceSession starts an inetd session for e in a user and mount
+// namespace with the given files or directories (source -> target)
+// bind-mounted over the system's (skipped where the system doesn't allow
+// one). It runs as root of the namespace, so Username and Groupname are
+// left out.
+func namespaceSession(t *testing.T, e *env, binds map[string]string) *client.Conn {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux namespaces")
+	}
+	if err := exec.Command("unshare", "-rm", "true").Run(); err != nil {
+		t.Skipf("no user and mount namespace here (unshare -rm: %v)", err)
 	}
 	e.writeConf()
 	conf, err := os.ReadFile(e.Conf)
@@ -754,10 +762,14 @@ func unixSession(t *testing.T, e *env) *client.Conn {
 		t.Fatal(err)
 	}
 	o := e.procOpts("-i")
-	o.Env = append(o.Env, "PASSWD="+passwd)
-	o.Args = append([]string{"-rm", "/bin/sh", "-c",
-		`mount --bind "$PASSWD" /etc/passwd || exit 99
-exec "$@"`, "nc", o.Path}, o.Args...)
+	script := ""
+	n := 0
+	for src, dst := range binds {
+		n++
+		o.Env = append(o.Env, fmt.Sprintf("BIND_SRC%d=%s", n, src), fmt.Sprintf("BIND_DST%d=%s", n, dst))
+		script += fmt.Sprintf("mount --bind \"$BIND_SRC%d\" \"$BIND_DST%d\" || exit 99\n", n, n)
+	}
+	o.Args = append([]string{"-rm", "/bin/sh", "-c", script + `exec "$@"`, "nc", o.Path}, o.Args...)
 	o.Path = "unshare"
 	p := proc.StartStdio(t, o)
 	c := client.New(t, p.Conn())
@@ -802,7 +814,9 @@ func pamService(t *testing.T, bin, module string) string {
 // checks as pamService (Linux, a PAM build, module present). It needs write
 // access to /etc/pam.d: root, or (better, newscache never runs as root) a
 // test user given it, e.g. setfacl -m u:newscache:rwx /etc/pam.d.
-func pamServiceText(t *testing.T, bin, module, text string) string {
+// requirePamModule skips unless this is Linux, the binary is linked with
+// PAM and the PAM module is installed.
+func requirePamModule(t *testing.T, bin, module string) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs Linux-PAM")
@@ -831,6 +845,11 @@ func pamServiceText(t *testing.T, bin, module, text string) string {
 	if !found {
 		t.Skip(module + ".so not found")
 	}
+}
+
+func pamServiceText(t *testing.T, bin, module, text string) string {
+	t.Helper()
+	requirePamModule(t, bin, module)
 	name := "newscache-e2e-" + filepath.Base(t.TempDir())
 	path := filepath.Join("/etc/pam.d", name)
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
@@ -888,6 +907,67 @@ func TestPamRhost(t *testing.T) {
 				t.Errorf("AUTHINFO PASS with rhost rule %s: %q, want %d", tc.rhost, line, tc.want)
 			}
 		})
+	}
+}
+
+// TestPamRhostInetd: in inetd mode (and when getpeername fails) there is no
+// client address, but ClientData::client_addr was never initialised, so
+// check_pam_user_pass passed whatever the stack held as PAM_RHOST. PAM must
+// see no remote host. pam_exec records the PAM_RHOST it is given. (On the
+// unfixed code this fails only when the stack is not zero there, certainly
+// with -ftrivial-auto-var-init=pattern.)
+func TestPamRhostInetd(t *testing.T) {
+	e := newEnv(t)
+	out := filepath.Join(e.Dir, "rhost.out")
+	script := filepath.Join(e.Dir, "rhost.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"${PAM_RHOST-unset}\" > "+out+"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	requirePamModule(t, e.Bin, "pam_exec")
+	requirePamModule(t, e.Bin, "pam_permit")
+	// The service lives in a pam.d of the test's own, bind-mounted over
+	// /etc/pam.d in a namespace, so that no write access to /etc/pam.d
+	// is needed.
+	const service = "nc-e2e-rhost"
+	pamd := filepath.Join(e.Dir, "pam.d")
+	if err := os.Mkdir(pamd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	text := "auth required pam_exec.so quiet " + script + "\naccount required pam_permit.so\n"
+	if err := os.WriteFile(filepath.Join(pamd, service), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "AuthFailureDelay 0"
+	e.AccessList = `AccessList {
+  Client stdin {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    PAMServicename ` + service + `
+    Authentication pam
+  }
+  Default {
+    allow none
+  }
+}`
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := namespaceSession(t, e, map[string]string{pamd: "/etc/pam.d"})
+	if code, line := c.Cmd("AUTHINFO USER %s", u.Username); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS anything"); code != 281 {
+		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("pam_exec did not run: %v", err)
+	}
+	if got := string(b); got != "unset" && got != "" {
+		t.Errorf("PAM_RHOST in inetd mode = %q, want none", got)
 	}
 }
 
