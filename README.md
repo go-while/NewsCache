@@ -151,7 +151,7 @@ Useful `configure` options:
 
 | Option | Meaning |
 |---|---|
-| `--with-gnutls` | TLS to upstream servers and for clients (default: yes, if found) |
+| `--with-gnutls` | Require GnuTLS for TLS to upstream servers and clients (default: use it if found, otherwise warn) |
 | `--with-pam[=service]` | PAM authentication (default: no; service name `newscache`) |
 | `--with-md5`, `--with-md5auto` | MD5 password hashes for `authinfo` (default: yes). `--without-md5auto` checks every stored hash as MD5, so crypt() hashes in an auth file stop working |
 | `--with-shadow` | shadow passwords (default: auto) |
