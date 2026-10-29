@@ -3613,12 +3613,14 @@ void nnrpd(int fd, bool tls)
  * wildcard address of ListenTo DEFAULT), the socket accepts IPv4
  * connections too, as IPv4-mapped addresses.
  */
-static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
+static int bind_listen_socket(const struct addrinfo *addr, bool dualstack,
+			      int *bind_error)
 {
 	int sock = socket(addr->ai_family, SOCK_STREAM, 0);
 	if (sock < 0) {
+		*bind_error = errno;
 		slog.p(dualstack ? Logger::Notice : Logger::Error)
-		    << "socket failed: " << strerror(errno) << "\n";
+		    << "socket failed: " << strerror(*bind_error) << "\n";
 		return -1;
 	}
 
@@ -3640,8 +3642,9 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 		int zero = 0;
 		if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY,
 			       (char *) &zero, sizeof(zero)) < 0) {
+			*bind_error = errno;
 			slog.p(Logger::Notice) << "IPv6 socket can't accept "
-			    "IPv4 connections: " << strerror(errno) << "\n";
+			    "IPv4 connections: " << strerror(*bind_error) << "\n";
 			close(sock);
 			return -1;
 		}
@@ -3649,8 +3652,9 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack)
 	}
 
 	if (bind(sock, addr->ai_addr, addr->ai_addrlen) < 0) {
+		*bind_error = errno;
 		slog.p(dualstack ? Logger::Notice : Logger::Error)
-		    << "can't bind socket: " << strerror(errno) << "\n";
+		    << "can't bind socket: " << strerror(*bind_error) << "\n";
 		close(sock);
 		return -1;
 	}
@@ -3821,24 +3825,25 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 	 * clients; without IPv6, it falls back to the IPv4 address. Other
 	 * addresses are tried in the order getaddrinfo returns them. */
 	int sock = -1;
+	int bind_error = 0;
 	struct addrinfo *addr;
 	if (nodename == NULL) {
 		for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
 			if (addr->ai_family == AF_INET6)
-				sock = bind_listen_socket(addr, true);
+				sock = bind_listen_socket(addr, true, &bind_error);
 		}
 	}
 	for (addr = res; (sock < 0) && (addr != NULL); addr = addr->ai_next) {
 		if ((nodename == NULL) && (addr->ai_family == AF_INET6))
 			continue;
-		sock = bind_listen_socket(addr, false);
+		sock = bind_listen_socket(addr, false, &bind_error);
 	}
 	freeaddrinfo(res);
 	if (sock < 0) {
 		slog.p(Logger::Error) << cmnd << ": can't listen on "
-		    << keyword << " " << spec << "\n";
+		    << keyword << " " << spec << ": " << strerror(bind_error) << "\n";
 		cerr << cmnd << ": can't listen on " << keyword << " " << spec
-		    << "\n";
+		    << ": " << strerror(bind_error) << "\n";
 		exit(1);
 	}
 
