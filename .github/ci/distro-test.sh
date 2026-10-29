@@ -4,8 +4,8 @@
 # the Go end-to-end tests as the unprivileged user newscache (never as root).
 #
 # Usage, as root in the container: distro-test.sh <dir>
-#   <dir> holds NewsCache-*.tar.gz and e2e.test (the e2e suite compiled with
-#   CGO_ENABLED=0, so the container needs no Go). It may be read-only.
+#   <dir> holds NewsCache-*.tar.gz, e2e.test (compiled with CGO_ENABLED=0),
+#   and e2e-skip-summary.sh. The container needs no Go; <dir> may be read-only.
 # Installs only what building needs; no autotools, no Go.
 set -eu
 in=$1
@@ -55,14 +55,21 @@ cp "$in"/e2e.test /build/e2e.test
 chmod 755 /build/e2e.test
 
 # make check: the unit tests (the e2e part skips itself without Go)
-if ! su newscache -s /bin/sh -c 'make check' > check.log 2>&1; then
-	grep -a '^FAIL\|^ERROR' check.log
-	find . -name test-suite.log | xargs tail -n 60
-	exit 1
+status=0
+su newscache -s /bin/sh -c 'make check' > check.log 2>&1 || status=$?
+sh "$in/e2e-skip-summary.sh" tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+if [ "$status" -ne 0 ]; then
+	grep -a '^FAIL\|^ERROR' check.log || true
+	find . -name test-suite.log | xargs tail -n 60 || true
+	exit "$status"
 fi
 grep -a -h '^# \(PASS\|FAIL\|SKIP\|ERROR\)' check.log | tr -s ' ' | tr '\n' ' '
 echo
 
 cd tests/e2e
+status=0
 su newscache -s /bin/sh -c "NEWSCACHE_BIN=$src/src/newscache NNTP_TEST_DEADLINE=30s \
-	/build/e2e.test -test.count=1 -test.timeout=1200s"
+	/build/e2e.test -test.v -test.count=1 -test.timeout=1200s" > "$src/e2e-matrix.log" 2>&1 || status=$?
+sh "$in/e2e-skip-summary.sh" "$src/e2e-matrix.log" || echo 'e2e skips: summary failed'
+if [ "$status" -ne 0 ]; then cat "$src/e2e-matrix.log"; fi
+exit "$status"

@@ -65,6 +65,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check e2e skip summary
+        if: matrix.name == 'default'
+        run: sh .github/ci/test-e2e-skip-summary.sh
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -99,6 +103,15 @@ jobs:
       - name: make check
         run: make check
 
+      - name: Summarize e2e skips
+        if: always()
+        run: |
+          if [ -f .github/ci/e2e-skip-summary.sh ]; then
+            sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+          else
+            echo 'e2e skips: summary script missing'
+          fi
+
       - name: Check that the e2e tests ran
         # run.sh exits 77 (skipped) without Go; in CI that must fail.
         run: |
@@ -107,7 +120,12 @@ jobs:
       - name: e2e tests with the race detector
         if: matrix.name == 'default'
         working-directory: tests/e2e
-        run: NEWSCACHE_BIN="$GITHUB_WORKSPACE/src/newscache" go test -race -count=1 ./...
+        run: |
+          status=0
+          NEWSCACHE_BIN="$GITHUB_WORKSPACE/src/newscache" go test -race -v -count=1 ./... > "$RUNNER_TEMP/e2e-race.log" 2>&1 || status=$?
+          sh ../../.github/ci/e2e-skip-summary.sh "$RUNNER_TEMP/e2e-race.log" || echo 'e2e skips: summary failed'
+          if [ "$status" -ne 0 ]; then cat "$RUNNER_TEMP/e2e-race.log"; fi
+          exit "$status"
 
       - name: make distcheck
         if: matrix.distcheck
@@ -161,6 +179,15 @@ jobs:
           chown -R newscache .
           setfacl -m u:newscache:rwx /etc/pam.d
           runuser -u newscache -- make check
+
+      - name: Summarize e2e skips
+        if: always()
+        run: |
+          if [ -f .github/ci/e2e-skip-summary.sh ]; then
+            sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+          else
+            echo 'e2e skips: summary script missing'
+          fi
 
       - name: Check that the e2e tests ran
         run: |
@@ -227,7 +254,10 @@ jobs:
             useradd -m newscache 2>/dev/null || adduser -D newscache
             chown -R newscache /build
             chgrp newscache /etc/pam.d && chmod g+w /etc/pam.d
-            su newscache -s /bin/sh -c 'make check' || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            status=0
+            su newscache -s /bin/sh -c 'make check' || status=\$?
+            sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+            if [ \"\$status\" -ne 0 ]; then find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit \"\$status\"; fi
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
           "
 
@@ -254,7 +284,10 @@ jobs:
             # the tests (and the newscache they start) not as root
             pw useradd newscache -m
             chown -R newscache .
-            su -m newscache -c 'HOME=/home/newscache gmake check' || { find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60; exit 1; }
+            status=0
+            su -m newscache -c 'HOME=/home/newscache gmake check' || status=$?
+            sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+            if [ "$status" -ne 0 ]; then find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit "$status"; fi
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
 
   container:
@@ -387,6 +420,15 @@ jobs:
 
       - name: make check
         run: make check
+
+      - name: Summarize e2e skips
+        if: always()
+        run: |
+          if [ -f .github/ci/e2e-skip-summary.sh ]; then
+            sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
+          else
+            echo 'e2e skips: summary script missing'
+          fi
 
       - name: Check that the e2e tests ran
         run: |
