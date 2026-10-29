@@ -131,49 +131,86 @@ func TestAuthFileShortLine(t *testing.T) {
 	c.ReadDotLines()
 }
 
-// TestAuthFileSecurityWarnings: permissions and symlinks on an auth file
-// produce one warning per path per config read, but never change login outcomes.
+// TestAuthFileSecurityWarnings: a group- or world-writable auth file gives
+// one warning per configured path per config read, also through a symbolic
+// link (then about the target, under the configured path), and a path that
+// can't be inspected gives one too. The warnings never change login outcomes.
 func TestAuthFileSecurityWarnings(t *testing.T) {
+	// symlinked moves the file to path+".target", links path to it and
+	// sets the target's mode.
+	symlinked := func(mode os.FileMode) func(*testing.T, *env, string) {
+		return func(t *testing.T, e *env, path string) {
+			target := path + ".target"
+			if err := os.Rename(path, target); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(target, mode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Skipf("can't create symlink: %v", err)
+			}
+		}
+	}
+	chmod := func(mode os.FileMode) func(*testing.T, *env, string) {
+		return func(t *testing.T, e *env, path string) {
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	tests := []struct {
 		name   string
-		reason string
-		setup  func(*testing.T, string)
+		reason string // "" for no warning
+		setup  func(*testing.T, *env, string)
+		login  bool // whether the login works
 	}{
-		{name: "private"},
+		{name: "private", login: true},
+		{name: "group-writable", reason: " is group-writable", setup: chmod(0o660), login: true},
+		{name: "world-writable", reason: " is world-writable", setup: chmod(0o602), login: true},
+		{name: "group-and-world-writable", reason: " is group- and world-writable", setup: chmod(0o666), login: true},
+		{name: "readable by all is fine", setup: chmod(0o644), login: true},
+		{name: "symlink to a private file", setup: symlinked(0o600), login: true},
+		{name: "symlink to a group-writable file", reason: ": target is group-writable", setup: symlinked(0o660), login: true},
+		{name: "symlink to a world-writable file", reason: ": target is world-writable", setup: symlinked(0o602), login: true},
+		{name: "symlink to a group- and world-writable file", reason: ": target is group- and world-writable", setup: symlinked(0o666), login: true},
 		{
-			name:   "group-and-world-writable",
-			reason: "writable by group and world",
-			setup: func(t *testing.T, path string) {
-				if err := os.Chmod(path, 0o666); err != nil {
+			name:   "dangling symlink",
+			reason: ": cannot inspect target: ",
+			setup: func(t *testing.T, e *env, path string) {
+				if err := os.Remove(path); err != nil {
 					t.Fatal(err)
+				}
+				if err := os.Symlink(path+".gone", path); err != nil {
+					t.Skipf("can't create symlink: %v", err)
 				}
 			},
 		},
 		{
-			name:   "symlink",
-			reason: "symbolic link",
-			setup: func(t *testing.T, path string) {
-				target := path + ".target"
-				if err := os.Rename(path, target); err != nil {
+			name:   "two entries name the same path",
+			reason: " is group-writable",
+			setup: func(t *testing.T, e *env, path string) {
+				if err := os.Chmod(path, 0o660); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink(target, path); err != nil {
-					t.Skipf("can't create symlink: %v", err)
-				}
+				// a second entry with the same file
+				e.AccessList = strings.Replace(e.AccessList, "  Default {",
+					"  Client 127.0.0.2 {\n    allow none\n    Authentication file:"+path+"\n  }\n  Default {", 1)
 			},
+			login: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 			authFile := filepath.Join(e.Dir, "newscache.auth")
-			if tc.setup != nil {
-				tc.setup(t, authFile)
-			}
 			e.AccessList = strings.Replace(e.AccessList, "Client stdin {",
 				"Client 127.0.0.0/8 {", 1)
+			if tc.setup != nil {
+				tc.setup(t, e, authFile)
+			}
 			p := e.standalone()
-			for n := 1; n <= 2; n++ {
+			for n := 1; tc.login && n <= 2; n++ {
 				c := e.dial()
 				if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
 					t.Fatalf("connection %d AUTHINFO USER: %q, want 381", n, line)
@@ -194,26 +231,41 @@ func TestAuthFileSecurityWarnings(t *testing.T) {
 			}
 			if tc.reason == "" {
 				if len(lines) != 0 {
-					t.Errorf("private auth file produced a warning:\n%s", strings.Join(lines, "\n"))
+					t.Errorf("no warning expected, got:\n%s", strings.Join(lines, "\n"))
 				}
 				return
 			}
 			if len(lines) != 1 {
 				t.Fatalf("got %d warning lines for %s, want one:\n%s", len(lines), authFile, strings.Join(lines, "\n"))
 			}
-			if !strings.Contains(lines[0], tc.reason) {
-				t.Errorf("warning lacks reason %q:\n%s", tc.reason, lines[0])
+			if !strings.Contains(lines[0], prefix+tc.reason) {
+				t.Errorf("warning is not %q:\n%s", prefix+tc.reason, lines[0])
 			}
 		})
 	}
 }
 
 func TestAuthFileSecurityWarningsOnReload(t *testing.T) {
+	t.Run("file", func(t *testing.T) { authFileWarningsOnReload(t, false) })
+	t.Run("symlink", func(t *testing.T) { authFileWarningsOnReload(t, true) })
+}
+
+// authFileWarningsOnReload: a writable auth file (or the target of a link
+// to one) is warned about at startup and again after a SIGHUP reload.
+func authFileWarningsOnReload(t *testing.T, symlink bool) {
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	requireFileLog(e)
 	authFile := filepath.Join(e.Dir, "newscache.auth")
 	if err := os.Chmod(authFile, 0o666); err != nil {
 		t.Fatal(err)
+	}
+	if symlink {
+		if err := os.Rename(authFile, authFile+".target"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(authFile+".target", authFile); err != nil {
+			t.Skipf("can't create symlink: %v", err)
+		}
 	}
 	e.AccessList = strings.Replace(e.AccessList, "Client stdin {",
 		"Client 127.0.0.0/8 {", 1)

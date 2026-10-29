@@ -637,6 +637,11 @@ int pam_conv_func(int num_msg, const struct pam_message **msg, struct pam_respon
 // Run in the server parent at startup and after a successful reload, not in
 // seekfile(): the parent forks one child per connection, so child-local state
 // would warn once per login rather than once per configured path.
+//
+// A point-in-time hint for the administrator, not a security check: it looks
+// at the mode of the file itself (of the target, for a symbolic link, which
+// is a normal way to install such a file) and says nothing about the owner,
+// ACLs or the directories above it, and the file can change afterwards.
 static void warn_unsafe_auth_files(const AccessList &access_list)
 {
 	set<string> checked;
@@ -647,29 +652,30 @@ static void warn_unsafe_auth_files(const AccessList &access_list)
 		if (type != "file" && type != "pam+file")
 			continue;
 		const string &filename = i->authentication.getField(1);
-		if (filename.empty() || checked.find(filename) != checked.end())
+		// by the configured path, before looking at the file: one
+		// warning per path however many entries name it
+		if (filename.empty() || !checked.insert(filename).second)
 			continue;
-		struct stat st;
-		if (lstat(filename.c_str(), &st) != 0)
+		struct stat lst, st;
+		bool is_link = lstat(filename.c_str(), &lst) == 0
+		    && S_ISLNK(lst.st_mode);
+		if (stat(filename.c_str(), &st) != 0) {
+			// including a dangling symbolic link
+			slog.p(Logger::Warning) << "authentication file "
+				<< filename << ": cannot inspect "
+				<< (is_link ? "target: " : "") << strerror(errno) << "\n";
 			continue;
-		checked.insert(filename);
-
-		string reason;
-		if (S_ISLNK(st.st_mode))
-			reason = "is a symbolic link";
-		else {
-			bool group_writable = (st.st_mode & S_IWGRP) != 0;
-			bool world_writable = (st.st_mode & S_IWOTH) != 0;
-			if (group_writable && world_writable)
-				reason = "is writable by group and world";
-			else if (group_writable)
-				reason = "is group-writable";
-			else if (world_writable)
-				reason = "is world-writable";
 		}
-		if (!reason.empty())
-			slog.p(Logger::Warning) << "authentication file " << filename << " "
-				<< reason << "\n";
+
+		bool group_writable = (st.st_mode & S_IWGRP) != 0;
+		bool world_writable = (st.st_mode & S_IWOTH) != 0;
+		if (!group_writable && !world_writable)
+			continue;
+		string what = group_writable && world_writable
+		    ? "group- and world-writable"
+		    : group_writable ? "group-writable" : "world-writable";
+		slog.p(Logger::Warning) << "authentication file " << filename
+			<< (is_link ? ": target is " : " is ") << what << "\n";
 	}
 }
 
