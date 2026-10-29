@@ -6,15 +6,24 @@ AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/NServer-0.9.1 -I@top_s
 LDADD = ../NServer-0.9.1/libnserver.a ../NVClasses-0.9.1/libnvcontainer.a ../md5lib/libmd5.a @LDADD@
 
 ## Programs
-check_PROGRAMS= cConfig
+check_PROGRAMS= cConfig cConfigHostname
 bin_PROGRAMS  = updatenews
 sbin_PROGRAMS = newscache newscacheclean
 
-TESTS=cConfig
+TESTS=cConfig cConfigHostname
 
 cConfig_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	cConfig.cc\
+	NewsCacheConfig.cc\
+	NewsCacheConfig.h
+
+## getfqdn() is renamed in this program's objects, so that the test can
+## count the calls with its own definition
+cConfigHostname_CPPFLAGS = $(AM_CPPFLAGS) -Dgetfqdn=nc_test_getfqdn
+cConfigHostname_SOURCES = 	AccessList.cc\
+	AccessList.h\
+	cConfigHostname.cc\
 	NewsCacheConfig.cc\
 	NewsCacheConfig.h
 
