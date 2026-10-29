@@ -274,6 +274,45 @@ func TestPrefetchLiteral(t *testing.T) {
 	}
 }
 
+// A recently refreshed empty group needs no upstream GROUP during prefetch.
+// With the old override of zero it was refreshed again after one second,
+// even though the active-list entry was still fresh for the new 60s policy.
+func TestUpdatenewsGroupTimeout(t *testing.T) {
+	for _, mode := range []string{"-o", "-g"} {
+		t.Run(mode, func(t *testing.T) {
+			e := newEnv(t)
+			const group = "test.empty"
+			e.Store.AddGroup(group, "empty group")
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+			bin := updatenewsBin(t, e)
+			if out, err := exec.Command(bin, "-c", e.Conf, "-a").CombinedOutput(); err != nil {
+				t.Fatalf("refresh active: %v\n%s", err, out)
+			}
+			// GroupInfo stores seconds, so crossing a boundary makes a zero
+			// timeout stale while remaining safely inside 60 seconds.
+			time.Sleep(1200 * time.Millisecond)
+			before := len(e.Upstream.Lines())
+			out, err := exec.Command(bin, "-c", e.Conf, mode).CombinedOutput()
+			if err != nil {
+				t.Fatalf("updatenews %s: %v\n%s", mode, err, out)
+			}
+			if _, err := os.Stat(filepath.Join(e.Spool, "test", "empty", ".db")); err != nil {
+				t.Fatalf("prefetch did not open the group's database: %v\n%s", err, out)
+			}
+			for _, line := range e.Upstream.Lines()[before:] {
+				if fields := strings.Fields(line); len(fields) > 0 && strings.EqualFold(fields[0], "GROUP") {
+					t.Errorf("updatenews %s refreshed a group younger than 60 seconds: %q", mode, line)
+				}
+			}
+		})
+	}
+}
+
 // TestPostSpooledNoMessageID: an article posted while the server is
 // offline is spooled, and updatenews posts it later. With dontgenmsgid it
 // has no Message-ID. When the upstream refused it, postspooled logged its

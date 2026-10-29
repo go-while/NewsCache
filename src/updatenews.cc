@@ -449,8 +449,9 @@ int main(int argc, char **argv)
 		// Switch off offline mode
 		Cfg.srvrs.entries[i].flags &=
 		    ~(MPListEntry::F_OFFLINE | MPListEntry::F_SEMIOFFLINE);
-		// Set timeout to 0
-		Cfg.srvrs.entries[i].groupTimeout = 0;
+		// Avoid a second GROUP during the same prefetch while keeping
+		// the group's cached numbers at most 60 seconds old.
+		Cfg.srvrs.entries[i].groupTimeout = 60;
 	}
 
 	// signal; without the alarm indicator ConnectTimeout never applied
