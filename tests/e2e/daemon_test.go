@@ -236,6 +236,34 @@ func TestListenDefaultIPv6(t *testing.T) {
 	}
 }
 
+// TestIdleDaemonSIGTERM repeatedly stops the daemon without another client
+// arriving to wake it. A signal in the gap before poll used to leave it
+// asleep until a connection arrived. The small race is timing-dependent,
+// so multiple independent starts exercise the transition into poll.
+func TestIdleDaemonSIGTERM(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			e := newEnv(t)
+			p := e.standalone()
+			if err := p.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- p.Wait() }()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("daemon exit after SIGTERM: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				p.Signal(syscall.SIGKILL)
+				<-done
+				t.Error("idle daemon did not exit after SIGTERM")
+			}
+		})
+	}
+}
+
 // TestPidFile: the daemon writes its pid to PidFile and removes the file
 // when it stops on SIGTERM; the file stayed behind with the old pid. A
 // session process ending must not remove it.
