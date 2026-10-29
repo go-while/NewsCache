@@ -104,6 +104,30 @@ func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
 			}
 		})
 	}
+
+	// Shell syntax in --prefix must stay literal: the expansion used to
+	// eval the value, so a second round ran the $(...) in it.
+	t.Run("literal-prefix", func(t *testing.T) {
+		build := t.TempDir()
+		marker := filepath.Join(build, "expanded")
+		literal := build + "/$(touch " + marker + ")"
+		cmd := exec.Command(configure, "--prefix="+literal)
+		cmd.Dir = build
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("configure: %v\n%s", err, out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatal("configure ran a command substitution from --prefix")
+		}
+		config, err := os.ReadFile(filepath.Join(build, "config.h"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `#define SYSCONFDIR "` + literal + `/etc"`
+		if !strings.Contains(string(config), want) {
+			t.Errorf("config.h does not keep the literal prefix; want %q in:\n%s", want, config)
+		}
+	})
 }
 
 // TestConfigOpenError: failure to open a configuration file used to be
