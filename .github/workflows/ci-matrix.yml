@@ -1,0 +1,145 @@
+# Wider build and test matrix, all optional checks (the required ones are in
+# ci.yml). The release tarball is built once (make dist) and the Go e2e suite
+# compiled once with CGO_ENABLED=0; the distribution containers and the illumos
+# VM build from the tarball, as a packager would, and run that test binary as
+# an unprivileged user, so they need neither autotools nor Go:
+#   - containers: AlmaLinux 10, Rocky Linux 9 (EPEL 10/9), openSUSE Leap 15.6
+#     and 16.0, Arch (rolling), Ubuntu 22.04 (oldest GnuTLS, 3.7) and 26.04;
+#   - illumos (OmniOS), best effort: allowed to fail.
+# Debian 13, Alpine, Fedora and FreeBSD are covered by ci.yml.
+
+name: CI matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-matrix-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dist:
+    name: tarball and e2e binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tests/e2e/go.mod
+          cache-dependency-path: tests/e2e/go.sum
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev
+
+      - name: make dist
+        run: |
+          ./autogen
+          ./configure
+          make dist
+          mkdir out
+          mv NewsCache-*.tar.gz out/
+
+      - name: Compile the e2e suite (linux, illumos; amd64; CGO off)
+        working-directory: tests/e2e
+        run: |
+          for os in linux illumos; do
+            CGO_ENABLED=0 GOOS="$os" GOARCH=amd64 go test -c -o "../../out/e2e.test.$os" .
+          done
+          ls -l ../../out
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  containers:
+    name: container (${{ matrix.name }})
+    needs: dist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: almalinux-10, image: "docker.io/library/almalinux:10" }
+          - { name: rockylinux-9, image: "docker.io/rockylinux/rockylinux:9" }
+          - { name: opensuse-leap-15.6, image: "docker.io/opensuse/leap:15.6" }
+          - { name: opensuse-leap-16.0, image: "docker.io/opensuse/leap:16.0" }
+          - { name: archlinux-rolling, image: "docker.io/library/archlinux:latest" }
+          - { name: ubuntu-22.04, image: "docker.io/library/ubuntu:22.04" }
+          - { name: ubuntu-26.04, image: "docker.io/library/ubuntu:26.04" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: Build and test in ${{ matrix.image }}
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          # Only the tarball, the test binary and the script go into the
+          # container, read-only: no checkout, no .git, no token.
+          cp dist/e2e.test.linux dist/e2e.test
+          cp .github/ci/distro-test.sh dist/
+          docker run --rm --init -v "$PWD/dist:/dist:ro" "$IMAGE" sh /dist/distro-test.sh /dist
+
+  illumos:
+    name: illumos (best effort)
+    needs: dist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - name: Build and test on OmniOS
+        uses: vmactions/omnios-vm@9576f0b6d15e7696548409baa533bc0a339caf42 # v1.3.7
+        with:
+          prepare: |
+            pkg install -q developer/gcc13 developer/build/gnu-make || \
+              pkg install developer/gcc13 developer/build/gnu-make || true
+          run: |
+            set -e
+            top=$(pwd)
+            mkdir build && cd build
+            gzip -dc "$top"/dist/NewsCache-*.tar.gz | tar -xf -
+            cd NewsCache-*
+            src=$(pwd)
+            ./configure CC=gcc CXX=g++ MAKE=gmake --without-gnutls --without-pam \
+              > configure.log 2>&1 || { tail -60 config.log; exit 1; }
+            gmake -j"$(getconf NPROCESSORS_ONLN)" > make.log 2>&1 || { tail -60 make.log; exit 1; }
+            cp "$top"/dist/e2e.test.illumos ./e2e.test
+            chmod 755 ./e2e.test
+            useradd -m -d /var/tmp/newscache -s /bin/sh newscache 2>/dev/null || true
+            chown -R newscache .
+            cd tests/e2e
+            su newscache -c "NEWSCACHE_BIN=$src/src/newscache NNTP_TEST_DEADLINE=30s $src/e2e.test -test.count=1 -test.timeout=1200s"

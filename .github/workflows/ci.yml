@@ -1,5 +1,6 @@
 # Build and test: make check (C++ unit tests and the Go end-to-end tests in
-# tests/e2e) on Ubuntu in three configurations and on ARM64, on Fedora 43, 44
+# tests/e2e) on Ubuntu in five configurations (without GnuTLS and with the
+# header log as optional checks) and on ARM64, on Fedora 43, 44
 # and 45 with Fedora's packaging flags, on Alpine (musl) and Debian 13 in a
 # container, and in a FreeBSD VM. The default Ubuntu job also runs make
 # distcheck. Windows also checks that the tree checks out cleanly on a
@@ -44,6 +45,11 @@ jobs:
             distcheck: true
           - name: file log, debug
             configure: --without-syslog --enable-debug
+          # Optional checks: configurations no other lane builds
+          - name: without GnuTLS
+            configure: --with-pam --without-gnutls
+          - name: header log
+            configure: --without-syslog --enable-headerlog
           - name: AddressSanitizer
             configure: --with-pam
             cxxflags: -g -O1 -fsanitize=address -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS
