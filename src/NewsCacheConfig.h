@@ -28,6 +28,7 @@ class Config {
 	enum { inetd, standalone };
 	int ServerType;
 	char Hostname[FQDN_BUFSIZE];
+	int HostnameSet;	// Hostname is in the file (else the host's name)
 	char CachePort[256];
 	char ListenTo[MAXHOSTNAMELEN];
 	int ListenToSet;	// ListenTo is in the file (then CachePort is ignored)
@@ -73,7 +74,9 @@ class Config {
 	Config(const char *fn);
 
 	void init(void);
-	void read(const char *fn);
+	// lookupHostname false: leave Hostname empty when the file sets
+	// none (a reload keeps the startup name, so it needs no lookup)
+	void read(const char *fn, bool lookupHostname = true);
 	MPListEntry *server(const char *group);
 	AccessEntry *client(const char *name, const struct sockaddr *addr,
 			    socklen_t addrlen);

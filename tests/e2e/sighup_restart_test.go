@@ -250,3 +250,44 @@ func TestSIGHUPNiceServerRestartOnly(t *testing.T) {
 	}
 	c.Cmd("QUIT")
 }
+
+// TestSIGHUPDefaultHostname: without a Hostname line the reload does not
+// look up the host's name (Hostname is restart-only), so it compares "not
+// set" with "not set" and gives no notice; adding a Hostname gives one.
+func TestSIGHUPDefaultHostname(t *testing.T) {
+	e := newEnv(t)
+	requireFileLog(e)
+	e.writeConf()
+	conf, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, l := range strings.Split(string(conf), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && f[0] == "Hostname" {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	noHostname := strings.Join(kept, "\n")
+	if err := os.WriteFile(e.Conf, []byte(noHostname), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p := proc.StartTCP(t, e.procOpts("-n"), e.Listen)
+
+	if log := reloadLog(t, e, p); strings.Contains(log, "Hostname changed") {
+		t.Errorf("reload without Hostname gave a notice:\n%s", log)
+	}
+	withHostname := strings.Replace(noHostname, "ServerType standalone\n",
+		"ServerType standalone\nHostname after-reload.test\n", 1)
+	if withHostname == noHostname {
+		t.Fatal("no ServerType line in the test config")
+	}
+	if err := os.WriteFile(e.Conf, []byte(withHostname), 0644); err != nil {
+		t.Fatal(err)
+	}
+	want := "Hostname changed (running: (not set), config: after-reload.test)"
+	if log := reloadLog(t, e, p); !strings.Contains(log, want) {
+		t.Errorf("reload with a new Hostname: want %q in:\n%s", want, log)
+	}
+}

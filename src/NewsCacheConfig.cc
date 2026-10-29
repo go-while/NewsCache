@@ -54,8 +54,10 @@ void Config::init(void)
 	strcpy(Admin, "notset");
 
 	ServerType = standalone;
-	const char *fqdn = getfqdn();
-	snprintf(Hostname, sizeof(Hostname), "%s", fqdn ? fqdn : "localhost");
+	// the default is looked up at the end of read(), and only if the
+	// file sets no Hostname: getfqdn() may do a DNS lookup
+	Hostname[0] = '\0';
+	HostnameSet = 0;
 	CachePort[0] = '\0';
 	strcpy (ListenTo, "DEFAULT");
 	ListenToSet = 0;
@@ -97,7 +99,7 @@ AccessEntry *Config::client(const char *name, const struct sockaddr *addr,
 	return clnts.client(name, addr, addrlen);
 }
 
-void Config::read(const char *fn)
+void Config::read(const char *fn, bool lookupHostname)
 {
 	Lexer lex(fn);
 	string tok, a1, a2, a3;
@@ -275,6 +277,13 @@ void Config::read(const char *fn)
 		if (TLSCertFile[0] == '\0')
 			throw SyntaxError(lex, "TLSListenTo needs TLSCertFile "
 					  "and TLSKeyFile", ERROR_LOCATION);
+	}
+
+	HostnameSet = Hostname[0] != '\0';
+	if (!HostnameSet && lookupHostname) {
+		const char *fqdn = getfqdn();
+		snprintf(Hostname, sizeof(Hostname), "%s",
+			 fqdn ? fqdn : "localhost");
 	}
 }
 

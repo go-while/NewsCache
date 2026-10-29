@@ -4018,6 +4018,7 @@ void nntpd()
 #endif
 	const int startServerType = Cfg.ServerType;
 	const int startListenToSet = Cfg.ListenToSet;
+	const int startHostnameSet = Cfg.HostnameSet;
 	const int startNiceServer = Cfg.NiceServer;
 
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
@@ -4109,7 +4110,9 @@ void nntpd()
 				// the running configuration
 				try {
 					Config newCfg;
-					newCfg.read(config_file);
+					// Hostname is restart-only: no lookup
+					// (maybe DNS) for a default nobody uses
+					newCfg.read(config_file, false);
 					restart_notice("Username", startUsername, newCfg.Username);
 					restart_notice("Groupname", startGroupname, newCfg.Groupname);
 					restart_notice("PidFile", startPidFile, newCfg.PidFile);
@@ -4125,7 +4128,11 @@ void nntpd()
 					    newCfg.ListenToSet ? newCfg.ListenTo : "(not set)");
 					restart_notice("TLSListenTo", startTLSListenTo, newCfg.TLSListenTo);
 					restart_notice("CachePort", startCachePort, newCfg.CachePort);
-					restart_notice("Hostname", startHostname, newCfg.Hostname);
+					restart_notice("Hostname",
+					    startHostnameSet ? startHostname : string("(not set)"),
+					    newCfg.HostnameSet ? newCfg.Hostname : "(not set)");
+					snprintf(newCfg.Hostname, sizeof(newCfg.Hostname),
+					    "%s", startHostname.c_str());
 					restart_notice("NiceServer", startNiceServer, newCfg.NiceServer);
 					// Sessions inherit the master's startup nice adjustment and
 					// must not mix it with a new, unapplied master setting.
