@@ -327,3 +327,34 @@ func TestXhdrXrefOverview(t *testing.T) {
 		t.Errorf("DATE after XHDR/HDR Xref: %d %q %v", code, line, err)
 	}
 }
+
+// TestOverMessageIDNotSupported checks the optional OVER MSGID form is
+// refused without contacting the upstream, regardless of group selection.
+func TestOverMessageIDNotSupported(t *testing.T) {
+	e := newEnv(t)
+	ids := e.addArticles("test.alpha", 1)
+	c := e.session()
+	if caps := capabilities(t, c); !containsLine(caps, "OVER") || containsLine(caps, "OVER MSGID") {
+		t.Fatalf("CAPABILITIES: %q, want OVER without MSGID", caps)
+	}
+	before := len(e.Upstream.Lines())
+	if code, line := c.Cmd("OVER %s", ids[0]); code != 503 {
+		t.Errorf("OVER by message-id without group: %q, want 503", line)
+	}
+	if got := len(e.Upstream.Lines()); got != before {
+		t.Errorf("OVER by message-id without group contacted upstream: %q", e.Upstream.Lines()[before:])
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q, want 211", line)
+	}
+	before = len(e.Upstream.Lines())
+	if code, line := c.Cmd("OVER %s", ids[0]); code != 503 {
+		t.Errorf("OVER by message-id with group: %q, want 503", line)
+	}
+	if got := len(e.Upstream.Lines()); got != before {
+		t.Errorf("OVER by message-id with group contacted upstream: %q", e.Upstream.Lines()[before:])
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after OVER: %q, want 111", line)
+	}
+}

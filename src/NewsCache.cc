@@ -2597,6 +2597,13 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 	int i = 1;
 	artnum_t fst, lst;
 
+	// OVER does not advertise MSGID; RFC 3977 8.3.2 requires 503 for
+	// that form, independently of the currently selected group.
+	if (strcmp(argv[0], "over") == 0 && argc == 2 && argv[1][0] == '<') {
+		(*clt->co) << "503 OVER by message-id is not supported\r\n";
+		return -1;
+	}
+
 	if (strcmp(argv[0], "xhdr") == 0) {
 		i = 2;
 		if (argc < 2) {
