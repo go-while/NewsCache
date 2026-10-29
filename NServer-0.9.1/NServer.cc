@@ -1719,6 +1719,14 @@ bool CServer::filter_xref_value(std::string & xref, MPListEntry *server,
 		xref.find_first_not_of(delim, 5);
 	std::string::size_type end_entry =
 		xref.find_first_of(delim, beg_header);
+	if (end_entry == std::string::npos)
+		return false;
+
+	// Keep the original text and separators of accepted entries. Building
+	// once avoids moving the remaining suffix for every rejected entry.
+	std::string filtered;
+	filtered.reserve(xref.size());
+	filtered.append(xref, 0, end_entry);
 	while (end_entry != std::string::npos) {
 		const std::string::size_type end_old = end_entry;
 		const std::string::size_type beg_entry =
@@ -1734,32 +1742,29 @@ bool CServer::filter_xref_value(std::string & xref, MPListEntry *server,
 					xref.substr(beg_entry,
 						    colon - beg_entry);
 
-				// check that the group is configured
-				// for the specified server
-				if ((gname == NULL) || (group != gname)) {
-					if (_ServerList->server(group.c_str()) != server) {
-						// we have to remove
-						// this Xref entry
-						xref_changed = true;
-
-						if (end_entry != std::string::npos) {
-							xref.erase(end_old, end_entry - end_old);
-							end_entry = end_old;
-						} else {
-							xref.erase(end_old);
-						}
-					}
-				}
+				// Keep the selected group even if its server mapping
+				// changed, as the original filter did.
+				if ((gname == NULL || group != gname) &&
+				    _ServerList->server(group.c_str()) != server)
+					xref_changed = true;
+				else
+					filtered.append(xref, end_old,
+					    end_entry == std::string::npos ? std::string::npos : end_entry - end_old);
 			} else {
+				// An unparseable entry ends filtering; preserve it and
+				// everything after it exactly as before.
+				filtered.append(xref, end_old, std::string::npos);
 				end_entry = std::string::npos;
 			}
 		} else {
-			// only blanks after the last entry ("... a.b:1 "): done.
-			// end_entry stayed the same, and the loop ran for ever.
+			// Preserve trailing whitespace after the final entry.
+			filtered.append(xref, end_old, std::string::npos);
 			end_entry = std::string::npos;
 		}
 	}
 
+	if (xref_changed)
+		xref.swap(filtered);
 	return xref_changed;
 }
 

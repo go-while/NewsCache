@@ -293,6 +293,92 @@ func twoServers(t *testing.T, opts string) (*env, *fakeserver.Server) {
 	return e, b
 }
 
+// Filtering many entries belonging to another server must not repeatedly
+// move the whole remaining Xref while holding the group lock.
+func TestXrefLargeRejectedEntries(t *testing.T) {
+	e := newEnv(t)
+	e.ServerOptions = "not-cached"
+	e.Extra = "MaxArticleSize 8388608"
+	e.Store.AddGroup("test.alpha", "large Xref")
+	xref := "a.test" + strings.Repeat(" test.beta:1", 400000) + " test.alpha:1"
+	e.Store.AddArticle("test.alpha", crossArticle(1, "<large-xref@upstream.test>", xref))
+	other := fakeserver.NewStore()
+	other.AddGroup("test.beta", "other server")
+	b := fakeserver.New(t, fakeserver.Options{Store: other})
+	e.ExtraServers = serverBlock(b, "test.beta")
+	e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if err := c.Conn.SetReadDeadline(time.Now().Add(8 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprint(c.Conn, "ARTICLE 1\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := c.R.ReadString('\n')
+	if err != nil || !strings.HasPrefix(status, "220 ") {
+		t.Fatalf("large Xref did not complete within deadline: %q, %v", status, err)
+	}
+	found := false
+	for {
+		line, err := c.R.ReadString('\n')
+		if err != nil {
+			t.Fatalf("reading ARTICLE: %v", err)
+		}
+		if line == ".\r\n" {
+			break
+		}
+		if strings.HasPrefix(line, "Xref:") {
+			found = true
+			if line != "Xref: a.test test.alpha:1\r\n" {
+				t.Fatalf("filtered Xref: %.200q", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ARTICLE had no Xref")
+	}
+}
+
+// Removing entries must preserve the original separators of kept entries,
+// trailing whitespace, and the unparsed suffix following a malformed token.
+func TestXrefFilterPreservesFormatting(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"a.test \t test.beta:7  test.alpha:1 \t", "a.test  test.alpha:1 \t"},
+		{"a.test test.beta:3\t  test.alpha:2   broken test.beta:4", "a.test\t  test.alpha:2   broken test.beta:4"},
+		{"a.test\t test.alpha:3  ", "a.test\t test.alpha:3  "},
+		{"a.test  test.beta:4", "a.test"},
+		{"a.test", "a.test"},
+		{"a.test test.beta:9  ", "a.test  "},
+	}
+	e := newEnv(t)
+	e.ServerOptions = "not-cached"
+	e.Store.AddGroup("test.alpha", "Xref formatting")
+	for i, tc := range cases {
+		n := int64(i + 1)
+		e.Store.AddArticle("test.alpha", crossArticle(n, fmt.Sprintf("<xref-format-%d@upstream.test>", n), tc.input))
+	}
+	other := fakeserver.NewStore()
+	other.AddGroup("test.beta", "other server")
+	b := fakeserver.New(t, fakeserver.Options{Store: other})
+	e.ExtraServers = serverBlock(b, "test.beta")
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	for i, tc := range cases {
+		if code, line := c.Cmd("ARTICLE %d", i+1); code != 220 {
+			t.Fatalf("ARTICLE %d: %q", i+1, line)
+		}
+		want := "Xref: " + tc.want
+		if lines := c.ReadDotLines(); !containsLine(lines, want) {
+			t.Errorf("Xref %q: got %q, want %q", tc.input, lines, want)
+		}
+	}
+}
+
 // TestUpstreamSeveralServers: two upstream servers carry the same group
 // with their own numbers. Everything a client sees of it (LIST, GROUP,
 // XOVER, articles) comes from the server configured for it, and the Xref
