@@ -284,6 +284,12 @@ func TestOverviewWindowTTL(t *testing.T) {
 			from := len(e.Upstream.Lines())
 			wantNumbers(t, "XOVER again", xover(t, c, g.last-5000, g.last), g.last-2, g.last-1, g.last)
 			wantNumbers(t, "XOVER of a hole", xover(t, c, g.last-50, g.last-10))
+			if code, line := c.Cmd("OVER %d-%d", g.last-50, g.last-10); code != 423 {
+				if code == 224 {
+					c.ReadDotLines()
+				}
+				t.Errorf("OVER of a hole: %q, want 423", line)
+			}
 			c.Cmd("QUIT")
 
 			c = e.session()

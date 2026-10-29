@@ -139,10 +139,11 @@ func TestNewscachecleanExpiryHidesArticle(t *testing.T) {
 	if code, line := c.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("GROUP after expiry: %q, want 211", line)
 	}
-	if code, line := c.Cmd("OVER 1-1"); code != 224 {
-		t.Fatalf("OVER 1-1 after expiry: %q, want 224", line)
-	} else if got := c.ReadDotLines(); len(got) != 0 {
-		t.Errorf("OVER 1-1 after expiry listed articles: %q", got)
+	if code, line := c.Cmd("OVER 1-1"); code != 423 {
+		if code == 224 {
+			c.ReadDotLines()
+		}
+		t.Errorf("OVER 1-1 after expiry: %q, want 423", line)
 	}
 	for _, command := range []string{"ARTICLE 1", "HEAD 1", "STAT 1"} {
 		if code, line := c.Cmd("%s", command); code != 423 {

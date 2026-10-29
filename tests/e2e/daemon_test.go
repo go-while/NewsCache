@@ -649,11 +649,18 @@ func TestCachePort(t *testing.T) {
 }
 
 // TestClientStalledReader: a client that stops reading in the middle of a
-// big XOVER is cut off after ClientTimeout. XOVER writes while it holds
+// big OVER or XOVER is cut off after ClientTimeout. It writes while it holds
 // the group's lock, and ClientTimeout only covered the wait for the next
 // command: the session stayed blocked in send() for good, and another
 // session that needed the group (storing an article it read) hung too.
 func TestClientStalledReader(t *testing.T) {
+	for _, command := range []string{"OVER", "XOVER"} {
+		t.Run(command, func(t *testing.T) { testClientStalledReader(t, command) })
+	}
+}
+
+func testClientStalledReader(t *testing.T, command string) {
+	t.Helper()
 	const group = "alt.binaries.stall"
 	e := newEnv(t)
 	e.ClientTimeout = 3
@@ -672,10 +679,10 @@ func TestClientStalledReader(t *testing.T) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
 		t.Fatalf("A: GROUP: %q %v", l, err)
 	}
-	io.WriteString(a, "XOVER 1-40000\r\n")
+	io.WriteString(a, command+" 1-40000\r\n")
 	// A reads the status line and a little, then nothing more
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
-		t.Fatalf("A: XOVER: %q %v", l, err)
+		t.Fatalf("A: %s: %q %v", command, l, err)
 	}
 	time.Sleep(2 * time.Second)
 
