@@ -648,6 +648,106 @@ func TestNewgroupsTime(t *testing.T) {
 	}
 }
 
+// TestNewgroupsDateFormsAndCenturyRule checks both date widths and the
+// RFC 3977 two-digit-year rule: YY is in this century through the current
+// year, and in the previous century when YY is greater.
+func TestNewgroupsDateFormsAndCenturyRule(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	if code, line := c.Cmd("LIST ACTIVE test.alpha"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q, want 215", line)
+	}
+	active := c.ReadDotLines()
+	if len(active) != 1 {
+		t.Fatalf("LIST ACTIVE test.alpha: %q, want one group", active)
+	}
+	year := time.Now().UTC().Year()
+	current := fmt.Sprintf("%02d0101", year%100)
+	full := fmt.Sprintf("%04d0101", year)
+	for _, date := range []string{current, full} {
+		code, line := c.Cmd("NEWGROUPS %s 000000 GMT", date)
+		if code != 231 {
+			t.Fatalf("NEWGROUPS %s: %q, want 231", date, line)
+		}
+		if got := c.ReadDotLines(); len(got) != 1 || got[0] != active[0] {
+			t.Errorf("NEWGROUPS %s: %q, want the cached group %q", date, got, active)
+		}
+	}
+	if year%100 < 99 {
+		previousCentury := fmt.Sprintf("%02d0101", year%100+1)
+		code, line := c.Cmd("NEWGROUPS %s 000000 GMT", previousCentury)
+		if code != 231 {
+			t.Fatalf("NEWGROUPS %s: %q, want 231", previousCentury, line)
+		}
+		if got := c.ReadDotLines(); len(got) != 1 || got[0] != active[0] {
+			t.Errorf("NEWGROUPS %s resolved to the wrong century: header %q, lines %q",
+				previousCentury, line, got)
+		}
+	}
+}
+
+// NEWGROUPS must reject calendar or clock values that the C library would
+// otherwise silently normalize. RFC 3977 permits second 60 for a leap second.
+func TestNewgroupsRejectsInvalidDateTime(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+	for _, args := range []string{
+		"20260230 000000 GMT",
+		"20261301 000000 GMT",
+		"20260132 000000 GMT",
+		"20260101 240000 GMT",
+		"20260101 006000 GMT",
+		"20260101 000061 GMT",
+		"00000101 000000 GMT",
+		"20260101 000000 UTC",
+	} {
+		code, line := c.Cmd("NEWGROUPS %s", args)
+		if code == 231 {
+			c.ReadDotLines()
+		}
+		if code != 501 {
+			t.Errorf("NEWGROUPS %s: %q, want 501", args, line)
+		}
+	}
+	if code, line := c.Cmd("NEWGROUPS 20260101 235960 GMT"); code != 231 {
+		t.Errorf("NEWGROUPS with leap second: %q, want 231", line)
+	} else {
+		c.ReadDotLines()
+	}
+}
+
+// A timestamp written in UTC is compared as UTC with GMT and as the local
+// server time without it. The threshold is chosen between those instants.
+func TestNewgroupsGMTIsIndependentOfServerTimezone(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "TZ=EST5EDT,M3.2.0,M11.1.0")
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	if code, line := c.Cmd("LIST ACTIVE test.alpha"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q, want 215", line)
+	}
+	c.ReadDotLines()
+	threshold := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	args := threshold.Format("20060102 150405")
+	if code, line := c.Cmd("NEWGROUPS %s GMT", args); code != 231 {
+		t.Fatalf("NEWGROUPS %s GMT: %q, want 231", args, line)
+	} else if got := c.ReadDotLines(); len(got) != 1 || !strings.HasPrefix(got[0], "test.alpha ") {
+		t.Errorf("GMT threshold omitted the cached group: %q", got)
+	}
+	if code, line := c.Cmd("NEWGROUPS %s", args); code != 231 {
+		t.Fatalf("NEWGROUPS %s in local time: %q, want 231", args, line)
+	} else if got := c.ReadDotLines(); len(got) != 0 {
+		t.Errorf("local-time threshold unexpectedly included the cached group: %q", got)
+	}
+}
+
 // TestNewgroupsRejectsExtraArgumentsAndUsesRFCReplyLine: NEWGROUPS accepts
 // only date, time, and optional GMT, and its 231 text has no timestamp suffix.
 func TestNewgroupsRejectsExtraArgumentsAndUsesRFCReplyLine(t *testing.T) {

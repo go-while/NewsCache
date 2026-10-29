@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,54 @@ func containsPrefix(lines []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+// LIST ACTIVE.TIMES and NEWGROUPS report the time NewsCache first stored a
+// group locally; no upstream ACTIVE.TIMES lookup is used to backdate it.
+func TestActiveTimesUseNewsCacheFirstSeenTime(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	before := time.Now().Unix()
+	if code, line := c.Cmd("LIST ACTIVE test.alpha"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q, want 215", line)
+	}
+	active := c.ReadDotLines()
+	after := time.Now().Unix()
+	code, line := c.Cmd("LIST ACTIVE.TIMES test.alpha")
+	if code != 215 {
+		t.Fatalf("LIST ACTIVE.TIMES: %q, want 215", line)
+	}
+	times := c.ReadDotLines()
+	if len(times) != 1 {
+		t.Fatalf("LIST ACTIVE.TIMES: %q, want one group", times)
+	}
+	fields := strings.Fields(times[0])
+	if len(fields) != 3 || fields[0] != "test.alpha" || fields[2] != "news" {
+		t.Fatalf("LIST ACTIVE.TIMES line %q, want name time creator", times[0])
+	}
+	created, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		t.Fatalf("LIST ACTIVE.TIMES timestamp %q: %v", fields[1], err)
+	}
+	if created < before-1 || created > after+1 {
+		t.Errorf("cached first-seen time %d is outside [%d, %d]", created, before-1, after+1)
+	}
+	if len(active) != 1 || active[0] != "test.alpha 1 1 y" {
+		t.Fatalf("LIST ACTIVE: %q, want test.alpha 1 1 y", active)
+	}
+	code, line = c.Cmd("NEWGROUPS %s GMT", time.Unix(before-2, 0).UTC().Format("20060102 150405"))
+	if code != 231 {
+		t.Fatalf("NEWGROUPS before first sighting: %q, want 231", line)
+	}
+	if got := c.ReadDotLines(); len(got) != 1 || got[0] != active[0] {
+		t.Errorf("NEWGROUPS and LIST ACTIVE disagree: %q vs %q", got, active)
+	}
+	for _, upstreamLine := range e.Upstream.Lines() {
+		if strings.Contains(strings.ToLower(upstreamLine), "active.times") {
+			t.Errorf("NewsCache requested upstream creation times: %q", upstreamLine)
+		}
+	}
 }
 
 // TestLongReadPattern: RServer::active copied each element of a server's

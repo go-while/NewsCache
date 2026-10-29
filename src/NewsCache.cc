@@ -2415,9 +2415,30 @@ int ns_mode(ClientData * clt, int argc, char *argv[])
 }
 
 /*
- * NEWGROUPS date time [GMT]
+ * NEWGROUPS date time [GMT] (RFC 3977 7.3)
  */
 #define DD2INT(x) ((x)[0]-'0')*10+((x)[1]-'0')
+static bool valid_newgroups_datetime(const struct tm &value)
+{
+	static const int days_in_month[] = {
+		31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+	};
+	int year = value.tm_year + 1900;
+	int month = value.tm_mon + 1;
+	int days;
+
+	if (year < 1900 || month < 1 || month > 12 || value.tm_mday < 1 ||
+	    value.tm_hour < 0 || value.tm_hour > 23 || value.tm_min < 0 ||
+	    value.tm_min > 59 || value.tm_sec < 0 || value.tm_sec > 60)
+		return false;
+
+	days = days_in_month[month - 1];
+	if (month == 2 && (year % 400 == 0 ||
+			   (year % 4 == 0 && year % 100 != 0)))
+		++days;
+	return value.tm_mday <= days;
+}
+
 int ns_newgroups(ClientData * clt, int argc, char *argv[])
 {
 	if (argc < 3 || argc > 4) {
@@ -2434,18 +2455,17 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	char *p;
 
 	// check first two arguments, y4 indicates whether year has 4 digits
-	for (i = 0; isdigit(argv[2][i]); i++);
+	for (i = 0; isdigit((unsigned char) argv[2][i]); i++);
 	if (i != 6 || argv[2][i])
 		goto ns_newgroups_error;
-	for (y4 = 0; isdigit(argv[1][y4]); y4++);
+	for (y4 = 0; isdigit((unsigned char) argv[1][y4]); y4++);
 	if ((y4 != 8 && y4 != 6) || argv[1][y4])
 		goto ns_newgroups_error;
 	y4 -= 4;
 
 	// check whether time/date is specified in GMT
 	if (argc >= 4) {
-		if (strcasecmp(argv[3], "gmt") != 0 &&
-		    strcasecmp(argv[3], "utc") != 0) {
+		if (strcasecmp(argv[3], "gmt") != 0) {
 			goto ns_newgroups_error;
 		}
 		is_gmt = 1;
@@ -2489,20 +2509,35 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	ltm.tm_min = DD2INT(p);
 	p += 2;
 	ltm.tm_sec = DD2INT(p);
+	// timegm/mktime normalize values such as February 30 instead of
+	// reporting an error. RFC 3977 7.3 defines the calendar and clock
+	// ranges explicitly; accept second 60 for a leap second, but reject
+	// other out-of-range values as a syntax error.
+	if (!valid_newgroups_datetime(ltm))
+		goto ns_newgroups_error;
 
 	// The instant of the given date and time: in UTC with timegm, or in
 	// local time with mktime, which decides DST for that date. The DST
 	// flag used to be forced (from "daylight", or from the current time)
 	// and, on glibc (no HAVE_TZNAME), "GMT" wasn't applied at all: the
 	// time was off by the UTC offset, or by an hour across DST.
+	errno = 0;
 	if (is_gmt) {
 		lt = timegm(&ltm);
 	} else {
 		ltm.tm_isdst = -1;
 		lt = mktime(&ltm);
 	}
-	if (lt == -1)
+	// -1 is also the valid timestamp for 1969-12-31 23:59:59. The C
+	// conversion functions set errno when the requested instant is out of
+	// range; do not reject that valid pre-epoch instant.
+	if (lt == (time_t) -1 && errno != 0)
 		goto ns_newgroups_error;
+	// ActiveDB timestamps are unsigned seconds since the Unix epoch. A
+	// valid pre-epoch NEWGROUPS threshold therefore precedes every stored
+	// group's first-seen time.
+	if (lt < 0)
+		lt = 0;
 
 	// An error here goes to the command loop, as for LIST: 403 (RFC 3977
 	// 3.2.1), or once more after a damaged database. (It answered 410,

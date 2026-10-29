@@ -110,6 +110,18 @@ user field: newscache switches to Username after loading it):
 .B nntps stream tcp nowait root /usr/sbin/newscache -t
 .PP
 
+.SH NEWSGROUP TIMES
+The timestamp returned by
+.B LIST ACTIVE.TIMES
+and used by
+.B NEWGROUPS
+is when NewsCache first saw the group in an upstream active list and stored
+it locally. It is not the upstream group's creation time: NewsCache does not
+request upstream creation times and does not backdate the timestamp. The
+creator field is the generic value
+.B news
+because the actual creator is not available from the active list.
+
 .SH DIAGNOSTICS
 NewsCache logs diagnostics messages with the syslog priority debug. If NewsCache is configured with the
 .B \-\-enable\-debug
