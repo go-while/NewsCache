@@ -9,4 +9,17 @@ EXTRA_DIST = COPYRIGHT README.md FEDORA.md SECURITY.md Dockerfile .dockerignore 
 	tests/e2e/harness_test.go tests/e2e/reader_test.go \
 	tests/e2e/daemon_test.go tests/e2e/bugs_test.go tests/e2e/auth_test.go tests/e2e/sizelimit_test.go tests/e2e/config_test.go tests/e2e/tls_test.go tests/e2e/spool_test.go tests/e2e/active_test.go tests/e2e/access_test.go \
 	tests/e2e/artnum_test.go tests/e2e/updatenews_test.go tests/e2e/window_test.go tests/e2e/hdr_test.go tests/e2e/history_test.go tests/e2e/corrupt_test.go \
-	tests/e2e/upstream_test.go tests/e2e/upstreams_test.go tests/e2e/spoolfull_test.go tests/e2e/clean_test.go tests/e2e/log_test.go
+	tests/e2e/upstream_test.go tests/e2e/upstreams_test.go tests/e2e/spoolfull_test.go tests/e2e/clean_test.go tests/e2e/log_test.go \
+	tests/e2e/clienttls_test.go tests/e2e/clienttls_robust_test.go
+
+# Every Go file of the e2e suite must be in the tarball: one left out of
+# EXTRA_DIST only means fewer tests there, and nothing else would notice
+# (the client TLS tests were missing that way).
+dist-hook:
+	@missing=; for f in $(srcdir)/tests/e2e/*.go; do \
+	  b=`basename "$$f"`; \
+	  test -f "$(distdir)/tests/e2e/$$b" || missing="$$missing $$b"; \
+	done; \
+	if test -n "$$missing"; then \
+	  echo "tests/e2e files not in EXTRA_DIST:$$missing" >&2; exit 1; \
+	fi
