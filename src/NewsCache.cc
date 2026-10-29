@@ -2269,16 +2269,14 @@ int ns_mode(ClientData * clt, int argc, char *argv[])
 }
 
 /*
- * NEWGROUPS date time [GMT|UTC] [<distributions>]
+ * NEWGROUPS date time [GMT]
  */
 #define DD2INT(x) ((x)[0]-'0')*10+((x)[1]-'0')
 int ns_newgroups(ClientData * clt, int argc, char *argv[])
 {
-	if (argc < 3 || argc > 5) {
+	if (argc < 3 || argc > 4) {
 	      ns_newgroups_error:
-		(*clt->
-		 co) <<
-	      "501 Syntax:  NEWGROUPS date time [GMT] [<wildmat>]\r\n";
+		(*clt->co) << "501 Syntax: NEWGROUPS date time [GMT]\r\n";
 		return -1;
 	}
 
@@ -2370,7 +2368,7 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	collect_active(active, active_filter_group_time <
 		       print_list_active > (lines,
 					    clt->access_entry->list, lt));
-	(*clt->co) << "231 list of new groups follows " << lt << "\r\n"
+	(*clt->co) << "231 list of new groups follows\r\n"
 	    << lines.str() << ".\r\n";
 	return 0;
 }
