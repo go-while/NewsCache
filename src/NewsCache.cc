@@ -3078,7 +3078,9 @@ void nnrpd(int fd, bool tls)
 	// (with tls the server side of a TLS connection, see accept_tls)
 	sockstream sock_stream(tls, true);
 	int nice;
-	bool have_peer = false;
+#ifdef HAVE_LIBWRAP
+	bool have_peer = false;	// the client has an address (for libwrap)
+#endif
 
 	/* set nice value for master server */
 #ifdef HAVE_SETPRIORITY
@@ -3117,7 +3119,9 @@ void nnrpd(int fd, bool tls)
 			sprintf(clt.client_name, "fd#%d", fd);
 			clt.client_logname = clt.client_name;
 		} else {
+#ifdef HAVE_LIBWRAP
 			have_peer = true;
+#endif
 			// An IPv4 client of the dual-stack socket (ListenTo DEFAULT)
 			// arrives as ::ffff:a.b.c.d; use its plain IPv4 address, so
 			// logs, NNTP-Posting-Host and libwrap see a.b.c.d.
@@ -3236,11 +3240,14 @@ void nnrpd(int fd, bool tls)
 		// check whether the client is allowed access according to
 		// libwrap
 #ifdef HAVE_LIBWRAP
+		// (hosts_ctl takes char *, not string literals)
+		static char libwrap_daemon[] = PACKAGE;
+		static char libwrap_unknown[] = STRING_UNKNOWN;
 		// Check the hosts_access configuration; emulate INN error message
 		if (have_peer &&
-		    !hosts_ctl(PACKAGE,
+		    !hosts_ctl(libwrap_daemon,
 			       clt.client_name, clt.client_addr,
-			       STRING_UNKNOWN)) {
+			       libwrap_unknown)) {
 			slog.p(Logger::Notice) << clt.
 			    client_logname << " denied - hosts.allow\n";
 			(*clt.
