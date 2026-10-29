@@ -1070,6 +1070,19 @@ connection @code{AUTHINFO} gets @samp{483 Encryption required} (RFC
 4643), and @code{CAPABILITIES} lists @samp{AUTHINFO} without
 @samp{USER}. NewsCache warns if the entry has no @code{Authentication},
 or if there is no TLS for clients at all.
+
+@cdindex PAMServicename
+For @code{Authentication pam}, @code{PAMServicename} selects the PAM
+service for a @code{Client} entry. It defaults to @code{newscache} and
+must name an installed PAM service. A build configured with
+@code{--with-pam=@var{name}} uses that service as the default instead.
+Depending on the PAM implementation and system configuration, a missing
+service may be rejected or may fall back to the system's @code{other}
+policy; that policy may deny authentication or may accept it. The
+configuration lexer does not support quoted values:
+@code{PAMServicename ""} is the literal service name @code{""}, not an
+empty value.
+
 A post to a group outside @code{PostTo} is refused with @samp{441}
 after the article has been sent, the only failure reply RFC 3977
 allows there; while a login could add the group, the text says
@@ -1160,7 +1173,10 @@ the same way: run as a user other than root, its helper
 @code{unix_chkpwd} only checks that user's own password. Use
 @code{Authentication file:}, or PAM modules that work without root,
 such as @code{pam_sss} (SSSD), @code{pam_ldap} or @code{pam_pwdfile}.
-Running NewsCache as root to get around this is not recommended.
+NewsCache's log includes a hint about this @code{pam_unix} limitation;
+the hint may not explain a failure from another module, such as
+@code{pam_deny}. Running NewsCache as root to get around the limitation is
+not recommended.
 
 @cindex newsgroup descriptions
 @cdindex list newsgroups
