@@ -105,7 +105,7 @@ if test "x$with_uniquename" != xno; then
 fi,
 )
 
-AC_ARG_WITH(gnutls, [  --with-gnutls           build with GnuTLS support [default=yes]])
+AC_ARG_WITH(gnutls, [  --with-gnutls           require GnuTLS support [default=auto]])
 
 AC_DEFINE(PACKAGE_NEWSCACHECLEAN, ["NewsCacheClean"], [newscacheclean package])
 AC_DEFINE(PACKAGE_UPDATENEWS, ["updatenews"], [updatenews package])
@@ -311,6 +311,7 @@ fi
 
 
 dnl **** Check for libgnutls ****
+have_gnutls=no
 if test "x$with_gnutls" != "xno"
 then
     AC_CHECK_LIB(gnutls, gnutls_global_init, [
@@ -321,6 +322,13 @@ then
 			AC_CHECK_FUNCS(gnutls_rnd_refresh)
 		])
 	],,)
+	if test "x$have_gnutls" != "xyes"; then
+	    if test "x$with_gnutls" = "xyes"; then
+		AC_MSG_ERROR([--with-gnutls requires the GnuTLS library and headers])
+	    else
+		AC_MSG_WARN([GnuTLS library or headers not found; building without TLS support])
+	    fi
+	fi
 fi
 
 dnl ****************************************************************
