@@ -1,6 +1,7 @@
 // The default Hostname (getfqdn(), which may do a DNS lookup) must be
-// looked up only when the file sets no Hostname, so that a reload with a
-// Hostname does not wait for the resolver.
+// looked up only when the file sets no Hostname, and never on a reload
+// (Hostname is restart-only), so that a reload does not wait for the
+// resolver.
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -53,6 +54,7 @@ int main(void)
 		c.read(fn);
 		check(strcmp(c.Hostname, "news.example.net") == 0,
 		      "Hostname from the file");
+		check(c.HostnameSet, "HostnameSet with Hostname in the file");
 		Config d;
 		d.read(fn);
 	}
@@ -66,6 +68,15 @@ int main(void)
 		      "default Hostname from getfqdn()");
 	}
 	check(calls == 1, "getfqdn() called once without a Hostname");
+
+	// a reload reads without the lookup: Hostname stays empty
+	{
+		Config c;
+		c.read(fn, false);
+		check(c.Hostname[0] == '\0' && !c.HostnameSet,
+		      "reload read without Hostname leaves it unset");
+	}
+	check(calls == 1, "getfqdn() called by a reload read");
 
 	unlink(fn);
 	exit(failures ? 1 : 0);
