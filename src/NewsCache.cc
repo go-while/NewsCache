@@ -3885,8 +3885,40 @@ static int open_listener(const char *spec, const char *keyword, bool plain)
 	return sock;
 }
 
+// Compare with what the daemon started with, not the preceding config read:
+// a restart is still needed if the same changed value is reloaded again.
+static void restart_notice(const char *name, const string &running,
+			   const char *configured)
+{
+	if (running != configured)
+		slog.p(Logger::Notice) << name << " changed (running: "
+		    << running << ", config: " << configured
+		    << "): restart newscache for that\n";
+}
+
+static void restart_notice(const char *name, int running, int configured)
+{
+	if (running != configured)
+		slog.p(Logger::Notice) << name << " changed (running: "
+		    << running << ", config: " << configured
+		    << "): restart newscache for that\n";
+}
+
 void nntpd()
 {
+	// Keep only startup-only settings: retaining a full Config here would
+	// unnecessarily retain upstream credentials after a config reload.
+	const string startUsername(Cfg.Username), startGroupname(Cfg.Groupname);
+	const string startPidFile(Cfg.PidFile), startHostname(Cfg.Hostname);
+	const string startListenTo(Cfg.ListenTo), startTLSListenTo(Cfg.TLSListenTo);
+	const string startCachePort(Cfg.CachePort);
+#ifndef WITH_SYSLOG
+	const string startLogDirectory(Cfg.LogDirectory);
+#endif
+	const int startServerType = Cfg.ServerType;
+	const int startListenToSet = Cfg.ListenToSet;
+	const int startNiceServer = Cfg.NiceServer;
+
 	slog.p(Logger::Notice) << "NewsCache Server Start\n";
 	warn_unsafe_auth_files(Cfg.clnts);
 	warn_auth_requires_tls(Cfg.clnts, Cfg.TLSListenTo[0] != '\0');
@@ -3977,13 +4009,26 @@ void nntpd()
 				try {
 					Config newCfg;
 					newCfg.read(config_file);
-					if (strcmp(newCfg.ListenTo, Cfg.ListenTo) ||
-					    strcmp(newCfg.TLSListenTo, Cfg.TLSListenTo) ||
-					    strcmp(newCfg.CachePort, Cfg.CachePort))
-						slog.p(Logger::Notice)
-						    << "ListenTo, TLSListenTo or CachePort "
-						    "changed: restart newscache for "
-						    "that\n";
+					restart_notice("Username", startUsername, newCfg.Username);
+					restart_notice("Groupname", startGroupname, newCfg.Groupname);
+					restart_notice("PidFile", startPidFile, newCfg.PidFile);
+#ifndef WITH_SYSLOG
+					restart_notice("LogDirectory", startLogDirectory, newCfg.LogDirectory);
+#endif
+					restart_notice("ServerType", startServerType == Config::inetd ? "inetd" : "standalone",
+					    newCfg.ServerType == Config::inetd ? "inetd" : "standalone");
+					// without a ListenTo line, CachePort decides the port:
+					// "ListenTo DEFAULT" given explicitly is a change too
+					restart_notice("ListenTo",
+					    startListenToSet ? startListenTo : string("(not set)"),
+					    newCfg.ListenToSet ? newCfg.ListenTo : "(not set)");
+					restart_notice("TLSListenTo", startTLSListenTo, newCfg.TLSListenTo);
+					restart_notice("CachePort", startCachePort, newCfg.CachePort);
+					restart_notice("Hostname", startHostname, newCfg.Hostname);
+					restart_notice("NiceServer", startNiceServer, newCfg.NiceServer);
+					// Sessions inherit the master's startup nice adjustment and
+					// must not mix it with a new, unapplied master setting.
+					newCfg.NiceServer = startNiceServer;
 					Cfg = newCfg;
 					warn_unsafe_auth_files(Cfg.clnts);
 					warn_auth_requires_tls(Cfg.clnts,
