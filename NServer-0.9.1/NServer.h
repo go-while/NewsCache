@@ -27,6 +27,8 @@
 #include <ctype.h>
 #include <time.h>
 
+#include "ReplyBudget.h"
+
 #include <iostream>
 #include <fstream>
 
@@ -244,6 +246,7 @@ class RServer:virtual public NServer {
 	sockstream *_pServerStream;
 	int _authenticating;	// in authenticate(): no second login on a 480
 	int _connecting;	// in connect(): no login on a 480 (TLS may not be up yet)
+	bool _active_incomplete; // the last combined active-list refresh failed
 	size_t _MaxArticleSize;	// largest article accepted (MaxArticleSize)
 
 	/**
@@ -280,6 +283,7 @@ class RServer:virtual public NServer {
 		_pServerStream = NULL;
 		_authenticating = 0;
 		_connecting = 0;
+		_active_incomplete = false;
 		_MaxArticleSize = 1024 * 1024;
 	}
 	void init(MPList * serverlist);

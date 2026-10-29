@@ -2,9 +2,13 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -27,6 +31,339 @@ func upstreamWith(t *testing.T, e *env, o fakeserver.Options) {
 	t.Helper()
 	o.Store = e.Store
 	e.Upstream = fakeserver.New(t, o)
+}
+
+// A peer that never terminates LISTGROUP must not keep a client session
+// forever or leave a success terminator after its range budget is exceeded.
+func TestUpstreamEndlessListgroupBound(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	upstreamWith(t, e, fakeserver.Options{
+		Deadline: 10 * time.Second,
+		Faults:   fakeserver.Faults{Endless: map[string]bool{"LISTGROUP": true}},
+	})
+	e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if err := c.Conn.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(c.Conn, "LISTGROUP test.alpha 1-1\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := c.R.ReadString('\n')
+	if err != nil || !strings.HasPrefix(status, "211 ") {
+		t.Fatalf("LISTGROUP status: %q, %v", status, err)
+	}
+	for {
+		line, err := c.R.ReadString('\n')
+		if err != nil {
+			if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				t.Fatalf("endless LISTGROUP held the client open: %v", err)
+			}
+			break
+		}
+		if line == ".\r\n" {
+			t.Fatal("endless LISTGROUP was incorrectly terminated as a complete reply")
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for e.Upstream.Open() != 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := e.Upstream.Open(); n != 0 {
+		t.Errorf("endless upstream connections still open: %d", n)
+	}
+	for _, line := range e.Upstream.Lines() {
+		if strings.EqualFold(strings.TrimSpace(line), "QUIT") {
+			t.Errorf("sent QUIT instead of aborting the unfinished reply: %q", line)
+		}
+	}
+}
+
+// A disconnected downstream must stop a streamed LISTGROUP instead of
+// draining the rest of an endless upstream reply to reuse its connection.
+func TestUpstreamListgroupClientDisconnect(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "large range")
+	for _, n := range []int64{1, 1000000} {
+		e.Store.AddArticle("test.alpha", groupArticle("test.alpha", n, []string{"body"}))
+	}
+	upstreamWith(t, e, fakeserver.Options{
+		Deadline: 15 * time.Second,
+		Faults:   fakeserver.Faults{Endless: map[string]bool{"LISTGROUP": true}},
+	})
+	e.standalone()
+	c := e.dial()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if err := c.Conn.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(c.Conn, "LISTGROUP test.alpha 1-1000000\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := c.R.ReadString('\n')
+	if err != nil || !strings.HasPrefix(status, "211 ") {
+		t.Fatalf("LISTGROUP status: %q, %v", status, err)
+	}
+	c.Close()
+	deadline := time.Now().Add(4 * time.Second)
+	for e.Upstream.Open() != 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := e.Upstream.Open(); n != 0 {
+		t.Fatalf("upstream still open after client disconnected: %d", n)
+	}
+}
+
+// Incomplete OVER or cached/prefetch LISTGROUP must not mark the chunk fresh:
+// a second prefetch must ask the upstream again.
+func TestUpstreamEndlessPrefetchNotFresh(t *testing.T) {
+	for _, tc := range []struct{ mode, command, status string }{
+		{"-o", "OVER", "224 overview follows"},
+		{"-g", "LISTGROUP", "211 1 1000 1000 test.alpha"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			e := newEnv(t)
+			e.Store.AddGroup("test.alpha", "one missing record")
+			e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 1000, []string{"body"}))
+			e.GroupTimeout = 3600
+			upstreamWith(t, e, fakeserver.Options{
+				Deadline: 10 * time.Second,
+				Faults: fakeserver.Faults{
+					Override: map[string][]string{tc.command: {tc.status, "."}},
+					Endless:  map[string]bool{tc.command: true},
+				},
+			})
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte("test.alpha\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			e.writeConf()
+			bin := updatenewsBin(t, e)
+			for n := 1; n <= 2; n++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+				out, err := exec.CommandContext(ctx, bin, "-c", e.Conf, tc.mode).CombinedOutput()
+				ctxErr := ctx.Err()
+				cancel()
+				if ctxErr != nil {
+					t.Fatalf("prefetch %d did not stop endless %s: %v\n%s", n, tc.command, ctxErr, out)
+				}
+				if err != nil {
+					t.Fatalf("prefetch %d: %v\n%s", n, err, out)
+				}
+				if got := e.Upstream.Count(tc.command); got < n {
+					t.Fatalf("prefetch %d: upstream %s count %d; incomplete chunk was not retried", n, tc.command, got)
+				}
+			}
+		})
+	}
+}
+
+// The test build shortens only the compiled-in limits; there is no runtime
+// product setting. A peer dribbles one line with no newline, so neither the
+// per-line size cap nor a per-read timeout can stop it by themselves.
+func TestUpstreamPartialActiveDeadline(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+	}
+	for _, tlsEnabled := range []bool{false, true} {
+		name := "plain"
+		if tlsEnabled {
+			name = "tls"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			if tlsEnabled {
+				requireTLS(t, e.Bin)
+			}
+			started := make(chan time.Time, 1)
+			e.Upstream = fakeserver.New(t, fakeserver.Options{Handler: func(c *fakeserver.Conn) {
+				for {
+					line, err := c.ReadLine()
+					if err != nil {
+						return
+					}
+					fields := strings.Fields(line)
+					if len(fields) == 0 {
+						return
+					}
+					switch strings.ToUpper(fields[0]) {
+					case "MODE":
+						if c.WriteLines("200 reader ready") != nil {
+							return
+						}
+					case "LIST":
+						if len(fields) < 2 || !strings.EqualFold(fields[1], "ACTIVE") {
+							if c.WriteLines("500 unsupported") != nil {
+								return
+							}
+							continue
+						}
+						if c.WriteLines("215 active list follows") != nil {
+							return
+						}
+						select {
+						case started <- time.Now():
+						default:
+						}
+						for {
+							if _, err := c.Raw().Write([]byte("x")); err != nil {
+								return
+							}
+							time.Sleep(100 * time.Millisecond)
+						}
+					default:
+						if c.WriteLines("500 unsupported") != nil {
+							return
+						}
+					}
+				}
+			}})
+			e.ServerLines = "    ReadTimeout 20\n    Retries 0"
+			if tlsEnabled {
+				ca := newTestCA(t, e.Dir)
+				proxy := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), false, false)
+				e.ServerHost, e.ServerPort = "localhost", proxy.port()
+				e.ServerOptions = "ssl"
+				e.ServerLines += "\n    TLSCAFile " + ca.file
+			}
+			e.writeConf()
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a")
+			var output bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &output, &output
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			var begin time.Time
+			select {
+			case begin = <-started:
+			case err := <-done:
+				t.Fatalf("updatenews exited before active reply: %v\n%s", err, output.String())
+			case <-time.After(6 * time.Second):
+				cancel()
+				<-done
+				t.Fatal("updatenews did not request LIST ACTIVE")
+			}
+			select {
+			case err := <-done:
+				elapsed := time.Since(begin)
+				if elapsed < time.Second || elapsed > 4*time.Second {
+					t.Errorf("partial reply ended after %v, want 1..4 seconds (err %v)\n%s", elapsed, err, output.String())
+				}
+			case <-time.After(4 * time.Second):
+				cancel()
+				<-done
+				t.Fatalf("partial active line exceeded whole-reply deadline\n%s", output.String())
+			}
+		})
+	}
+}
+
+// Verify both ACTIVE budgets, including actual wire bytes hidden by line-end
+// normalization, then confirm a later process can refresh the same database.
+func TestUpstreamActiveReplyLimits(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS file-log build")
+	}
+	for _, extraCR := range []int{0, 128} {
+		name := "rows"
+		if extraCR != 0 {
+			name = "wire-bytes"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			var attempts atomic.Int32
+			row := "test.alpha 1 1 y" + strings.Repeat("\r", extraCR)
+			e.Upstream = fakeserver.New(t, fakeserver.Options{Handler: func(c *fakeserver.Conn) {
+				for {
+					line, err := c.ReadLine()
+					if err != nil {
+						return
+					}
+					fields := strings.Fields(line)
+					if len(fields) == 0 {
+						return
+					}
+					switch strings.ToUpper(fields[0]) {
+					case "MODE":
+						if c.WriteLines("200 reader ready") != nil {
+							return
+						}
+					case "LIST":
+						if len(fields) < 2 || !strings.EqualFold(fields[1], "ACTIVE") {
+							if c.WriteLines("500 unsupported") != nil {
+								return
+							}
+							continue
+						}
+						if attempts.Add(1) > 1 {
+							if c.WriteLines("215 active", "test.alpha 1 1 y", ".") != nil {
+								return
+							}
+							continue
+						}
+						if c.WriteLines("215 active") != nil {
+							return
+						}
+						for {
+							if c.WriteLines(row) != nil {
+								return
+							}
+						}
+					case "QUIT":
+						c.WriteLines("205 bye")
+						return
+					default:
+						if c.WriteLines("500 unsupported") != nil {
+							return
+						}
+					}
+				}
+			}})
+			e.ServerLines = "    ReadTimeout 10\n    Retries 0"
+			e.writeConf()
+			bin := updatenewsBin(t, e)
+			run := func(stage string) {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				out, err := exec.CommandContext(ctx, bin, "-c", e.Conf, "-a").CombinedOutput()
+				if ctx.Err() != nil {
+					t.Fatalf("updatenews %s exceeded its test deadline: %v\n%s", stage, ctx.Err(), out)
+				}
+				if err != nil {
+					t.Fatalf("updatenews: %v\n%s", err, out)
+				}
+			}
+			run("first transfer")
+			log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+			if err != nil {
+				t.Fatalf("read file-log diagnostic: %v", err)
+			}
+			wantRows := 65
+			if extraCR != 0 {
+				wantRows = 4096/(len(row)+2) + 1
+			}
+			want := fmt.Sprintf("upstream reply limit exceeded: rows=%d bytes=", wantRows)
+			if !strings.Contains(string(log), want) {
+				t.Fatalf("missing %q in log:\n%s", want, log)
+			}
+			run("second transfer")
+			if attempts.Load() < 2 {
+				t.Fatalf("second process did not refresh active DB: %d requests", attempts.Load())
+			}
+		})
+	}
 }
 
 // expectOver runs OVER a-b and requires 423 when the range has no articles.
@@ -933,13 +1270,15 @@ func TestUpstreamLongMessageIDByNumber(t *testing.T) {
 
 // TestUpstreamCutOffActive: the upstream closes the connection in the
 // middle of the active list (LIST ACTIVE <pattern>, which NewsCache sends
-// by default). The cut-off list must not count as complete: the next
-// session asks for it again. NVActiveDB::read stopped at the end of the
+// by default). The cut-off list must not count as complete: it is retried
+// after the shorter of the active TTL and the incomplete-list retry period.
+// NVActiveDB::read stopped at the end of the
 // input and set the list's time as after a full list, so the missing
 // groups stayed missing until Timeouts ran out (#95 checked only the
 // "list active" branch).
 func TestUpstreamCutOffActive(t *testing.T) {
 	e := newEnv(t)
+	e.Extra = "Timeouts 1 3600"
 	for i := 1; i <= 40; i++ {
 		e.Store.AddGroup(fmt.Sprintf("test.g%02d", i), "g")
 	}
@@ -965,6 +1304,9 @@ func TestUpstreamCutOffActive(t *testing.T) {
 		return n
 	}
 	before := lists()
+	// The normal one-second TTL is shorter than the retry interval and
+	// must not be extended. Allow for the timestamp's one-second resolution.
+	time.Sleep(2 * time.Second)
 	c2 := e.session()
 	c2.Deadline = 20 * time.Second
 	if code, _ := c2.Cmd("LIST ACTIVE"); code == 215 {

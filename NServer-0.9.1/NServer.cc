@@ -54,6 +54,31 @@ using namespace std;
                                  (reply)[1]==(code)[1] && \
                                  (reply)[2]==(code)[2])
 
+// Temporarily use nonblocking I/O so the whole-reply deadline can stop a
+// peer that dribbles even a partial line. Restore the original flags before
+// the connection is reused; close it if restoration fails.
+class ReplyReadGuard {
+	sockstream &stream;
+	bool active;
+public:
+	ReplyReadGuard(sockstream &s, unsigned int seconds): stream(s), active(false) {
+		if (!stream.begin_reply(seconds))
+			throw SystemError("cannot start upstream reply deadline", errno,
+					  ERROR_LOCATION);
+		active = true;
+	}
+	~ReplyReadGuard() {
+		if (active)
+			stream.end_reply();
+	}
+	void finish() {
+		active = false;
+		if (!stream.end_reply())
+			throw SystemError("cannot restore upstream socket flags", errno,
+					  ERROR_LOCATION);
+	}
+};
+
 char nntp_hostname[FQDN_BUFSIZE];
 char nntp_posting_host[FQDN_BUFSIZE];
 
@@ -488,7 +513,11 @@ void RServer::reply_unread()
 		slog.p(Logger::Warning) << "error while reading a reply of "
 		    << "news server " << _CurrentServer->hostname
 		    << ", closing the connection\n";
-	disconnect();
+	if (_pServerStream) {
+		_pServerStream->abort();
+		delete _pServerStream;
+		_pServerStream = NULL;
+	}
 }
 
 /*
@@ -806,6 +835,7 @@ ActiveDB *RServer::active()
 	// (it overflowed a 513-byte buffer)
 	string cgroup, cmd;
 	char c;
+	_active_incomplete = false;
 
 	ASSERT(if (!_ServerList) {
 	       throw
@@ -852,6 +882,7 @@ ActiveDB *RServer::active()
 						issue(cmd.c_str(), "215");
 						// read active database and filter unwanted groups
 						try {
+							ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 							_ActiveDB->
 							    read(*_pServerStream,
 								 _ServerList->
@@ -859,6 +890,13 @@ ActiveDB *RServer::active()
 									    cgroup.c_str()).c_str(),
 								 flags,
 								 _CurrentServer->limitgroupsize);
+							reply.finish();
+						}
+						catch(const ReplyLimitError &e) {
+							slog.p(Logger::Error) << _CurrentServer->hostname
+							    << ": LIST ACTIVE: " << e._errtext << "\n";
+							reply_unread();
+							throw;
 						}
 						catch(...) {
 							reply_unread();
@@ -885,11 +923,19 @@ ActiveDB *RServer::active()
 			     F_LIST_ACTIVE_WILDMAT)) {
 				issue("list active\r\n", "215");
 				try {
+					ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 					_ActiveDB->read(*_pServerStream,
 							_ServerList->makeFilter(i,
 										"*").c_str(),
 							flags,
 							_CurrentServer->limitgroupsize);
+					reply.finish();
+				}
+				catch(const ReplyLimitError &e) {
+					slog.p(Logger::Error) << _CurrentServer->hostname
+					    << ": LIST ACTIVE: " << e._errtext << "\n";
+					reply_unread();
+					throw;
 				}
 				catch(...) {
 					reply_unread();
@@ -904,12 +950,14 @@ ActiveDB *RServer::active()
 			}
 		}
 		catch(ResponseError & re) {
+			_active_incomplete = true;
 			slog.p(Logger::Error)
 			    << "retrieval of activedb failed for "
 			    << _ServerList->entries[i].hostname << ":"
 			    << _ServerList->entries[i].servicename << "\n";
 		}
 		catch(SystemError & se) {
+			_active_incomplete = true;
 			slog.p(Logger::Warning)
 			    << "connection to "
 			    << _ServerList->entries[i].hostname << ":"
@@ -917,6 +965,7 @@ ActiveDB *RServer::active()
 			    servicename << " failed\n";
 		}
 		catch(Error & e) {
+			_active_incomplete = true;
 			slog.p(Logger::Alert)
 			    <<
 			    "UNEXPECTED EXCEPTION WHILE RETRIEVING ACTIVEDB FROM "
@@ -927,6 +976,10 @@ ActiveDB *RServer::active()
 			e.print();
 		}
 	}
+	// Another server may have completed after one failed and advanced the
+	// shared timestamp. The combined active list still needs another try.
+	if (_active_incomplete)
+		_ActiveDB->setmtime(0, 1);
 	return _ActiveDB;
 }
 
@@ -988,19 +1041,39 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 			throw ResponseError(c, e, resp);
 		}
 
-		for (;;) {
-			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
-			if (line == ".\r\n")
-				break;
-			if (!_pServerStream->good()) {
-				disconnect();
-				throw
-					SystemError("error while reading from server",
-						    errno, ERROR_LOCATION);
+		ReplyBudget budget(range_reply_rows(f, l), UINT64_MAX, RANGE_REPLY_SECONDS);
+		try {
+			ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+			for (;;) {
+				size_t wire_bytes = 0;
+				nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
+				if (budget.expired())
+					throw ReplyLimitError(budget);
+				if (!_pServerStream->good() && _pServerStream->reply_expired())
+					throw ReplyLimitError(budget, true);
+				if (!_pServerStream->good())
+					throw SystemError("error while reading from server",
+							  errno, ERROR_LOCATION);
+				if (line == ".\r\n") {
+					if (!budget.finish(wire_bytes))
+						throw ReplyLimitError(budget);
+					break;
+				}
+				if (!budget.add(wire_bytes))
+					throw ReplyLimitError(budget);
+				i = leading_artnum(line.data());
+				if (i && f <= i && i <= l)
+					lstgrp[i - f] = 1;
 			}
-			i = leading_artnum(line.data());
-			if (f <= i && i <= l)
-				lstgrp[i - f] = 1;
+			reply.finish();
+		} catch(const ReplyLimitError &e) {
+			slog.p(Logger::Error) << _CurrentServer->hostname
+			    << ": LISTGROUP: " << e._errtext << "\n";
+			reply_unread();
+			throw;
+		} catch(...) {
+			reply_unread();
+			throw;
 		}
 	} else {
 		for (i = f; i <= l; i++) {
@@ -1031,20 +1104,45 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 		string c(buf), e("211");
 		throw ResponseError(c, e, resp);
 	}
-	for (;;) {
-		nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE);
-		if (line == ".\r\n")
-			break;
-		if (!_pServerStream->good()) {
-			disconnect();
-			throw SystemError("error while reading from server",
-					  errno, ERROR_LOCATION);
+	ReplyBudget budget(range_reply_rows(f, l), UINT64_MAX, RANGE_REPLY_SECONDS);
+	try {
+		ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+		for (;;) {
+			if (!os.good())
+				throw SystemError("LISTGROUP client disconnected", -1,
+						  ERROR_LOCATION);
+			size_t wire_bytes = 0;
+			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
+			if (budget.expired())
+				throw ReplyLimitError(budget);
+			if (!_pServerStream->good() && _pServerStream->reply_expired())
+				throw ReplyLimitError(budget, true);
+			if (!_pServerStream->good())
+				throw SystemError("error while reading from server",
+						  errno, ERROR_LOCATION);
+			if (line == ".\r\n") {
+				if (!budget.finish(wire_bytes))
+					throw ReplyLimitError(budget);
+				break;
+			}
+			if (!budget.add(wire_bytes))
+				throw ReplyLimitError(budget);
+			i = leading_artnum(line.data());
+			if (i && f <= i && i <= l)
+				os << i << "\r\n";
 		}
-		// read to the end even when the client has gone, the
-		// connection to the news server stays in use
-		i = leading_artnum(line.data());
-		if (i && f <= i && i <= l && os.good())
-			os << i << "\r\n";
+		reply.finish();
+	} catch(const ReplyLimitError &e) {
+		slog.p(Logger::Error) << _CurrentServer->hostname
+		    << ": LISTGROUP: " << e._errtext << "\n";
+		reply_unread();
+		// The status or part of the reply may already be on the wire.
+		// Do not let callers append a success terminator after this error.
+		os.setstate(std::ios::badbit);
+		throw;
+	} catch(...) {
+		reply_unread();
+		throw;
 	}
 }
 
@@ -1105,8 +1203,18 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
 			artnum_t r;
+			ReplyBudget budget(range_reply_rows(fst, lst), UINT64_MAX,
+					   RANGE_REPLY_SECONDS);
 			try {
-				r = ng->readoverdb(*_pServerStream);
+				ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+				r = ng->readoverdb(*_pServerStream, budget, fst, lst);
+				reply.finish();
+			}
+			catch(const ReplyLimitError &e) {
+				slog.p(Logger::Error) << _CurrentServer->hostname
+				    << ": OVER: " << e._errtext << "\n";
+				reply_unread();
+				throw;
 			}
 			catch(...) {
 				reply_unread();
@@ -1114,7 +1222,7 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 			}
 			if (!_pServerStream->good()) {
 				// cut off: the range isn't complete
-				disconnect();
+				reply_unread();
 				throw SystemError("overview cut off by the news "
 						  "server", -1, ERROR_LOCATION);
 			}
@@ -1710,6 +1818,15 @@ ActiveDB *CServer::active()
 		try {
 			if (!active_valid()) {
 				RServer::active();
+				if (_active_incomplete) {
+					// Avoid fetching every server on every request when
+					// one is down, without extending the normal TTL.
+					nvtime_t now = nvtime(NULL);
+					nvtime_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
+					    _TTLActive : ACTIVE_RETRY_SECONDS;
+					nvtime_t age = _TTLActive - retry;
+					_NVActiveDB->setmtime(now > age ? now - age : 0, 1);
+				}
 			}
 		}
 		catch(Error & e) {

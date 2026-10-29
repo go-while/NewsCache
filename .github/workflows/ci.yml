@@ -117,6 +117,10 @@ jobs:
         run: |
           grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
 
+      - name: Test upstream reply deadlines with short limits
+        if: matrix.name == 'file log, debug'
+        run: sh .github/ci/test-short-upstream-replies.sh
+
       - name: e2e tests with the race detector
         if: matrix.name == 'default'
         working-directory: tests/e2e

@@ -23,6 +23,7 @@
 #include "OverviewFmt.h"
 #include "Newsgroup.h"
 #include "NServer.h"
+#include "sockstream.h"
 
 /**
  * \class RNewsgroup
@@ -118,17 +119,35 @@ class RNewsgroup:public Newsgroup {
 		}
 	}
 
-	virtual artnum_t readoverdb(std::istream & is) {
+	virtual artnum_t readoverdb(std::istream & is, ReplyBudget &budget,
+				    artnum_t first, artnum_t last) {
 		VERB(slog.
 		     p(Logger::Debug) << "RNewsgroup::readoverdb(&is)\n");
 		std::string line1, line2;
 		artnum_t n, high = 0;
 
 		for (;;) {
-			nlreadline(is, line1, 0, NNTP_MAXLINE);
-			if (line1 == "." || is.eof())
+			size_t wire_bytes = 0;
+			nlreadline(is, line1, 0, NNTP_MAXLINE, &wire_bytes);
+			if (budget.expired())
+				throw ReplyLimitError(budget);
+			if (!is.good()) {
+				sockstream *socket = dynamic_cast<sockstream *>(&is);
+				if (socket && socket->reply_expired())
+					throw ReplyLimitError(budget, true);
 				break;
-			if ((n = leading_artnum(line1.c_str())) > high)
+			}
+			if (line1 == ".") {
+				if (!budget.finish(wire_bytes))
+					throw ReplyLimitError(budget);
+				break;
+			}
+			if (!budget.add(wire_bytes))
+				throw ReplyLimitError(budget);
+			n = leading_artnum(line1.c_str());
+			if (!n || n < first || n > last)
+				continue;
+			if (n > high)
 				high = n;
 			if (_OverviewFormat->dotrans) {
 				// Convert Record

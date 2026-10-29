@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "Logger.h"
@@ -171,6 +172,22 @@ int main()
 		CHECK(gi.last() == 67486767815ULL);
 		CHECK(gi.n() == 486767816ULL);
 		CHECK(gi.ctime() == 1000000000);
+
+		// A cut-off reply must not advance the previous timestamp.
+		std::istringstream incomplete("de.test 20 10 y\r\n");
+		bool cut = false;
+		try {
+			db.read(incomplete, "*", 0, 0);
+		} catch (const SystemError &) {
+			cut = true;
+		}
+		CHECK(cut);
+		db.getmtime(&mtime);
+		CHECK(mtime == 1234567890);
+		std::istringstream complete("de.test 20 10 y\r\n.\r\n");
+		db.read(complete, "*", 0, 0);
+		db.getmtime(&mtime);
+		CHECK(mtime != 0);
 	}
 
 	// Once converted, nothing more happens

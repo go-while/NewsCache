@@ -21,6 +21,7 @@
 #include "config.h"
 #include "Debug.h"
 #include "artnum.h"
+#include "ReplyBudget.h"
 #include "OverviewFmt.h"
 #include "wildmat.h"
 
@@ -140,7 +141,8 @@ class Newsgroup {
 	}
 	// Reads overview records up to the "." line and stores them;
 	// returns the highest article number read (0 for none).
-	virtual artnum_t readoverdb(std::istream & is) = 0;
+	virtual artnum_t readoverdb(std::istream & is, ReplyBudget &budget,
+				    artnum_t first, artnum_t last) = 0;
 	virtual void printoverdb(std::ostream & os, artnum_t f =
 				 0, artnum_t l = ARTNUM_MAX) {
 		artnum_t i, ol;

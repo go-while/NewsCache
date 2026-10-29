@@ -3,6 +3,7 @@
 
 #include <signal.h>
 #include <sys/socket.h>
+#include <time.h>
 
 #if defined(HAVE_GNUTLS)
 #include <gnutls/gnutls.h>
@@ -56,6 +57,8 @@ class sockstream
     // A read that waits longer for the peer fails (0: no limit)
     void set_record_timeout(unsigned int seconds);
     void disconnect();
+    // Discard buffered output and suppress TLS close_notify on abort.
+    void abandon();
 #else
    public:
     inline bool connected() const
@@ -68,6 +71,8 @@ class sockstream
     inline void set_record_timeout(unsigned int)
     { }
     inline void disconnect()
+    { }
+    inline void abandon()
     { }
 #endif
   };
@@ -85,6 +90,9 @@ class sockstream
 
     int _fd;
     unsigned int _io_timeout;	// seconds per send/recv, 0 = none
+	bool _reply_deadline_active;
+	struct timespec _reply_deadline;
+	int _reply_saved_flags;
     char _gbuf[4096];
     char _pbuf[4096];
 
@@ -97,6 +105,7 @@ class sockstream
     // timeout (no limit without one); false when the time ran out, or
     // when the alarm indicator is set (the alarm, a signal).
     bool wait_io(bool for_write);
+    long long reply_ms_left() const;
 
    public:
     static inline void alarm_indicator(sig_atomic_t &var)
@@ -105,7 +114,8 @@ class sockstream
     }
 
     inline sockstreambuf()
-      : _fd(-1), _io_timeout(0), _wait_read(0), _wait_write(0)
+      : _fd(-1), _io_timeout(0), _reply_deadline_active(false),
+	_reply_saved_flags(0), _wait_read(0), _wait_write(0)
     {
       setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
       setp(_pbuf, _pbuf + sizeof(_pbuf));
@@ -130,6 +140,10 @@ class sockstream
     void attach(int fd);
 
     void disconnect();
+    void abort();
+    bool begin_reply(unsigned int seconds);
+    bool end_reply();
+    bool reply_expired() const;
     void dispose()
     {
       sync();
@@ -254,6 +268,29 @@ class sockstream
     _buf.disconnect();
     clear(std::ios::badbit);
   }
+
+  // A partially consumed reply cannot be reused. Do not flush or send a
+  // protocol/TLS shutdown to an unresponsive peer while discarding it.
+  inline void abort()
+  {
+    if (_ssl)
+      _ssl->abandon();
+    _buf.abort();
+    clear(std::ios::badbit);
+  }
+
+  // Scoped by a caller while consuming a multiline upstream reply.
+  inline bool begin_reply(unsigned int seconds)
+  { return _buf.begin_reply(seconds); }
+  inline bool end_reply()
+  {
+    if (_buf.end_reply())
+      return true;
+    abort();
+    return false;
+  }
+  inline bool reply_expired() const
+  { return _buf.reply_expired(); }
 
   // TLS handshake as the server on the attach()ed socket (a sockstream
   // made with ssl and server). False if it failed; info says why, or
