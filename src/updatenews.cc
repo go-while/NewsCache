@@ -27,6 +27,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 
@@ -180,6 +181,11 @@ void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 	// update from both the operator and cron.
 	if (!fn || !*fn)
 		return;
+	// A directory opens but reads nothing, a FIFO blocks the run
+	struct stat st;
+	if (stat(fn, &st) == 0 && !S_ISREG(st.st_mode))
+		throw SystemError("cannot open PrefetchFile " + string(fn) +
+				  ": not a regular file", -1, ERROR_LOCATION);
 	errno = 0;
 	ifstream ifs(fn);
 	string line;

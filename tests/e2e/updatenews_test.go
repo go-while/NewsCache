@@ -911,3 +911,39 @@ func TestUpdatenewsWorkersOption(t *testing.T) {
 		t.Errorf("updatenews -w x: accepted\n%s", out)
 	}
 }
+
+// A PrefetchFile that is a directory read as empty (prefetching silently
+// skipped), and a FIFO blocked the run for ever. Both are refused.
+func TestUpdatenewsPrefetchFileNotRegular(t *testing.T) {
+	for _, kind := range []string{"directory", "fifo"} {
+		t.Run(kind, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			path := filepath.Join(e.Dir, "prefetch")
+			var err error
+			if kind == "directory" {
+				err = os.Mkdir(path, 0o755)
+			} else {
+				err = syscall.Mkfifo(path, 0o644)
+			}
+			if err != nil {
+				t.Skipf("can't make a %s: %v", kind, err)
+			}
+			e.Extra = "PrefetchFile " + path
+			e.writeConf()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+			if ctx.Err() != nil {
+				t.Fatalf("updatenews with a %s as PrefetchFile did not finish: %s", kind, out)
+			}
+			if err == nil {
+				t.Fatalf("updatenews with a %s as PrefetchFile succeeded; output: %s", kind, out)
+			}
+			if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+				!strings.Contains(string(out), "not a regular file") {
+				t.Errorf("updatenews did not report the %s: %s", kind, out)
+			}
+		})
+	}
+}
