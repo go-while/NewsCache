@@ -749,6 +749,24 @@ int NVcontainer::lock(int command, int block)
 					       errno == EINTR)
 						;
 				}
+				// Back to an outer lock and the remap failed
+				// (the file grew while the inner lock was
+				// given up): the outer lock would be held with
+				// no mapping, and the outer caller (an NVLock
+				// destructor swallows this exception) would
+				// go on with it. Give up the outer locks as
+				// corrupt() does: their UnLock calls are let
+				// through, a new lock() maps again.
+				else if (asked == UnLock &&
+					 lck_stackp < NVcontainer_LOCKSTACKSIZE) {
+					lck_orphans += NVcontainer_LOCKSTACKSIZE - lck_stackp;
+					if (lck_orphans > 4 * NVcontainer_LOCKSTACKSIZE)
+						lck_orphans = 4 * NVcontainer_LOCKSTACKSIZE;
+					lck_stackp = NVcontainer_LOCKSTACKSIZE;
+					while (nvflock(mem_fd, UnLock, Block) < 0 &&
+					       errno == EINTR)
+						;
+				}
 				throw;
 			}
 		}
