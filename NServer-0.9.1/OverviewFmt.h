@@ -278,7 +278,16 @@ class OverviewFmt {
 					  OverviewFmt & o) {
 		int i;
 		for (i = 0; i < o._osz; i++) {
-			os << o._over[i].name;
+			// RFC 3977 gives the overview metadata fields names rather
+			// than header names. Keep the internal names (used to read
+			// upstream formats) and translate only this client-facing
+			// LIST OVERVIEW.FMT output.
+			if (strcasecmp(o._over[i].name, "Bytes:") == 0)
+				os << ":bytes";
+			else if (strcasecmp(o._over[i].name, "Lines:") == 0)
+				os << ":lines";
+			else
+				os << o._over[i].name;
 			if (o._over[i].full)
 				os << "full\r\n";
 			else
