@@ -3240,13 +3240,14 @@ void nnrpd(int fd, bool tls)
 		// check whether the client is allowed access according to
 		// libwrap
 #ifdef HAVE_LIBWRAP
-		// (hosts_ctl takes char *, not a string literal)
+		// (hosts_ctl takes char *, not string literals)
 		static char libwrap_daemon[] = PACKAGE;
+		static char libwrap_unknown[] = STRING_UNKNOWN;
 		// Check the hosts_access configuration; emulate INN error message
 		if (have_peer &&
 		    !hosts_ctl(libwrap_daemon,
 			       clt.client_name, clt.client_addr,
-			       STRING_UNKNOWN)) {
+			       libwrap_unknown)) {
 			slog.p(Logger::Notice) << clt.
 			    client_logname << " denied - hosts.allow\n";
 			(*clt.
