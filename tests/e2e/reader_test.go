@@ -649,7 +649,11 @@ func TestNewgroupsRejectsInvalidDateTime(t *testing.T) {
 		"00000101 000000 GMT",
 		"20260101 000000 UTC",
 	} {
-		if code, line := c.Cmd("NEWGROUPS %s", args); code != 501 {
+		code, line := c.Cmd("NEWGROUPS %s", args)
+		if code == 231 {
+			c.ReadDotLines()
+		}
+		if code != 501 {
 			t.Errorf("NEWGROUPS %s: %q, want 501", args, line)
 		}
 	}
