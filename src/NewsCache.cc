@@ -2592,6 +2592,53 @@ static int current_group(ClientData * clt)
 	return 0;
 }
 
+/*
+ * Sends the status line to out before the first character that is
+ * written; used() tells whether anything was. OVER and HDR use this to
+ * answer 423 instead of an empty list (RFC 3977 8.3 and 8.5).
+ */
+class LazyStatus:public std::streambuf {
+	ostream & out;
+	string status;
+	bool started;
+	void start(void) {
+		if (!started) {
+			out << status;
+			started = true;
+		}
+	}
+      protected:
+	virtual int overflow(int c) {
+		if (c != EOF) {
+			start();
+			out.put((char) c);
+			if (!out.good())
+				return EOF;
+		}
+		return c;
+	}
+	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
+		if (n > 0) {
+			start();
+			out.write(p, n);
+			if (!out.good())
+				return 0;
+		}
+		return n;
+	}
+	virtual int sync(void) {
+		out.flush();
+		return out.good() ? 0 : -1;
+	}
+      public:
+	LazyStatus(ostream & o, const char *st)
+	:out(o), status(st), started(false) {
+	}
+	bool used(void) const {
+		return started;
+	}
+};
+
 int ns_xover(ClientData * clt, int argc, char *argv[])
 {
 	int i = 1;
@@ -2658,8 +2705,26 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 
 	switch (i) {
 	case 1:
-		(*clt->co) << "224 Overview information follows\r\n";
-		clt->grp->printoverdb(*clt->co, fst, lst);
+		if (strcmp(argv[0], "over") == 0) {
+			// Do not send 224 until an overview record is available.
+			// A reversed range has no articles (RFC 3977 8.3.2).
+			LazyStatus ls(*clt->co, "224 Overview information follows\r\n");
+			ostream os(&ls);
+			if (fst <= lst)
+				clt->grp->printoverdb(os, fst, lst);
+			os.flush();
+			if (!ls.used()) {
+				if (argc == 1)
+					(*clt->co) << "420 no current article has been selected\r\n";
+				else
+					(*clt->co) << "423 no articles in that range\r\n";
+				return 0;
+			}
+		} else {
+			// XOVER keeps its existing 224/empty-list behaviour.
+			(*clt->co) << "224 Overview information follows\r\n";
+			clt->grp->printoverdb(*clt->co, fst, lst);
+		}
 		break;
 	case 2:
 		(*clt->co) << "221 " << argv[1] << " header follows [" << fst
@@ -2729,45 +2794,6 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 	(*clt->co) << ".\r\n";
 	return 0;
 }
-
-/*
- * Sends the status line to out before the first character that is
- * written; used() tells whether anything was. HDR answers 423 instead
- * of an empty list (RFC 3977 8.5).
- */
-class LazyStatus:public std::streambuf {
-	ostream & out;
-	string status;
-	bool started;
-	void start(void) {
-		if (!started) {
-			out << status;
-			started = true;
-		}
-	}
-      protected:
-	virtual int overflow(int c) {
-		if (c != EOF) {
-			start();
-			out.put((char) c);
-		}
-		return c;
-	}
-	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
-		if (n > 0) {
-			start();
-			out.write(p, n);
-		}
-		return n;
-	}
-      public:
-	LazyStatus(ostream & o, const char *st)
-	:out(o), status(st), started(false) {
-	}
-	bool used(void) const {
-		return started;
-	}
-};
 
 /*
  * HDR field [range|<message-id>] (RFC 3977 8.5). By number it reads the

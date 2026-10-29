@@ -29,19 +29,24 @@ func upstreamWith(t *testing.T, e *env, o fakeserver.Options) {
 	e.Upstream = fakeserver.New(t, o)
 }
 
-// expectXover runs XOVER a-b and checks the article numbers; with no
-// numbers it accepts 423 (no articles) or an empty 224.
-func expectXover(t *testing.T, c *client.Conn, a, b int64, want ...int64) {
+// expectOver runs OVER a-b and requires 423 when the range has no articles.
+func expectOver(t *testing.T, c *client.Conn, a, b int64, want ...int64) {
 	t.Helper()
-	code, line := c.Cmd("XOVER %d-%d", a, b)
-	if code == 423 && len(want) == 0 {
+	code, line := c.Cmd("OVER %d-%d", a, b)
+	if len(want) == 0 {
+		if code != 423 {
+			if code == 224 {
+				c.ReadDotLines()
+			}
+			t.Errorf("OVER %d-%d: %q, want 423", a, b, line)
+		}
 		return
 	}
 	if code != 224 {
-		t.Errorf("XOVER %d-%d: %q, want 224 with %v", a, b, line, want)
+		t.Errorf("OVER %d-%d: %q, want 224 with %v", a, b, line, want)
 		return
 	}
-	wantNumbers(t, fmt.Sprintf("XOVER %d-%d", a, b), xoverNumbers(t, c.ReadDotLines()), want...)
+	wantNumbers(t, fmt.Sprintf("OVER %d-%d", a, b), xoverNumbers(t, c.ReadDotLines()), want...)
 }
 
 // TestUpstreamOldListgroup: servers of RFC 977/2980 reject the range form
@@ -61,8 +66,8 @@ func TestUpstreamOldListgroup(t *testing.T) {
 			if code, line := c.Cmd("GROUP %s", bigGroup); code != 211 {
 				t.Fatalf("GROUP: %q", line)
 			}
-			expectXover(t, c, 20001, 20010, 20001, 20002, 20003)
-			expectXover(t, c, 1, 10, 1, 2, 3)
+			expectOver(t, c, 20001, 20010, 20001, 20002, 20003)
+			expectOver(t, c, 1, 10, 1, 2, 3)
 			code, line := c.Cmd("LISTGROUP %s 20001-20010", bigGroup)
 			if code != 211 {
 				t.Fatalf("LISTGROUP range: %q", line)
@@ -81,8 +86,8 @@ func TestUpstreamOldListgroup(t *testing.T) {
 			time.Sleep(1100 * time.Millisecond)
 			c = e.session()
 			c.Cmd("GROUP %s", bigGroup)
-			expectXover(t, c, 20001, 20010, 20001, 20003)
-			expectXover(t, c, 1, 10, 1, 2, 3)
+			expectOver(t, c, 20001, 20010, 20001, 20003)
+			expectOver(t, c, 1, 10, 1, 2, 3)
 			c.Cmd("QUIT")
 		})
 	}
@@ -112,9 +117,9 @@ func TestUpstreamOverVariants(t *testing.T) {
 			if code, line := c.Cmd("GROUP %s", bigGroup); code != 211 {
 				t.Fatalf("GROUP: %q", line)
 			}
-			expectXover(t, c, 4, 9)
-			expectXover(t, c, 1, 20, 1, 2, 3, 10)
-			expectXover(t, c, 11, 20)
+			expectOver(t, c, 4, 9)
+			expectOver(t, c, 1, 20, 1, 2, 3, 10)
+			expectOver(t, c, 11, 20)
 			if code, line := c.Cmd("XHDR subject 10"); code != 221 {
 				t.Errorf("XHDR: %q", line)
 			} else if hd := c.ReadDotLines(); len(hd) != 1 || !strings.HasPrefix(hd[0], "10 article 10") {
@@ -149,7 +154,7 @@ func TestUpstreamLastNumberDown(t *testing.T) {
 		t.Helper()
 		c := e.session()
 		c.Cmd("GROUP %s", bigGroup)
-		expectXover(t, c, 1, 5, want...)
+		expectOver(t, c, 1, 5, want...)
 		for _, n := range want {
 			if code, line := c.Cmd("ARTICLE %d", n); code != 220 {
 				t.Errorf("%s: ARTICLE %d: %q", what, n, line)
@@ -203,7 +208,7 @@ func TestUpstreamEmptiedGroup(t *testing.T) {
 			upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{GroupNumbers: tc.numbers}})
 			c := e.session()
 			c.Cmd("GROUP %s", bigGroup)
-			expectXover(t, c, 1, 3, 1, 2, 3)
+			expectOver(t, c, 1, 3, 1, 2, 3)
 			c.Cmd("ARTICLE 1")
 			c.ReadDotLines()
 			c.Cmd("QUIT")
@@ -215,7 +220,7 @@ func TestUpstreamEmptiedGroup(t *testing.T) {
 			if code != 211 || !strings.HasPrefix(line, "211 0 ") {
 				t.Errorf("GROUP of the emptied group: %q, want 211 0 ...", line)
 			}
-			expectXover(t, c, 1, 3)
+			expectOver(t, c, 1, 3)
 			if code, line := c.Cmd("ARTICLE 1"); code != 423 && code != 420 {
 				t.Errorf("ARTICLE 1 after the group emptied: %q", line)
 				if code == 220 {
@@ -258,7 +263,7 @@ func TestUpstreamTooManyConnections(t *testing.T) {
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Errorf("GROUP with a free connection: %q", line)
 	}
-	expectXover(t, c, 1, 2, 1, 2)
+	expectOver(t, c, 1, 2, 1, 2)
 	c.Cmd("QUIT")
 }
 
@@ -287,7 +292,7 @@ func TestHistoryUnusualMessageIDs(t *testing.T) {
 	}
 	c := e.session()
 	c.Cmd("GROUP test.ids")
-	expectXover(t, c, 1, 5, 1, 2, 3, 4, 5)
+	expectOver(t, c, 1, 5, 1, 2, 3, 4, 5)
 	for _, id := range ids {
 		if code, line := c.Cmd("ARTICLE %s", id); code != 220 || !strings.Contains(line, id) {
 			t.Errorf("ARTICLE %s: %q", id, line)
@@ -375,8 +380,8 @@ func TestUpstreamOverRangeCap(t *testing.T) {
 			upstreamWith(t, e, fakeserver.Options{StoreOpts: tc.so})
 			c := e.session()
 			c.Cmd("GROUP %s", bigGroup)
-			expectXover(t, c, 1, 25, all...)
-			expectXover(t, c, 20, 25, 20, 21, 22, 23, 24, 25)
+			expectOver(t, c, 1, 25, all...)
+			expectOver(t, c, 20, 25, 20, 21, 22, 23, 24, 25)
 			c.Cmd("QUIT")
 			if n := e.Upstream.Count("OVER"); n > 4 {
 				t.Errorf("%d OVER requests for 25 records, 10 per reply", n)
@@ -404,9 +409,9 @@ func TestUpstreamLoginExpired(t *testing.T) {
 	upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: "secret"}, Faults: f})
 	c := e.session()
 	c.Cmd("GROUP %s", bigGroup)
-	expectXover(t, c, 1, 3, 1, 2, 3) // the first OVER
+	expectOver(t, c, 1, 3, 1, 2, 3) // the first OVER
 	c.Cmd("GROUP alt.other")
-	expectXover(t, c, 1, 1, 1) // the second OVER gets 480
+	expectOver(t, c, 1, 1, 1) // the second OVER gets 480
 	c.Cmd("QUIT")
 	if n := e.Upstream.Count("AUTHINFO"); n < 4 {
 		t.Errorf("upstream got %d AUTHINFO lines, want a second login", n)
@@ -1032,7 +1037,7 @@ func TestUpstreamLowZero(t *testing.T) {
 			} else {
 				t.Logf("GROUP: %q", line)
 			}
-			expectXover(t, c, 0, 3, 1, 2, 3)
+			expectOver(t, c, 0, 3, 1, 2, 3)
 			if code, line := c.Cmd("XHDR Subject 0-3"); code != 221 {
 				t.Errorf("XHDR Subject 0-3: %q, want 221", line)
 			} else if lines := c.ReadDotLines(); len(lines) != 3 {
@@ -1151,7 +1156,7 @@ func testUpstream503Reply(t *testing.T, useTLS bool) {
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP: %q", line)
 	}
-	expectXover(t, c, 1, 3, 1, 2, 3)
+	expectOver(t, c, 1, 3, 1, 2, 3)
 	if n := e.Upstream.Count("OVER"); n != 1 {
 		t.Errorf("upstream got OVER %d times, want once", n)
 	}
@@ -1225,7 +1230,7 @@ func TestUpstream503TimeoutClose(t *testing.T) {
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP: %q", line)
 	}
-	expectXover(t, c, 1, 3, 1, 2, 3)
+	expectOver(t, c, 1, 3, 1, 2, 3)
 	time.Sleep(time.Second)
 	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
 		t.Fatalf("ARTICLE 2 after the upstream closed with 503: %q, want 220", line)

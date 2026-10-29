@@ -782,6 +782,62 @@ func TestXhdrMessageID(t *testing.T) {
 	}
 }
 
+// TestOverRangeResponses distinguishes RFC 3977 OVER from the older aliases.
+func TestOverRangeResponses(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	if !e.Store.RemoveArticle("test.alpha", 2) {
+		t.Fatal("remove article 2")
+	}
+	e.Store.AddGroup("test.empty", "empty group")
+	c := e.session()
+	if code, line := c.Cmd("OVER 1-3"); code != 412 {
+		t.Fatalf("OVER without group: %q, want 412", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q, want 211", line)
+	}
+	for _, tc := range []struct {
+		cmd  string
+		code int
+		want []int64
+	}{
+		{"OVER 1-3", 224, []int64{1, 3}},
+		{"OVER 2-2", 423, nil},
+		{"OVER 3-1", 423, nil},
+		{"OVER 4-", 423, nil},
+		{"OVER", 224, []int64{1}},
+		// The historic aliases retain their existing empty-list replies.
+		{"XOVER 2-2", 224, nil},
+		{"XHDR subject 2-2", 221, nil},
+	} {
+		t.Run(tc.cmd, func(t *testing.T) {
+			code, line := c.Cmd("%s", tc.cmd)
+			var lines []string
+			if code == 224 || code == 221 {
+				lines = c.ReadDotLines()
+			}
+			if code != tc.code {
+				t.Errorf("%s: %q, want %d (data %q)", tc.cmd, line, tc.code, lines)
+				return
+			}
+			if code == 224 || code == 221 {
+				wantNumbers(t, tc.cmd, xoverNumbers(t, lines), tc.want...)
+			}
+		})
+	}
+	if code, line := c.Cmd("GROUP test.empty"); code != 211 {
+		t.Fatalf("GROUP empty: %q, want 211", line)
+	}
+	if code, line := c.Cmd("OVER"); code != 420 {
+		t.Errorf("OVER without current article: %q, want 420", line)
+	}
+	// No dot terminator may follow a single-line 423 or 420.
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after OVER: %q, want 111", line)
+	}
+}
+
 // TestOverviewAfterArticleRead: an article read by a client replaces its
 // overview record in the group database, and the record is then made
 // from the article. It lost :lines when the article has no Lines header
