@@ -25,7 +25,7 @@ Status values: not started, in progress, reviewed (date), reviewed 2× (date).
 | 0 | Top-level files and docs | `README`, `INSTALL`, `man/`, `doc/` (incl. `NewsCache.texi`), `debian/README.Debian`, `debian/copyright`, "PLEASE REPORT TO" messages in the code | | Old `TODO` sorted and removed (#13), dead links (#12), `stamp-h.in` (#11) | reviewed (2026-10-20) |
 | 1 | Client session | `src/NewsCache.cc`: `nnrpd()`, command map, `set_client_command_table()` | ~650 | Line reading and length limits, argument splitting, the command state machine, timeouts | reviewed (2026-10-24) |
 | 2 | NNTP commands | `src/NewsCache.cc`: `ns_*()`, `selectgroup()`, `nsh_particle()` | ~1,050 | Argument checks, fixed buffers and `sprintf`, reply codes against RFC 3977, dot-stuffing, ranges | reviewed (2026-10-24) |
-| 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | reviewed (2026-10-24) |
+| 3 | Authentication | `src/NewsCache.cc` (`check_auth_*`, `seekfile()`, PAM), `Authentication` in `src/AccessList.{h,cc}`, `md5lib/`, `src/crypt.cc` | ~1,000 | Auth-file parsing (static buffers, 8 fields), `strcpy` of user and password, PAM conversation, failure delay | reviewed (2026-10-24) |
 | 4 | Access list | `src/AccessList.{h,cc}` (matching, parsing) | ~500 | Address and name matching, IPv4/IPv6, prefix parsing, default entry | reviewed (2026-10-25) |
 | 5 | Daemon | `src/NewsCache.cc`: `nntpd()`, signal handlers, `main()`; `src/setugid.{h,cc}` | ~650 | Accept loop, fork, `MaxConnections` accounting, signal safety, privilege drop order (`setgroups`), pid file | reviewed (2026-10-25) |
 | 6 | Configuration | `src/NewsCacheConfig.{h,cc}`, `NServer-0.9.1/Lexer.h`, `MPList.{h,cc}` | ~1,000 | Parser limits, fixed-size fields, error reporting, reload | reviewed (2026-10-25) |
@@ -262,6 +262,7 @@ that it stays as it is.
 | Point | Area | Found by | Test |
 |---|---|---|---|
 | "No such user" and "wrong password" can be told apart by the time the answer takes | 3 | review (area 3) |  |
+| `src/crypt.cc` doesn't compile and nothing builds it (dead code); the man page recommends htpasswd, whose default `$apr1$` hashes libxcrypt can't check | 3, 0 | review (area 3) |  |
 | The remap fix (#105) leaves one case: when `lock(UnLock)` goes back to an outer lock and `make_current` fails there (the file grew between the inner and the outer lock), the outer lock stays held with the mapping reset to NULL, and the outer caller's next access dereferences it (the old code crashed on the stale mapping) | 9 | review (area 9, integration of #105) |  |
 | SIGHUP reload: the startup-only fields (ListenTo, CachePort, Username, Groupname, PidFile, LogDirectory, ServerType, NiceServer) change silently without effect (log "restart needed"); a new Hostname isn't copied to `nntp_hostname`; `Config::init` runs `getfqdn()` (DNS) on every reload; the config must be readable by Username | 5, 6 | review (area 6, L7) |  |
 | A signal that arrives between the checks of `Xsignal` and the next `accept()` is noticed only at the next connection (self-pipe or `ppoll` with the old mask would fix it); the child should reset `Xsignal` after fork | 5 | review (area 5, L8) |  |
