@@ -274,6 +274,62 @@ func TestPrefetchLiteral(t *testing.T) {
 	}
 }
 
+// A configured PrefetchFile must be opened successfully; the missing path
+// case is tested as an unprivileged user so root cannot mask permissions.
+func TestUpdatenewsMissingPrefetchFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("PrefetchFile open-error test requires a non-root process")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "PrefetchFile " + filepath.Join(e.Dir, "missing-prefetch")
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err == nil {
+		t.Fatalf("updatenews with a missing PrefetchFile succeeded; output: %s", out)
+	}
+	if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+		!strings.Contains(string(out), "No such file or directory") {
+		t.Errorf("updatenews did not report the missing PrefetchFile and why: %s", out)
+	}
+}
+
+// The configured file is unreadable to the non-root updatenews process.
+func TestUpdatenewsUnreadablePrefetchFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("PrefetchFile open-error test requires a non-root process")
+	}
+	e := newEnv(t)
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte("test.alpha\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err == nil {
+		t.Fatalf("updatenews with an unreadable PrefetchFile succeeded; output: %s", out)
+	}
+	if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+		!strings.Contains(string(out), "Permission denied") {
+		t.Errorf("updatenews did not report the unreadable PrefetchFile and why: %s", out)
+	}
+}
+
+// An empty PrefetchFile remains the supported way to disable group prefetch.
+func TestUpdatenewsEmptyPrefetchFile(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err != nil {
+		t.Fatalf("updatenews with no PrefetchFile: %v\n%s", err, out)
+	}
+	if groups := prefetched(e); len(groups) != 0 {
+		t.Errorf("empty PrefetchFile prefetched groups %q", groups)
+	}
+}
+
 // A recently refreshed empty group needs no upstream GROUP during prefetch.
 // With the old override of zero it was refreshed again after one second,
 // even though the active-list entry was still fresh for the new 60s policy.
@@ -853,5 +909,56 @@ func TestUpdatenewsWorkersOption(t *testing.T) {
 	e.writeConf()
 	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-w", "x").CombinedOutput(); err == nil {
 		t.Errorf("updatenews -w x: accepted\n%s", out)
+	}
+}
+
+// A PrefetchFile that is a directory read as empty (prefetching silently
+// skipped), and a FIFO blocked the run for ever. Both are refused.
+func TestUpdatenewsPrefetchFileNotRegular(t *testing.T) {
+	for _, kind := range []string{"directory", "fifo"} {
+		t.Run(kind, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			path := filepath.Join(e.Dir, "prefetch")
+			var err error
+			if kind == "directory" {
+				err = os.Mkdir(path, 0o755)
+			} else {
+				err = syscall.Mkfifo(path, 0o644)
+			}
+			if err != nil {
+				t.Skipf("can't make a %s: %v", kind, err)
+			}
+			e.Extra = "PrefetchFile " + path
+			e.writeConf()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+			if ctx.Err() != nil {
+				t.Fatalf("updatenews with a %s as PrefetchFile did not finish: %s", kind, out)
+			}
+			if err == nil {
+				t.Fatalf("updatenews with a %s as PrefetchFile succeeded; output: %s", kind, out)
+			}
+			if !strings.Contains(string(out), "cannot open PrefetchFile") ||
+				!strings.Contains(string(out), "not a regular file") {
+				t.Errorf("updatenews did not report the %s: %s", kind, out)
+			}
+		})
+	}
+}
+
+// /dev/null as PrefetchFile ("no groups") keeps working.
+func TestUpdatenewsPrefetchFileDevNull(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "PrefetchFile /dev/null"
+	e.writeConf()
+	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
+	if err != nil {
+		t.Fatalf("updatenews with PrefetchFile /dev/null: %v\n%s", err, out)
+	}
+	if groups := prefetched(e); len(groups) != 0 {
+		t.Errorf("PrefetchFile /dev/null prefetched groups %q", groups)
 	}
 }

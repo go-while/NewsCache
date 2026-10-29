@@ -27,6 +27,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 
@@ -174,12 +175,27 @@ static bool is_pattern(const string & line)
  */
 void readgroups(const char *fn, ActiveDB * active, vector < string > &groups)
 {
+	// An unset PrefetchFile means that no groups are configured for
+	// prefetching. A configured path, however, must be readable: silently
+	// treating a typo or a permission error as an empty file hides a failed
+	// update from both the operator and cron.
+	if (!fn || !*fn)
+		return;
+	// A directory opens but reads nothing, a FIFO blocks the run; a
+	// device stays allowed (/dev/null: no groups)
+	struct stat st;
+	if (stat(fn, &st) == 0 && !S_ISREG(st.st_mode) && !S_ISCHR(st.st_mode))
+		throw SystemError("cannot open PrefetchFile " + string(fn) +
+				  ": not a regular file", -1, ERROR_LOCATION);
+	errno = 0;
 	ifstream ifs(fn);
 	string line;
 	vector < string > want, skip;
 
-	if (!ifs.good()) {
-		return;
+	if (!ifs.is_open()) {
+		int err = errno ? errno : EIO;
+		throw SystemError("cannot open PrefetchFile " + string(fn) +
+				  ": " + strerror(err), err, ERROR_LOCATION);
 	}
 
 	for (; Xsignal < 0;) {
