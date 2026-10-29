@@ -327,8 +327,6 @@ int main(int argc, char **argv)
 {
 #ifndef WITH_SYSLOG
 	char logfile[MAXPATHLEN];
-	time_t t;
-	pid_t p;
 #endif
 	char conffile[MAXPATHLEN];
 	int opt_flagsset = 0;

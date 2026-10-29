@@ -4226,8 +4226,6 @@ int main(int argc, char **argv)
 {
 #ifndef WITH_SYSLOG
 	char logfile[MAXPATHLEN];
-	time_t t;
-	pid_t p;
 #endif
 	int opt_inetd = 0, opt_debug = 0, opt_print_para = 0;
 	int opt_nofork = 0, opt_config_options = 0, opt_tls = 0;
