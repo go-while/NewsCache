@@ -331,10 +331,29 @@ static NNRPCommandMap nnrp_commands;
 
 char config_file[MAXPATHLEN];
 Config Cfg;
-bool reReadConfig;
+volatile sig_atomic_t reReadConfig;
 
-sig_atomic_t Xsignal;
+volatile sig_atomic_t Xsignal;
 volatile sig_atomic_t nntp_connections;	// sigchld() decrements it
+
+// The master wakes poll() through this nonblocking pipe. A signal arriving
+// after the flag check but before poll must not leave an idle daemon asleep.
+// Session children disable and close their inherited pipe ends after fork.
+static volatile sig_atomic_t signal_wake_write = -1;
+
+static void wake_master(void)
+{
+	int saved_errno = errno;
+	if (signal_wake_write >= 0) {
+		const char byte = 0;
+		// EAGAIN is harmless: a full pipe already wakes the poller.
+		ssize_t n;
+		do {
+			n = write((int) signal_wake_write, &byte, 1);
+		} while (n < 0 && errno == EINTR);
+	}
+	errno = saved_errno;
+}
 
 /* The daemon's session processes, so that it can end them when it stops
  * (they kept running until ClientTimeout). Only sigchld() changes a pid
@@ -346,6 +365,19 @@ static void block_sigchld(sigset_t * old)
 	sigset_t set;
 	sigemptyset(&set);
 	sigaddset(&set, SIGCHLD);
+	sigprocmask(SIG_BLOCK, &set, old);
+}
+
+// Fork with termination and reload signals blocked too, so the child can
+// clear the master's state and close the wake pipe before handling signals.
+static void block_fork_signals(sigset_t * old)
+{
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGCHLD);
+	sigaddset(&set, SIGINT);
+	sigaddset(&set, SIGTERM);
+	sigaddset(&set, SIGHUP);
 	sigprocmask(SIG_BLOCK, &set, old);
 }
 
@@ -3876,6 +3908,27 @@ void nntpd()
 	/* nobody is connecting to NewsCache currently */
 	nntp_connections = 0;
 
+	int wake_pipe[2];
+	if (pipe(wake_pipe) < 0) {
+		slog.p(Logger::Error) << "cannot create signal wake pipe: "
+		    << strerror(errno) << "\n";
+		exit(1);
+	}
+	for (int i = 0; i < 2; i++) {
+		int fl = fcntl(wake_pipe[i], F_GETFL);
+		int fdfl = fcntl(wake_pipe[i], F_GETFD);
+		if (fl < 0 || fdfl < 0 ||
+		    fcntl(wake_pipe[i], F_SETFL, fl | O_NONBLOCK) < 0 ||
+		    fcntl(wake_pipe[i], F_SETFD, fdfl | FD_CLOEXEC) < 0) {
+			slog.p(Logger::Error) << "cannot set signal wake pipe flags: "
+			    << strerror(errno) << "\n";
+			close(wake_pipe[0]);
+			close(wake_pipe[1]);
+			exit(1);
+		}
+	}
+	signal_wake_write = wake_pipe[1];
+
 	int sock = open_listener(Cfg.ListenTo, "ListenTo", true);
 	int tls_sock = -1;
 	if (Cfg.TLSListenTo[0] != '\0')
@@ -3893,7 +3946,7 @@ void nntpd()
 	if (tls_sock >= 0 && listen(tls_sock, LISTEN_BACKLOG) < 0)
 		listen_failed("TLSListenTo", Cfg.TLSListenTo);
 
-	struct pollfd lfd[2];
+	struct pollfd lfd[3];
 	int nlfd = 0;
 	lfd[nlfd].fd = sock;
 	lfd[nlfd++].events = POLLIN;
@@ -3901,6 +3954,8 @@ void nntpd()
 		lfd[nlfd].fd = tls_sock;
 		lfd[nlfd++].events = POLLIN;
 	}
+	lfd[nlfd].fd = wake_pipe[0];
+	lfd[nlfd].events = POLLIN;
 	int next_lfd = 0;	// the listener asked first, in turns
 
 	for (;;) {
@@ -3946,18 +4001,30 @@ void nntpd()
 			log_ended_sessions();
 			errno = 0;
 			clt_fd = -1;
-			for (int i = 0; i < nlfd; i++)
+			for (int i = 0; i <= nlfd; i++)
 				lfd[i].revents = 0;
-			if (poll(lfd, nlfd, -1) > 0) {
-				for (int k = 0; k < nlfd; k++) {
-					const int i = (next_lfd + k) % nlfd;
-					if (!(lfd[i].revents & POLLIN))
-						continue;
-					next_lfd = (i + 1) % nlfd;
-					errno = 0;
-					clt_fd = accept(lfd[i].fd, NULL, NULL);
-					clt_tls = (lfd[i].fd == tls_sock);
-					break;
+			// A signal before the pipe was installed is recorded in the
+			// flags. Later signals leave a byte in the pipe even if they
+			// arrive between this check and poll().
+			if (Xsignal != -1 || reReadConfig)
+				errno = EINTR;
+			else if (poll(lfd, nlfd + 1, -1) > 0) {
+				if (lfd[nlfd].revents & POLLIN) {
+					char buf[128];
+					while (read(wake_pipe[0], buf, sizeof(buf)) > 0)
+						;
+					errno = EINTR;
+				} else {
+					for (int k = 0; k < nlfd; k++) {
+						const int i = (next_lfd + k) % nlfd;
+						if (!(lfd[i].revents & POLLIN))
+							continue;
+						next_lfd = (i + 1) % nlfd;
+						errno = 0;
+						clt_fd = accept(lfd[i].fd, NULL, NULL);
+						clt_tls = (lfd[i].fd == tls_sock);
+						break;
+					}
 				}
 				// the connection went away before accept(),
 				// or no listener was ready after all: wait
@@ -3996,7 +4063,7 @@ void nntpd()
 		// SIGCHLD blocked until the new session is in the table: a
 		// session that ended at once would stay there for good
 		sigset_t old_mask;
-		block_sigchld(&old_mask);
+		block_fork_signals(&old_mask);
 		if (nntp_connections >= Cfg.MaxConnections
 		    || (clt_pid = fork()) < 0) {
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);
@@ -4018,6 +4085,11 @@ void nntpd()
 			// success
 			if (clt_pid == 0) {
 				// child
+				signal_wake_write = -1;
+				close(wake_pipe[0]);
+				close(wake_pipe[1]);
+				Xsignal = -1;
+				alarmed = 0;
 				sigprocmask(SIG_SETMASK, &old_mask, NULL);
 				sessions.clear();
 				close(sock);
@@ -4139,6 +4211,7 @@ void sigchld(int num)
 			}
 		}
 	}
+	wake_master();
 	errno = saved_errno;
 }
 
@@ -4160,6 +4233,7 @@ void catchsigalarm(int num)
 void catchsighup(int num)
 {
 	reReadConfig=true;
+	wake_master();
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -4179,6 +4253,7 @@ void catchsignal(int num)
 	// read) stops at once: the EINTR loops of sockstream end on alarmed
 	// only, so SIGTERM was noticed after the next command line.
 	alarmed = 1;
+	wake_master();
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
