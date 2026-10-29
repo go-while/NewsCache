@@ -810,13 +810,8 @@ func pamService(t *testing.T, bin, module string) string {
 	return pamServiceText(t, bin, module, "auth required "+module+".so\naccount required "+module+".so\n")
 }
 
-// pamServiceText writes a PAM service with the given text, after the same
-// checks as pamService (Linux, a PAM build, module present). It needs write
-// access to /etc/pam.d: root, or (better, newscache never runs as root) a
-// test user given it, e.g. setfacl -m u:newscache:rwx /etc/pam.d.
-// requirePamModule skips unless this is Linux, the binary is linked with
-// PAM and the PAM module is installed.
-func requirePamModule(t *testing.T, bin, module string) {
+// requirePamBuild skips unless the binary is linked with Linux-PAM.
+func requirePamBuild(t *testing.T, bin string) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("needs Linux-PAM")
@@ -827,13 +822,19 @@ func requirePamModule(t *testing.T, bin, module string) {
 	}
 	libs, _ := f.ImportedLibraries()
 	f.Close()
-	pam := false
 	for _, l := range libs {
-		pam = pam || strings.HasPrefix(l, "libpam.so")
+		if strings.HasPrefix(l, "libpam.so") {
+			return
+		}
 	}
-	if !pam {
-		t.Skip("newscache built without PAM (configure --with-pam)")
-	}
+	t.Skip("newscache built without PAM (configure --with-pam)")
+}
+
+// requirePamModule skips unless this is Linux, the binary is linked with
+// PAM and the PAM module is installed.
+func requirePamModule(t *testing.T, bin, module string) {
+	t.Helper()
+	requirePamBuild(t, bin)
 	found := false
 	for _, d := range []string{"/usr/lib64/security", "/lib64/security", "/usr/lib/x86_64-linux-gnu/security",
 		"/lib/x86_64-linux-gnu/security", "/usr/lib/aarch64-linux-gnu/security", "/usr/lib/security", "/lib/security"} {
@@ -847,6 +848,10 @@ func requirePamModule(t *testing.T, bin, module string) {
 	}
 }
 
+// pamServiceText writes a PAM service with the given text, after the same
+// checks as pamService (Linux, a PAM build, module present). It needs write
+// access to /etc/pam.d: root, or (better, newscache never runs as root) a
+// test user given it, e.g. setfacl -m u:newscache:rwx /etc/pam.d.
 func pamServiceText(t *testing.T, bin, module, text string) string {
 	t.Helper()
 	requirePamModule(t, bin, module)
@@ -968,6 +973,74 @@ func TestPamRhostInetd(t *testing.T) {
 	}
 	if got := string(b); got != "unset" && got != "" {
 		t.Errorf("PAM_RHOST in inetd mode = %q, want none", got)
+	}
+}
+
+// TestPamServiceWarning: a PAM service without a configuration in
+// /etc/pam.d or /etc/pam.conf makes PAM fall back to its "other" service,
+// which nobody intended. NewsCache warns once per service name, at startup
+// and after a reload; an existing service gets no warning. Logins stay the
+// same, so this needs no write access to /etc/pam.d.
+func TestPamServiceWarning(t *testing.T) {
+	e := newEnv(t)
+	requirePamBuild(t, e.Bin)
+	requireFileLog(e)
+	existing := ""
+	for _, n := range []string{"login", "sshd", "su", "passwd", "other", "system-auth"} {
+		if _, err := os.Stat("/etc/pam.d/" + n); err == nil {
+			existing = n
+			break
+		}
+	}
+	if existing == "" {
+		t.Skip("no common PAM service in /etc/pam.d to use as the existing one")
+	}
+	const missing = "newscache-e2e-no-such-service"
+	entry := func(addr, service, auth string) string {
+		return `  Client ` + addr + ` {
+    allow authentication
+    List !*
+    Read !*
+    PostTo !*
+    PAMServicename ` + service + `
+    Authentication ` + auth + `
+  }
+`
+	}
+	authFile := filepath.Join(e.Dir, "pam.auth")
+	if err := os.WriteFile(authFile, []byte("*:*\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = "AccessList {\n" +
+		entry("127.0.0.1", missing, "pam") +
+		entry("127.0.0.2", missing, "pam+file:"+authFile) +
+		entry("127.0.0.3", existing, "pam") +
+		"  Default {\n    allow none\n  }\n}"
+	p := e.standalone()
+	e.writeConf()
+	if err := p.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "PAM service " + missing + " not found in /etc/pam.d or /etc/pam.conf"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		log, _ := os.ReadFile(filepath.Join(e.LogDir, "newscache.log"))
+		if strings.Count(string(log), prefix) >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected a warning at startup and after SIGHUP:\n%s", log)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	p.Stop()
+	log := e.logFile()
+	if n := strings.Count(log, prefix); n != 2 {
+		t.Errorf("got %d warnings for the missing service, want 2 (startup, reload; once per name):\n%s",
+			n, grepLines(log, "PAM service"))
+	}
+	if strings.Contains(log, "PAM service "+existing+" not found") {
+		t.Errorf("warned about the existing service %s:\n%s", existing, grepLines(log, "PAM service"))
 	}
 }
 
