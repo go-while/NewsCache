@@ -30,6 +30,82 @@ func TestDefaultConfigPath(t *testing.T) {
 	}
 }
 
+// TestCustomSysconfdirPrefixExpansion: custom sysconfdir values that refer to
+// configure variables must be expanded in SYSCONFDIR, including nested ones.
+func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate config_test.go")
+	}
+	source := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	if _, err := os.Stat(filepath.Join(source, "configure")); err != nil {
+		t.Skipf("configure script not found in %s: %v", source, err)
+	}
+	configureSource := filepath.Join(t.TempDir(), "source")
+	// Copy only configure inputs: copying the full tree would also copy .git,
+	// private ignored files, and read-only distcheck output into the temp dir.
+	// Keep this list aligned with the configure inputs in tests/configure-gnutls.sh.
+	configureInputs := []string{
+		"configure", "config.h.in", "config.guess", "config.sub", "install-sh",
+		"missing", "compile", "depcomp", "test-driver", "Makefile.in",
+		"src/NewsCache.cc", "src/Makefile.in", "md5lib/Makefile.in",
+		"NVClasses-0.9.1/Makefile.in", "NServer-0.9.1/Makefile.in",
+		"NServer-0.9.1/checks/Makefile.in", "man/Makefile.in", "doc/Makefile.in",
+		"etc/Makefile.in", "etc/NewsCache.init.in", "test/Makefile.in",
+	}
+	executableInputs := map[string]bool{
+		"configure": true, "config.guess": true, "config.sub": true,
+		"install-sh": true, "missing": true, "compile": true,
+		"depcomp": true, "test-driver": true,
+	}
+	for _, name := range configureInputs {
+		data, err := os.ReadFile(filepath.Join(source, name))
+		if err != nil {
+			t.Fatalf("read configure input %s: %v", name, err)
+		}
+		dest := filepath.Join(configureSource, name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatalf("create configure input directory for %s: %v", name, err)
+		}
+		mode := os.FileMode(0o644)
+		if executableInputs[name] {
+			mode = 0o755
+		}
+		if err := os.WriteFile(dest, data, mode); err != nil {
+			t.Fatalf("write configure input %s: %v", name, err)
+		}
+	}
+	configure := filepath.Join(configureSource, "configure")
+	const prefix = "/opt/newscache"
+	for _, tc := range []struct {
+		name       string
+		sysconfdir string
+		want       string
+	}{
+		{"prefix", "${prefix}/x", "/opt/newscache/x"},
+		{"exec_prefix", "${exec_prefix}/x", "/opt/newscache/x"},
+		{"datarootdir", "${datarootdir}/x", "/opt/newscache/share/x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			build := t.TempDir()
+			cmd := exec.Command(configure, "--prefix="+prefix,
+				"--sysconfdir="+tc.sysconfdir)
+			cmd.Dir = build
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("configure: %v\n%s", err, out)
+			}
+			config, err := os.ReadFile(filepath.Join(build, "config.h"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `#define SYSCONFDIR "` + tc.want + `"`
+			if !strings.Contains(string(config), want) {
+				t.Errorf("config.h does not expand custom sysconfdir; want %q in:\n%s", want, config)
+			}
+		})
+	}
+}
+
 // TestConfigOpenError: failure to open a configuration file used to be
 // reported as "unexpected EOF", hiding both the path and the system error.
 func TestConfigOpenError(t *testing.T) {
