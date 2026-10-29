@@ -209,9 +209,9 @@ adds it once more to the priority it inherits. A change to NiceServer
 requires a restart; sessions created after SIGHUP use the startup value.
 .TP
 .I "NiceClient n"
-Meant as the increment for the client (session) processes. The default
-is 10. In this version it is read but has no effect; the sessions use
-NiceServer.
+Retained and read for compatibility, but it has no effect in this version.
+In standalone mode, session processes use NiceServer (see above). Setting
+NiceClient, including its default value of 10, does not change their priority.
 .TP
 .I "NiceClean n"
 Increment priority of the newscacheclean process by n. See also

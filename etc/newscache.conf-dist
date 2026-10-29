@@ -75,9 +75,9 @@ ListenTo DEFAULT
 # for the master server process
 NiceServer 0
 
-# for the client processes: read, but has no effect in this version
-# (the sessions run with the NiceServer value)
-NiceClient 10
+# NiceClient is accepted for compatibility but ignored in this version;
+# standalone session processes use NiceServer. Setting NiceClient has no
+# effect.
 
 # for the clean process
 NiceClean 3
