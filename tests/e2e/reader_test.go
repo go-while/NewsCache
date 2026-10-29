@@ -601,14 +601,20 @@ func TestNewgroupsRejectsExtraArgumentsAndUsesRFCReplyLine(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
 	c := e.session()
-	if code, line := c.Cmd("NEWGROUPS 20000101 000000 GMT"); code != 231 ||
-		line != "231 list of new groups follows" {
-		t.Fatalf("NEWGROUPS: %q, want exact 231 reply line", line)
+	code, line := c.Cmd("NEWGROUPS 20000101 000000 GMT")
+	if code != 231 {
+		t.Fatalf("NEWGROUPS: %q, want 231", line)
+	}
+	if line != "231 list of new groups follows" {
+		t.Errorf("NEWGROUPS: %q, want exact 231 reply line", line)
 	}
 	c.ReadDotLines()
-	if code, line := c.Cmd("NEWGROUPS 20000101 000000 GMT extra"); code != 501 ||
-		line != "501 Syntax: NEWGROUPS date time [GMT]" {
+	code, line = c.Cmd("NEWGROUPS 20000101 000000 GMT extra")
+	if code != 501 || line != "501 Syntax: NEWGROUPS date time [GMT]" {
 		t.Errorf("NEWGROUPS with an extra argument: %q, want 501 syntax", line)
+	}
+	if code == 231 {
+		c.ReadDotLines()
 	}
 }
 
