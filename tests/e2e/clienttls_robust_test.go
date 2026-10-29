@@ -204,33 +204,93 @@ func readRobustServerHello(conn net.Conn) (robustServerHello, error) {
 	if _, err := conn.Write(robustClientHello12()); err != nil {
 		return robustServerHello{}, err
 	}
-	header := make([]byte, 5)
-	if _, err := io.ReadFull(conn, header); err != nil {
-		return robustServerHello{}, err
+	return parseServerHello(conn)
+}
+
+const (
+	maxHelloRecordLen  = 16384 + 2048 // RFC 5246 6.2.3: ciphertext limit
+	maxHelloMessageLen = 16384
+	maxHelloRecords    = 16
+)
+
+// parseServerHello reads TLS records from r until the first handshake message
+// (which must be a ServerHello) is complete. A handshake message may span
+// several records (RFC 5246 6.2.1), and the 4-byte handshake header may itself
+// be split. The session id may be empty (RFC 5246 7.4.1.3). All lengths are
+// bounded; the caller sets the deadline on the connection.
+func parseServerHello(r io.Reader) (robustServerHello, error) {
+	var hs []byte // handshake bytes collected so far
+	need := 4     // bytes wanted: header first, then header plus body
+	for records := 0; len(hs) < need; records++ {
+		if records >= maxHelloRecords {
+			return robustServerHello{}, fmt.Errorf("ServerHello not complete after %d records", records)
+		}
+		header := make([]byte, 5)
+		if _, err := io.ReadFull(r, header); err != nil {
+			return robustServerHello{}, fmt.Errorf("reading TLS record header (have %d of %d handshake bytes): %w", len(hs), need, err)
+		}
+		n := int(header[3])<<8 | int(header[4])
+		if n > maxHelloRecordLen {
+			return robustServerHello{}, fmt.Errorf("TLS record length %d exceeds %d", n, maxHelloRecordLen)
+		}
+		payload := make([]byte, n)
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return robustServerHello{}, fmt.Errorf("reading TLS record payload: %w", err)
+		}
+		switch header[0] {
+		case 22:
+			hs = append(hs, payload...)
+		case 21:
+			if len(payload) >= 2 {
+				return robustServerHello{}, fmt.Errorf("TLS alert instead of ServerHello: level %d description %d", payload[0], payload[1])
+			}
+			return robustServerHello{}, fmt.Errorf("truncated TLS alert record")
+		default:
+			return robustServerHello{}, fmt.Errorf("TLS record type %d before ServerHello is complete, want handshake (22)", header[0])
+		}
+		if need == 4 && len(hs) >= 4 {
+			if hs[0] != 2 {
+				return robustServerHello{}, fmt.Errorf("first handshake message type %d is not ServerHello", hs[0])
+			}
+			messageLen := int(hs[1])<<16 | int(hs[2])<<8 | int(hs[3])
+			// version 2 + random 32 + session id length 1 + suite 2 + compression 1
+			if messageLen < 38 || messageLen > maxHelloMessageLen {
+				return robustServerHello{}, fmt.Errorf("ServerHello length %d out of range 38..%d", messageLen, maxHelloMessageLen)
+			}
+			need = 4 + messageLen
+		}
 	}
-	if header[0] != 22 {
-		return robustServerHello{}, fmt.Errorf("first TLS record type = %d, want handshake", header[0])
-	}
-	payload := make([]byte, int(header[3])<<8|int(header[4]))
-	if _, err := io.ReadFull(conn, payload); err != nil {
-		return robustServerHello{}, err
-	}
-	if len(payload) < 4 || payload[0] != 2 {
-		return robustServerHello{}, fmt.Errorf("first handshake message is not ServerHello: %x", payload[:min(len(payload), 8)])
-	}
-	messageLen := int(payload[1])<<16 | int(payload[2])<<8 | int(payload[3])
-	if messageLen+4 > len(payload) || messageLen < 35 {
-		return robustServerHello{}, fmt.Errorf("short ServerHello: %d-byte message in %d-byte record", messageLen, len(payload))
-	}
-	body := payload[4 : 4+messageLen]
+	body := hs[4:need]
 	sessionLen := int(body[34])
-	if sessionLen == 0 || 35+sessionLen > len(body) {
-		return robustServerHello{}, fmt.Errorf("ServerHello session id length %d", sessionLen)
+	if sessionLen > 32 || 35+sessionLen+3 > len(body) {
+		return robustServerHello{}, fmt.Errorf("ServerHello session id length %d in %d-byte body", sessionLen, len(body))
 	}
 	return robustServerHello{
 		random:    string(body[2:34]),
 		sessionID: string(body[35 : 35+sessionLen]),
 	}, nil
+}
+
+// distinctHelloProblems returns one message per duplicate: every server
+// random must be unique; session ids only when non-empty (an empty id means
+// no resumption, and many servers send one).
+func distinctHelloProblems(hellos []robustServerHello) []string {
+	var problems []string
+	randoms, ids := map[string]bool{}, map[string]bool{}
+	for _, h := range hellos {
+		if randoms[h.random] {
+			problems = append(problems, fmt.Sprintf("duplicate ServerHello random across forked sessions: %x", h.random))
+		}
+		randoms[h.random] = true
+		if h.sessionID == "" {
+			continue
+		}
+		if ids[h.sessionID] {
+			problems = append(problems, fmt.Sprintf("duplicate TLS session id across forked sessions: %x", h.sessionID))
+		}
+		ids[h.sessionID] = true
+	}
+	return problems
 }
 
 func TestClientTLSForksUseDistinctServerRandoms(t *testing.T) {
@@ -261,19 +321,15 @@ func TestClientTLSForksUseDistinctServerRandoms(t *testing.T) {
 	}
 	wg.Wait()
 	close(results)
-	randoms, sessionIDs := map[string]bool{}, map[string]bool{}
+	var hellos []robustServerHello
 	for result := range results {
 		if result.err != nil {
 			t.Fatalf("TLS handshake prefix: %v", result.err)
 		}
-		if randoms[result.hello.random] {
-			t.Errorf("duplicate ServerHello random across forked sessions: %x", result.hello.random)
-		}
-		if sessionIDs[result.hello.sessionID] {
-			t.Errorf("duplicate TLS session id across forked sessions: %x", result.hello.sessionID)
-		}
-		randoms[result.hello.random] = true
-		sessionIDs[result.hello.sessionID] = true
+		hellos = append(hellos, result.hello)
+	}
+	for _, p := range distinctHelloProblems(hellos) {
+		t.Error(p)
 	}
 }
 
