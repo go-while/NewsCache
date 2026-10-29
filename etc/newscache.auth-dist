@@ -7,5 +7,7 @@ user3:xtKlYxMWGiBYg:de.linux:de.linux:de.linux:post
 # Only user and password are required; missing fields add nothing, so
 # user4 gets just the rights of its Client entry after logging in.
 user4:pass4
-# Encrypted password can be created with the htpasswd command
-# from the apache project or you use a perl script (Google).
+# The default build recognizes raw MD5 as base64(MD5(password)); this is
+# unsalted and weak. Prefer a salted crypt(3) hash supported by this system.
+# htpasswd defaults to APR1 ($apr1$), which NewsCache does not support;
+# SHA-512 crypt ($6$) is platform-dependent. See newscache.conf(5).
