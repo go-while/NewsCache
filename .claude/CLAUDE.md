@@ -188,10 +188,10 @@ database, and never touch keys of other prefixes.
   (`chat.py claim <id> <topic> "<branch>"`), so that two agents don't fix
   the same thing. Give a claim or lock that must not outlive the session
   a `--ttl <seconds>`.
-- At most 4 pull requests open at a time, for all agents together, drafts
-  included. Before `gh pr create`, take `chat.py lock <id> pr-open --ttl
-  120 "<branch>"`, count with `gh pr list --state open`, open the pull
-  request only if fewer than 4 are open, then `chat.py unlock <id>
+- At most 20 pull requests open at a time, for all agents together,
+  drafts included. Before `gh pr create`, take `chat.py lock <id> pr-open
+  --ttl 120 "<branch>"`, count with `gh pr list --state open`, open the
+  pull request only if fewer than 20 are open, then `chat.py unlock <id>
   pr-open`.
 - Each pull request is one concern. Review it with
   `git diff origin/main...<branch>` (three dots: what the branch adds), not
