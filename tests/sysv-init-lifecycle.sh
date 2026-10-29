@@ -22,6 +22,21 @@ cleanup()
 }
 trap cleanup EXIT HUP INT TERM
 
+pid_is_running()
+{
+	pid=$1
+	kill -0 "$pid" 2>/dev/null || return 1
+	stat_line=
+	IFS= read -r stat_line < "/proc/$pid/stat" || return 0
+	case "$stat_line" in
+		*') '*) stat_line=${stat_line##*) } ;;
+		*) return 0 ;;
+	esac
+	set -- $stat_line
+	[ "$#" -gt 0 ] || return 0
+	[ "$1" != Z ]
+}
+
 # GNU/Hurd installations may have no procfs translator, or one without the
 # process identity files this service manager requires. In that case verify
 # that the script refuses clearly; Linux exercises the complete lifecycle.
@@ -122,10 +137,19 @@ other_pid=
 IFS=' ' read -r service_pid start_time < "$pidfile"
 "$script" stop
 [ ! -e "$pidfile" ] || { echo "stop left its PID file behind" >&2; exit 1; }
-if kill -0 "$service_pid" 2>/dev/null; then
-	echo "daemon remains alive after stop" >&2
+stopped_pid=$service_pid
+i=0
+while [ "$i" -lt 5 ]; do
+	if ! pid_is_running "$stopped_pid"; then
+		service_pid=
+		break
+	fi
+	sleep 1
+	i=$((i + 1))
+done
+if [ -n "$service_pid" ]; then
+	echo "daemon remains alive after stop (pid $stopped_pid)" >&2
 	exit 1
 fi
-service_pid=
 
 echo "SysV init lifecycle and stale-PID checks passed"
