@@ -17,7 +17,7 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 mkdir -p "$tmp/source/src" "$tmp/source/md5lib" "$tmp/source/NVClasses-0.9.1" \
 	"$tmp/source/NServer-0.9.1/checks" "$tmp/source/man" "$tmp/source/doc" \
 	"$tmp/source/etc" "$tmp/source/test"
-for f in configure config.h.in config.guess config.sub install-sh missing \
+for f in config.h.in config.guess config.sub install-sh missing \
 	compile depcomp test-driver configure.ac aclocal.m4 Makefile.am Makefile.in \
 	src/NewsCache.cc src/Makefile.in \
 	md5lib/Makefile.in NVClasses-0.9.1/Makefile.in NServer-0.9.1/Makefile.in \
@@ -26,6 +26,9 @@ for f in configure config.h.in config.guess config.sub install-sh missing \
 	etc/newscache.auth-dist test/Makefile.in; do
 	cp "$src/$f" "$tmp/source/$f"
 done
+# Keep the generated configure script newer than its inputs so make does not
+# try to regenerate it (Autotools need not be installed to run this test).
+cp "$src/configure" "$tmp/source/configure"
 
 configure_install()
 {
