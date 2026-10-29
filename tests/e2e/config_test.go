@@ -133,8 +133,18 @@ func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
 // TestConfigOpenError: failure to open a configuration file used to be
 // reported as "unexpected EOF", hiding both the path and the system error.
 func TestConfigOpenError(t *testing.T) {
-	bin := binPath(t)
 	missing := filepath.Join(t.TempDir(), "missing.conf")
+	checkConfigOpenError(t, missing, syscall.ENOENT)
+}
+
+// TestConfigDirectoryError: a directory opens fine with fopen and only
+// fails on the first read; that used to be reported as "unexpected EOF".
+func TestConfigDirectoryError(t *testing.T) {
+	checkConfigOpenError(t, t.TempDir(), syscall.EISDIR)
+}
+
+func checkConfigOpenError(t *testing.T, missing string, errno syscall.Errno) {
+	bin := binPath(t)
 	for _, tc := range []struct {
 		name     string
 		args     []string
@@ -171,8 +181,8 @@ func TestConfigOpenError(t *testing.T) {
 			if !strings.Contains(text, "cannot open configuration file "+missing+": ") {
 				t.Errorf("%s: output %q does not name the file and open error", tc.name, text)
 			}
-			if !strings.Contains(strings.ToLower(text), strings.ToLower(syscall.ENOENT.Error())) {
-				t.Errorf("%s: output %q does not include strerror(ENOENT)", tc.name, text)
+			if !strings.Contains(strings.ToLower(text), strings.ToLower(errno.Error())) {
+				t.Errorf("%s: output %q does not include strerror(%v)", tc.name, text, errno)
 			}
 			if strings.Contains(text, "unexpected EOF") {
 				t.Errorf("%s: output still reports a misleading EOF: %q", tc.name, text)
