@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -109,6 +110,27 @@ func TestNewscachecleanExpiryHidesArticle(t *testing.T) {
 	if code, line := reader.Cmd("QUIT"); code != 205 {
 		t.Fatalf("QUIT before expiry: %q, want 205", line)
 	}
+	db := filepath.Join(e.Spool, "test", "expired", ".db")
+	f, err := os.OpenFile(db, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatalf("open cached group database before cleanup: %v", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		t.Fatalf("sync cached group database before cleanup: %v", err)
+	}
+	st, err := f.Stat()
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("stat/close cached group database before cleanup: %v", err)
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok || sys.Blocks <= 0 {
+		t.Fatalf("cached group database has no observable allocated blocks after sync: size=%d stat=%+v", st.Size(), st.Sys())
+	}
+	t.Logf("cached group database: size=%d, allocated 512-byte blocks=%d", st.Size(), sys.Blocks)
 
 	if !e.Store.RemoveArticle(group, 1) {
 		t.Fatal("failed to remove article from upstream store")
@@ -117,7 +139,9 @@ func TestNewscachecleanExpiryHidesArticle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tinySpool := strings.Replace(string(config), "SpoolSize 102400\n", "SpoolSize 1\n", 1)
+	// A zero-block limit also triggers cleanup on compressed filesystems
+	// where the database can occupy only one or two 512-byte blocks.
+	tinySpool := strings.Replace(string(config), "SpoolSize 102400\n", "SpoolSize 0\n", 1)
 	if tinySpool == string(config) {
 		t.Fatal("could not set a small SpoolSize for the cleanup")
 	}
@@ -131,6 +155,12 @@ func TestNewscachecleanExpiryHidesArticle(t *testing.T) {
 	out, err := exec.Command(clean, "-c", e.Conf, "-s").CombinedOutput()
 	if err != nil {
 		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "PurgedDbCnt: 1\n") {
+		t.Fatalf("newscacheclean did not report purging the group database:\n%s", out)
+	}
+	if _, err := os.Stat(db); !os.IsNotExist(err) {
+		t.Fatalf("group database after cleanup: want absent, got %v", err)
 	}
 
 	// session rewrites the config with its normal SpoolSize; the purge itself
