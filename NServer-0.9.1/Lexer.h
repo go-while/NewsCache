@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <iostream>
 #include <fstream>
@@ -53,6 +54,14 @@ class Lexer {
 			int err = errno ? errno : EIO;
 			std::string msg = std::string("cannot open configuration file ") + fn;
 			throw IOError(msg, err, ERROR_LOCATION);
+		}
+		// fopen succeeds on a directory and only the first read
+		// fails (EISDIR); report that here, like any open error
+		struct stat st;
+		if (stat(fn, &st) == 0 && S_ISDIR(st.st_mode)) {
+			_is.close();
+			std::string msg = std::string("cannot open configuration file ") + fn;
+			throw IOError(msg, EISDIR, ERROR_LOCATION);
 		}
 		_fn = fn;
 		_line = 0;
