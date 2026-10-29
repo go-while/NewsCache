@@ -42,4 +42,28 @@ if command -v unshare >/dev/null 2>&1; then
 else
 	echo 'e2e unshare probe: command not found'
 fi
-exec "$GO" test -v -count=1 ./...
+# With leak detection on (ASAN_OPTIONS=detect_leaks=1), the daemon's sessions
+# and the daemon itself end by exit() but their stderr is /dev/null or a
+# socket, and nobody looks at their exit codes: a leak report would be lost.
+# Send the reports to files instead, and fail when there are any.
+case ${ASAN_OPTIONS-} in
+*detect_leaks=1*|*detect_leaks=true*)
+	case $ASAN_OPTIONS in
+	*log_path=*) ;;
+	*)
+		asan_dir=$(mktemp -d "${TMPDIR:-/tmp}/newscache-asan.XXXXXX") || exit 1
+		trap 'rm -rf "$asan_dir"' EXIT
+		ASAN_OPTIONS=$ASAN_OPTIONS:log_path=$asan_dir/report
+		export ASAN_OPTIONS
+		;;
+	esac
+	;;
+esac
+"$GO" test -v -count=1 ./...
+rc=$?
+if [ -n "${asan_dir-}" ] && [ -n "$(ls "$asan_dir")" ]; then
+	echo "e2e: the sanitizer reported errors (leaks) in processes started by the tests:"
+	cat "$asan_dir"/* | head -n 200
+	[ "$rc" -eq 0 ] && rc=1
+fi
+exit "$rc"

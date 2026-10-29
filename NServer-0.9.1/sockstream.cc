@@ -47,10 +47,20 @@ namespace {
 
   // Client credentials with the trusted CA certificates: the system trust
   // store, or the PEM file cafile. One set per file, kept for the life of
-  // the process.
+  // the process and freed at its exit (made after gnutls_initer, so freed
+  // before gnutls_global_deinit).
+  struct ClientCreds : std::map<std::string, gnutls_certificate_credentials_t>
+  {
+    ~ClientCreds()
+    {
+      for (iterator it = begin(); it != end(); ++it)
+        gnutls_certificate_free_credentials(it->second);
+    }
+  };
+
   gnutls_certificate_credentials_t get_x509_client_cred(const std::string &cafile)
   {
-    static std::map<std::string, gnutls_certificate_credentials_t> creds;
+    static ClientCreds creds;
 
     std::map<std::string, gnutls_certificate_credentials_t>::iterator it =
       creds.find(cafile);

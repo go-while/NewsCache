@@ -487,6 +487,9 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 
 	// (retrievearticle may throw: the guard gives the lock back)
 	NVLock guard(*this, NVcontainer::ShrdLock);
+	// (an article fetched but not stored, because storing it failed with
+	// a corrupt database, is not returned: it goes with the exception)
+	try {
 	NVArray::getsize(&f, &l);
 	if (nbr >= f && nbr <= l) {
 		NVArray::sget(nbr, &data, &szdata);
@@ -558,6 +561,11 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 			if ((art = retrievearticle(nbr)) != NULL)
 				storearticle(art);
 		}
+	}
+	}
+	catch(...) {
+		delete art;
+		throw;
 	}
 	guard.release();
 	if (art && from_spool && History::enabled()) {

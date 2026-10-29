@@ -653,6 +653,9 @@ int main(int argc, char **argv)
 
 	slog.p(Logger::Info) << "|SpoolDirectory|="
 	    << (_blocks / 2) << "K\n";
+	for (begin=pvector.begin(), end=pvector.end(); begin != end; begin++)
+		delete *begin;
+	pvector.clear();
 	return 0;
 }
 
