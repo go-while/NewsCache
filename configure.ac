@@ -111,16 +111,11 @@ AC_DEFINE(PACKAGE_NEWSCACHECLEAN, ["NewsCacheClean"], [newscacheclean package])
 AC_DEFINE(PACKAGE_UPDATENEWS, ["updatenews"], [updatenews package])
 
 dnl Set CONFDIR in config.h. Autoconf replaces an unset prefix (NONE) by
-dnl the default only at the end of configure, so without --prefix the
-dnl expansion gave "NONE/etc" (the programs looked for
-dnl NONE/etc/newscache.conf, and make install wrote into ./NONE/etc).
+dnl the default only at the end of configure, so expand sysconfdir after
+dnl setting the default. Custom sysconfdir values may also refer to prefix.
 test "x$prefix" = xNONE && prefix=$ac_default_prefix
 test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-if test x"$sysconfdir" = x"\${prefix}/etc"; then
-  # sysconfdir is set to its default value... fine
-  sysconfdir=`eval echo "$sysconfdir"`
-fi
-CONFDIR=$sysconfdir
+CONFDIR=`eval echo "$sysconfdir"`
 
 AC_DEFINE_UNQUOTED(SYSCONFDIR, ["$CONFDIR"], [sysconfdir])
 

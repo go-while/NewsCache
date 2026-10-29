@@ -30,6 +30,36 @@ func TestDefaultConfigPath(t *testing.T) {
 	}
 }
 
+// TestCustomSysconfdirPrefixExpansion: custom sysconfdir values that refer to
+// prefix must be expanded in SYSCONFDIR, just like the default ${prefix}/etc.
+func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate config_test.go")
+	}
+	source := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	configure := filepath.Join(source, "configure")
+	if _, err := os.Stat(configure); err != nil {
+		t.Skipf("configure script not found at %s: %v", configure, err)
+	}
+
+	const prefix = "/opt/newscache"
+	build := t.TempDir()
+	cmd := exec.Command(configure, "--prefix="+prefix, "--sysconfdir=${prefix}/x")
+	cmd.Dir = build
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("configure: %v\n%s", err, out)
+	}
+	config, err := os.ReadFile(filepath.Join(build, "config.h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `#define SYSCONFDIR "/opt/newscache/x"`
+	if !strings.Contains(string(config), want) {
+		t.Errorf("config.h does not expand custom sysconfdir prefix; want %q in:\n%s", want, config)
+	}
+}
+
 // TestConfigOpenError: failure to open a configuration file used to be
 // reported as "unexpected EOF", hiding both the path and the system error.
 func TestConfigOpenError(t *testing.T) {
