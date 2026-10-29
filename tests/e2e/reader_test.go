@@ -36,6 +36,33 @@ func TestModeReader(t *testing.T) {
 	}
 }
 
+// TestCapabilitiesAdvertiseImplementedListVariants: the LIST capability
+// names every implemented standard LIST variant, including legacy EXTENSIONS.
+func TestCapabilitiesAdvertiseImplementedListVariants(t *testing.T) {
+	e := newEnv(t)
+	c := e.session()
+	var advertised []string
+	for _, line := range capabilities(t, c) {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.EqualFold(fields[0], "LIST") {
+			for _, name := range fields[1:] {
+				advertised = append(advertised, strings.ToUpper(name))
+			}
+		}
+	}
+	have := make(map[string]bool, len(advertised))
+	for _, name := range advertised {
+		have[name] = true
+	}
+	for _, name := range []string{
+		"ACTIVE", "ACTIVE.TIMES", "EXTENSIONS", "HEADERS", "NEWSGROUPS", "OVERVIEW.FMT",
+	} {
+		if !have[name] {
+			t.Errorf("CAPABILITIES LIST line lacks %s: %q", name, advertised)
+		}
+	}
+}
+
 // TestReaderRefusesTransitCommands: reader connections neither advertise nor
 // accept the transit-only IHAVE, CHECK, TAKETHIS and MODE STREAM commands.
 func TestReaderRefusesTransitCommands(t *testing.T) {

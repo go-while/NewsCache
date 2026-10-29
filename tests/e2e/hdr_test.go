@@ -48,7 +48,7 @@ func checkCaps(t *testing.T, what string, caps []string, want, unwanted []string
 // is required, it listed the reading commands and POST before the login.
 func TestCapabilities(t *testing.T) {
 	reading := []string{"VERSION 2", "READER", "HDR", "OVER",
-		"LIST ACTIVE ACTIVE.TIMES HEADERS NEWSGROUPS OVERVIEW.FMT"}
+		"LIST ACTIVE ACTIVE.TIMES EXTENSIONS HEADERS NEWSGROUPS OVERVIEW.FMT"}
 
 	t.Run("read post", func(t *testing.T) {
 		e := newEnv(t)
