@@ -133,7 +133,7 @@ void RNewsgroup::printheaderdb(std::ostream & os, const char *header,
 
 void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 {
-	artnum_t a;
+	artnum_t a, next;
 
 	if (f < _first)
 		f = _first;
@@ -143,9 +143,9 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 		l = _last;
 	if (f > l)
 		return;
+	next = f;
 	try {
-		_RemoteServer->printlistgroup(_NewsgroupName, os, f, l,
-					      f <= _first && l >= _last);
+		_RemoteServer->printlistgroup(_NewsgroupName, os, f, l, &next);
 		return;
 	}
 	catch(ResponseError & e) {
@@ -160,7 +160,8 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 		throw UpstreamReplyError("listgroup " + std::string(name()) +
 					 ": " + e._errtext);
 	}
-	for (a = f; a <= l && os.good();) {
+	// the numbers below next were listed already
+	for (a = next; a <= l && os.good();) {
 		if (load(a)) {
 			iterator i = _OverviewDB.lower_bound(a), end =
 			    _OverviewDB.end();

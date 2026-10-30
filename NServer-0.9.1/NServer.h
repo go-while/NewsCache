@@ -466,14 +466,16 @@ class RServer:virtual public NServer {
 
 	/**
 	* Copies the news server's article numbers of gname in [f,l] to
-	* os, one per line, as they arrive (LISTGROUP gname f-l, or
-	* LISTGROUP gname for the whole group).
-	* \throw ResponseError If the news server doesn't answer 211; nothing
-	* 	has been written then.
+	* os, one per line, as they arrive: LISTGROUP gname a-b for one
+	* step after the other (see next_listgroup_step in ReplyBudget.h).
+	* \param next Set to the first number of the step being asked for;
+	* 	0 once [f,l] is done. After a ResponseError the numbers below
+	* 	*next have been written, the step at *next has not.
+	* \throw ResponseError If the news server doesn't answer 211.
 	* \throw SystemError If the connection to the news server fails.
 	*/
 	void printlistgroup(const char *gname, std::ostream & os,
-			    artnum_t f, artnum_t l, int whole);
+			    artnum_t f, artnum_t l, artnum_t *next);
 
 	/**
 	* Return the overviewdatabase of the newsgroup >ng<.  This function

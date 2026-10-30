@@ -677,8 +677,11 @@ group's first to its last: 57 GB for a binary group with numbers from
 The spool's index of a group covers at most the newest 10000000
 article numbers that clients have read (80 MB). Articles further back
 are still served, but passed through from the news server without
-being cached. @code{LISTGROUP} passes the news server's list on as it
-arrives.
+being cached. @code{LISTGROUP} asks the news server in steps too and
+passes each list on as it arrives, without caching it: 10000 numbers at
+a time in a dense group, larger steps (up to 100000000 numbers) across
+gaps without articles. A @code{LISTGROUP} that has passed no number to
+the client for 5 minutes fails.
 
 The group database (@file{.db}) never shrinks. A spool written by an
 older version may hold a large one; remove the group's directory to get
