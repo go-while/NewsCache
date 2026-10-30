@@ -18,10 +18,13 @@ static const unsigned int ACTIVE_RETRY_SECONDS = 2;
 #else
 // Full provider active lists normally contain far fewer than one million
 // groups; these limits leave ample headroom without allowing unlimited input.
+// The deadlines bound how long one hostile upstream that dribbles a reply
+// can make the client that triggered the fetch wait: a real active list
+// takes seconds, even a two-million-row one a minute or two.
 static const uint64_t ACTIVE_REPLY_ROWS = 2000000ULL;
 static const uint64_t ACTIVE_REPLY_BYTES = 256ULL * 1024 * 1024;
-static const unsigned int ACTIVE_REPLY_SECONDS = 30 * 60;
-static const unsigned int RANGE_REPLY_SECONDS = 10 * 60;
+static const unsigned int ACTIVE_REPLY_SECONDS = 5 * 60;
+static const unsigned int RANGE_REPLY_SECONDS = 2 * 60;
 static const unsigned int ACTIVE_RETRY_SECONDS = 60;
 #endif
 
