@@ -924,7 +924,12 @@ func TestUpdatenewsPrefetchFileNotRegular(t *testing.T) {
 			if kind == "directory" {
 				err = os.Mkdir(path, 0o755)
 			} else {
-				err = syscall.Mkfifo(path, 0o644)
+				// the mkfifo command: Go's syscall has no Mkfifo on
+				// illumos, where the matrix builds this test too
+				var out []byte
+				if out, err = exec.Command("mkfifo", path).CombinedOutput(); err != nil {
+					err = fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+				}
 			}
 			if err != nil {
 				t.Skipf("can't make a %s: %v", kind, err)
