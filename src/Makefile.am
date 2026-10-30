@@ -6,11 +6,13 @@ AM_CPPFLAGS=-I@top_srcdir@/NVClasses-0.9.1 -I@top_srcdir@/NServer-0.9.1 -I@top_s
 LDADD = ../NServer-0.9.1/libnserver.a ../NVClasses-0.9.1/libnvcontainer.a ../md5lib/libmd5.a @LDADD@
 
 ## Programs
-check_PROGRAMS= cConfig cConfigHostname
+check_PROGRAMS= cConfig cConfigHostname cNewgroupsTime
 bin_PROGRAMS  = updatenews
 sbin_PROGRAMS = newscache newscacheclean
 
-TESTS=cConfig cConfigHostname
+TESTS=cConfig cConfigHostname cNewgroupsTime
+
+cNewgroupsTime_SOURCES = cNewgroupsTime.cc NewgroupsTime.cc NewgroupsTime.h
 
 cConfig_SOURCES = 	AccessList.cc\
 	AccessList.h\
@@ -30,6 +32,8 @@ cConfigHostname_SOURCES = 	AccessList.cc\
 newscache_SOURCES = 	AccessList.cc\
 	AccessList.h\
 	NewsCache.cc\
+	NewgroupsTime.cc\
+	NewgroupsTime.h\
 	NewsCacheConfig.cc\
 	NewsCacheConfig.h\
 	setugid.cc\
@@ -50,4 +54,3 @@ updatenews_SOURCES = 	AccessList.cc\
 	NewsCacheConfig.h\
 	setugid.cc\
 	setugid.h
-

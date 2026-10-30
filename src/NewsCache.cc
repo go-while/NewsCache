@@ -129,6 +129,7 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include "util.h"
 #include "setugid.h"
 #include "NewsCacheConfig.h"
+#include "NewgroupsTime.h"
 #include "Logger.h"
 #include "sockstream.h"
 
@@ -2580,23 +2581,8 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	// flag used to be forced (from "daylight", or from the current time)
 	// and, on glibc (no HAVE_TZNAME), "GMT" wasn't applied at all: the
 	// time was off by the UTC offset, or by an hour across DST.
-	errno = 0;
-	if (is_gmt) {
-		lt = timegm(&ltm);
-	} else {
-		ltm.tm_isdst = -1;
-		lt = mktime(&ltm);
-	}
-	// -1 is also the valid timestamp for 1969-12-31 23:59:59. The C
-	// conversion functions set errno when the requested instant is out of
-	// range; do not reject that valid pre-epoch instant.
-	if (lt == (time_t) -1 && errno != 0)
+	if (!newgroups_time(ltm, is_gmt, &lt))
 		goto ns_newgroups_error;
-	// ActiveDB timestamps are unsigned seconds since the Unix epoch. A
-	// valid pre-epoch NEWGROUPS threshold therefore precedes every stored
-	// group's first-seen time.
-	if (lt < 0)
-		lt = 0;
 
 	// An error here goes to the command loop, as for LIST: 403 (RFC 3977
 	// 3.2.1), or once more after a damaged database. (It answered 410,

@@ -616,10 +616,9 @@ func TestNewgroups(t *testing.T) {
 	}
 }
 
-// TestNewgroupsTime: NEWGROUPS takes the given date and time as UTC with
-// GMT, and as local time (DST as on that date) without. The server runs in
-// US Eastern time (a POSIX TZ rule, no tzdata needed). The 231 response
-// follows RFC 3977 and does not echo the parsed timestamp.
+// TestNewgroupsTime checks the wire reply for local and GMT date forms with
+// a POSIX US Eastern TZ rule. The 231 reply does not echo the parsed instant;
+// cNewgroupsTime separately checks the UTC offsets and DST transitions.
 func TestNewgroupsTime(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
