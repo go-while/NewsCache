@@ -126,6 +126,9 @@ func TestUpstreamHugeGroup(t *testing.T) {
 
 // peakRSS returns the peak resident set of process pid in kB, from
 // /proc (Linux); ok is false where there is none.
+// These tests use a coarse 32 MiB growth ceiling, not exact allocator
+// accounting: libc and ASan quarantine can change RSS. The same ceiling
+// deliberately runs in the ASan lane; other kernels skip the /proc probe.
 func peakRSS(pid int) (kb int64, ok bool) {
 	f, err := os.Open(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {

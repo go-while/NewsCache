@@ -148,6 +148,9 @@ func TestSpoolFewFiles(t *testing.T) {
 // ignore it for NewsCache, which hid that a session under ulimit -f died
 // at the first write beyond the limit.
 func fileSizeLimit(blocks int) func(*proc.Options) {
+	// POSIX sh/dash/ash count 512-byte blocks; non-POSIX bash counts KiB.
+	// The existing-spool limit (16) is below the 22 KB article in either
+	// unit, and the new-spool limit stays below the history's allocation.
 	return func(o *proc.Options) {
 		o.Ulimit = []string{fmt.Sprintf("-f %d", blocks)}
 	}

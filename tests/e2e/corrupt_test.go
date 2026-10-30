@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -487,6 +489,10 @@ func TestUpdatenewsCorruptDB(t *testing.T) {
 // more on the new database, read those lines as its replies: LISTGROUP
 // and OVER were taken as unsupported and the session's XOVER failed.
 func TestCorruptDBDuringFetch(t *testing.T) {
+	// This targeted corruption walks native unsigned-long NVArray records,
+	// not a portable wire format. The Go test and C++ binary use the same
+	// native Unix ABI; the other corruption cases do not decode an index.
+	wordBytes := strconv.IntSize / 8
 	e := newEnv(t)
 	e.Store.AddGroup("test.alpha", "test group")
 	for n := int64(1); n <= 10; n++ {
@@ -511,17 +517,16 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the index: first and last number (10), then one offset per number
-	le := func(off int) uint64 {
-		var v uint64
-		for i := 7; i >= 0; i-- {
-			v = v<<8 | uint64(b[off+i])
+	// The index is native-endian: first/last, then one offset per number.
+	word := func(off int) uint64 {
+		if wordBytes == 4 {
+			return uint64(binary.NativeEndian.Uint32(b[off : off+4]))
 		}
-		return v
+		return binary.NativeEndian.Uint64(b[off : off+8])
 	}
 	idx := -1
-	for off := 0; off+16+8*10 <= len(b); off += 8 {
-		if f := le(off); f >= 1 && f <= 3 && le(off+8) == 10 && le(off+16+8*int(3-f)) != 0 {
+	for off := 0; off+wordBytes*(2+10) <= len(b); off += wordBytes {
+		if f := word(off); f >= 1 && f <= 3 && word(off+wordBytes) == 10 && word(off+wordBytes*(2+int(3-f))) != 0 {
 			idx = off
 			break
 		}
@@ -529,8 +534,8 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("index not found in the .db")
 	}
-	entry := idx + 16 + 8*int(3-le(idx))
-	for i := 0; i < 8; i++ {
+	entry := idx + wordBytes*(2+int(3-word(idx)))
+	for i := 0; i < wordBytes; i++ {
 		b[entry+i] = 0xff
 	}
 	if err := os.WriteFile(db, b, 0o644); err != nil {

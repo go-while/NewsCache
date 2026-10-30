@@ -668,6 +668,8 @@ func freePort(t *testing.T) string {
 
 // serviceName returns a service name from /etc/services whose TCP port is
 // free on 127.0.0.1 (and above 1024), and that port; "" if there is none.
+// Minimal containers may have no such service entry. Only the name-lookup
+// case skips then; the numeric CachePort cases do not depend on this file.
 func serviceName(t *testing.T) (string, string) {
 	b, err := os.ReadFile("/etc/services")
 	if err != nil {

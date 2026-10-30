@@ -68,7 +68,9 @@ echo
 
 cd tests/e2e
 status=0
-su newscache -s /bin/sh -c "NEWSCACHE_BIN=$src/src/newscache NNTP_TEST_DEADLINE=30s \
+# The binary's baked-in runtime.Caller paths refer to the compiler host.
+# Point configure tests at this container's unpacked source tree instead.
+su newscache -s /bin/sh -c "NEWSCACHE_BIN=$src/src/newscache NEWSCACHE_SRC=$src NNTP_TEST_DEADLINE=30s \
 	/build/e2e.test -test.v -test.count=1 -test.timeout=1200s" > "$src/e2e-matrix.log" 2>&1 || status=$?
 sh "$in/e2e-skip-summary.sh" "$src/e2e-matrix.log" || echo 'e2e skips: summary failed'
 if [ "$status" -ne 0 ]; then cat "$src/e2e-matrix.log"; fi
