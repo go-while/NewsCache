@@ -21,6 +21,9 @@ func TestProtocolConformance(t *testing.T) {
 			// lets transfer checks skip on missing capabilities instead
 			// of being skipped merely because no target was provided.
 			Addr: e.Listen, PostGroup: "test.alpha", Deadline: 10 * time.Second, Workers: 2,
+			// NewsCache sends RFC 3977's :bytes and :lines, not the
+			// older Bytes: and Lines: the checker accepts by default.
+			StrictOverviewFmt: true,
 		})
 		if pass, _, _ := report.Counts(); pass < 25 {
 			t.Errorf("reader conformance ran only %d passing checks, want at least 25", pass)
