@@ -930,7 +930,9 @@ func TestXpat(t *testing.T) {
 			t.Errorf("%s: %q, want %d", cmd, line, want)
 		}
 	}
-	if code, _ := c.Cmd("HELP"); code == 100 {
+	if code, line := c.Cmd("HELP"); code != 100 {
+		t.Errorf("HELP: %q, want 100", line)
+	} else {
 		if !containsPrefix(c.ReadDotLines(), "  xpat ") {
 			t.Errorf("HELP doesn't list xpat")
 		}
