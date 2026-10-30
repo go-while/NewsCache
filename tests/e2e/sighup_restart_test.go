@@ -60,6 +60,8 @@ func replaceConfigLine(t *testing.T, conf, key, value string) string {
 
 func TestSIGHUPRestartNotices(t *testing.T) {
 	e := newEnv(t)
+	// Only restart-only configuration values are compared. ListenTo still
+	// names the test's ephemeral listener; CachePort 19001/19002 never bind.
 	e.Extra = "CachePort #19001"
 	e.addArticles("test.alpha", 1)
 	requireFileLog(e)

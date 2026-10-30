@@ -4,6 +4,8 @@
 // so every digest was wrong there and MD5 passwords never matched; configure
 // now detects the byte order. On little-endian hosts this guards the same
 // code path.
+// These vectors test the configured host byte order only: a little-endian
+// CI run cannot exercise WORDS_BIGENDIAN in place of a native big-endian run.
 
 #include "config.h"
 

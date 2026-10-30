@@ -31,14 +31,27 @@ func TestDefaultConfigPath(t *testing.T) {
 
 // TestCustomSysconfdirPrefixExpansion: custom sysconfdir values that refer to
 // configure variables must be expanded in SYSCONFDIR, including nested ones.
+// Matrix jobs copy a prebuilt test binary into the unpacked tarball: its
+// runtime.Caller path belongs to the build host, so they set NEWSCACHE_SRC.
 func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate config_test.go")
+	source := os.Getenv("NEWSCACHE_SRC")
+	explicit := source != ""
+	if !explicit {
+		_, file, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("cannot locate config_test.go; set NEWSCACHE_SRC for a copied test binary")
+		}
+		source = filepath.Join(filepath.Dir(file), "..", "..")
 	}
-	source := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	source, err := filepath.Abs(source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(source, "configure")); err != nil {
-		t.Skipf("configure script not found in %s: %v", source, err)
+		if explicit {
+			t.Fatalf("NEWSCACHE_SRC=%s has no configure script: %v", source, err)
+		}
+		t.Skipf("configure script not found in %s: %v (set NEWSCACHE_SRC for a copied test binary)", source, err)
 	}
 	configureSource := filepath.Join(t.TempDir(), "source")
 	// Copy only configure inputs: copying the full tree would also copy .git,
@@ -785,6 +798,9 @@ func truncate(s string, n int) string {
 // AssertionError ("terminate called after throwing an instance of
 // 'AssertionError'").
 func TestSpoolDirectoryTooLong(t *testing.T) {
+	// Match the program's compile-time MAXPATHLEN on the tested platforms,
+	// not a filesystem path limit: a mount with a shorter limit cannot
+	// exercise this buffer boundary. Recheck sys/param.h for a new kernel.
 	maxPath := 1024 // macOS, FreeBSD
 	if runtime.GOOS == "linux" {
 		maxPath = 4096

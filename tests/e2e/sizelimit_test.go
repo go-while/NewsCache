@@ -137,7 +137,9 @@ func TestUpstreamArticleLongLine(t *testing.T) {
 	}
 }
 
-// startMeasured starts an inetd session whose memory can be measured.
+// startMeasured uses Linux VmHWM through peakRSS; other kernels skip.
+// Growth bounds are deliberately coarse and also run under ASan, whose
+// quarantine affects RSS; they are not an exact cross-allocator comparison.
 func startMeasured(t *testing.T, e *env) (*proc.Process, *client.Conn) {
 	t.Helper()
 	e.writeConf()
