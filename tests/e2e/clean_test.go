@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-while/nntp-testkit/client"
 	"github.com/go-while/nntp-testkit/fakeserver"
+	"github.com/go-while/nntp-testkit/proc"
 )
 
 // TestNewscachecleanEvictionOrder keeps two groups and evicts the oldest,
@@ -21,21 +23,37 @@ func TestNewscachecleanEvictionOrder(t *testing.T) {
 }
 
 func newscachecleanEvictionOrder(t *testing.T, newerAtime bool) {
+	// A compressed filesystem can change st_blocks between stat and the
+	// cleaner's scan, despite fsync. Prefer the user's tmpfs for this
+	// allocation-sensitive fixture; no mount or elevated uid is needed.
+	if dir, err := os.MkdirTemp("/dev/shm", "newscache-eviction-"); err == nil {
+		t.Cleanup(func() {
+			if err := os.RemoveAll(dir); err != nil {
+				t.Errorf("remove eviction fixture: %v", err)
+			}
+		})
+		t.Setenv("TMPDIR", dir)
+	}
 	e := newEnv(t)
 	e.Extra = "History off"
 	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
 	if _, err := os.Stat(clean); err != nil {
 		t.Skipf("newscacheclean not found next to %s", e.Bin)
 	}
-	// Populate newest first, not in eviction order. Every article is large
-	// enough to have its own .art1 rather than being inlined in the .db.
-	groups := []string{"test.clean-newest", "test.clean-middle", "test.clean-oldest"}
+	// Every article is large enough to have its own .art1. Assign age
+	// order after measuring the files, so the KiB budget can be exact.
+	groups := []string{"test.clean-a", "test.clean-b", "test.clean-c"}
 	articles := make(map[string]string)
 	for _, group := range groups {
 		e.Store.AddGroup(group, "eviction order")
 		e.Store.AddArticle(group, groupArticle(group, 1, bigBody()))
 	}
-	c := e.session()
+	e.writeConf()
+	p := proc.StartStdio(t, e.procOpts("-i"))
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
 	for _, group := range groups {
 		if code, line := c.Cmd("GROUP %s", group); code != 211 {
 			t.Fatalf("GROUP %s: %q", group, line)
@@ -48,58 +66,70 @@ func newscachecleanEvictionOrder(t *testing.T, newerAtime bool) {
 	if code, line := c.Cmd("QUIT"); code != 205 {
 		t.Fatalf("QUIT: %q", line)
 	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("cache-warming session: %v", err)
+	}
 	if got := e.Upstream.Count("ARTICLE"); got != len(groups) {
 		t.Fatalf("warming the cache fetched %d articles, want %d", got, len(groups))
 	}
 
-	var keptBlocks, oldestBlocks int64
+	// SpoolSize is in KiB, st_blocks in 512-byte units. Rounding up can
+	// spare a one-block oldest .db on compressed filesystems. Among three
+	// group sizes, two must have equal parity: retain that pair so their
+	// sum is even and the budget has no rounding slack at all.
+	var blocks map[string]int64
+	var keptBlocks int64
 	newest := time.Unix(1700000000, 0)
 	cold := newest.Add(-24 * time.Hour)
-	for i, group := range groups {
-		// Stagger only one timestamp and keep the other equally old. Each
-		// case needs max(atime, mtime), not just one of the two fields.
-		// Explicit times also make noatime/relatime irrelevant.
-		stamp := newest.Add(-time.Duration(i) * time.Hour)
-		atime, mtime := stamp, cold
-		if !newerAtime {
-			atime, mtime = mtime, atime
-		}
-		for _, name := range []string{".db", ".art1"} {
-			path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
-			f, err := os.OpenFile(path, os.O_RDWR, 0)
-			if err != nil {
-				t.Fatal(err)
+	for attempt := 0; ; attempt++ {
+		blocks = make(map[string]int64)
+		for i, group := range groups {
+			// Stagger only one timestamp and keep the other equally old.
+			// Each case requires max(atime, mtime), not just one field.
+			stamp := newest.Add(-time.Duration(i) * time.Hour)
+			atime, mtime := stamp, cold
+			if !newerAtime {
+				atime, mtime = mtime, atime
 			}
-			// Flush delayed allocation before measuring the same 512-byte
-			// blocks that newscacheclean uses, not the apparent file size.
-			err = f.Sync()
-			st, statErr := f.Stat()
-			closeErr := f.Close()
-			if err != nil || statErr != nil || closeErr != nil {
-				t.Fatalf("sync/stat/close %s: %v, %v, %v", path, err, statErr, closeErr)
-			}
-			stat, ok := st.Sys().(*syscall.Stat_t)
-			if !ok || stat.Blocks <= 0 {
-				t.Fatalf("%s has no allocated blocks: %+v", path, st.Sys())
-			}
-			if i == len(groups)-1 {
-				oldestBlocks += stat.Blocks
-			} else {
-				keptBlocks += stat.Blocks
-			}
-			if err := os.Chtimes(path, atime, mtime); err != nil {
-				t.Fatal(err)
+			for _, name := range []string{".db", ".art1"} {
+				path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
+				if err := os.Chtimes(path, atime, mtime); err != nil {
+					t.Fatal(err)
+				}
+				f, err := os.OpenFile(path, os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Sync after assigning timestamps: metadata writes can also
+				// change allocated blocks on a compressed filesystem.
+				err = f.Sync()
+				st, statErr := f.Stat()
+				closeErr := f.Close()
+				if err != nil || statErr != nil || closeErr != nil {
+					t.Fatalf("sync/stat/close %s: %v, %v, %v", path, err, statErr, closeErr)
+				}
+				stat, ok := st.Sys().(*syscall.Stat_t)
+				if !ok || stat.Blocks <= 0 {
+					t.Fatalf("%s has no allocated blocks: %+v", path, st.Sys())
+				}
+				blocks[group] += stat.Blocks
 			}
 		}
+		keptBlocks = blocks[groups[0]] + blocks[groups[1]]
+		if keptBlocks%2 == 0 {
+			break
+		}
+		if attempt == 5 {
+			t.Fatalf("cannot construct an exact KiB budget: group blocks %v", blocks)
+		}
+		if (blocks[groups[0]]+blocks[groups[2]])%2 == 0 {
+			groups[1], groups[2] = groups[2], groups[1]
+		} else {
+			groups[0], groups[2] = groups[2], groups[0]
+		}
 	}
-	// SpoolSize is in KiB, whereas st_blocks is in 512-byte units. The
-	// budget fits exactly the two newest groups, with at most one block
-	// of rounding slack (less than either oldest file).
-	kb := (keptBlocks + 1) / 2
-	if keptBlocks+oldestBlocks <= kb*2 {
-		t.Fatal("SpoolSize would fit all three groups")
-	}
-	t.Logf("SpoolSize %d KiB: keep %d blocks, evict the oldest %d blocks", kb, keptBlocks, oldestBlocks)
+	kb := keptBlocks / 2
+	t.Logf("groups newest to oldest: %v; SpoolSize %d KiB: keep %d blocks, evict the oldest %d blocks", groups, kb, keptBlocks, blocks[groups[2]])
 	e.Extra += fmt.Sprintf("\nSpoolSize %d\n", kb)
 	e.writeConf()
 	out, err := exec.Command(clean, "-c", e.Conf, "-s", "-p").CombinedOutput()
