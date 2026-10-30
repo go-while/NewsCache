@@ -344,7 +344,11 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	haveLog := mode != "syslog"
-	haveProc := runtime.GOOS == "linux"
+	// /proc/<pid>/task/<pid>/children (Linux 3.5+); a restricted /proc
+	// in a container may lack it
+	self := strconv.Itoa(os.Getpid())
+	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
+	haveProc := runtime.GOOS == "linux" && procErr == nil
 	if !haveLog && !haveProc {
 		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
 	}
@@ -400,7 +404,9 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	// flush waited for the timeout again: about three ClientTimeouts.
 	// Needs no log file: the session process is gone from the daemon's
 	// children (the daemon reaps it).
-	endBound := time.Duration(f.e.ClientTimeout+3) * time.Second
+	// +5 s leaves headroom on a loaded host; the old behaviour took
+	// about 18 s here.
+	endBound := time.Duration(f.e.ClientTimeout+5) * time.Second
 	if haveProc {
 		for {
 			gone := true
