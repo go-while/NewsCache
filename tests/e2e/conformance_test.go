@@ -22,15 +22,15 @@ func TestProtocolConformance(t *testing.T) {
 			// of being skipped merely because no target was provided.
 			Addr: e.Listen, PostGroup: "test.alpha", Deadline: 10 * time.Second, Workers: 2,
 		})
+		if pass, _, _ := report.Counts(); pass < 25 {
+			t.Errorf("reader conformance ran only %d passing checks, want at least 25", pass)
+		}
 		for _, result := range report.Results {
 			if result.Status != conformance.Skip {
 				continue
 			}
-			if strings.HasPrefix(result.Name, "authinfo-") && result.Detail == "no Options.User" {
-				continue // exercised by the authentication fixture below
-			}
-			if result.Detail == "STREAMING not advertised" || result.Detail == "IHAVE not advertised" {
-				continue // NewsCache is a reader, not an RFC 4644 transit server
+			if conformanceSkipAllowed(result, report.Capabilities) {
+				continue
 			}
 			t.Errorf("unexpected skipped reader check %s: %s", result.Name, result.Detail)
 		}
@@ -63,10 +63,67 @@ func TestProtocolConformance(t *testing.T) {
 				}
 			}
 		}
-		if authChecks != 6 {
-			t.Errorf("ran %d authentication checks, want 6", authChecks)
+		if authChecks < 6 {
+			t.Errorf("ran %d authentication checks, want at least 6", authChecks)
 		}
 	})
+}
+
+// These capabilities are intentionally absent from the reader fixture. An
+// auth check skipped here is exercised by the authenticated fixture instead.
+func conformanceSkipAllowed(result conformance.Result, capabilities []string) bool {
+	if strings.HasPrefix(result.Name, "authinfo-") && result.Detail == "no Options.User" {
+		return true
+	}
+	capability, ok := strings.CutSuffix(result.Detail, " not advertised")
+	if !ok {
+		return false
+	}
+	switch capability {
+	case "STREAMING", "IHAVE", "STARTTLS", "COMPRESS", "OVER MSGID":
+	default:
+		return false
+	}
+	want := strings.Fields(capability)
+	for _, line := range capabilities {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || !strings.EqualFold(fields[0], want[0]) {
+			continue
+		}
+		if len(want) == 1 {
+			return false
+		}
+		for _, arg := range fields[1:] {
+			if strings.EqualFold(arg, want[1]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestConformanceSkipPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, detail string
+		caps         []string
+		allowed      bool
+	}{
+		{"authinfo-480", "no Options.User", nil, true},
+		{"greeting", "no Options.User", nil, false},
+		{"stream", "STREAMING not advertised", nil, true},
+		{"tls", "STARTTLS not advertised", nil, true},
+		{"compress", "COMPRESS not advertised", nil, true},
+		{"msgid", "OVER MSGID not advertised", []string{"OVER"}, true},
+		{"msgid", "OVER MSGID not advertised", []string{"OVER MSGID"}, false},
+		{"stream", "STREAMING not advertised", []string{"STREAMING"}, false},
+		{"other", "OTHER not advertised", nil, false},
+		{"stream", "temporarily unavailable", nil, false},
+	} {
+		result := conformance.Result{Name: tc.name, Detail: tc.detail, Status: conformance.Skip}
+		if got := conformanceSkipAllowed(result, tc.caps); got != tc.allowed {
+			t.Errorf("skip %q (%q), capabilities %q: got %v, want %v", tc.name, tc.detail, tc.caps, got, tc.allowed)
+		}
+	}
 }
 
 func checkConformance(t *testing.T, options conformance.Options) conformance.Report {
