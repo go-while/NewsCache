@@ -92,11 +92,20 @@ int checkConvertArtOver(const char *artfn)
 
 	snprintf(buf, sizeof(buf), "%s.in", artfn);
 	is.open(buf);
+	if (!is) {
+		cerr << "cannot open " << buf << "\n";
+		return -1;
+	}
 	art.read(is);
 	is.close();
 
 	snprintf(buf, sizeof(buf), "%s.over.in", artfn);
+	is.clear();
 	is.open(buf);
+	if (!is) {
+		cerr << "cannot open " << buf << "\n";
+		return -1;
+	}
 	nlreadline(is, orec2, 0);
 	is.close();
 
