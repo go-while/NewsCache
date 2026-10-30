@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"errors"
+	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -364,5 +367,109 @@ func TestOverMessageIDNotSupported(t *testing.T) {
 	}
 	if code, line := c.Cmd("DATE"); code != 111 {
 		t.Errorf("DATE after OVER: %q, want 111", line)
+	}
+}
+
+// RFC 3977 3.5 requires pipelined replies in command order; 5.4.2 requires
+// QUIT's 205 followed by connection closure. Queue QUIT while a multi-line
+// block is still being read, rather than after its terminating dot.
+func TestReaderRFCTextQuitDuringMultiline(t *testing.T) {
+	body := []string{"queued QUIT body start"}
+	// More than a typical stdio pipe buffer: the BODY writer cannot rely
+	// on the client draining its output before QUIT is sent. No sleeps or
+	// narrow timing assertions are needed to coordinate the two directions.
+	for i := 0; i < 512; i++ {
+		body = append(body, strconv.Itoa(i)+" "+strings.Repeat("x", 512))
+	}
+	body = append(body, ".", ".dot-stuffed body line", "queued QUIT body end")
+
+	for _, tc := range []struct {
+		command, shape string
+		code           int
+		group          bool
+	}{
+		{"LIST ACTIVE", "active", 215, false},
+		{"NEWGROUPS 20000101 000000 GMT", "active", 231, false},
+		{"OVER 1-3", "overview", 224, true},
+		{"XOVER 1-3", "overview", 224, true},
+		{"BODY 4", "body", 222, true},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			e := newEnv(t)
+			// Insertion order is not lexical order. NEWGROUPS uses the
+			// LIST ACTIVE field order, but neither command requires the
+			// group rows themselves to be sorted (RFC 3977 7.3.2, 7.6.3).
+			e.addArticles("test.zulu", 2)
+			ids := e.addArticles("test.alpha", 3)
+			e.Store.AddArticle("test.alpha", fakeserver.Article{
+				Number: 4, MessageID: "<queued-quit@upstream.test>",
+				Headers: []string{"From: poster@upstream.test", "Subject: queued QUIT",
+					"Newsgroups: test.alpha", "Xref: upstream.test test.alpha:4"},
+				Body: body,
+			})
+			e.addArticles("test.middle", 1)
+			p, c := e.sessionProcess()
+			if tc.group {
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP: %q, want 211", line)
+				}
+			}
+			if code, line := c.Cmd("%s", tc.command); code != tc.code {
+				t.Fatalf("%s: %q, want %d", tc.command, line, tc.code)
+			}
+			// Every fixture starts with a non-dot data line; the strict
+			// dot reader below handles all remaining dot-stuffed lines.
+			first, err := c.ReadLine()
+			if err != nil || first == "." {
+				t.Fatalf("first data line: %q, %v; want a nonempty block", first, err)
+			}
+			if err := c.Send("QUIT\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			rest, err := c.TryReadDotLines()
+			if err != nil {
+				t.Fatalf("%s block after queued QUIT: %v", tc.command, err)
+			}
+			got := append([]string{first}, rest...)
+			switch tc.shape {
+			case "active":
+				sort.Strings(got)
+				want := []string{"test.alpha 4 1 y", "test.middle 1 1 y", "test.zulu 2 1 y"}
+				if strings.Join(got, "\n") != strings.Join(want, "\n") {
+					t.Errorf("complete %s block: %q, want group/high/low/status rows %q", tc.command, got, want)
+				}
+			case "overview":
+				if len(got) != 3 {
+					t.Fatalf("complete %s block has %d records, want 3", tc.command, len(got))
+				}
+				for i, line := range got {
+					fields := strings.Split(line, "\t")
+					if len(fields) < 8 || fields[0] != strconv.Itoa(i+1) || fields[4] != ids[i] || fields[7] != "3" {
+						t.Errorf("%s record %d: %q, want ordered number, message-id and line-count fields", tc.command, i+1, line)
+					}
+				}
+			case "body":
+				if len(got) != len(body) {
+					t.Fatalf("complete BODY has %d lines, want %d", len(got), len(body))
+				}
+				for i := range body {
+					if got[i] != body[i] {
+						t.Errorf("BODY line %d after queued QUIT: %.80q, want %.80q", i, got[i], body[i])
+						break
+					}
+				}
+			default:
+				t.Fatalf("unhandled reply shape %q", tc.shape)
+			}
+			if code, line, err := c.ReadStatus(); err != nil || code != 205 {
+				t.Fatalf("QUIT after complete %s block: %q, %v; want 205", tc.command, line, err)
+			}
+			if line, err := c.ReadLine(); line != "" || !errors.Is(err, io.EOF) {
+				t.Fatalf("after QUIT: %q, %v; want EOF without trailing bytes", line, err)
+			}
+			if err := p.Wait(); err != nil {
+				t.Fatalf("session exit after QUIT: %v, stderr %q", err, p.Stderr())
+			}
+		})
 	}
 }
