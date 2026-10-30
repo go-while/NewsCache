@@ -55,7 +55,8 @@ jobs:
             cxxflags: -g -O1 -fsanitize=address -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS
             ldflags: -fsanitize=address
           - name: ARM64
-            configure: --with-pam
+            # Run the file-log assertions on another architecture too.
+            configure: --with-pam --without-syslog
             runner: ubuntu-24.04-arm
     env:
       ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
