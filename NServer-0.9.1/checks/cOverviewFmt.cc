@@ -21,23 +21,48 @@ Logger slog;
 int checkConvertOverOver()
 {
 	int err = 0;
+	int records = 0;
 	ifstream is;
 	OverviewFmt o1, o2;
-	string orec1, orec2, orec3;
+	string orec1, orec2;
 
 	is.open("overviewfmt1.in");
+	if (!is) {
+		cerr << "cannot open overviewfmt1.in\n";
+		return -1;
+	}
 	o1.readxoin(is);
 	is.close();
 
 	is.open("overviewfmt2.in");
+	if (!is) {
+		cerr << "cannot open overviewfmt2.in\n";
+		return -1;
+	}
 	o2.readxoin(is);
 	is.close();
+	// The second fixture puts Message-ID after Lines and sends Lines with
+	// its field name, while Xref lacks its name. Verify both conversions.
+	if (!o2.dotrans) {
+		cerr << "overviewfmt2.in did not enable conversion\n";
+		return -1;
+	}
+	o2.convert("42\tsubject\tfrom\tdate\tref\t100\tLines: 5\t<id@x>\thost group:42", orec2);
+	if (orec2 != "42\tsubject\tfrom\tdate\t<id@x>\tref\t100\t5\tXref: host group:42") {
+		cerr << "overviewfmt2 conversion: " << orec2 << "\n";
+		return -1;
+	}
 
 	is.open("overviewdb.in");
+	if (!is) {
+		cerr << "cannot open overviewdb.in\n";
+		return -1;
+	}
 	for (;;) {
 		nlreadline(is, orec1, 0);
 		if (!is.good())
 			break;
+		++records;
 		o1.convert(orec1, orec2);
 		if (strcmp(orec1.c_str(), orec2.c_str())) {
 			cout << "checkConvertOverOver: check 1 failed\n";
@@ -45,17 +70,12 @@ int checkConvertOverOver()
 			cout << "  RecordOut: " << orec2 << endl;
 			err = 1;
 		}
-//     o2.convert(orec1,orec2);
-//     o1.convert(orec2,orec3);
-//     if(strcmp(orec1.c_str(),orec3.c_str())) {
-//       cerr << "checkConvertOverOver: check 2 failed\n";
-//       cerr << "  RecordIn:  " << orec1 << endl;
-//       cerr << "  RecordTmp: " << orec2 << endl;
-//       cerr << "  RecordOut: " << orec3 << endl;
-//       err=1;
-//     }
 	}
 	is.close();
+	if (records == 0) {
+		cerr << "overviewdb.in has no complete records\n";
+		return -1;
+	}
 
 	if (err)
 		return -1;
@@ -159,7 +179,12 @@ int main(int argc, char *argv[])
 	char **al = articleList;
 	int e, ef = 0, i, j = sizeof(articleList) / sizeof(articleList[0]);
 
-	chdir(getenv("srcdir"));
+	if (const char *src = getenv("srcdir")) {
+		if (chdir(src) != 0) {
+			perror("chdir srcdir");
+			return 1;
+		}
+	}
 	if (argc > 1) {
 		al = argv + 1;
 		j = argc - 1;

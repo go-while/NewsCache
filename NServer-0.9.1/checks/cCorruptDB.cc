@@ -33,6 +33,7 @@
 #include <string>
 
 #include "Logger.h"
+#include "TestTempDir.h"
 #include "NVActiveDB.h"
 #include "NVArray.h"
 
@@ -616,12 +617,10 @@ static void outer_remap_fails(const string & dir)
 // "cCorruptDB race" runs only the race rounds.
 int main(int argc, char *argv[])
 {
-	char tmpl[] = "cCorruptDB.XXXXXX";
-	if (!mkdtemp(tmpl)) {
-		perror("mkdtemp");
+	string dir;
+	if (!test_temp::create("cCorruptDB", dir)) {
 		return 1;
 	}
-	string dir(tmpl);
 
 	bool race_only = argc > 1 && strcmp(argv[1], "race") == 0;
 	if (!race_only) {
@@ -636,7 +635,6 @@ int main(int argc, char *argv[])
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);
 
-	rmdir(dir.c_str());
 	if (failures) {
 		cerr << failures << " checks failed\n";
 		return 1;
