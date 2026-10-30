@@ -348,7 +348,7 @@ void CNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	if (!clamp(&f, &l))
 		return;
 	next = f;
-	// The news server's list, chunk by chunk, passed on as it arrives:
+	// The news server's list, step by step, passed on as it arrives:
 	// no overview records needed, and nothing held in memory.
 	try {
 		_RServer->printlistgroup(_NewsgroupName, os, f, l, &next);

@@ -37,10 +37,22 @@ static const uint64_t RANGE_REPLY_SLACK = 16;
 // numbers at a time, as OVER fetches it; a group with gaps of billions
 // of numbers (or a low number far below its oldest article) takes a few
 // dozen requests, not hundreds of thousands.
+//
+// Each step has its own deadline, so the steps together have none. A
+// LISTGROUP that keeps delivering numbers may take as long as it needs
+// (the client sees them and can hang up), but one that has passed no
+// number to the client for LISTGROUP_IDLE_SECONDS fails: a news server
+// that answers step after step slowly and empty can't hold a session
+// for hours, nor keep one going whose client left unnoticed (nothing is
+// written that could fail). Walking the empty part of a real sparse
+// group (up to 10^11 numbers, about 1000 steps) takes about 100 s at a
+// round trip of 100 ms.
 #if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
 static const uint64_t LISTGROUP_STEP_ROWS = 10;
+static const unsigned int LISTGROUP_IDLE_SECONDS = 4;
 #else
 static const uint64_t LISTGROUP_STEP_ROWS = 10000;
+static const unsigned int LISTGROUP_IDLE_SECONDS = 5 * 60;
 #endif
 static const uint64_t LISTGROUP_MAX_STEP = 100000000ULL;
 

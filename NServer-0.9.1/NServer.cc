@@ -1091,17 +1091,31 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 	string resp, line;
 	artnum_t a, b, i;
 	uint64_t step = LISTGROUP_STEP_ROWS, rows;
+	// when a number last went to the client (see LISTGROUP_IDLE_SECONDS)
+	struct timespec progress, now;
 
 	*next = f;
 	if (f > l)
 		return;
 	selectgroup(gname);
+	clock_gettime(CLOCK_MONOTONIC, &progress);
 	// In steps (see next_listgroup_step), each with its own row budget
 	// and deadline, however many numbers the group has.
 	for (a = f;; a = b + 1) {
 		b = l - a < step ? l : a + (step - 1);
 		*next = a;
 		rows = 0;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		if (now.tv_sec - progress.tv_sec >= (time_t) LISTGROUP_IDLE_SECONDS) {
+			slog.p(Logger::Error) << _CurrentServer->hostname
+			    << ": LISTGROUP " << gname << ": no number for "
+			    << LISTGROUP_IDLE_SECONDS << " s, giving up at "
+			    << a << "\n";
+			// nothing of this step is on the wire: the caller answers
+			// 403, or closes if earlier steps were sent
+			throw SystemError("LISTGROUP: no number from the news server for "
+					  "too long", -1, ERROR_LOCATION);
+		}
 		if (!os.good())
 			throw SystemError("LISTGROUP client disconnected", -1,
 					  ERROR_LOCATION);
@@ -1158,6 +1172,8 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 		}
 		if (b >= l)
 			break;
+		if (rows)
+			clock_gettime(CLOCK_MONOTONIC, &progress);
 		step = next_listgroup_step(step, rows);
 	}
 	*next = 0;

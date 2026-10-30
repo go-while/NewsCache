@@ -137,6 +137,60 @@ func TestUpstreamListgroupStepsDeadline(t *testing.T) {
 	}
 }
 
+// TestUpstreamListgroupIdleLimit: the group has article 1 and then a
+// billion numbers without articles, and the news server takes 400 ms for
+// every line. Each empty step stays inside the 2-second step deadline of
+// the short-limit build, but after 4 seconds without a number for the
+// client (LISTGROUP_IDLE_SECONDS there) NewsCache gives up: the client
+// got "1" and then the connection closes, without a ".".
+func TestUpstreamListgroupIdleLimit(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+	}
+	const group = "alt.binaries.empty"
+	e := newEnv(t)
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 1_000_000_000, Limit: -1,
+		Article: func(g string, n int64) (fakeserver.Article, bool) {
+			if n != 1 {
+				return fakeserver.Article{}, false
+			}
+			return fakeserver.GeneratedArticle(g, n)
+		}})
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		LineDelay: map[string]time.Duration{"LISTGROUP": 400 * time.Millisecond},
+	}})
+	p, c := e.sessionProcess()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	from := len(e.Upstream.Lines())
+	start := time.Now()
+	if code, line := c.Cmd("LISTGROUP"); code != 211 {
+		t.Fatalf("LISTGROUP: %q", line)
+	}
+	if l, err := c.ReadLine(); err != nil || l != "1" {
+		t.Fatalf("first number: %q, %v", l, err)
+	}
+	if l, err := c.ReadLine(); err == nil {
+		t.Fatalf("after the last number: %q, want the connection closed", l)
+	}
+	took := time.Since(start)
+	t.Logf("closed after %v, %d upstream steps", took.Round(time.Millisecond), len(upRanges(e, from)))
+	if took > 15*time.Second {
+		t.Errorf("LISTGROUP gave up after %v, want soon after 4 s without a number", took)
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(10 * time.Second):
+		t.Errorf("session still running 10 s after it closed the connection")
+	}
+	if logMode, err := logMode(e.Bin); err == nil && logMode != "syslog" {
+		if log := e.logFile(); !strings.Contains(log, "no number for 4 s") {
+			t.Errorf("log lacks the idle limit:\n%s", log)
+		}
+	}
+}
+
 // TestUpstreamListgroupSparse: the group's 7 articles are spread over
 // numbers 60000000000 to 67486767815, as in a binary group whose low
 // number lags far behind its oldest article. Steps of a fixed 10000
