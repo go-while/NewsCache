@@ -137,6 +137,20 @@ systemd unit, spool cleanup timer, a config that lets nobody in); see
 [`tests/e2e`](tests/e2e) (Go 1.26 or later, skipped when Go is missing or
 older).
 
+Two opt-in settings avoid redundant work in repeated CI passes (only the
+value `1` enables them):
+
+- `NEWSCACHE_E2E_SKIP_CONFIGURE=1` skips only
+  `TestCustomSysconfdirPrefixExpansion` and its four configure subprocesses.
+- `NEWSCACHE_E2E_SHORT=1` skips only `TestCorruptDBFuzz`,
+  `TestIdleDaemonSIGTERM` and `TestSigchldStress`; targeted corruption tests
+  and the active-list slow-reader race still run.
+
+The default Ubuntu CI uses the first setting for the race-detector pass and
+both for distcheck. Ordinary `make check`, ASan and the race pass retain the
+full stress/fuzz counts (50 idle-daemon starts and 150 damages per target).
+Neither setting changes NewsCache's timeout semantics or the required waits.
+
 - `texinfo` is required. Without `makeinfo`, `make` stops at the manual
   (`doc/NewsCache.texi`), even though the programs themselves have already
   been built.

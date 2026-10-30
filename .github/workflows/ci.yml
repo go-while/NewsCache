@@ -125,6 +125,9 @@ jobs:
       - name: e2e tests with the race detector
         if: matrix.name == 'default'
         working-directory: tests/e2e
+        # configure itself is not instrumented; make check already ran it.
+        env:
+          NEWSCACHE_E2E_SKIP_CONFIGURE: "1"
         run: |
           status=0
           NEWSCACHE_BIN="$GITHUB_WORKSPACE/src/newscache" go test -race -v -count=1 ./... > "$RUNNER_TEMP/e2e-race.log" 2>&1 || status=$?
@@ -134,6 +137,11 @@ jobs:
 
       - name: make distcheck
         if: matrix.distcheck
+        # Keep the tarball/VPATH checks, without repeating full stress work
+        # and configure subprocesses already covered by the earlier runs.
+        env:
+          NEWSCACHE_E2E_SHORT: "1"
+          NEWSCACHE_E2E_SKIP_CONFIGURE: "1"
         # No TeX on the runner: skip the DVI manual.
         run: make distcheck TEXI2DVI=true
 
