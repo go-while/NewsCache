@@ -612,15 +612,18 @@ func TestDaemonDetached(t *testing.T) {
 	})
 }
 
-// TestNoUsernameWarning: started as root without Username, the daemon
-// and every session (which parse client input) kept running as root, and
-// nothing said so. It still does, but logs a warning.
+// TestNoUsernameWarning runs the daemon as root only inside an unprivileged
+// user namespace: without Username it must warn that it stays root. The test
+// runner and daemon's host uid remain the ordinary user running the suite.
 func TestNoUsernameWarning(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("needs root")
+	if runtime.GOOS != "linux" {
+		t.Skip("needs Linux user and mount namespaces")
 	}
 	e := newEnv(t)
-	e.writeConf()
+	requireFileLog(e)
+	if out, err := exec.Command("unshare", "-rm", "true").CombinedOutput(); err != nil {
+		t.Skipf("unprivileged user and mount namespaces unavailable (unshare -rm: %v): %s", err, strings.TrimSpace(string(out)))
+	}
 	b, err := os.ReadFile(e.Conf)
 	if err != nil {
 		t.Fatal(err)
@@ -634,7 +637,10 @@ func TestNoUsernameWarning(t *testing.T) {
 	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := proc.StartTCP(t, e.procOpts("-n"), e.Listen)
+	o := e.procOpts("-n")
+	o.Args = append([]string{"-rm", o.Path}, o.Args...)
+	o.Path = "unshare"
+	p := proc.StartTCP(t, o, e.Listen)
 	c := e.dial()
 	c.Cmd("QUIT")
 	c.Close()
