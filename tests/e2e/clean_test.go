@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,125 @@ import (
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
+
+// TestNewscachecleanEvictionOrder keeps two groups and evicts the oldest,
+// independently of directory order and the filesystem's atime policy.
+func TestNewscachecleanEvictionOrder(t *testing.T) {
+	e := newEnv(t)
+	e.Extra = "History off"
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	// Populate newest first, not in eviction order. Every article is large
+	// enough to have its own .art1 rather than being inlined in the .db.
+	groups := []string{"test.clean-newest", "test.clean-middle", "test.clean-oldest"}
+	articles := make(map[string]string)
+	for _, group := range groups {
+		e.Store.AddGroup(group, "eviction order")
+		e.Store.AddArticle(group, groupArticle(group, 1, bigBody()))
+	}
+	c := e.session()
+	for _, group := range groups {
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatalf("GROUP %s: %q", group, line)
+		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("ARTICLE in %s: %q", group, line)
+		}
+		articles[group] = strings.Join(c.ReadDotLines(), "\n")
+	}
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Fatalf("QUIT: %q", line)
+	}
+	if got := e.Upstream.Count("ARTICLE"); got != len(groups) {
+		t.Fatalf("warming the cache fetched %d articles, want %d", got, len(groups))
+	}
+
+	var keptBlocks, oldestBlocks int64
+	for i, group := range groups {
+		// Both times are explicit: the cleaner uses max(atime, mtime), and
+		// neither noatime nor relatime should determine the test's outcome.
+		stamp := time.Unix(1700000000, 0).Add(-time.Duration(i) * time.Hour)
+		for _, name := range []string{".db", ".art1"} {
+			path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
+			f, err := os.OpenFile(path, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Flush delayed allocation before measuring the same 512-byte
+			// blocks that newscacheclean uses, not the apparent file size.
+			err = f.Sync()
+			st, statErr := f.Stat()
+			closeErr := f.Close()
+			if err != nil || statErr != nil || closeErr != nil {
+				t.Fatalf("sync/stat/close %s: %v, %v, %v", path, err, statErr, closeErr)
+			}
+			stat, ok := st.Sys().(*syscall.Stat_t)
+			if !ok || stat.Blocks <= 0 {
+				t.Fatalf("%s has no allocated blocks: %+v", path, st.Sys())
+			}
+			if i == len(groups)-1 {
+				oldestBlocks += stat.Blocks
+			} else {
+				keptBlocks += stat.Blocks
+			}
+			if err := os.Chtimes(path, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// SpoolSize is in KiB, whereas st_blocks is in 512-byte units. The
+	// budget fits exactly the two newest groups, with at most one block
+	// of rounding slack (less than either oldest file).
+	kb := (keptBlocks + 1) / 2
+	if keptBlocks+oldestBlocks <= kb*2 {
+		t.Fatal("SpoolSize would fit all three groups")
+	}
+	t.Logf("SpoolSize %d KiB: keep %d blocks, evict the oldest %d blocks", kb, keptBlocks, oldestBlocks)
+	e.Extra += fmt.Sprintf("\nSpoolSize %d\n", kb)
+	e.writeConf()
+	out, err := exec.Command(clean, "-c", e.Conf, "-s").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	for _, want := range []string{"PurgedDbCnt: 1\n", "PurgedArtCnt: 1\n"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("cleanup statistics lack %q:\n%s", want, out)
+		}
+	}
+	for i, group := range groups {
+		for _, name := range []string{".db", ".art1"} {
+			path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
+			_, err := os.Stat(path)
+			if i == len(groups)-1 {
+				if !os.IsNotExist(err) {
+					t.Errorf("oldest group file %s was not evicted: %v", path, err)
+				}
+			} else if err != nil {
+				t.Errorf("newer group file %s was not preserved: %v", path, err)
+			}
+		}
+	}
+
+	before := e.Upstream.Count("ARTICLE")
+	c = e.session()
+	for _, group := range groups[:2] {
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatalf("GROUP %s after cleanup: %q", group, line)
+		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("ARTICLE in %s after cleanup: %q", group, line)
+		}
+		if got := strings.Join(c.ReadDotLines(), "\n"); got != articles[group] {
+			t.Errorf("cached article in %s changed after cleanup", group)
+		}
+	}
+	if got := e.Upstream.Count("ARTICLE"); got != before {
+		t.Errorf("newer articles were fetched again after cleanup: %d -> %d upstream ARTICLE commands", before, got)
+	}
+	c.Cmd("QUIT")
+}
 
 // TestNewscachecleanTryModeStats: -s -t used to skip remove_elements entirely,
 // leaving every statistic at zero even though the spool contained a group DB
