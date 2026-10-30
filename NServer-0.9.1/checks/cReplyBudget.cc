@@ -82,6 +82,19 @@ int main()
 	CHECK(range_reply_rows(1, 10000) == 10000 + RANGE_REPLY_SLACK);
 	CHECK(range_reply_rows(0, UINT64_MAX) == UINT64_MAX);
 	CHECK(range_reply_rows(UINT64_MAX, UINT64_MAX) == 1 + RANGE_REPLY_SLACK);
+	// LISTGROUP steps: dense stays at the row target, gaps grow 16 times
+	// per empty step up to the cap, sparse numbers widen the step
+	const uint64_t T = LISTGROUP_STEP_ROWS, M = LISTGROUP_MAX_STEP;
+	CHECK(next_listgroup_step(T, T) == T);
+	CHECK(next_listgroup_step(T, 0) == 16 * T);
+	CHECK(next_listgroup_step(M / 16 + 1, 0) == M);
+	CHECK(next_listgroup_step(M, 0) == M);
+	CHECK(next_listgroup_step(4 * T, 2 * T) == 2 * T);
+	CHECK(next_listgroup_step(T, 1) == (T * T < M ? T * T : M));
+	CHECK(next_listgroup_step(M, M) == T);
+	CHECK(next_listgroup_step(M, 1) == M);
+	// a server that sends more numbers than the step holds: no smaller
+	CHECK(next_listgroup_step(T, 3 * T) == T);
 	ReplyBudget rows(2, 100);
 	CHECK(rows.add(2));
 	CHECK(rows.add(3));

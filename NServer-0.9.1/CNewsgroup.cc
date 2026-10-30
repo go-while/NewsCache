@@ -343,16 +343,15 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 
 void CNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 {
-	artnum_t gf, gl;
+	artnum_t next;
 
 	if (!clamp(&f, &l))
 		return;
-	// The news server's list, passed on as it arrives: no overview
-	// records needed, and nothing held in memory.
-	getsize(&gf, &gl);
+	next = f;
+	// The news server's list, chunk by chunk, passed on as it arrives:
+	// no overview records needed, and nothing held in memory.
 	try {
-		_RServer->printlistgroup(_NewsgroupName, os, f, l,
-					 f <= gf && l >= gl);
+		_RServer->printlistgroup(_NewsgroupName, os, f, l, &next);
 		return;
 	}
 	catch(ResponseError & e) {
@@ -367,7 +366,8 @@ void CNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 		throw UpstreamReplyError("listgroup " + std::string(name()) +
 					 ": " + e._errtext);
 	}
-	print(os, print_list, NULL, f, l);
+	// the numbers below next were listed already
+	print(os, print_list, NULL, next, l);
 }
 
 const char *CNewsgroup::getover(artnum_t nbr)

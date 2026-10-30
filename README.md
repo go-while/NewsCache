@@ -135,7 +135,9 @@ systemd unit, spool cleanup timer, a config that lets nobody in); see
 
 `make check` runs the unit tests and the end-to-end tests in
 [`tests/e2e`](tests/e2e) (Go 1.26 or later, skipped when Go is missing or
-older).
+older). Tests that take an hour or more, such as reading a group of 12
+million articles in full, run only with `NEWSCACHE_LONG_TESTS=1`:
+`cd tests/e2e && NEWSCACHE_LONG_TESTS=1 NEWSCACHE_BIN=$PWD/../../src/newscache go test -timeout 3h -run '^TestLong' ./...`
 
 - `texinfo` is required. Without `makeinfo`, `make` stops at the manual
   (`doc/NewsCache.texi`), even though the programs themselves have already

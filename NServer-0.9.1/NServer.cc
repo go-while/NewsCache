@@ -1083,67 +1083,84 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 }
 
 void RServer::printlistgroup(const char *gname, ostream & os,
-			     artnum_t f, artnum_t l, int whole)
+			     artnum_t f, artnum_t l, artnum_t *next)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::printlistgroup(" << gname
 	     << "," << f << "-" << l << ")\n");
 	char buf[MAXGROUPNAMELEN + 64];
 	string resp, line;
-	artnum_t i;
+	artnum_t a, b, i;
+	uint64_t step = LISTGROUP_STEP_ROWS, rows;
 
+	*next = f;
+	if (f > l)
+		return;
 	selectgroup(gname);
-	if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
-		throw ResponseError("listgroup", "211", "not supported");
-	if (whole)
-		snprintf(buf, sizeof(buf), "listgroup %s\r\n", gname);
-	else
+	// In steps (see next_listgroup_step), each with its own row budget
+	// and deadline, however many numbers the group has.
+	for (a = f;; a = b + 1) {
+		b = l - a < step ? l : a + (step - 1);
+		*next = a;
+		rows = 0;
+		if (!os.good())
+			throw SystemError("LISTGROUP client disconnected", -1,
+					  ERROR_LOCATION);
+		if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
+			throw ResponseError("listgroup", "211", "not supported");
 		snprintf(buf, sizeof(buf), "listgroup %s %llu-%llu\r\n", gname,
-			 (unsigned long long) f, (unsigned long long) l);
-	resp = issue(buf, NULL);
-	if (!NNTP_ISCODE(resp.c_str(), "211")) {
-		string c(buf), e("211");
-		throw ResponseError(c, e, resp);
-	}
-	ReplyBudget budget(range_reply_rows(f, l), UINT64_MAX, RANGE_REPLY_SECONDS);
-	try {
-		ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
-		for (;;) {
-			if (!os.good())
-				throw SystemError("LISTGROUP client disconnected", -1,
-						  ERROR_LOCATION);
-			size_t wire_bytes = 0;
-			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
-			if (budget.expired())
-				throw ReplyLimitError(budget);
-			if (!_pServerStream->good() && _pServerStream->reply_expired())
-				throw ReplyLimitError(budget, true);
-			if (!_pServerStream->good())
-				throw SystemError("error while reading from server",
-						  errno, ERROR_LOCATION);
-			if (line == ".\r\n") {
-				if (!budget.finish(wire_bytes))
-					throw ReplyLimitError(budget);
-				break;
-			}
-			if (!budget.add(wire_bytes))
-				throw ReplyLimitError(budget);
-			i = leading_artnum(line.data());
-			if (i && f <= i && i <= l)
-				os << i << "\r\n";
+			 (unsigned long long) a, (unsigned long long) b);
+		resp = issue(buf, NULL);
+		if (!NNTP_ISCODE(resp.c_str(), "211")) {
+			string c(buf), e("211");
+			throw ResponseError(c, e, resp);
 		}
-		reply.finish();
-	} catch(const ReplyLimitError &e) {
-		slog.p(Logger::Error) << _CurrentServer->hostname
-		    << ": LISTGROUP: " << e._errtext << "\n";
-		reply_unread();
-		// The status or part of the reply may already be on the wire.
-		// Do not let callers append a success terminator after this error.
-		os.setstate(std::ios::badbit);
-		throw;
-	} catch(...) {
-		reply_unread();
-		throw;
+		ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);
+		try {
+			ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+			for (;;) {
+				if (!os.good())
+					throw SystemError("LISTGROUP client disconnected", -1,
+							  ERROR_LOCATION);
+				size_t wire_bytes = 0;
+				nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
+				if (budget.expired())
+					throw ReplyLimitError(budget);
+				if (!_pServerStream->good() && _pServerStream->reply_expired())
+					throw ReplyLimitError(budget, true);
+				if (!_pServerStream->good())
+					throw SystemError("error while reading from server",
+							  errno, ERROR_LOCATION);
+				if (line == ".\r\n") {
+					if (!budget.finish(wire_bytes))
+						throw ReplyLimitError(budget);
+					break;
+				}
+				if (!budget.add(wire_bytes))
+					throw ReplyLimitError(budget);
+				i = leading_artnum(line.data());
+				if (i && a <= i && i <= b) {
+					os << i << "\r\n";
+					rows++;
+				}
+			}
+			reply.finish();
+		} catch(const ReplyLimitError &e) {
+			slog.p(Logger::Error) << _CurrentServer->hostname
+			    << ": LISTGROUP: " << e._errtext << "\n";
+			reply_unread();
+			// The status or part of the reply may already be on the wire.
+			// Do not let callers append a success terminator after this error.
+			os.setstate(std::ios::badbit);
+			throw;
+		} catch(...) {
+			reply_unread();
+			throw;
+		}
+		if (b >= l)
+			break;
+		step = next_listgroup_step(step, rows);
 	}
+	*next = 0;
 }
 
 /*

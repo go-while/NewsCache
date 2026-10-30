@@ -30,6 +30,37 @@ static const unsigned int ACTIVE_RETRY_SECONDS = 60;
 // malformed and out-of-range rows as well as valid ones.
 static const uint64_t RANGE_REPLY_SLACK = 16;
 
+// A client's LISTGROUP goes to the news server in steps that bring back
+// about LISTGROUP_STEP_ROWS numbers each, at the density the last step
+// found: never fewer numbers than that, 16 times more after a step
+// without any, at most LISTGROUP_MAX_STEP. A dense group is listed 10000
+// numbers at a time, as OVER fetches it; a group with gaps of billions
+// of numbers (or a low number far below its oldest article) takes a few
+// dozen requests, not hundreds of thousands.
+#if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
+static const uint64_t LISTGROUP_STEP_ROWS = 10;
+#else
+static const uint64_t LISTGROUP_STEP_ROWS = 10000;
+#endif
+static const uint64_t LISTGROUP_MAX_STEP = 100000000ULL;
+
+// The size of the next LISTGROUP step after one of step numbers that
+// brought back rows numbers.
+inline uint64_t next_listgroup_step(uint64_t step, uint64_t rows)
+{
+	if (rows == 0)
+		step = step > LISTGROUP_MAX_STEP / 16 ? LISTGROUP_MAX_STEP : step * 16;
+	else if (step > LISTGROUP_MAX_STEP / LISTGROUP_STEP_ROWS)
+		step = step / rows * LISTGROUP_STEP_ROWS;
+	else
+		step = step * LISTGROUP_STEP_ROWS / rows;
+	if (step < LISTGROUP_STEP_ROWS)
+		step = LISTGROUP_STEP_ROWS;
+	if (step > LISTGROUP_MAX_STEP)
+		step = LISTGROUP_MAX_STEP;
+	return step;
+}
+
 inline uint64_t range_reply_rows(uint64_t first, uint64_t last)
 {
 	if (last < first)
