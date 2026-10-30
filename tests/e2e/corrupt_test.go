@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -64,18 +66,19 @@ func corruptSession(t *testing.T, e *env) (*client.Conn, *proc.Process) {
 }
 
 // readCmds runs cmds and returns "cmd:code" for each, or an error when a
-// reply can't be read (the session died, or a list wasn't ended).
+// reply can't be read (the session died or was closed, or a list wasn't
+// ended).
 func readCmds(c *client.Conn, cmds []string) ([]string, error) {
 	var out []string
 	for _, cmd := range cmds {
 		code, _, err := c.TryCmd("%s", cmd)
 		if err != nil {
-			return out, fmt.Errorf("%s: %v", cmd, err)
+			return out, fmt.Errorf("%s: %w", cmd, err)
 		}
 		multi := map[int]bool{215: true, 220: true, 221: true, 222: true, 224: true, 225: true, 231: true}
 		if multi[code] || code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
 			if _, err := c.TryReadDotLines(); err != nil {
-				return out, fmt.Errorf("%s: list: %v", cmd, err)
+				return out, fmt.Errorf("%s: list: %w", cmd, err)
 			}
 		}
 		out = append(out, fmt.Sprintf("%s:%d", cmd, code))
@@ -203,7 +206,9 @@ func TestCorruptActiveDB(t *testing.T) {
 
 // TestCorruptDBFuzz: random damage anywhere in a group's .db or in
 // .active64 must never crash a session or leave a reply unfinished, and
-// the next session must work again.
+// the next session must work again. A list the damage interrupts may end
+// the session (closed, never a "." after part of it); then the log says
+// so.
 func TestCorruptDBFuzz(t *testing.T) {
 	cmds := []string{"GROUP test.alpha", "XOVER 1-21", "ARTICLE 1", "ARTICLE 2", "ARTICLE 21",
 		"XHDR subject 1-21", "STAT 5", "LISTGROUP test.alpha", "GROUP test.beta", "XOVER 1-3",
@@ -224,6 +229,7 @@ func TestCorruptDBFuzz(t *testing.T) {
 				used--
 			}
 			r := rand.New(rand.NewSource(1))
+			closed := 0
 			for k := 0; k < 150; k++ {
 				b := append([]byte(nil), clean...)
 				off := r.Intn(used)
@@ -246,9 +252,28 @@ func TestCorruptDBFuzz(t *testing.T) {
 					got, err := readCmds(c, cmds)
 					c.TryCmd("QUIT")
 					werr := p.Wait()
+					if err != nil && round == "damaged" && werr == nil &&
+						(errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
+						closed++
+						err = nil
+					}
 					if err != nil || werr != nil {
 						t.Fatalf("damage %d (offset %d, %d bytes), %s session: %v, exit %v, stderr %q, replies %q",
 							k, off, n, round, err, werr, p.Stderr(), got)
+					}
+				}
+			}
+			// With this seed, damage to the group's .db interrupts lists
+			// (96 sessions on Linux): none closed means such a list was
+			// ended with a "." as if it were complete.
+			if target == "db" && closed == 0 {
+				t.Errorf("no session was closed in the middle of a list: interrupted lists are ended as if complete")
+			}
+			if closed > 0 {
+				t.Logf("%s: %d damaged sessions were closed in the middle of a list", target, closed)
+				if mode, err := logMode(e.Bin); err == nil && mode == "file" {
+					if log := e.logFile(); !strings.Contains(log, "after part of") {
+						t.Errorf("%d sessions closed mid-list, but the log doesn't say why", closed)
 					}
 				}
 			}

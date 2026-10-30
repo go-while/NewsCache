@@ -3317,23 +3317,24 @@ static bool multiline_reply(const char *status, const char *cmd)
 
 /*
  * A command failed with an exception after the reply had written what
- * tracker saw: finish the reply so that the client stays in step. With
- * nothing written yet, the reply is a 403 (RFC 3977 3.2.1: internal
- * fault; 503 is "feature not supported") with what.
+ * tracker saw. With nothing written yet, the reply is a 403 (RFC 3977
+ * 3.2.1: internal fault; 503 is "feature not supported") with what. A
+ * list that had begun can't be ended honestly: a "." would make what was
+ * sent look complete, and RFC 3977 has no other way to say it isn't.
+ * False then: the caller closes the connection, as for an upstream
+ * failure in the middle of a list.
  */
-static void finish_reply(ostream & co, const ReplyTracker & tracker,
+static bool finish_reply(ostream & co, const ReplyTracker & tracker,
 			 const char *cmd, const char *what)
 {
 	if (tracker.count == 0) {
 		co << "403 " << what << "\r\n";
 	} else if (multiline_reply(tracker.head, cmd)) {
-		// a list had begun: end it
-		if (tracker.last != '\n')
-			co << "\r\n";
-		co << ".\r\n";
+		return false;
 	} else if (strcmp(tracker.head, "340") == 0) {
 		co << "441 posting failed\r\n";
 	}
+	return true;
 }
 
 /*
@@ -3896,21 +3897,32 @@ void nnrpd(int fd, bool tls)
 				if (tracker.count == 0 && attempt == 0 &&
 				    strcasecmp(cmd, "post") != 0)
 					continue;
-				finish_reply(*clt.co, tracker, cmd,
-					     "spool database damaged, try again");
+				if (!finish_reply(*clt.co, tracker, cmd,
+						  "spool database damaged, try again")) {
+					slog.p(Logger::Error) << clt.client_logname
+					    << " " << cmd << ": spool database damaged"
+					    << " after part of the reply, closing\n";
+					goto client_exit;
+				}
 				break;
 			}
 			catch(const Error & e) {
 				// Anything else a command didn't handle (e.g. a
 				// stored article that doesn't parse): the client
-				// gets an answer and the session goes on. (It
-				// ended the session, in inetd mode with SIGABRT.)
+				// gets an answer and the session goes on, unless
+				// a list had begun. (It ended the session, in
+				// inetd mode with SIGABRT.)
 				slog.p(Logger::Error) << clt.client_logname
 				    << " " << cmd << " failed: " << e._errtext
 				    << "\n";
 				errc = -1;
-				finish_reply(*clt.co, tracker, cmd,
-					     "internal error");
+				if (!finish_reply(*clt.co, tracker, cmd,
+						  "internal error")) {
+					slog.p(Logger::Error) << clt.client_logname
+					    << " " << cmd << ": failed after part of"
+					    << " the reply, closing\n";
+					goto client_exit;
+				}
 				break;
 			}
 		}
