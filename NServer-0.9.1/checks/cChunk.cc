@@ -69,7 +69,7 @@ int main()
 	// a group's range from a news server is cut below the top
 	CHECK(ARTNUM_LIMIT < top);
 	CHECK(next_chunk(ARTNUM_LIMIT) != 0);
-	CHECK(ARTNUM_LIMIT + 1 > ARTNUM_LIMIT);
+	CHECK(ARTNUM_MAX - ARTNUM_LIMIT == 2 * OVERVIEW_CHUNK);
 
 	if (failures) {
 		cerr << failures << " checks failed\n";

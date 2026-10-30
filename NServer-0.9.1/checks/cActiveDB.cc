@@ -18,6 +18,7 @@
 
 #include "Logger.h"
 #include "NVActiveDB.h"
+#include "TestTempDir.h"
 
 using namespace std;
 
@@ -95,12 +96,10 @@ static int exists(const string & fn)
 
 int main()
 {
-	char tmpl[] = "cActiveDB.XXXXXX";
-	if (!mkdtemp(tmpl)) {
-		perror("mkdtemp");
+	string dir;
+	if (!test_temp::create("cActiveDB", dir)) {
 		return 1;
 	}
-	string dir(tmpl);
 	string oldfn = dir + "/.active", newfn = dir + "/.active64";
 	GroupInfo gi;
 
@@ -196,10 +195,6 @@ int main()
 	CHECK(NVActiveDB::convert_v1((dir + "/none").c_str(),
 				     (dir + "/none64").c_str()) == 0);
 	CHECK(!exists(dir + "/none64"));
-
-	unlink(newfn.c_str());
-	unlink((oldfn + ".v1").c_str());
-	rmdir(dir.c_str());
 
 	if (failures) {
 		cerr << failures << " checks failed\n";
