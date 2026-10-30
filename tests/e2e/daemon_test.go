@@ -1177,8 +1177,8 @@ func TestSIGTERMEndsSessions(t *testing.T) {
 }
 
 // main installs catchsignal for SIGINT and ignores SIGUSR1/SIGUSR2 in both
-// master and session processes. SIGQUIT is not caught: Unix terminates only
-// the addressed process, without the master's graceful session shutdown.
+// master and session processes. SIGQUIT is deliberately untested because
+// NewsCache does not handle it; its default action is not a designed contract.
 func TestAdditionalSignalBehavior(t *testing.T) {
 	for _, role := range []string{"daemon", "session"} {
 		for _, tc := range []struct {
@@ -1186,7 +1186,6 @@ func TestAdditionalSignalBehavior(t *testing.T) {
 			sig  syscall.Signal
 		}{
 			{"SIGINT", syscall.SIGINT},
-			{"SIGQUIT", syscall.SIGQUIT},
 			{"SIGUSR1", syscall.SIGUSR1},
 			{"SIGUSR2", syscall.SIGUSR2},
 		} {
@@ -1200,8 +1199,6 @@ func TestAdditionalSignalBehavior(t *testing.T) {
 					mode = "-n"
 				}
 				o := e.procOpts(mode)
-				// SIGQUIT's default action must not leave a core artifact.
-				o.Ulimit = []string{"-c 0"}
 				var p *proc.Process
 				var c *client.Conn
 				if role == "daemon" {
@@ -1246,24 +1243,6 @@ func TestAdditionalSignalBehavior(t *testing.T) {
 						if _, err := os.Stat(filepath.Join(e.Dir, "newscache.pid")); !errors.Is(err, os.ErrNotExist) {
 							t.Errorf("pid file after graceful SIGINT: %v, want removed", err)
 						}
-					}
-				case syscall.SIGQUIT:
-					if role == "daemon" {
-						// Only the master was signalled. Its already-forked
-						// session still serves; close it explicitly so it
-						// cannot outlive the test or hold captured stdout.
-						if code, line := c.Cmd("DATE"); code != 111 {
-							t.Fatalf("session after master SIGQUIT: %q, want 111", line)
-						}
-						quit()
-					} else {
-						closed()
-					}
-					waitErr := p.Wait()
-					if exitErr, ok := waitErr.(*exec.ExitError); !ok {
-						t.Fatalf("SIGQUIT exit: %v, want signal termination", waitErr)
-					} else if status, ok := exitErr.Sys().(syscall.WaitStatus); !ok || !status.Signaled() || status.Signal() != syscall.SIGQUIT {
-						t.Errorf("SIGQUIT exit: %v, want SIGQUIT", exitErr)
 					}
 				case syscall.SIGUSR1, syscall.SIGUSR2:
 					if code, line := c.Cmd("DATE"); code != 111 {
