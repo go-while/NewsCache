@@ -552,10 +552,18 @@ func detachedPids(bin, conf string) ([]int, error) {
 		}
 		return pids, nil
 	}
+	return detachedPidsPS(bin, conf)
+}
+
+func detachedPidsPS(bin, conf string) ([]int, error) {
+	match := func(args []string) bool {
+		return len(args) >= 3 && args[0] == bin && args[1] == "-c" && args[2] == conf
+	}
+	var pids []int
 	// POSIX ps on the other Unix test hosts: restrict by uid as well as the
 	// exact executable and config arguments. Linux uses /proc to avoid ps
 	// variants and preserve arguments containing spaces.
-	out, err := exec.Command("ps", "-e", "-o", "pid=", "-o", "uid=", "-o", "args=").Output()
+	out, err := exec.Command("ps", "-A", "-o", "pid=", "-o", "uid=", "-o", "args=").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -569,6 +577,21 @@ func detachedPids(bin, conf string) ([]int, error) {
 		}
 	}
 	return pids, nil
+}
+
+func TestDetachedPidsPSUsesAllProcesses(t *testing.T) {
+	dir := t.TempDir()
+	// An instrumented ps ensures the portable all-processes flag is used,
+	// including on Linux where -e happens to mean the same thing.
+	script := fmt.Sprintf("#!/bin/sh\n[ \"$*\" = '-A -o pid= -o uid= -o args=' ] || exit 1\nprintf '123 %d /test/newscache -c /test/config\\n124 %d /other -c /test/config\\n'\n", os.Geteuid(), os.Geteuid())
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	pids, err := detachedPidsPS("/test/newscache", "/test/config")
+	if err != nil || len(pids) != 1 || pids[0] != 123 {
+		t.Fatalf("detachedPidsPS: %v, %v; want [123]", pids, err)
+	}
 }
 
 func stopDetached(t *testing.T, bin, conf string) {
@@ -640,6 +663,9 @@ func TestDetachedCleanupWithoutPidFile(t *testing.T) {
 		pids, err := detachedPids(bin, conf)
 		if err != nil || len(pids) == 0 {
 			t.Fatalf("detached daemon not found before cleanup: %v, %v", pids, err)
+		}
+		if pids, err := detachedPidsPS(bin, conf); err != nil || len(pids) == 0 {
+			t.Fatalf("detached daemon not found by ps: %v, %v", pids, err)
 		}
 	})
 	if bin == "" || conf == "" {
