@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -19,24 +20,35 @@ func capabilities(t *testing.T, c interface {
 	if code, line := c.Cmd("CAPABILITIES"); code != 101 {
 		t.Fatalf("CAPABILITIES: %q, want 101", line)
 	}
-	return c.ReadDotLines()
+	caps := c.ReadDotLines()
+	if len(caps) == 0 || strings.ToUpper(strings.Join(strings.Fields(caps[0]), " ")) != "VERSION 2" {
+		t.Errorf("first CAPABILITIES line must be VERSION 2: %q", caps)
+	}
+	return caps
 }
 
-// checkCaps reports the lines of want that caps lacks and of unwanted
-// that it has.
+// checkCaps compares keywords and their arguments without depending on the
+// order of arguments. It also checks the keywords in LIST HEADERS replies.
 func checkCaps(t *testing.T, what string, caps []string, want, unwanted []string) {
 	t.Helper()
+	canonical := func(line string) string {
+		words := strings.Fields(strings.ToUpper(line))
+		if len(words) > 1 {
+			sort.Strings(words[1:])
+		}
+		return strings.Join(words, " ")
+	}
 	have := map[string]bool{}
 	for _, l := range caps {
-		have[l] = true
+		have[canonical(l)] = true
 	}
 	for _, w := range want {
-		if !have[w] {
+		if !have[canonical(w)] {
 			t.Errorf("%s: CAPABILITIES lacks %q: %q", what, w, caps)
 		}
 	}
 	for _, u := range unwanted {
-		if have[u] {
+		if have[canonical(u)] {
 			t.Errorf("%s: CAPABILITIES has %q: %q", what, u, caps)
 		}
 	}
@@ -132,13 +144,9 @@ func TestCapabilities(t *testing.T) {
 	})
 }
 
-// hdrLines strips the trailing blank that an empty value leaves.
+// hdrLines keeps the mandatory space between a number and an empty value.
 func hdrLines(lines []string) string {
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = strings.TrimRight(l, " ")
-	}
-	return strings.Join(out, "|")
+	return strings.Join(lines, "|")
 }
 
 func TestHdr(t *testing.T) {
@@ -160,7 +168,7 @@ func TestHdr(t *testing.T) {
 		{"HDR from 2", 225, "2 poster@upstream.test"},
 		{"HDR message-id 3", 225, "3 " + ids[2]},
 		// no References: the line is there, with an empty value
-		{"HDR references 1-2", 225, "1|2"},
+		{"HDR references 1-2", 225, "1 |2 "},
 		{"HDR subject 5-9", 423, ""},
 		// metadata by number; the Lines header is not the line count
 		{"HDR :lines 1", 225, "1 3"},
@@ -171,7 +179,7 @@ func TestHdr(t *testing.T) {
 		// by message-ID every header of the article
 		{"HDR subject " + ids[1], 225, "0 article 2 in test.alpha"},
 		{"HDR newsgroups " + ids[1], 225, "0 test.alpha"},
-		{"HDR x-no-such " + ids[1], 225, "0"},
+		{"HDR x-no-such " + ids[1], 225, "0 "},
 		{"HDR :lines " + ids[1], 503, ""},
 		{"HDR subject <nonexistent@upstream.test>", 430, ""},
 	} {
@@ -318,8 +326,8 @@ func TestXhdrXrefOverview(t *testing.T) {
 			continue
 		}
 		lines := c.ReadDotLines()
-		empty := map[string]bool{"2": true, "2 ": true, "2 (none)": true}
-		if len(lines) != 2 || lines[0] != "1 upstream.test test.alpha:1" || !empty[lines[1]] {
+		validEmpty := len(lines) == 2 && (lines[1] == "2 " || (tc.code == 221 && lines[1] == "2 (none)"))
+		if len(lines) != 2 || lines[0] != "1 upstream.test test.alpha:1" || !validEmpty {
 			t.Errorf("%s: %q, want \"1 upstream.test test.alpha:1\" and an empty 2", tc.cmd, lines)
 		}
 	}

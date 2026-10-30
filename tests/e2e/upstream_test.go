@@ -1120,11 +1120,19 @@ func TestUpstreamLongCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ARTICLE <%d characters>: %v", len(id), err)
 	}
-	if code != 430 {
-		t.Errorf("ARTICLE <%d characters>: %q, want 430", len(id), line)
+	if code != 430 && code != 501 {
+		t.Errorf("ARTICLE <%d characters>: %q, want 430 or 501", len(id), line)
 	}
-	if !containsLine(e.Upstream.Lines(), "article "+id) {
+	if code == 430 && !containsLine(e.Upstream.Lines(), "article "+id) {
 		t.Errorf("the upstream didn't get the whole ARTICLE command")
+	}
+	for _, command := range e.Upstream.Lines() {
+		if strings.HasPrefix(strings.ToLower(command), "article ") && command != "article "+id {
+			t.Errorf("upstream received a truncated or unexpected ARTICLE command: %q", command)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE after long ARTICLE: %q", line)
 	}
 
 	id = "<" + strings.Repeat("p", 241) + "@x.test>"

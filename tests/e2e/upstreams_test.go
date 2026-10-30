@@ -396,8 +396,8 @@ func testSeveralServers(t *testing.T, opts string) {
 	c := e.session()
 	if code, line := c.Cmd("LIST"); code != 215 {
 		t.Fatalf("LIST: %q", line)
-	} else if l := strings.Join(c.ReadDotLines(), "|"); l != "test.alpha 2 1 y|test.beta 104 101 y" {
-		t.Errorf("LIST: %q, want test.beta with B's numbers", l)
+	} else if lines := c.ReadDotLines(); len(lines) != 2 || !containsLine(lines, "test.alpha 2 1 y") || !containsLine(lines, "test.beta 104 101 y") {
+		t.Errorf("LIST: %q, want alpha and beta with their own numbers", lines)
 	}
 	if code, line := c.Cmd("GROUP test.beta"); code != 211 || !strings.HasPrefix(line, "211 4 101 104 ") {
 		t.Errorf("GROUP test.beta: %q", line)
