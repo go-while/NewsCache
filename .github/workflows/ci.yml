@@ -148,6 +148,9 @@ jobs:
       - name: Show test logs
         if: failure()
         run: |
+          find . -name run.sh.log | while read -r f; do
+            echo "===== failed tests in $f"; sh .github/ci/e2e-failures.sh "$f"
+          done
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
 
@@ -209,6 +212,9 @@ jobs:
       - name: Show test logs
         if: failure()
         run: |
+          find . -name run.sh.log | while read -r f; do
+            echo "===== failed tests in $f"; sh .github/ci/e2e-failures.sh "$f"
+          done
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
 
@@ -450,5 +456,8 @@ jobs:
       - name: Show test logs
         if: failure()
         run: |
+          find . -name run.sh.log | while read -r f; do
+            echo "===== failed tests in $f"; sh .github/ci/e2e-failures.sh "$f"
+          done
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' -o -name config.log |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
