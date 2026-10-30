@@ -523,75 +523,36 @@ func checkPidFile(t *testing.T, fn string, pid int) {
 // A pid file alone is insufficient: it may never have been written, and an
 // old PID could have been reused by an unrelated process.
 func detachedPids(bin, conf string) ([]int, error) {
+	if runtime.GOOS != "linux" {
+		return nil, fmt.Errorf("detached process discovery requires Linux /proc")
+	}
 	match := func(args []string) bool {
 		return len(args) >= 3 && args[0] == bin && args[1] == "-c" && args[2] == conf
 	}
 	var pids []int
-	if runtime.GOOS == "linux" {
-		entries, err := os.ReadDir("/proc")
-		if err != nil {
-			return nil, err
-		}
-		for _, entry := range entries {
-			pid, err := strconv.Atoi(entry.Name())
-			if err != nil || pid <= 0 {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || stat.Uid != uint32(os.Geteuid()) {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-			if err == nil && match(strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")) {
-				pids = append(pids, pid)
-			}
-		}
-		return pids, nil
-	}
-	return detachedPidsPS(bin, conf)
-}
-
-func detachedPidsPS(bin, conf string) ([]int, error) {
-	match := func(args []string) bool {
-		return len(args) >= 3 && args[0] == bin && args[1] == "-c" && args[2] == conf
-	}
-	var pids []int
-	// POSIX ps on the other Unix test hosts: restrict by uid as well as the
-	// exact executable and config arguments. Linux uses /proc to avoid ps
-	// variants and preserve arguments containing spaces.
-	out, err := exec.Command("ps", "-A", "-o", "pid=", "-o", "uid=", "-o", "args=").Output()
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 5 || fields[1] != strconv.Itoa(os.Geteuid()) || !match(fields[2:]) {
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
 			continue
 		}
-		if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != uint32(os.Geteuid()) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err == nil && match(strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")) {
 			pids = append(pids, pid)
 		}
 	}
 	return pids, nil
-}
-
-func TestDetachedPidsPSUsesAllProcesses(t *testing.T) {
-	dir := t.TempDir()
-	// An instrumented ps ensures the portable all-processes flag is used,
-	// including on Linux where -e happens to mean the same thing.
-	script := fmt.Sprintf("#!/bin/sh\n[ \"$*\" = '-A -o pid= -o uid= -o args=' ] || exit 1\nprintf '123 %d /test/newscache -c /test/config\\n124 %d /other -c /test/config\\n'\n", os.Geteuid(), os.Geteuid())
-	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	pids, err := detachedPidsPS("/test/newscache", "/test/config")
-	if err != nil || len(pids) != 1 || pids[0] != 123 {
-		t.Fatalf("detachedPidsPS: %v, %v; want [123]", pids, err)
-	}
 }
 
 func stopDetached(t *testing.T, bin, conf string) {
@@ -619,22 +580,56 @@ func stopDetached(t *testing.T, bin, conf string) {
 	}
 }
 
+// The non-Linux fallback uses the pid file, as it did before process
+// discovery was added. It cannot clean up a daemon without a pid file.
+func stopDetachedByPID(t *testing.T, pid int) {
+	t.Helper()
+	if pid > 0 {
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && err != syscall.ESRCH {
+			t.Errorf("stop detached daemon %d: %v", pid, err)
+		}
+	}
+}
+
+func TestStopDetachedByPID(t *testing.T) {
+	cmd := exec.Command("sleep", "3")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	stopDetachedByPID(t, cmd.Process.Pid)
+	err := cmd.Wait()
+	status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if err == nil || !ok || !status.Signaled() || status.Signal() != syscall.SIGTERM {
+		t.Fatalf("pid cleanup: wait error %v, status %v; want SIGTERM", err, cmd.ProcessState)
+	}
+}
+
 // startDetached starts newscache the classic way, without -n: it forks,
 // the parent exits and the daemon goes on. Returns the daemon's pid from
 // the pid file, or 0 if the daemon is gone again before that.
 func startDetached(t *testing.T, e *env) int {
 	t.Helper()
-	// Register before starting, even when no pid file is ever produced.
+	// Linux can discover the daemon even if it never writes a pid file. Other
+	// platforms retain the old pid-file cleanup: ps may truncate arguments.
 	bin, conf := e.Bin, e.Conf
-	t.Cleanup(func() { stopDetached(t, bin, conf) })
+	pid := 0
+	t.Cleanup(func() {
+		if runtime.GOOS == "linux" {
+			stopDetached(t, bin, conf)
+		} else {
+			stopDetachedByPID(t, pid)
+		}
+	})
 	pidFile := filepath.Join(e.Dir, "newscache.pid")
 	if err := exec.Command(e.Bin, "-c", e.Conf).Run(); err != nil {
 		t.Fatalf("newscache: %v", err)
 	}
 	for i := 0; i < 50; i++ {
 		b, _ := os.ReadFile(pidFile)
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
-			return pid
+		if found, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && found > 0 {
+			pid = found
+			return found
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -644,6 +639,9 @@ func startDetached(t *testing.T, e *env) int {
 // The daemon can keep running when its configured pid file cannot be
 // written. Cleanup must find this test's daemon even in that case.
 func TestDetachedCleanupWithoutPidFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("no pid-file cleanup requires Linux /proc process discovery")
+	}
 	var bin, conf string
 	// A second guard prevents a deliberately broken cleanup from leaving a
 	// daemon behind when this regression test is used as a negative control.
@@ -663,9 +661,6 @@ func TestDetachedCleanupWithoutPidFile(t *testing.T) {
 		pids, err := detachedPids(bin, conf)
 		if err != nil || len(pids) == 0 {
 			t.Fatalf("detached daemon not found before cleanup: %v, %v", pids, err)
-		}
-		if pids, err := detachedPidsPS(bin, conf); err != nil || len(pids) == 0 {
-			t.Fatalf("detached daemon not found by ps: %v, %v", pids, err)
 		}
 	})
 	if bin == "" || conf == "" {
