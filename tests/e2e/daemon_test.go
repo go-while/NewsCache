@@ -3,6 +3,7 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-while/nntp-testkit/fakeserver"
 	"io"
@@ -1171,6 +1172,127 @@ func TestSIGTERMEndsSessions(t *testing.T) {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+// main installs catchsignal for SIGINT and ignores SIGUSR1/SIGUSR2 in both
+// master and session processes. SIGQUIT is not caught: Unix terminates only
+// the addressed process, without the master's graceful session shutdown.
+func TestAdditionalSignalBehavior(t *testing.T) {
+	for _, role := range []string{"daemon", "session"} {
+		for _, tc := range []struct {
+			name string
+			sig  syscall.Signal
+		}{
+			{"SIGINT", syscall.SIGINT},
+			{"SIGQUIT", syscall.SIGQUIT},
+			{"SIGUSR1", syscall.SIGUSR1},
+			{"SIGUSR2", syscall.SIGUSR2},
+		} {
+			t.Run(role+"/"+tc.name, func(t *testing.T) {
+				e := newEnv(t)
+				e.ClientTimeout = 120
+				e.addArticles("test.alpha", 1)
+				e.writeConf()
+				mode := "-i"
+				if role == "daemon" {
+					mode = "-n"
+				}
+				o := e.procOpts(mode)
+				// SIGQUIT's default action must not leave a core artifact.
+				o.Ulimit = []string{"-c 0"}
+				var p *proc.Process
+				var c *client.Conn
+				if role == "daemon" {
+					p = proc.StartTCP(t, o, e.Listen)
+					c = e.dial()
+				} else {
+					p = proc.StartStdio(t, o)
+					c = client.New(t, p.Conn())
+					if _, err := c.ReadGreeting(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP before signal: %q, want 211", line)
+				}
+				closed := func() {
+					t.Helper()
+					if line, err := c.ReadLine(); line != "" || !errors.Is(err, io.EOF) {
+						t.Fatalf("connection after signal/QUIT: %q, %v; want EOF without trailing bytes", line, err)
+					}
+				}
+				quit := func() {
+					t.Helper()
+					if code, line := c.Cmd("QUIT"); code != 205 {
+						t.Fatalf("QUIT: %q, want 205", line)
+					}
+					closed()
+				}
+				if err := p.Signal(tc.sig); err != nil {
+					t.Fatal(err)
+				}
+				switch tc.sig {
+				case syscall.SIGINT:
+					if code, line, err := c.ReadStatus(); err != nil || code != 400 || !strings.Contains(line, "service discontinued") {
+						t.Fatalf("after SIGINT: %q, %v; want 400 service discontinued", line, err)
+					}
+					closed()
+					if err := p.Wait(); err != nil {
+						t.Fatalf("graceful SIGINT exit: %v", err)
+					}
+					if role == "daemon" {
+						if _, err := os.Stat(filepath.Join(e.Dir, "newscache.pid")); !errors.Is(err, os.ErrNotExist) {
+							t.Errorf("pid file after graceful SIGINT: %v, want removed", err)
+						}
+					}
+				case syscall.SIGQUIT:
+					if role == "daemon" {
+						// Only the master was signalled. Its already-forked
+						// session still serves; close it explicitly so it
+						// cannot outlive the test or hold captured stdout.
+						if code, line := c.Cmd("DATE"); code != 111 {
+							t.Fatalf("session after master SIGQUIT: %q, want 111", line)
+						}
+						quit()
+					} else {
+						closed()
+					}
+					waitErr := p.Wait()
+					if exitErr, ok := waitErr.(*exec.ExitError); !ok {
+						t.Fatalf("SIGQUIT exit: %v, want signal termination", waitErr)
+					} else if status, ok := exitErr.Sys().(syscall.WaitStatus); !ok || !status.Signaled() || status.Signal() != syscall.SIGQUIT {
+						t.Errorf("SIGQUIT exit: %v, want SIGQUIT", exitErr)
+					}
+				case syscall.SIGUSR1, syscall.SIGUSR2:
+					if code, line := c.Cmd("DATE"); code != 111 {
+						t.Fatalf("DATE after ignored signal: %q, want 111", line)
+					}
+					if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+						t.Fatalf("ARTICLE after ignored signal: %q, want 220", line)
+					}
+					if article := c.ReadDotLines(); !containsLine(article, "body of article 1") {
+						t.Errorf("ARTICLE after ignored signal lacks the body: %q", article)
+					}
+					quit()
+					if role == "daemon" {
+						fresh := e.dial()
+						if code, line := fresh.Cmd("DATE"); code != 111 {
+							t.Fatalf("new connection after ignored signal: %q, want 111", line)
+						}
+						if code, line := fresh.Cmd("QUIT"); code != 205 {
+							t.Fatalf("new connection QUIT: %q, want 205", line)
+						}
+						if err := p.Signal(syscall.SIGTERM); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := p.Wait(); err != nil {
+						t.Fatalf("clean exit after ignored signal: %v", err)
+					}
+				}
+			})
 		}
 	}
 }
