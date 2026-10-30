@@ -347,17 +347,23 @@ func TestUpstreamActiveReplyLimits(t *testing.T) {
 				}
 			}
 			run("first transfer")
-			log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
-			if err != nil {
-				t.Fatalf("read file-log diagnostic: %v", err)
-			}
-			wantRows := 65
-			if extraCR != 0 {
-				wantRows = 4096/(len(row)+2) + 1
-			}
-			want := fmt.Sprintf("upstream reply limit exceeded: rows=%d bytes=", wantRows)
-			if !strings.Contains(string(log), want) {
-				t.Fatalf("missing %q in log:\n%s", want, log)
+			// the exact limit is only in the file log; a syslog build
+			// still checks that the second transfer refreshes the list
+			if mode, err := logMode(e.Bin); err != nil {
+				t.Fatal(err)
+			} else if mode != "syslog" {
+				log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+				if err != nil {
+					t.Fatalf("read file-log diagnostic: %v", err)
+				}
+				wantRows := 65
+				if extraCR != 0 {
+					wantRows = 4096/(len(row)+2) + 1
+				}
+				want := fmt.Sprintf("upstream reply limit exceeded: rows=%d bytes=", wantRows)
+				if !strings.Contains(string(log), want) {
+					t.Fatalf("missing %q in log:\n%s", want, log)
+				}
 			}
 			run("second transfer")
 			if attempts.Load() < 2 {
