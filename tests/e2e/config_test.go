@@ -34,6 +34,9 @@ func TestDefaultConfigPath(t *testing.T) {
 // Matrix jobs copy a prebuilt test binary into the unpacked tarball: its
 // runtime.Caller path belongs to the build host, so they set NEWSCACHE_SRC.
 func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
+	if os.Getenv("NEWSCACHE_E2E_SKIP_CONFIGURE") == "1" {
+		t.Skip("configure subprocesses are uninstrumented and already covered by full make check (NEWSCACHE_E2E_SKIP_CONFIGURE=1)")
+	}
 	source := os.Getenv("NEWSCACHE_SRC")
 	explicit := source != ""
 	if !explicit {

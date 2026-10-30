@@ -212,6 +212,9 @@ func TestCorruptActiveDB(t *testing.T) {
 // the session (closed, never a "." after part of it); then the log says
 // so.
 func TestCorruptDBFuzz(t *testing.T) {
+	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
+		t.Skip("repeated fuzz coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
+	}
 	cmds := []string{"GROUP test.alpha", "XOVER 1-21", "ARTICLE 1", "ARTICLE 2", "ARTICLE 21",
 		"XHDR subject 1-21", "STAT 5", "LISTGROUP test.alpha", "GROUP test.beta", "XOVER 1-3",
 		"LIST", "NEWGROUPS 20000101 000000"}

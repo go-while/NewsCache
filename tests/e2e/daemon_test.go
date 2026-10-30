@@ -377,6 +377,9 @@ func TestListenDefaultIPv6(t *testing.T) {
 // asleep until a connection arrived. The small race is timing-dependent,
 // so multiple independent starts exercise the transition into poll.
 func TestIdleDaemonSIGTERM(t *testing.T) {
+	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
+		t.Skip("repeated 50-start stress coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
+	}
 	for i := 0; i < 50; i++ {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			e := newEnv(t)
@@ -1053,6 +1056,9 @@ func TestSIGTERMEndsSessions(t *testing.T) {
 // this, so the default run (5 s) mainly checks the logging;
 // NEWSCACHE_STRESS=120s runs longer.
 func TestSigchldStress(t *testing.T) {
+	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
+		t.Skip("repeated signal stress coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
+	}
 	dur := 5 * time.Second
 	if d, err := time.ParseDuration(os.Getenv("NEWSCACHE_STRESS")); err == nil {
 		dur = d
