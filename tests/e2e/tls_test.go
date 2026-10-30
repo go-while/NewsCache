@@ -248,13 +248,7 @@ func tlsEnv(t *testing.T, names []string, notBefore, notAfter time.Time, starttl
 // (configure --without-gnutls), which ignores Options ssl and starttls.
 func requireTLS(t *testing.T, bin string) {
 	t.Helper()
-	b, err := os.ReadFile(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(b, []byte("gnutls_handshake")) {
-		t.Skip("newscache built without GnuTLS")
-	}
+	requireClientTLS(t, bin)
 }
 
 // A peer that sends a valid TLS record header but never completes the
@@ -618,11 +612,7 @@ func TestTLSOptionsWithoutGnuTLS(t *testing.T) {
 	for _, opt := range []string{"ssl", "starttls"} {
 		t.Run(opt, func(t *testing.T) {
 			e := newEnv(t)
-			b, err := os.ReadFile(e.Bin)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if bytes.Contains(b, []byte("gnutls_handshake")) {
+			if clientTLSBuilt(t, e.Bin) {
 				t.Skip("newscache built with GnuTLS")
 			}
 			e.addArticles("test.alpha", 1)

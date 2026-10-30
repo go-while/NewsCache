@@ -59,14 +59,14 @@ func TestCustomSysconfdirPrefixExpansion(t *testing.T) {
 	configureSource := filepath.Join(t.TempDir(), "source")
 	// Copy only configure inputs: copying the full tree would also copy .git,
 	// private ignored files, and read-only distcheck output into the temp dir.
-	// Keep this list aligned with the configure inputs in tests/configure-gnutls.sh.
-	configureInputs := []string{
-		"configure", "config.h.in", "config.guess", "config.sub", "install-sh",
-		"missing", "compile", "depcomp", "test-driver", "Makefile.in",
-		"src/NewsCache.cc", "src/Makefile.in", "md5lib/Makefile.in",
-		"NVClasses-0.9.1/Makefile.in", "NServer-0.9.1/Makefile.in",
-		"NServer-0.9.1/checks/Makefile.in", "man/Makefile.in", "doc/Makefile.in",
-		"etc/Makefile.in", "etc/NewsCache.init.in", "test/Makefile.in",
+	// Shared with tests/configure-gnutls.sh; included in the distribution.
+	list, err := os.ReadFile(filepath.Join(source, "tests", "configure-inputs.txt"))
+	if err != nil {
+		t.Fatalf("read configure input list: %v", err)
+	}
+	configureInputs := strings.Fields(string(list))
+	if len(configureInputs) == 0 {
+		t.Fatal("configure input list is empty")
 	}
 	executableInputs := map[string]bool{
 		"configure": true, "config.guess": true, "config.sub": true,

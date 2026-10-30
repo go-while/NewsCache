@@ -258,6 +258,9 @@ func TestClientTLSRejectsBadConfiguration(t *testing.T) {
 		if err == nil {
 			t.Fatalf("newscache -p accepted TLSListenTo without a certificate and key:\n%s", out)
 		}
+		if !strings.Contains(string(out), "TLSListenTo needs TLSCertFile and TLSKeyFile") {
+			t.Errorf("unexpected failure for missing TLS credentials:\n%s", out)
+		}
 	})
 
 	t.Run("certificate and key must match", func(t *testing.T) {
@@ -270,6 +273,9 @@ func TestClientTLSRejectsBadConfiguration(t *testing.T) {
 		if err == nil {
 			t.Fatalf("newscache -p accepted a mismatched TLS certificate and key:\n%s", out)
 		}
+		if !strings.Contains(string(out), "can't load TLSCertFile") || !strings.Contains(string(out), "TLSKeyFile") {
+			t.Errorf("unexpected failure for mismatched TLS credentials:\n%s", out)
+		}
 	})
 
 	t.Run("invalid priority is rejected", func(t *testing.T) {
@@ -280,6 +286,9 @@ func TestClientTLSRejectsBadConfiguration(t *testing.T) {
 		out, err := exec.Command(f.e.Bin, "-c", f.e.Conf, "-p").CombinedOutput()
 		if err == nil {
 			t.Fatalf("newscache -p accepted an invalid TLSPriority:\n%s", out)
+		}
+		if !strings.Contains(string(out), "invalid TLSPriority") {
+			t.Errorf("unexpected failure for invalid TLS priority:\n%s", out)
 		}
 	})
 }
