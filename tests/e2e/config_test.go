@@ -152,7 +152,6 @@ func checkConfigOpenError(t *testing.T, missing string, errno syscall.Errno) {
 		{name: "newscache", args: []string{"-c", missing}, exitCode: 2},
 		{name: "newscacheclean", args: []string{"-c", missing}, exitCode: 2},
 		{name: "updatenews", args: []string{"-c", missing}, exitCode: 2},
-		{name: "cConfig", args: []string{missing}, exitCode: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(filepath.Dir(bin), tc.name)

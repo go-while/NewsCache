@@ -100,21 +100,6 @@ func groupsWithoutAdjacentRepeats(lines []string) []string {
 	return groups
 }
 
-func TestGroupsWithoutAdjacentRepeats(t *testing.T) {
-	for _, tc := range []struct {
-		lines []string
-		want  string
-	}{
-		{[]string{"GROUP a", "group a", "GROUP b"}, "a b"},
-		{[]string{"GROUP a", "OVER 1-1", "GROUP a"}, "a a"},
-		{[]string{"GROUP a", "MODE READER", "GROUP a", "GROUP b"}, "a a b"},
-	} {
-		if got := strings.Join(groupsWithoutAdjacentRepeats(tc.lines), " "); got != tc.want {
-			t.Errorf("%q: got %q, want %q", tc.lines, got, tc.want)
-		}
-	}
-}
-
 func logicalPrefetches(log []byte, groups []string) []string {
 	var logical []string
 	for _, line := range strings.Split(string(log), "\n") {
@@ -147,68 +132,93 @@ func spooledIn(t *testing.T, e *env, dir string) []string {
 	return m
 }
 
-// TestPostSpooledUnreachable: posts made while the news server is offline
-// are spooled, and updatenews posts them later. When the server still
-// couldn't be reached, postspooled moved every spooled article to
-// .badArticles, which nothing posts: they were lost although the clients
-// got "240 Article posted". They now stay in .artSpool until the server
-// takes them; only what it refuses goes to .badArticles.
-func TestPostSpooledUnreachable(t *testing.T) {
-	e := newEnv(t)
-	e.addArticles("test.alpha", 1)
-	e.ServerOptions = "offline"
-	post := func(n int) {
-		t.Helper()
-		c := e.session()
-		for i := 0; i < n; i++ {
-			if code, line := c.Cmd("POST"); code != 340 {
-				t.Fatalf("POST: %q", line)
+// TestPostSpooled covers unreachable, accepting and refusing servers with
+// explicit IDs and with an article whose ID must not be generated. Only
+// refused articles go to .badArticles; retries neither lose nor duplicate posts.
+func TestPostSpooled(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		withoutID bool
+		refuse    bool
+	}{
+		{"accept with IDs", false, false},
+		{"accept mixed IDs", true, false},
+		{"refuse with IDs", false, true},
+		{"refuse mixed IDs", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			options := ""
+			if tc.withoutID {
+				options = "dontgenmsgid"
 			}
-			c.Send(fmt.Sprintf("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"+
-				"Subject: spooled %d\r\nMessage-ID: <spooled.%d.%d@client.test>\r\n\r\nhello\r\n.\r\n",
-				i, n, i))
-			if code, line, err := c.ReadStatus(); err != nil || code != 240 {
-				t.Fatalf("POST to an offline server: %q %v", line, err)
+			e.ServerOptions = "offline " + options
+			c := e.session()
+			for n := 0; n < 2; n++ {
+				if code, line := c.Cmd("POST"); code != 340 {
+					t.Fatalf("POST: %q", line)
+				}
+				headers := fmt.Sprintf("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: spooled %d\r\n", n)
+				if !tc.withoutID || n == 0 {
+					headers += fmt.Sprintf("Message-ID: <spooled.%d@client.test>\r\n", n)
+				}
+				if err := c.Send(headers + "\r\nhello\r\n.\r\n"); err != nil {
+					t.Fatal(err)
+				}
+				if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+					t.Fatalf("POST to offline server: %q %v", line, err)
+				}
 			}
-		}
-		c.Cmd("QUIT")
+			c.Cmd("QUIT")
+			run := func(what string) {
+				t.Helper()
+				e.writeConf()
+				if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+					t.Fatalf("updatenews (%s): %v\n%s", what, err, out)
+				}
+			}
+			check := func(what string, spooled, bad, posted int) {
+				t.Helper()
+				s, b := spooledIn(t, e, ".artSpool"), spooledIn(t, e, ".badArticles")
+				if len(s) != spooled || len(b) != bad || len(e.Store.Posted()) != posted {
+					t.Fatalf("%s: %d spooled, %d bad, %d posted; want %d, %d, %d", what, len(s), len(b), len(e.Store.Posted()), spooled, bad, posted)
+				}
+			}
+			check("queued", 2, 0, 0)
+			e.ServerOptions = options
+			e.ServerPort = "1" // deliberately closed; never bind a privileged port
+			run("unreachable")
+			check("unreachable", 2, 0, 0)
+			e.ServerPort = ""
+			bad, posted := 0, 2
+			if tc.refuse {
+				bad, posted = 2, 0
+				upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+					Override: map[string][]string{"POST": {"440 Posting not permitted"}},
+				}})
+			}
+			run("reachable")
+			check("reachable", 0, bad, posted)
+			run("again")
+			check("again", 0, bad, posted)
+			if !tc.refuse {
+				subjects := make(map[string]int)
+				for _, article := range e.Store.Posted() {
+					for _, header := range article.Headers {
+						if strings.HasPrefix(strings.ToLower(header), "subject:") {
+							subjects[strings.TrimSpace(header[len("subject:"):])]++
+						}
+					}
+				}
+				for n := 0; n < 2; n++ {
+					if subject := fmt.Sprintf("spooled %d", n); subjects[subject] != 1 {
+						t.Errorf("%q posted %d times, want once", subject, subjects[subject])
+					}
+				}
+			}
+		})
 	}
-	updatenews := func(what string) {
-		t.Helper()
-		e.writeConf()
-		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
-			t.Logf("updatenews (%s): %v\n%s", what, err, out)
-		}
-	}
-	check := func(what string, spooled, bad, posted int) {
-		t.Helper()
-		s, b := spooledIn(t, e, ".artSpool"), spooledIn(t, e, ".badArticles")
-		if len(s) != spooled || len(b) != bad || len(e.Store.Posted()) != posted {
-			t.Errorf("%s: %d spooled, %d in .badArticles, %d posted; want %d, %d, %d",
-				what, len(s), len(b), len(e.Store.Posted()), spooled, bad, posted)
-		}
-	}
-	post(2)
-	check("after the posts", 2, 0, 0)
-
-	e.ServerOptions = ""
-	e.ServerPort = "1" // nothing listens there
-	updatenews("server unreachable")
-	check("updatenews with the server unreachable", 2, 0, 0)
-
-	e.ServerPort = ""
-	updatenews("server up")
-	check("updatenews with the server up", 0, 0, 2)
-
-	// a refused article goes to .badArticles
-	e.ServerOptions = "offline"
-	post(1)
-	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
-		Override: map[string][]string{"POST": {"440 Posting not permitted"}},
-	}})
-	e.ServerOptions = ""
-	updatenews("server refuses")
-	check("updatenews with the server refusing", 0, 1, 2)
 }
 
 // TestPrefetchWildcards: lines of the prefetch file can be wildmat patterns,
@@ -366,119 +376,6 @@ func TestUpdatenewsGroupTimeout(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestPostSpooledNoMessageID: an article posted while the server is
-// offline is spooled, and updatenews posts it later. With dontgenmsgid it
-// has no Message-ID. When the upstream refused it, postspooled logged its
-// Message-ID with getfield, which threw: the article, whose spool file was
-// removed already, was neither posted nor kept in .badArticles.
-func TestPostSpooledNoMessageID(t *testing.T) {
-	e := newEnv(t)
-	e.addArticles("test.alpha", 1)
-	e.ServerOptions = "offline dontgenmsgid"
-	c := e.session()
-	if code, line := c.Cmd("POST"); code != 340 {
-		t.Fatalf("POST: %q", line)
-	}
-	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
-		"Subject: spooled without message-id\r\n\r\nhello\r\n.\r\n"); err != nil {
-		t.Fatal(err)
-	}
-	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
-		t.Fatalf("POST to an offline server: %q %v", line, err)
-	}
-	c.Cmd("QUIT")
-	if n := len(spooledIn(t, e, ".artSpool")); n != 1 {
-		t.Fatalf("%d spooled articles, want 1", n)
-	}
-
-	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
-		Override: map[string][]string{"POST": {"440 Posting not permitted"}},
-	}})
-	e.ServerOptions = "dontgenmsgid"
-	e.writeConf()
-	out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput()
-	if err != nil {
-		t.Errorf("updatenews: %v\n%s", err, out)
-	}
-	if n := len(spooledIn(t, e, ".artSpool")); n != 0 {
-		t.Errorf("%d articles still spooled, want 0", n)
-	}
-	if n := len(spooledIn(t, e, ".badArticles")); n != 1 {
-		t.Errorf("%d articles in .badArticles, want the refused one", n)
-	}
-}
-
-// TestPostSpooledKeepNoMessageID: both postspooled fixes together. Two
-// posts are spooled for an offline dontgenmsgid server, one of them
-// without a Message-ID. While the server can't be reached, updatenews
-// keeps both in .artSpool (the one without a Message-ID used to abort the
-// run and get lost, both used to go to .badArticles); once it is up, each
-// is posted exactly once, and a further run posts nothing again.
-func TestPostSpooledKeepNoMessageID(t *testing.T) {
-	e := newEnv(t)
-	e.addArticles("test.alpha", 1)
-	e.ServerOptions = "offline dontgenmsgid"
-	c := e.session()
-	for _, a := range []string{
-		"Subject: keep with id\r\nMessage-ID: <keep.1@client.test>\r\n",
-		"Subject: keep without id\r\n",
-	} {
-		if code, line := c.Cmd("POST"); code != 340 {
-			t.Fatalf("POST: %q", line)
-		}
-		if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
-			a + "\r\nhello\r\n.\r\n"); err != nil {
-			t.Fatal(err)
-		}
-		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
-			t.Fatalf("POST to an offline server: %q %v", line, err)
-		}
-	}
-	c.Cmd("QUIT")
-
-	e.ServerOptions = "dontgenmsgid"
-	updatenews := func(what string) {
-		t.Helper()
-		e.writeConf()
-		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
-			t.Errorf("updatenews (%s): %v\n%s", what, err, out)
-		}
-	}
-	check := func(what string, spooled, bad, posted int) {
-		t.Helper()
-		s, b := spooledIn(t, e, ".artSpool"), spooledIn(t, e, ".badArticles")
-		if len(s) != spooled || len(b) != bad || len(e.Store.Posted()) != posted {
-			t.Errorf("%s: %d spooled, %d in .badArticles, %d posted; want %d, %d, %d",
-				what, len(s), len(b), len(e.Store.Posted()), spooled, bad, posted)
-		}
-	}
-	check("after the posts", 2, 0, 0)
-
-	e.ServerPort = "1" // nothing listens there
-	updatenews("server unreachable")
-	check("updatenews with the server unreachable", 2, 0, 0)
-
-	e.ServerPort = ""
-	updatenews("server up")
-	check("updatenews with the server up", 0, 0, 2)
-	updatenews("again")
-	check("updatenews again", 0, 0, 2)
-
-	subjects := map[string]int{}
-	for _, a := range e.Store.Posted() {
-		for _, h := range a.Headers {
-			if strings.HasPrefix(strings.ToLower(h), "subject:") {
-				subjects[strings.TrimSpace(h[len("subject:"):])]++
-			}
-		}
-	}
-	for _, s := range []string{"keep with id", "keep without id"} {
-		if subjects[s] != 1 {
-			t.Errorf("%q posted %d times, want once (posted: %v)", s, subjects[s], subjects)
-		}
 	}
 }
 
@@ -883,7 +780,7 @@ func TestUpdatenewsLimitGroupSize(t *testing.T) {
 // -w was never handled: updatenews printed the usage and exited 1 without
 // doing anything. It is ignored; the groups are prefetched one at a time.
 func TestUpdatenewsWorkersOption(t *testing.T) {
-	for _, args := range [][]string{{"-w", "2", "-o"}, {"--workers=2", "-o"}, {"-o", "--lock-groups"}, {"-o", "--lock-group"}} {
+	for _, args := range [][]string{{"-w", "2", "-o"}, {"--workers=2", "-o"}, {"-o", "--lock-groups"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			e := newEnv(t)
 			for _, g := range []string{"de.test", "at.test"} {

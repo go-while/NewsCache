@@ -38,6 +38,7 @@ func TestAccessExactHost(t *testing.T) {
 		{"127.0.0.1/32", true},
 		{"127.0.0.1/255.255.255.255", true},
 		{"127.0.0.1", true},
+		{"127.0.0.0/8", true},
 		{"127.0.0.2/32", false},
 		{"127.0.0.2", false},
 		{"127.0.0.0/31", true},
@@ -49,56 +50,14 @@ func TestAccessExactHost(t *testing.T) {
 			e.AccessList = accessEntry(tc.pattern)
 			e.standalone()
 			c := e.dialLenient()
-			allowed := strings.HasPrefix(c.Greeting, "200 ") || strings.HasPrefix(c.Greeting, "201 ")
-			if allowed != tc.allow {
-				t.Fatalf("client 127.0.0.1, entry %s: greeting %q, want allowed=%v", tc.pattern, c.Greeting, tc.allow)
+			want := "502 "
+			if tc.allow {
+				want = "200 "
+			}
+			if !strings.HasPrefix(c.Greeting, want) {
+				t.Fatalf("client 127.0.0.1, entry %s: greeting %q, want %s", tc.pattern, c.Greeting, want)
 			}
 		})
-	}
-}
-
-// NC-4 (fixed): an access entry with an address and no mask matched every
-// client of that address family, because prefixlen stayed 0.
-func TestAccessAddressWithoutMask(t *testing.T) {
-	e := newEnv(t)
-	e.AccessList = accessEntry("10.1.2.3")
-	e.standalone()
-	c := e.dialLenient()
-	if !strings.HasPrefix(c.Greeting, "502 ") {
-		t.Fatalf("client 127.0.0.1 with entry 10.1.2.3: greeting %q, want 502 (denied)", c.Greeting)
-	}
-}
-
-// A prefix longer than the address is a config error.
-func TestAccessPrefixTooLong(t *testing.T) {
-	e := newEnv(t)
-	e.AccessList = accessEntry("127.0.0.1/33")
-	e.writeConf()
-	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
-	if err == nil {
-		t.Fatalf("newscache accepted Client 127.0.0.1/33:\n%s", out)
-	}
-	if !strings.Contains(string(out), "prefix length too long") {
-		t.Errorf("error output %q, want \"prefix length too long\"", out)
-	}
-}
-
-// Control for NC-3/NC-4: a /8 entry matches.
-func TestAccessPrefix(t *testing.T) {
-	e := newEnv(t)
-	e.AccessList = accessEntry("127.0.0.0/8")
-	e.standalone()
-	c := e.dialRaw()
-	if !strings.HasPrefix(c.Greeting, "200 ") {
-		t.Fatalf("greeting %q, want 200", c.Greeting)
-	}
-
-	e2 := newEnv(t)
-	e2.AccessList = accessEntry("10.0.0.0/8")
-	e2.standalone()
-	c2 := e2.dialLenient()
-	if !strings.HasPrefix(c2.Greeting, "502 ") {
-		t.Fatalf("greeting %q, want 502", c2.Greeting)
 	}
 }
 

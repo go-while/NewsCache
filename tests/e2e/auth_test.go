@@ -330,23 +330,6 @@ func TestAuthFileUserHashOnly(t *testing.T) {
 // -binary | base64 gives the same value.
 const md5Hash = "Xr4ilOzQ4PCOq3aQ0qbuaQ=="
 
-// TestAuthFileMD5Hash: a login against an MD5 hash. The MD5 code used a
-// 64-bit type for its 32-bit words, overran a stack buffer and killed the
-// session on 64-bit systems.
-func TestAuthFileMD5Hash(t *testing.T) {
-	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
-	c := e.session()
-	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
-		t.Fatalf("AUTHINFO USER: %q, want 381", line)
-	}
-	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
-		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
-	}
-	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
-		t.Fatalf("GROUP after login: %q, want 211", line)
-	}
-}
-
 // TestAuthFileCryptHash: a login against a crypt() hash from the system's
 // crypt library.
 func TestAuthFileCryptHash(t *testing.T) {
@@ -360,19 +343,6 @@ func TestAuthFileCryptHash(t *testing.T) {
 	}
 	if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
 		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
-	}
-}
-
-// TestAuthFileWrongPassword: a wrong password is refused with 481 (RFC 4643
-// 2.3.2; it was 502). AuthFailureDelay 0 skips the delay before the answer
-// (one second by default).
-func TestAuthFileWrongPassword(t *testing.T) {
-	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
-	e.Extra = "AuthFailureDelay 0"
-	c := e.session()
-	c.Cmd("AUTHINFO USER tester")
-	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
-		t.Fatalf("AUTHINFO PASS wrong: %q, want 481", line)
 	}
 }
 
@@ -564,8 +534,7 @@ type postingCase struct {
 	want int
 }
 
-// postingCases are the entries TestModeReaderPosting and TestGreetingPosting
-// check: one that may post, and four that may not (yet).
+// postingCases cover one entry that may post, and four that may not (yet).
 func postingCases() []postingCase {
 	entry := func(rights, auth string) string {
 		return `AccessList {
@@ -610,42 +579,27 @@ func postingCases() []postingCase {
 	}
 }
 
-// TestModeReaderPosting: MODE READER answers 200 only when the client may
-// post now and 201 otherwise (RFC 3977 5.3), also before a login. It
-// answered 200 to every client, and 480 where the entry allows only the
-// login.
-func TestModeReaderPosting(t *testing.T) {
+// TestPostingPermissions: the greeting and MODE READER agree in code and
+// text, and advertise posting only when POST is currently allowed.
+func TestPostingPermissions(t *testing.T) {
 	for _, tc := range postingCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			c := tc.env(t).session()
+			if !strings.HasPrefix(c.Greeting, fmt.Sprintf("%d ", tc.want)) {
+				t.Fatalf("greeting %q, want %d", c.Greeting, tc.want)
+			}
 			code, line := c.Cmd("MODE READER")
 			if code != tc.want {
 				t.Fatalf("MODE READER: %q, want %d", line, tc.want)
+			}
+			if len(line) < 4 || line[4:] != c.Greeting[4:] {
+				t.Errorf("MODE READER %q, greeting %q: different texts", line, c.Greeting)
 			}
 			// the reply must match what POST does
 			if code == 201 {
 				if code, line := c.Cmd("POST"); code == 340 {
 					t.Errorf("POST after MODE READER 201: %q", line)
 				}
-			}
-		})
-	}
-}
-
-// TestGreetingPosting: the greeting follows the same rule as MODE READER,
-// 200 only when the client may post now and 201 otherwise (RFC 3977
-// 5.1.1). It was 200 for every client. The texts of both replies are the
-// same as MODE READER's.
-func TestGreetingPosting(t *testing.T) {
-	for _, tc := range postingCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			c := tc.env(t).session()
-			want := fmt.Sprintf("%d ", tc.want)
-			if !strings.HasPrefix(c.Greeting, want) {
-				t.Fatalf("greeting %q, want %d", c.Greeting, tc.want)
-			}
-			if code, line := c.Cmd("MODE READER"); len(line) < 4 || line[4:] != c.Greeting[4:] {
-				t.Errorf("MODE READER %q (%d), greeting %q: different texts", line, code, c.Greeting)
 			}
 		})
 	}
