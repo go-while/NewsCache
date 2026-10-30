@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -858,25 +859,27 @@ func TestUpstreamStalledActive(t *testing.T) {
 	}
 }
 
-// resetProxy relays to upstream and resets (RST, SO_LINGER 0) the first
-// client connection right after the reply to the first command that
-// starts with prefix.
-func resetProxy(t *testing.T, upstream, prefix string) string {
+// resetProxy resets the first connection that actually sends prefix. The
+// test releases it after reading the reply, then waits for the reset itself.
+func resetProxy(t *testing.T, upstream, prefix string) (string, func(), <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	var first atomic.Bool
-	first.Store(true)
+	var triggered atomic.Bool
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	done := make(chan error, 1)
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			reset := first.Swap(false)
 			go func(c net.Conn) {
 				defer c.Close()
 				up, err := net.Dial("tcp", upstream)
@@ -892,9 +895,13 @@ func resetProxy(t *testing.T, upstream, prefix string) string {
 						return
 					}
 					io.WriteString(up, line)
-					if reset && strings.HasPrefix(strings.ToLower(line), prefix) {
-						time.Sleep(200 * time.Millisecond) // the reply goes through
-						c.(*net.TCPConn).SetLinger(0)
+					if strings.HasPrefix(strings.ToLower(line), prefix) && triggered.CompareAndSwap(false, true) {
+						<-release
+						if err := c.(*net.TCPConn).SetLinger(0); err != nil {
+							done <- err
+							return
+						}
+						done <- c.Close()
 						return
 					}
 				}
@@ -902,7 +909,7 @@ func resetProxy(t *testing.T, upstream, prefix string) string {
 		}
 	}()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	return port
+	return port, unblock, done
 }
 
 // TestUpstreamClosedNoDiscontinue: the upstream resets the connection in
@@ -916,13 +923,24 @@ func TestUpstreamClosedNoDiscontinue(t *testing.T) {
 	// as a daemon: the upstream resets its connection after GROUP; the
 	// next command NewsCache writes there fails
 	e.ServerHost = "127.0.0.1"
-	e.ServerPort = resetProxy(t, e.Upstream.Addr(), "group")
+	var release func()
+	var resetDone <-chan error
+	e.ServerPort, release, resetDone = resetProxy(t, e.Upstream.Addr(), "group")
+	defer release()
 	e.standalone()
 	c := e.dial()
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP: %q", line)
 	}
-	time.Sleep(time.Second)
+	release()
+	select {
+	case err := <-resetDone:
+		if err != nil {
+			t.Fatalf("proxy reset: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not reset the GROUP connection")
+	}
 	for n := 1; n <= 2; n++ {
 		code, line := c.Cmd("ARTICLE %d", n)
 		if code != 220 {
@@ -1648,26 +1666,27 @@ func testUpstream503Reply(t *testing.T, useTLS bool) {
 	}
 }
 
-// noticeProxy relays to upstream. On the first client connection, after
-// the reply to the first line that starts with prefix, it sends notice
-// unasked and closes the connection, as old INN did when it closed an
-// idle connection ("503 Timeout ...").
-func noticeProxy(t *testing.T, upstream, prefix, notice string) string {
+// noticeProxy sends an unsolicited notice on the first connection that
+// actually sends prefix, after the test has consumed that command's reply.
+func noticeProxy(t *testing.T, upstream, prefix, notice string) (string, func(), <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	var first atomic.Bool
-	first.Store(true)
+	var triggered atomic.Bool
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	done := make(chan error, 1)
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			once := first.Swap(false)
 			go func(c net.Conn) {
 				defer c.Close()
 				up, err := net.Dial("tcp", upstream)
@@ -1683,9 +1702,13 @@ func noticeProxy(t *testing.T, upstream, prefix, notice string) string {
 						return
 					}
 					io.WriteString(up, line)
-					if once && strings.HasPrefix(strings.ToLower(line), prefix) {
-						time.Sleep(200 * time.Millisecond) // the reply goes through
-						io.WriteString(c, notice+"\r\n")
+					if strings.HasPrefix(strings.ToLower(line), prefix) && triggered.CompareAndSwap(false, true) {
+						<-release
+						if _, err := io.WriteString(c, notice+"\r\n"); err != nil {
+							done <- err
+							return
+						}
+						done <- c.Close()
 						return
 					}
 				}
@@ -1693,7 +1716,7 @@ func noticeProxy(t *testing.T, upstream, prefix, notice string) string {
 		}
 	}()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	return port
+	return port, unblock, done
 }
 
 // TestUpstream503TimeoutClose: old INN closed an idle connection with
@@ -1706,15 +1729,26 @@ func TestUpstream503TimeoutClose(t *testing.T) {
 	e.addArticles("test.alpha", 3)
 	e.GroupTimeout = 3600 // no GROUP before the ARTICLE
 	e.ServerHost = "127.0.0.1"
-	e.ServerPort = noticeProxy(t, e.Upstream.Addr(), "over",
+	var release func()
+	var noticeDone <-chan error
+	e.ServerPort, release, noticeDone = noticeProxy(t, e.Upstream.Addr(), "over",
 		"503 Timeout after 1 seconds, closing connection")
+	defer release()
 	c := e.session()
 	c.Deadline = 30 * time.Second
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP: %q", line)
 	}
 	expectOver(t, c, 1, 3, 1, 2, 3)
-	time.Sleep(time.Second)
+	release()
+	select {
+	case err := <-noticeDone:
+		if err != nil {
+			t.Fatalf("proxy notice: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not send and close after OVER")
+	}
 	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
 		t.Fatalf("ARTICLE 2 after the upstream closed with 503: %q, want 220", line)
 	}

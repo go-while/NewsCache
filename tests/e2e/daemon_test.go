@@ -411,8 +411,13 @@ func TestPidFile(t *testing.T) {
 		checkPidFile(t, pidFile, p.Pid())
 		c := e.dial()
 		c.Cmd("QUIT")
+		if err := c.Conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.R.ReadByte(); err != io.EOF {
+			t.Fatalf("waiting for session to close after QUIT: %v", err)
+		}
 		c.Close()
-		time.Sleep(300 * time.Millisecond)
 		checkPidFile(t, pidFile, p.Pid())
 		if err := p.Signal(syscall.SIGTERM); err != nil {
 			t.Fatal(err)
@@ -934,10 +939,7 @@ exec "$@"`, "nc", o.Path}, o.Args...)
 		t.Fatalf("greeting for %s: %q, want 200 (its Client entry)", name, c.Greeting)
 	}
 	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
-	if log := e.logFile(); !strings.Contains(log, name+" [127.0.0.1] connect") {
-		t.Errorf("the log doesn't name the client %s:\n%s", name, grepLines(log, "connect"))
-	}
+	e.waitLog(name + " [127.0.0.1] connect")
 }
 
 // childPids returns the pids of pid's child processes (Linux: from /proc).

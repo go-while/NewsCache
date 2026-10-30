@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
@@ -584,9 +583,8 @@ func TestAccessPrefixInvalid(t *testing.T) {
 	}
 }
 
-// TestAuthFailureDelayConfig: AuthFailureDelay takes 0 to 3600 seconds and
-// newscache -p prints it (15 without the option); anything else is a config
-// error.
+// TestAuthFailureDelayConfig: AuthFailureDelay accepts 0 to 3600 seconds;
+// values above 1 are capped at 1, the default printed by newscache -p.
 func TestAuthFailureDelayConfig(t *testing.T) {
 	for _, c := range []struct {
 		extra, want string
@@ -850,7 +848,7 @@ func TestSpoolSizeLarge(t *testing.T) {
 				t.Errorf("newscache -p prints %q, want SpoolSize %s", grepLines(string(out), "SpoolSize"), sz)
 			}
 			e.addArticles("test.alpha", 3)
-			c := e.session()
+			p, c := e.sessionProcess()
 			c.Cmd("GROUP test.alpha")
 			for i := 1; i <= 3; i++ {
 				if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
@@ -858,8 +856,7 @@ func TestSpoolSizeLarge(t *testing.T) {
 				}
 				c.ReadDotLines()
 			}
-			c.Cmd("QUIT")
-			time.Sleep(200 * time.Millisecond)
+			quitSession(t, p, c)
 			before := spoolFiles(e.Spool)
 			if !strings.Contains(strings.Join(before, " "), ".db") {
 				t.Fatalf("no group database in the spool: %q", before)
@@ -922,12 +919,11 @@ func TestUpstreamPasswordNotLogged(t *testing.T) {
 	e.ServerLines = "    User tester\n    Password " + secret
 	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: e.Store,
 		StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: secret}})
-	c := e.session()
+	p, c := e.sessionProcess()
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP: %q (login to the upstream failed?)", line)
 	}
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	quitSession(t, p, c)
 	log := e.logFile()
 	if strings.Contains(log, secret) {
 		t.Errorf("the log has the upstream password:\n%s", grepLines(log, secret))

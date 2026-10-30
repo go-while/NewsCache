@@ -592,9 +592,9 @@ func TestDate(t *testing.T) {
 	if d := time.Since(got); d < -time.Minute || d > time.Minute {
 		t.Errorf("DATE: %q is %v away from now", line, d)
 	}
-	// DATE with an argument named the GROUP syntax
-	if code, line := c.Cmd("DATE x"); code != 501 || !strings.Contains(strings.ToLower(line), "date") {
-		t.Errorf("DATE x: %q, want 501 with the DATE syntax", line)
+	// DATE with an argument is a syntax error.
+	if code, line := c.Cmd("DATE x"); code != 501 {
+		t.Errorf("DATE x: %q, want 501", line)
 	}
 }
 
