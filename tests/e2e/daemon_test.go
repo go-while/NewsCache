@@ -519,11 +519,91 @@ func checkPidFile(t *testing.T, fn string, pid int) {
 	}
 }
 
+// detachedPids finds only processes started with this test's unique config.
+// A pid file alone is insufficient: it may never have been written, and an
+// old PID could have been reused by an unrelated process.
+func detachedPids(bin, conf string) ([]int, error) {
+	match := func(args []string) bool {
+		return len(args) >= 3 && args[0] == bin && args[1] == "-c" && args[2] == conf
+	}
+	var pids []int
+	if runtime.GOOS == "linux" {
+		entries, err := os.ReadDir("/proc")
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			pid, err := strconv.Atoi(entry.Name())
+			if err != nil || pid <= 0 {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			stat, ok := info.Sys().(*syscall.Stat_t)
+			if !ok || stat.Uid != uint32(os.Geteuid()) {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+			if err == nil && match(strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")) {
+				pids = append(pids, pid)
+			}
+		}
+		return pids, nil
+	}
+	// POSIX ps on the other Unix test hosts: restrict by uid as well as the
+	// exact executable and config arguments. Linux uses /proc to avoid ps
+	// variants and preserve arguments containing spaces.
+	out, err := exec.Command("ps", "-e", "-o", "pid=", "-o", "uid=", "-o", "args=").Output()
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 || fields[1] != strconv.Itoa(os.Geteuid()) || !match(fields[2:]) {
+			continue
+		}
+		if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
+}
+
+func stopDetached(t *testing.T, bin, conf string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pids, err := detachedPids(bin, conf)
+		if err != nil {
+			t.Errorf("find detached daemon for cleanup: %v", err)
+			return
+		}
+		if len(pids) == 0 {
+			return
+		}
+		for _, pid := range pids {
+			if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && err != syscall.ESRCH {
+				t.Errorf("stop detached daemon %d: %v", pid, err)
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("detached daemon did not exit: %v", pids)
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 // startDetached starts newscache the classic way, without -n: it forks,
 // the parent exits and the daemon goes on. Returns the daemon's pid from
 // the pid file, or 0 if the daemon is gone again before that.
 func startDetached(t *testing.T, e *env) int {
 	t.Helper()
+	// Register before starting, even when no pid file is ever produced.
+	bin, conf := e.Bin, e.Conf
+	t.Cleanup(func() { stopDetached(t, bin, conf) })
 	pidFile := filepath.Join(e.Dir, "newscache.pid")
 	if err := exec.Command(e.Bin, "-c", e.Conf).Run(); err != nil {
 		t.Fatalf("newscache: %v", err)
@@ -531,12 +611,43 @@ func startDetached(t *testing.T, e *env) int {
 	for i := 0; i < 50; i++ {
 		b, _ := os.ReadFile(pidFile)
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
-			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGTERM) })
 			return pid
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return 0
+}
+
+// The daemon can keep running when its configured pid file cannot be
+// written. Cleanup must find this test's daemon even in that case.
+func TestDetachedCleanupWithoutPidFile(t *testing.T) {
+	var bin, conf string
+	// A second guard prevents a deliberately broken cleanup from leaving a
+	// daemon behind when this regression test is used as a negative control.
+	t.Cleanup(func() {
+		if bin != "" && conf != "" {
+			stopDetached(t, bin, conf)
+		}
+	})
+	t.Run("daemon without pid file", func(t *testing.T) {
+		e := newEnv(t)
+		e.Extra = "PidFile " + filepath.Join(e.Dir, "missing", "newscache.pid")
+		e.writeConf()
+		bin, conf = e.Bin, e.Conf
+		if pid := startDetached(t, e); pid != 0 {
+			t.Fatalf("unexpected pid file: %d", pid)
+		}
+		pids, err := detachedPids(bin, conf)
+		if err != nil || len(pids) == 0 {
+			t.Fatalf("detached daemon not found before cleanup: %v, %v", pids, err)
+		}
+	})
+	if bin == "" || conf == "" {
+		return
+	}
+	if pids, err := detachedPids(bin, conf); err != nil || len(pids) != 0 {
+		t.Errorf("detached daemon remains after cleanup: %v, %v", pids, err)
+	}
 }
 
 // TestDaemonDetached: the detached daemon closed stdin, stdout and stderr

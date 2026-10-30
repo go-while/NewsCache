@@ -8,16 +8,12 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 # A source tree configured in place cannot itself be used for another
 # out-of-tree configure. Copy only the configure inputs to a clean source.
-mkdir -p "$tmp/source/src" "$tmp/source/md5lib" "$tmp/source/NVClasses-0.9.1" \
-    "$tmp/source/NServer-0.9.1/checks" "$tmp/source/man" "$tmp/source/doc" \
-    "$tmp/source/etc" "$tmp/source/test"
-for f in configure config.h.in config.guess config.sub install-sh missing \
-    compile depcomp test-driver Makefile.in src/NewsCache.cc src/Makefile.in \
-    md5lib/Makefile.in NVClasses-0.9.1/Makefile.in NServer-0.9.1/Makefile.in \
-    NServer-0.9.1/checks/Makefile.in man/Makefile.in doc/Makefile.in \
-    etc/Makefile.in etc/NewsCache.init.in test/Makefile.in; do
+mkdir -p "$tmp/source"
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    mkdir -p "$tmp/source/$(dirname "$f")"
     cp "$src/$f" "$tmp/source/$f"
-done
+done < "$src/tests/configure-inputs.txt"
 src="$tmp/source"
 mkdir "$tmp/auto" "$tmp/yes" "$tmp/bare" "$tmp/no" "$tmp/header" "$tmp/env"
 
