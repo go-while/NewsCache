@@ -204,20 +204,16 @@ func TestUpstreamOverviewLongLine(t *testing.T) {
 			c.Cmd("GROUP test.alpha")
 			before, _ := peakRSS(p.Pid())
 			conns := e.Upstream.Accepted()
-			code, line, err := c.TryCmd("XOVER 1-3")
+			// OVER can report 403 before writing a success status. XOVER
+			// has already started a multiline reply and must instead close.
+			code, line, err := c.TryCmd("OVER 1-3")
 			if err != nil {
-				t.Fatalf("XOVER 1-3: %v", err)
-			}
-			var recs []string
-			if code == 224 {
-				recs = c.ReadDotLines()
+				t.Fatalf("OVER 1-3: %v", err)
 			}
 			after, _ := peakRSS(p.Pid())
-			t.Logf("XOVER 1-3 -> %q, %d records; peak RSS %d kB before, %d kB after", line, len(recs), before, after)
-			for _, r := range recs {
-				if len(r) > 16384 {
-					t.Errorf("XOVER passed on a record of %d bytes", len(r))
-				}
+			t.Logf("OVER 1-3 -> %q; peak RSS %d kB before, %d kB after", line, before, after)
+			if code != 403 {
+				t.Fatalf("OVER 1-3: %q, want 403 for an incomplete upstream reply", line)
 			}
 			if after-before > 32<<10 {
 				t.Errorf("peak RSS grew by %d kB on a line of %d bytes", after-before, n)

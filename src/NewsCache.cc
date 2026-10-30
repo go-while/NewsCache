@@ -2300,6 +2300,54 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 	return -1;
 }
 
+/* Sends a status immediately before the first data character, so an error
+ * before any data can still be reported as a single-line failure. */
+class LazyStatus:public std::streambuf {
+	ostream & out;
+	string status;
+	bool started;
+	void start(void) {
+		if (!started) {
+			out << status;
+			started = true;
+		}
+	}
+      protected:
+	virtual int overflow(int c) {
+		if (c != EOF) {
+			start();
+			out.put((char) c);
+			if (!out.good())
+				return EOF;
+		}
+		return c;
+	}
+	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
+		if (n > 0) {
+			start();
+			out.write(p, n);
+			if (!out.good())
+				return 0;
+		}
+		return n;
+	}
+	virtual int sync(void) {
+		out.flush();
+		return out.good() ? 0 : -1;
+	}
+      public:
+	LazyStatus(ostream & o, const char *st)
+	:out(o), status(st), started(false) {
+	}
+	bool used(void) const {
+		return started;
+	}
+	// A successfully completed empty reply still needs its status.
+	void complete(void) {
+		start();
+	}
+};
+
 /* listgroup [group [range]] (RFC 3977 6.1.2)
  * The numbers come from the news server's LISTGROUP as they arrive, or,
  * if it has none, from the overview records.
@@ -2373,9 +2421,14 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 
-	(*clt->co) << "211 " << ginfo.n() << " " << ginfo.first() << " "
+	ostringstream status;
+	status << "211 " << ginfo.n() << " " << ginfo.first() << " "
 	    << ginfo.last() << " " << clt->groupname << " list follows\r\n";
-	clt->grp->printlistgroup(*clt->co, fst, lst);
+	LazyStatus ls(*clt->co, status.str().c_str());
+	ostream os(&ls);
+	clt->grp->printlistgroup(os, fst, lst);
+	os.flush();
+	ls.complete();
 	(*clt->co) << ".\r\n";
 	return 0;
 }
@@ -2815,53 +2868,6 @@ static int current_group(ClientData * clt)
 	return 0;
 }
 
-/*
- * Sends the status line to out before the first character that is
- * written; used() tells whether anything was. OVER and HDR use this to
- * answer 423 instead of an empty list (RFC 3977 8.3 and 8.5).
- */
-class LazyStatus:public std::streambuf {
-	ostream & out;
-	string status;
-	bool started;
-	void start(void) {
-		if (!started) {
-			out << status;
-			started = true;
-		}
-	}
-      protected:
-	virtual int overflow(int c) {
-		if (c != EOF) {
-			start();
-			out.put((char) c);
-			if (!out.good())
-				return EOF;
-		}
-		return c;
-	}
-	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
-		if (n > 0) {
-			start();
-			out.write(p, n);
-			if (!out.good())
-				return 0;
-		}
-		return n;
-	}
-	virtual int sync(void) {
-		out.flush();
-		return out.good() ? 0 : -1;
-	}
-      public:
-	LazyStatus(ostream & o, const char *st)
-	:out(o), status(st), started(false) {
-	}
-	bool used(void) const {
-		return started;
-	}
-};
-
 int ns_xover(ClientData * clt, int argc, char *argv[])
 {
 	int i = 1;
@@ -2952,15 +2958,24 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 			}
 		} else {
 			// XOVER keeps its existing 224/empty-list behaviour.
-			(*clt->co) << "224 Overview information follows\r\n";
-			clt->grp->printoverdb(*clt->co, fst, lst);
+			LazyStatus ls(*clt->co, "224 Overview information follows\r\n");
+			ostream os(&ls);
+			clt->grp->printoverdb(os, fst, lst);
+			os.flush();
+			ls.complete();
 		}
 		break;
-	case 2:
-		(*clt->co) << "221 " << argv[1] << " header follows [" << fst
-			   << "-" << lst << "]\r\n";
-		clt->grp->printheaderdb(*clt->co, argv[1], fst, lst);
+	case 2: {
+		ostringstream status;
+		status << "221 " << argv[1] << " header follows [" << fst
+		       << "-" << lst << "]\r\n";
+		LazyStatus ls(*clt->co, status.str().c_str());
+		ostream os(&ls);
+		clt->grp->printheaderdb(os, argv[1], fst, lst);
+		os.flush();
+		ls.complete();
 		break;
+	}
 	}
 	(*clt->co) << ".\r\n";
 	return 0;
@@ -3018,9 +3033,14 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 	}
 	if (current_group(clt) < 0)
 		return -1;
-	(*clt->co) << "221 " << argv[1] << " matches follow [" << fst
-		   << "-" << lst << "]\r\n";
-	clt->grp->printheaderdb(*clt->co, argv[1], fst, lst, pat.c_str());
+	ostringstream status;
+	status << "221 " << argv[1] << " matches follow [" << fst
+	       << "-" << lst << "]\r\n";
+	LazyStatus ls(*clt->co, status.str().c_str());
+	ostream os(&ls);
+	clt->grp->printheaderdb(os, argv[1], fst, lst, pat.c_str());
+	os.flush();
+	ls.complete();
 	(*clt->co) << ".\r\n";
 	return 0;
 }
@@ -3851,6 +3871,15 @@ void nnrpd(int fd, bool tls)
 			tracker.mark();
 			try {
 				errc = cmdp->second->func(&clt, argc, argv);
+				break;
+			}
+			catch(const UpstreamReplyError & e) {
+				slog.p(Logger::Error) << clt.client_logname << " " << cmd
+				    << " upstream reply failed: " << e._errtext << "\n";
+				if (tracker.count != 0)
+					goto client_exit; // a partial reply cannot be completed
+				(*clt.co) << "403 upstream operation failed\r\n";
+				errc = -1;
 				break;
 			}
 			catch(const CorruptDBError & e) {

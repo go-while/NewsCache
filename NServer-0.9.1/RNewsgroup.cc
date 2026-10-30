@@ -18,7 +18,8 @@ void RNewsgroup::setsize(artnum_t f, artnum_t l)
 }
 
 // Fetches the records of the chunk that holds nbr, unless they are
-// already there. Returns 0 if nbr isn't in the group or fetching failed.
+// already there. Returns 0 if nbr isn't in the group; fetching failures
+// reach the command loop rather than becoming an empty range.
 int RNewsgroup::load(artnum_t nbr)
 {
 	artnum_t a, b;
@@ -45,7 +46,14 @@ int RNewsgroup::load(artnum_t nbr)
 		_OverviewDB.clear();
 		_cf = 1;
 		_cl = 0;
-		return 0;
+		throw UpstreamReplyError("overview of " + std::string(name()) +
+					 ": " + e._errtext);
+	}
+	catch(...) {
+		_OverviewDB.clear();
+		_cf = 1;
+		_cl = 0;
+		throw;
 	}
 	return 1;
 }
@@ -142,11 +150,15 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 	}
 	catch(ResponseError & e) {
 		// no LISTGROUP (with a range): the overview records tell
+		if (!listgroup_unsupported(e))
+			throw UpstreamReplyError("listgroup " + std::string(name()) +
+						 ": " + e._got);
 	}
 	catch(Error & e) {
 		slog.p(Logger::Error) << "listgroup " << name() << " failed: "
 		    << e._errtext << "\n";
-		return;
+		throw UpstreamReplyError("listgroup " + std::string(name()) +
+					 ": " + e._errtext);
 	}
 	for (a = f; a <= l && os.good();) {
 		if (load(a)) {

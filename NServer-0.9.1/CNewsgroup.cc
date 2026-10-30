@@ -357,11 +357,15 @@ void CNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	}
 	catch(ResponseError & e) {
 		// no LISTGROUP (with a range): the overview records tell
+		if (!listgroup_unsupported(e))
+			throw UpstreamReplyError("listgroup " + std::string(name()) +
+						 ": " + e._got);
 	}
 	catch(Error & e) {
 		slog.p(Logger::Error) << "listgroup " << name()
 		    << " failed: " << e._errtext << "\n";
-		return;
+		throw UpstreamReplyError("listgroup " + std::string(name()) +
+					 ": " + e._errtext);
 	}
 	print(os, print_list, NULL, f, l);
 }
