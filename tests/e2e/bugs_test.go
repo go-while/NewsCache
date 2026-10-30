@@ -1,9 +1,10 @@
 package e2e
 
-// Tests for bugs found while writing the suite. Each is marked with knownBug
-// and skipped by default; see PLAN-tests.md for the list.
+// Regression tests for bugs found while writing the suite; see PLAN-tests.md
+// for the original findings.
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,9 +142,8 @@ func TestArticleWithoutXref(t *testing.T) {
 // 0-based).
 func TestLogTimestampMonth(t *testing.T) {
 	e := newEnv(t)
-	c := e.session()
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	p, c := e.sessionProcess()
+	quitSession(t, p, c)
 	log := e.logFile()
 	want := time.Now().Format("2006/01/")
 	if !strings.Contains(log, want) {
@@ -151,16 +151,21 @@ func TestLogTimestampMonth(t *testing.T) {
 	}
 }
 
-// Regression: the accept loop resets errno before accept(), so a SIGCHLD from
-// an exiting child does not drop the next connection.
+// Smoke test for accepting after a child exits. It cannot deterministically
+// reproduce the SIGCHLD-versus-accept errno race.
 func TestAcceptAfterChildExit(t *testing.T) {
 	e := newEnv(t)
 	e.standalone()
 	for i := 0; i < 5; i++ {
 		c := e.dial()
 		c.Cmd("QUIT")
+		if err := c.Conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.R.ReadByte(); err != io.EOF {
+			t.Fatalf("waiting for child connection to close: %v", err)
+		}
 		c.Close()
-		time.Sleep(50 * time.Millisecond) // the child exits, SIGCHLD reaches the parent
 	}
 }
 
@@ -185,7 +190,15 @@ func TestSIGHUPBadConfig(t *testing.T) {
 	if err := p.Signal(syscall.SIGHUP); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	mode, err := logMode(e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In file-log builds the marker proves the reload was actually handled.
+	// Syslog builds retain the connection/liveness smoke check below.
+	if mode == "file" {
+		e.waitLog("keeping the old configuration")
+	}
 	c, err := client.TryDial(e.Listen, 2*time.Second)
 	if err != nil {
 		t.Fatalf("daemon gone after SIGHUP with a broken config: %v", err)
@@ -195,11 +208,6 @@ func TestSIGHUPBadConfig(t *testing.T) {
 	// the old configuration (access list, upstream) still works
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Fatalf("GROUP after a failed reload: %q", line)
-	}
-	// builds without syslog also log why
-	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
-		!strings.Contains(string(b), "keeping the old configuration") {
-		t.Errorf("log does not report the failed reload:\n%s", b)
 	}
 }
 

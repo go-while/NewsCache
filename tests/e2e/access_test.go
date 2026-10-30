@@ -297,11 +297,21 @@ func TestPostCutOff(t *testing.T) {
 	}
 	io.WriteString(conn, "Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"+
 		"Subject: cut off\r\nMessage-ID: <cutoff@newscache.test>\r\n\r\nfirst line of the body\r\n")
-	conn.(*net.TCPConn).CloseWrite()
-	if l, err := r.ReadString('\n'); err == nil && !strings.HasPrefix(l, "441") {
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	l, err := r.ReadString('\n')
+	if len(l) > 0 && !strings.HasPrefix(l, "441") {
 		t.Errorf("reply to a cut-off article: %q, want 441 or none", l)
 	}
-	time.Sleep(200 * time.Millisecond)
+	if err != nil && err != io.EOF {
+		t.Fatalf("reading cut-off POST reply: %v", err)
+	}
+	if err == nil {
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			t.Fatalf("waiting for session to close: %v", err)
+		}
+	}
 	if n := len(e.Store.Posted()); n != 0 {
 		t.Errorf("upstream got %d posted articles, want none (the article was cut off)", n)
 	}

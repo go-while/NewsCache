@@ -19,6 +19,7 @@ import (
 	"sync"
 	"testing"
 	"text/template"
+	"time"
 
 	"github.com/go-while/nntp-testkit/client"
 	"github.com/go-while/nntp-testkit/fakeserver"
@@ -63,10 +64,11 @@ type env struct {
 	ServerHost     string // upstream host for NewsCache, "" = the fake upstream
 	ServerPort     string // upstream port, "" = the fake upstream's
 	ServerLines    string // extra lines in the upstream's Server block
-	GroupTimeout   int
-	ExtraServers   string // more Server blocks after the upstream's, in NewsServerList
-	Extra          string // extra lines at the end of the config
-	AccessList     string // the whole AccessList block
+	// A zero group timeout still needs the next clock second to expire.
+	GroupTimeout int
+	ExtraServers string // more Server blocks after the upstream's, in NewsServerList
+	Extra        string // extra lines at the end of the config
+	AccessList   string // the whole AccessList block
 }
 
 // newEnv creates the temp dir, the fake upstream (empty Store; add groups and
@@ -249,13 +251,31 @@ func (e *env) procOpts(args ...string) proc.Options {
 // returns the strict client after reading the greeting.
 func (e *env) session() *client.Conn {
 	e.t.Helper()
+	_, c := e.sessionProcess()
+	return c
+}
+
+// sessionProcess also returns the inetd process so tests can wait for log
+// flushing and other exit-time work instead of sleeping after QUIT.
+func (e *env) sessionProcess() (*proc.Process, *client.Conn) {
+	e.t.Helper()
 	e.writeConf()
 	p := proc.StartStdio(e.t, e.procOpts("-i"))
 	c := client.New(e.t, p.Conn())
 	if _, err := c.ReadGreeting(); err != nil {
 		e.t.Fatalf("greeting: %v", err)
 	}
-	return c
+	return p, c
+}
+
+func quitSession(t *testing.T, p *proc.Process, c *client.Conn) {
+	t.Helper()
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Fatalf("QUIT: %q, want 205", line)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("session exit after QUIT: %v", err)
+	}
 }
 
 // standalone starts newscache as a daemon in the foreground (-n) listening on
@@ -370,6 +390,24 @@ func (e *env) logFile() string {
 		e.t.Skip("binary built with syslog (configure --without-syslog to test logging)")
 	}
 	return log
+}
+
+// waitLog waits for a positive log marker from a standalone child/daemon.
+// It is for file-log builds; logFile handles the syslog-build skip.
+func (e *env) waitLog(marker string) string {
+	e.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var log string
+	for {
+		log = e.logFile()
+		if strings.Contains(log, marker) {
+			return log
+		}
+		if !time.Now().Before(deadline) {
+			e.t.Fatalf("timed out waiting for %q in log:\n%s", marker, log)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // dialRaw connects without failing on a non-2xx greeting.

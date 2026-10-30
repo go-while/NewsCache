@@ -16,7 +16,6 @@ import (
 // other message-ID commands are served from the spool when it has the
 // article. NewsCache used to send every message-ID request upstream.
 
-// upstreamByID counts the upstream requests for id (ARTICLE/HEAD/BODY/STAT <id>).
 // historyEnv returns an env with "History on" (it is off by default).
 func historyEnv(t *testing.T) *env {
 	e := newEnv(t)
@@ -48,6 +47,7 @@ func TestHistoryOffByDefault(t *testing.T) {
 	}
 }
 
+// upstreamByID counts upstream requests whose argument is id.
 func upstreamByID(e *env, id string) int {
 	n := 0
 	for _, l := range e.Upstream.Lines() {

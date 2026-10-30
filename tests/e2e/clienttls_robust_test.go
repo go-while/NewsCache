@@ -335,7 +335,7 @@ func TestClientTLSForksUseDistinctServerRandoms(t *testing.T) {
 
 func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	f := newRobustTLSFixture(t)
-	f.e.ClientTimeout = 3
+	f.e.ClientTimeout = 6
 	const group = "alt.binaries.tls-stall"
 	f.e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
 	requireFileLog(f.e)
@@ -359,7 +359,7 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	}
 	// Stop consuming the multi-megabyte TLS reply until the command timeout
 	// fires while NewsCache is writing it.
-	time.Sleep(4 * time.Second)
+	time.Sleep(time.Duration(f.e.ClientTimeout+1) * time.Second)
 
 	second, _ := robustTLSSession(t, f.addr, f.ca)
 	second.Deadline = 12 * time.Second

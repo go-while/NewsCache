@@ -43,11 +43,11 @@ int main(int argc, char *argv[])
 
 	cout << "cNSError:\n";
 	if (test(0) != 0) {
-		cout << "test1 failed\n";
+		cout << "test(0) failed\n";
 		ef++;
 	}
 	if (test(1) != -1) {
-		cout << "test1 failed\n";
+		cout << "test(1) failed\n";
 		ef++;
 	}
 

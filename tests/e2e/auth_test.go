@@ -365,7 +365,7 @@ func TestAuthFileCryptHash(t *testing.T) {
 
 // TestAuthFileWrongPassword: a wrong password is refused with 481 (RFC 4643
 // 2.3.2; it was 502). AuthFailureDelay 0 skips the delay before the answer
-// (15 s by default).
+// (one second by default).
 func TestAuthFileWrongPassword(t *testing.T) {
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
@@ -444,7 +444,7 @@ func TestAuthinfoFailureLogNamesCheckedUser(t *testing.T) {
 	const wrong = "wr0ng-client-pw"
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
-	c := e.session()
+	p, c := e.sessionProcess()
 	if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
 	}
@@ -454,8 +454,7 @@ func TestAuthinfoFailureLogNamesCheckedUser(t *testing.T) {
 	if code, line := c.Cmd("AUTHINFO PASS %s", wrong); code != 482 {
 		t.Fatalf("AUTHINFO PASS again: %q, want 482", line)
 	}
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	quitSession(t, p, c)
 	log := e.logFile()
 	if strings.Contains(log, wrong) {
 		t.Errorf("the log has the password:\n%s", grepLines(log, wrong))
@@ -769,9 +768,6 @@ func TestAuthUnixShadowNotReadable(t *testing.T) {
 	}
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root, which may read /etc/shadow")
-	}
-	if testing.Short() {
-		t.Skip("waits 15 s for the auth failure delay")
 	}
 	u, err := user.Current()
 	if err != nil {
@@ -1282,7 +1278,7 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 	const secret = "s3cr3t-client-pw"
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
-	c := e.session()
+	p, c := e.sessionProcess()
 	if code, line := c.Cmd(" AUTHINFO USER tester"); code != 381 {
 		t.Fatalf("AUTHINFO USER: %q, want 381", line)
 	}
@@ -1295,8 +1291,7 @@ func TestAuthinfoLeadingBlankNotLogged(t *testing.T) {
 	if code, line := c.Cmd(" AUTHINFO PASS secret"); code != 281 {
 		t.Fatalf("AUTHINFO PASS: %q, want 281", line)
 	}
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	quitSession(t, p, c)
 	log := e.logFile()
 	for _, s := range []string{secret, "PASS secret"} {
 		if strings.Contains(log, s) {
@@ -1315,7 +1310,7 @@ func TestAuthinfoVariantsNotLogged(t *testing.T) {
 	const secret = "s3cr3t-client-pw"
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
-	c := e.session()
+	p, c := e.sessionProcess()
 	for _, tc := range []struct {
 		command string
 		want    int
@@ -1328,8 +1323,7 @@ func TestAuthinfoVariantsNotLogged(t *testing.T) {
 			t.Errorf("%q: %q, want %d", tc.command, line, tc.want)
 		}
 	}
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	quitSession(t, p, c)
 	log := e.logFile()
 	if strings.Contains(log, secret) {
 		t.Errorf("the log has the AUTHINFO password:\n%s", grepLines(log, secret))
@@ -1606,10 +1600,9 @@ func TestAuthFileLongLine(t *testing.T) {
 // which account a session used.
 func TestLoginLogged(t *testing.T) {
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
-	c := e.session()
+	p, c := e.sessionProcess()
 	login(t, c)
-	c.Cmd("QUIT")
-	time.Sleep(100 * time.Millisecond)
+	quitSession(t, p, c)
 	if log := e.logFile(); !strings.Contains(log, "authenticated as tester") {
 		t.Errorf("no \"authenticated as tester\" in the log:\n%s", log)
 	}
