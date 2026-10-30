@@ -375,6 +375,21 @@ class ResponseError:public NSError {
 };
 typedef ResponseError ResponseErr;
 
+// A range reply could not be completed from the upstream. The command loop
+// must not turn a partially written multi-line reply into a successful one.
+class UpstreamReplyError:public Error {
+  public:
+	explicit UpstreamReplyError(const std::string & text):Error(text) { }
+};
+
+// Only an unsupported LISTGROUP (or its range form) permits an overview
+// fallback. Other replies, such as 400 or 502, are upstream failures.
+inline bool listgroup_unsupported(const ResponseError & e)
+{
+	return e._got == "not supported" || e._got.compare(0, 3, "500") == 0 ||
+	    e._got.compare(0, 3, "501") == 0 || e._got.compare(0, 3, "503") == 0;
+}
+
 #endif
 
 /*
