@@ -16,6 +16,11 @@ import (
 // TestNewscachecleanEvictionOrder keeps two groups and evicts the oldest,
 // independently of directory order and the filesystem's atime policy.
 func TestNewscachecleanEvictionOrder(t *testing.T) {
+	t.Run("atime newer", func(t *testing.T) { newscachecleanEvictionOrder(t, true) })
+	t.Run("mtime newer", func(t *testing.T) { newscachecleanEvictionOrder(t, false) })
+}
+
+func newscachecleanEvictionOrder(t *testing.T, newerAtime bool) {
 	e := newEnv(t)
 	e.Extra = "History off"
 	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
@@ -48,10 +53,17 @@ func TestNewscachecleanEvictionOrder(t *testing.T) {
 	}
 
 	var keptBlocks, oldestBlocks int64
+	newest := time.Unix(1700000000, 0)
+	cold := newest.Add(-24 * time.Hour)
 	for i, group := range groups {
-		// Both times are explicit: the cleaner uses max(atime, mtime), and
-		// neither noatime nor relatime should determine the test's outcome.
-		stamp := time.Unix(1700000000, 0).Add(-time.Duration(i) * time.Hour)
+		// Stagger only one timestamp and keep the other equally old. Each
+		// case needs max(atime, mtime), not just one of the two fields.
+		// Explicit times also make noatime/relatime irrelevant.
+		stamp := newest.Add(-time.Duration(i) * time.Hour)
+		atime, mtime := stamp, cold
+		if !newerAtime {
+			atime, mtime = mtime, atime
+		}
 		for _, name := range []string{".db", ".art1"} {
 			path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
 			f, err := os.OpenFile(path, os.O_RDWR, 0)
@@ -75,7 +87,7 @@ func TestNewscachecleanEvictionOrder(t *testing.T) {
 			} else {
 				keptBlocks += stat.Blocks
 			}
-			if err := os.Chtimes(path, stamp, stamp); err != nil {
+			if err := os.Chtimes(path, atime, mtime); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -90,9 +102,35 @@ func TestNewscachecleanEvictionOrder(t *testing.T) {
 	t.Logf("SpoolSize %d KiB: keep %d blocks, evict the oldest %d blocks", kb, keptBlocks, oldestBlocks)
 	e.Extra += fmt.Sprintf("\nSpoolSize %d\n", kb)
 	e.writeConf()
-	out, err := exec.Command(clean, "-c", e.Conf, "-s").CombinedOutput()
+	out, err := exec.Command(clean, "-c", e.Conf, "-s", "-p").CombinedOutput()
 	if err != nil {
 		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	// Inspect the very purge that removes the files; a preliminary scan
+	// could itself change atimes. Collection always puts a group's .db
+	// before its .art1, whereas sorting puts .art1 first (its key is
+	// capped at the database's time minus one second). Thus removing the
+	// sort cannot pass even if readdir happens to yield oldest first.
+	const marker = "---------------- Purge table ----------------"
+	parts := strings.Split(string(out), marker)
+	if len(parts) != 3 {
+		t.Fatalf("missing or malformed purge table:\n%s", out)
+	}
+	var got, want []string
+	for _, row := range strings.Split(strings.TrimSpace(parts[1]), "\n") {
+		fields := strings.Fields(row)
+		if len(fields) != 3 {
+			t.Fatalf("malformed purge table row %q", row)
+		}
+		got = append(got, strings.Join(fields[:2], " "))
+	}
+	for i := len(groups) - 1; i >= 0; i-- {
+		dir := "./" + strings.ReplaceAll(groups[i], ".", "/")
+		stamp := newest.Add(-time.Duration(i) * time.Hour).Unix()
+		want = append(want, fmt.Sprintf("%s/.art1 %d", dir, stamp-1), fmt.Sprintf("%s/.db %d", dir, stamp))
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("purge table order/timestamps:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 	for _, want := range []string{"PurgedDbCnt: 1\n", "PurgedArtCnt: 1\n"} {
 		if !strings.Contains(string(out), want) {
