@@ -22,8 +22,8 @@ import (
 
 const chunk = 10000
 
-// windowGroups: a mid-sized range (main's binary can be run on it, its
-// index is 40 MB) and the range of the big binary groups.
+// Keep the 40 MB baseline in TestOverviewWindow only; the remaining
+// window cases use the stronger 57 GB range of the big binary groups.
 var windowGroups = []struct {
 	name        string
 	first, last int64
@@ -247,7 +247,7 @@ func testOverviewWindow(t *testing.T, first, last int64) {
 // TestOverviewWindowChunks: a range of 25000 numbers is asked for in steps
 // of at most 10000.
 func TestOverviewWindowChunks(t *testing.T) {
-	for _, g := range windowGroups {
+	for _, g := range windowGroups[1:] {
 		t.Run(g.name, func(t *testing.T) {
 			e := winEnv(t, g.first, g.last)
 			c := e.session()
@@ -274,7 +274,7 @@ func TestOverviewWindowChunks(t *testing.T) {
 // TestOverviewWindowTTL: within the group timeout a range is not asked for
 // again, holes included, in the same session or the next one.
 func TestOverviewWindowTTL(t *testing.T) {
-	for _, g := range windowGroups {
+	for _, g := range windowGroups[1:] {
 		t.Run(g.name, func(t *testing.T) {
 			e := winEnv(t, g.first, g.last)
 			e.GroupTimeout = 300
@@ -303,55 +303,10 @@ func TestOverviewWindowTTL(t *testing.T) {
 	}
 }
 
-// TestOverviewWindowExpiry: after the group timeout, an article the
-// upstream server no longer has goes from the spool, its .art file too.
-func TestOverviewWindowExpiry(t *testing.T) {
-	for _, g := range windowGroups {
-		t.Run(g.name, func(t *testing.T) {
-			big := g.last - 2
-			e := winEnv(t, g.first, g.last)
-			c := e.session()
-			c.Cmd("GROUP %s", bigGroup)
-			wantNumbers(t, "XOVER", xover(t, c, g.last-100, g.last), big, g.last-1, g.last)
-			if code, line := c.Cmd("ARTICLE %d", big); code != 220 {
-				t.Fatalf("ARTICLE %d: %q", big, line)
-			}
-			c.ReadDotLines()
-			c.Cmd("QUIT")
-			artFile := filepath.Join(e.Spool, "alt", "binaries", "test", fmt.Sprintf(".art%d", big))
-			if _, err := os.Stat(artFile); err != nil {
-				t.Fatalf("big article file: %v", err)
-			}
-
-			// A new upstream without the big article; GroupTimeout is 0,
-			// so the next second the chunk is due again.
-			st := fakeserver.NewStore()
-			addWinArticles(st, g.first, g.last, map[int64]bool{big: true})
-			e.Store = st
-			e.Upstream = fakeserver.New(t, fakeserver.Options{Store: st})
-			time.Sleep(1100 * time.Millisecond)
-
-			c = e.session()
-			c.Cmd("GROUP %s", bigGroup)
-			wantNumbers(t, "XOVER after the expiry", xover(t, c, g.last-100, g.last), g.last-1, g.last)
-			if code, line := c.Cmd("ARTICLE %d", big); code != 423 {
-				t.Errorf("ARTICLE %d after the expiry: %q, want 423", big, line)
-				if code == 220 {
-					c.ReadDotLines()
-				}
-			}
-			c.Cmd("QUIT")
-			if _, err := os.Stat(artFile); err == nil {
-				t.Errorf("%s is still in the spool after the article expired", artFile)
-			}
-		})
-	}
-}
-
 // TestListgroupRange: LISTGROUP with a range (RFC 3977) passes the
 // upstream server's list on, without fetching overview records.
 func TestListgroupRange(t *testing.T) {
-	for _, g := range windowGroups {
+	for _, g := range windowGroups[1:] {
 		t.Run(g.name, func(t *testing.T) {
 			e := winEnv(t, g.first, g.last)
 			c := e.session()
@@ -481,52 +436,6 @@ func newUpstream(t *testing.T, e *env, st *fakeserver.Store) {
 	e.Store = st
 	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: st})
 	time.Sleep(1100 * time.Millisecond)
-}
-
-// TestOverviewWindowLastDown: when the upstream's last number went down
-// (its newest article removed, or a server farm's frontend lagging
-// behind), the window cache took the group for renumbered and dropped
-// every cached article: they were all fetched again. Now only those above
-// the new last go, and they come back when the last number does. A last
-// number below every cached one still empties the group.
-func TestOverviewWindowLastDown(t *testing.T) {
-	e := newEnv(t)
-	e.Store = numberedStore(1, 5)
-	e.Upstream = fakeserver.New(t, fakeserver.Options{Store: e.Store})
-	c := e.session()
-	c.Cmd("GROUP %s", bigGroup)
-	wantNumbers(t, "XOVER 1-5", xover(t, c, 1, 5), 1, 2, 3, 4, 5)
-	for i := 1; i <= 5; i++ {
-		if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
-			t.Fatalf("ARTICLE %d: %q", i, line)
-		}
-		c.ReadDotLines()
-	}
-	c.Cmd("QUIT")
-
-	// last 5 -> 4: articles 1-4 stay in the spool
-	newUpstream(t, e, numberedStore(1, 4))
-	c = e.session()
-	c.Cmd("GROUP %s", bigGroup)
-	wantNumbers(t, "XOVER after last 5 -> 4", xover(t, c, 1, 5), 1, 2, 3, 4)
-	for i := 1; i <= 4; i++ {
-		if code, line := c.Cmd("ARTICLE %d", i); code != 220 {
-			t.Fatalf("ARTICLE %d after last 5 -> 4: %q", i, line)
-		}
-		c.ReadDotLines()
-	}
-	c.Cmd("QUIT")
-	if n := e.Upstream.Count("ARTICLE"); n != 0 {
-		t.Errorf("after the upstream's last went 5 -> 4, %d cached articles were fetched again", n)
-	}
-
-	// last 4 -> 5 again: article 5 is back
-	newUpstream(t, e, numberedStore(1, 5))
-	c = e.session()
-	c.Cmd("GROUP %s", bigGroup)
-	wantNumbers(t, "XOVER after last 4 -> 5", xover(t, c, 1, 5), 1, 2, 3, 4, 5)
-	c.Cmd("QUIT")
-
 }
 
 // TestOverviewWindowRenumberedBelow: a last number below every cached

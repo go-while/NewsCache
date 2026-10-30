@@ -511,6 +511,9 @@ func TestUpstreamLastNumberDown(t *testing.T) {
 		t.Fatal("cancel")
 	}
 	read("article 5 cancelled", 1, 2, 3, 4)
+	if got := e.Upstream.Count("ARTICLE"); got != fetched {
+		t.Errorf("after last 5 -> 4, %d cached articles were fetched again", got-fetched)
+	}
 
 	lag.Store(1) // a frontend one article behind: last 3
 	read("lagging frontend", 1, 2, 3)
@@ -521,6 +524,11 @@ func TestUpstreamLastNumberDown(t *testing.T) {
 	// fetched once more; 1-3 stayed in the spool throughout
 	if n := e.Upstream.Count("ARTICLE") - fetched; n != 1 {
 		t.Errorf("%d articles fetched again, want 1 (article 4)", n)
+	}
+	e.Store.AddArticle(bigGroup, groupArticle(bigGroup, 5, []string{"body of article 5"}))
+	read("article 5 restored", 1, 2, 3, 4, 5)
+	if n := e.Upstream.Count("ARTICLE") - fetched; n != 2 {
+		t.Errorf("%d articles fetched again, want 2 (articles 4 and 5)", n)
 	}
 }
 
@@ -684,9 +692,7 @@ func TestClientPipelining(t *testing.T) {
 	expect(220)
 	c.ReadDotLines()
 	expect(223)
-	if line := expect(421); line == "" {
-		t.Error("NEXT")
-	}
+	expect(421)
 	expect(111)
 	c.Cmd("QUIT")
 }

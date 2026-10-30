@@ -79,10 +79,13 @@ func TestExpiredBigArticleFileRemoved(t *testing.T) {
 	if code, line := c.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("GROUP after the expiry: %q", line)
 	}
-	if code, line := c.Cmd("XOVER 1-3"); code != 224 {
-		t.Fatalf("XOVER: %q", line)
+	wantNumbers(t, "XOVER after expiry", xover(t, c, 1, 3), 1, 3)
+	if code, line := c.Cmd("ARTICLE 2"); code != 423 {
+		t.Errorf("ARTICLE 2 after expiry: %q, want 423", line)
+		if code == 220 {
+			c.ReadDotLines()
+		}
 	}
-	c.ReadDotLines()
 	c.Cmd("QUIT")
 
 	if _, err := os.Stat(artFile); err == nil {
