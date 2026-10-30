@@ -3262,8 +3262,6 @@ class ReplyTracker:public std::streambuf {
 			head[count + i] = p[i];
 			head[count + i + 1] = '\0';
 		}
-		if (n > 0)
-			last = p[n - 1];
 		count += n;
 	}
       protected:
@@ -3288,9 +3286,8 @@ class ReplyTracker:public std::streambuf {
       public:
 	unsigned long count;	// characters since mark()
 	char head[4];		// the first three of them
-	char last;		// the last one
 	ReplyTracker(std::streambuf * d)
-	:dst(d), count(0), last('\n') {
+	:dst(d), count(0) {
 		head[0] = '\0';
 	}
 	void mark(void) {
@@ -3299,42 +3296,27 @@ class ReplyTracker:public std::streambuf {
 	}
 };
 
-// Whether the reply that begins with status (its first three
-// characters) to command cmd is a multi-line one.
-static bool multiline_reply(const char *status, const char *cmd)
-{
-	static const char *const codes[] = {
-		"100", "101", "215", "220", "221", "222", "224", "225",
-		"230", "231", "282", NULL
-	};
-	if (strcmp(status, "211") == 0)
-		return strcasecmp(cmd, "listgroup") == 0;
-	for (int i = 0; codes[i]; i++)
-		if (strcmp(status, codes[i]) == 0)
-			return true;
-	return false;
-}
-
 /*
  * A command failed with an exception after the reply had written what
  * tracker saw. With nothing written yet, the reply is a 403 (RFC 3977
- * 3.2.1: internal fault; 503 is "feature not supported") with what. A
- * list that had begun can't be ended honestly: a "." would make what was
- * sent look complete, and RFC 3977 has no other way to say it isn't.
- * False then: the caller closes the connection, as for an upstream
- * failure in the middle of a list.
+ * 3.2.1: internal fault; 503 is "feature not supported") with what; after
+ * POST's 340 it is the 441. Anything else that was sent can't be ended
+ * honestly: a "." would make a list look complete, and RFC 3977 has no
+ * other way to say it isn't. False then: the caller closes the connection,
+ * as for an upstream failure in the middle of a list.
  */
 static bool finish_reply(ostream & co, const ReplyTracker & tracker,
-			 const char *cmd, const char *what)
+			 const char *what)
 {
 	if (tracker.count == 0) {
 		co << "403 " << what << "\r\n";
-	} else if (multiline_reply(tracker.head, cmd)) {
-		return false;
-	} else if (strcmp(tracker.head, "340") == 0) {
-		co << "441 posting failed\r\n";
+		return true;
 	}
-	return true;
+	if (strcmp(tracker.head, "340") == 0) {
+		co << "441 posting failed\r\n";
+		return true;
+	}
+	return false;
 }
 
 /*
@@ -3897,7 +3879,7 @@ void nnrpd(int fd, bool tls)
 				if (tracker.count == 0 && attempt == 0 &&
 				    strcasecmp(cmd, "post") != 0)
 					continue;
-				if (!finish_reply(*clt.co, tracker, cmd,
+				if (!finish_reply(*clt.co, tracker,
 						  "spool database damaged, try again")) {
 					slog.p(Logger::Error) << clt.client_logname
 					    << " " << cmd << ": spool database damaged"
@@ -3916,7 +3898,7 @@ void nnrpd(int fd, bool tls)
 				    << " " << cmd << " failed: " << e._errtext
 				    << "\n";
 				errc = -1;
-				if (!finish_reply(*clt.co, tracker, cmd,
+				if (!finish_reply(*clt.co, tracker,
 						  "internal error")) {
 					slog.p(Logger::Error) << clt.client_logname
 					    << " " << cmd << ": failed after part of"
