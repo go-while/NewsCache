@@ -338,8 +338,21 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	f.e.ClientTimeout = 6
 	const group = "alt.binaries.tls-stall"
 	f.e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
-	requireFileLog(f.e)
-	f.e.standalone()
+	f.e.writeConf()
+	mode, err := logMode(f.e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	haveLog := mode != "syslog"
+	// /proc/<pid>/task/<pid>/children (Linux 3.5+); a restricted /proc
+	// in a container may lack it
+	self := strconv.Itoa(os.Getpid())
+	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
+	haveProc := runtime.GOOS == "linux" && procErr == nil
+	if !haveLog && !haveProc {
+		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
+	}
+	p := f.e.standalone()
 
 	first, tlsConn := robustTLSSession(t, f.addr, f.ca)
 	defer tlsConn.Close()
@@ -354,6 +367,16 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	if code, line := first.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("first GROUP: %q", line)
 	}
+	// The daemon's only child is the first client's session process.
+	var firstPid string
+	if haveProc {
+		kids := linuxProcChildren(t, p.Pid())
+		if len(kids) != 1 {
+			t.Fatalf("daemon children before the stall = %v, want the one session", kids)
+		}
+		firstPid = kids[0]
+	}
+	stallStart := time.Now()
 	if code, line := first.Cmd("XOVER 1-40000"); code != 224 {
 		t.Fatalf("first XOVER: %q", line)
 	}
@@ -374,6 +397,36 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	secondBound := time.Duration(f.e.ClientTimeout-1) * time.Second
 	if elapsed := time.Since(started); elapsed > secondBound {
 		t.Errorf("second client waited %v for the group lock, want under %v (well before another ClientTimeout)", elapsed, secondBound)
+	}
+	// The session must end about one ClientTimeout after the stall began
+	// (the send timeout, then a second for the wait for the socket). A
+	// failed write used to leave its data in the buffer, and every later
+	// flush waited for the timeout again: about three ClientTimeouts.
+	// Needs no log file: the session process is gone from the daemon's
+	// children (the daemon reaps it).
+	// +5 s leaves headroom on a loaded host; the old behaviour took
+	// about 18 s here.
+	endBound := time.Duration(f.e.ClientTimeout+5) * time.Second
+	if haveProc {
+		for {
+			gone := true
+			for _, k := range linuxProcChildren(t, p.Pid()) {
+				if k == firstPid {
+					gone = false
+				}
+			}
+			if gone {
+				break
+			}
+			if time.Since(stallStart) > endBound {
+				t.Errorf("stalled TLS writer's session %s still running %v after the stall began, want it gone within %v", firstPid, time.Since(stallStart).Round(time.Millisecond), endBound)
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if !haveLog {
+		return
 	}
 	// Releasing the group lock and logging the writer's exit are separate
 	// steps. The second client can finish before the first session logs.
