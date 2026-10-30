@@ -353,6 +353,12 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
 	}
 	p := f.e.standalone()
+	if haveProc {
+		// standalone()'s readiness check is a session of its own
+		// (greeting, QUIT); it may still be exiting, and the first
+		// client's session must be the daemon's only child below
+		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+	}
 
 	first, tlsConn := robustTLSSession(t, f.addr, f.ca)
 	defer tlsConn.Close()
