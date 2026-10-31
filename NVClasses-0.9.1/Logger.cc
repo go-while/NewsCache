@@ -157,7 +157,8 @@ Logger::~Logger()
  * may be writable for Username: don't follow a symlink there or write into
  * a hard link (either could reach any file), only a regular file with one
  * link is used. A symlink to our own stderr, as in the container image,
- * means stderr.
+ * means stderr. A new log file gets mode 0640: it names clients, users
+ * and groups. An existing file keeps its mode.
  */
 void Logger::open(const char *fn)
 {
@@ -168,7 +169,7 @@ void Logger::open(const char *fn)
 		return;
 	close();
 	logfd = ::open(fn, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW |
-		       O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0644);
+		       O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0640);
 	if (logfd < 0) {
 		// ELOOP for a symlink, but EMLINK on FreeBSD
 		int e = errno;

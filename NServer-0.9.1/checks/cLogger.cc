@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <fstream>
@@ -45,7 +46,18 @@ int main()
 	const int procs = 8, lines = 2000;
 	int bad = 0, total = 0;
 
+	// A new log file is created with mode 0640 (not readable by
+	// others); umask 0 shows the mode Logger asks for.
+	mode_t mask = umask(0);
 	slog.open(fn.c_str());
+	umask(mask);
+	struct stat st;
+	st.st_mode = 0;
+	if (stat(fn.c_str(), &st) != 0 || (st.st_mode & 07777) != 0640) {
+		cout << "log file mode " << oct << (st.st_mode & 07777)
+		    << dec << ", want 640" << endl;
+		return 1;
+	}
 	for (int k = 0; k < procs; k++) {
 		pid_t pid = fork();
 		if (pid < 0) {
