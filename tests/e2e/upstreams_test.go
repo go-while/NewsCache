@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -615,5 +616,49 @@ func TestArticleIDServerDown(t *testing.T) {
 	// none has it: 430 only if every server could be asked
 	if code, line := c.Cmd("ARTICLE <none@upstream.test>"); code != 403 {
 		t.Errorf("ARTICLE <none@upstream.test> with a server down: %q, want 403", line)
+	}
+}
+
+// TestUpstreamOverviewBareCR: an overview record from the upstream with
+// a lone CR in a field was stored and sent to clients as it came, a bare
+// CR inside the line (RFC 3977 3.1). A reader that takes a CR as a line
+// end saw the record end, a "." ending the reply and a status line the
+// upstream chose; stored in the spool, the record went to every later
+// client. A CR (like a NUL) becomes a space, as in an article's head.
+// Both the spool (cached) and the not-cached server's records; the
+// second session gets the record the first one stored.
+func TestUpstreamOverviewBareCR(t *testing.T) {
+	const poison = "subject\r.\r220 1 <fake@x> injected"
+	const clean = "subject . 220 1 <fake@x> injected"
+	for _, opts := range []string{"", "not-cached"} {
+		t.Run("options "+firstNonEmpty(opts, "default"), func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerOptions = opts
+			e.addArticles("test.alpha", 1)
+			upstreamWith(t, e, fakeserver.Options{StoreOpts: fakeserver.StoreOptions{
+				OverviewFields: func(_ int, _ string, f []string) []string {
+					f[1] = poison
+					return f
+				}}})
+			for s := 1; s <= 2; s++ {
+				c := e.session()
+				c.Strict = false
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("session %d: GROUP: %q", s, line)
+				}
+				for _, cmd := range []string{"OVER 1", "XHDR Subject 1"} {
+					if code, line := c.Cmd("%s", cmd); code != 224 && code != 221 {
+						t.Fatalf("session %d: %s: %q", s, cmd, line)
+					}
+					raw := c.RawUntilDot()
+					if bytes.Contains(bytes.ReplaceAll(raw, []byte("\r\n"), nil), []byte("\r")) {
+						t.Errorf("session %d: %s: a bare CR reaches the client: %q", s, cmd, raw)
+					} else if !bytes.Contains(raw, []byte(clean)) {
+						t.Errorf("session %d: %s: %q, want the subject %q", s, cmd, raw, clean)
+					}
+				}
+				c.Cmd("QUIT")
+			}
+		})
 	}
 }

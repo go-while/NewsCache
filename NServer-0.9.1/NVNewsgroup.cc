@@ -847,6 +847,7 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 			continue;
 		if (n > high)
 			high = n;
+		scrub_over(line1);
 		if (_OverviewFormat->dotrans) {
 			// Convert Record
 			_OverviewFormat->convert(line1, line2);

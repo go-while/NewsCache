@@ -132,6 +132,16 @@ class Newsgroup {
 	virtual void prefetchGroup(int lockgrp = 1) = 0;
 	virtual void prefetchOverview(void) = 0;
 
+	// An overview record from a news server is one line (RFC 3977 3.1):
+	// a CR or a NUL in it becomes a space, as in an article's head
+	// (Article::read). A lone CR stored and sent on would end the line
+	// early for a reader that takes a CR as a line end.
+	static void scrub_over(std::string & over) {
+		for (std::string::size_type i = 0; i < over.length(); i++)
+			if (over[i] == '\r' || over[i] == '\0')
+				over[i] = ' ';
+	}
+
 	virtual const char *getover(artnum_t nbr) = 0;
 	virtual void setover(const std::string & over) = 0;
 	virtual void printover(std::ostream & os, artnum_t nbr) {
