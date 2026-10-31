@@ -79,10 +79,16 @@ func TestAuthUnknownUserTiming(t *testing.T) {
 	const slow = "$6$rounds=600000$ncslowsalt$UzZarigsENPa9S.5Y2jR3OczOpyLqiOROQovOdMlqMP5Z..Q8R/wyv.AsdE/gb1JHc3.wDy2PFQrL6c0EPKvA."
 	e := authFileEnv(t, "tester:"+slow+":*:*:*:", "locked:*")
 	e.Extra = "AuthFailureDelay 0"
-	// the shortest of three replies to a wrong password for user
-	fastest := func(user string) time.Duration {
-		best := time.Duration(1 << 62)
-		for i := 0; i < 3; i++ {
+	// Interleave the three cases so a temporary change in host load does not
+	// affect every sample of just one user. Keep each user's shortest of
+	// three, as before, to limit scheduling delays in the comparison.
+	users := []string{"tester", "nobody-here", "locked"}
+	best := make(map[string]time.Duration, len(users))
+	for _, user := range users {
+		best[user] = time.Duration(1 << 62)
+	}
+	for i := 0; i < 3; i++ {
+		for _, user := range users {
 			c := e.session()
 			if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
 				t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
@@ -93,18 +99,17 @@ func TestAuthUnknownUserTiming(t *testing.T) {
 			if code != 481 {
 				t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
 			}
-			if d < best {
-				best = d
+			if d < best[user] {
+				best[user] = d
 			}
 		}
-		return best
 	}
-	wrong := fastest("tester")
+	wrong := best["tester"]
 	if wrong < 50*time.Millisecond {
 		t.Skipf("the costly hash took only %v here; can't measure", wrong)
 	}
 	for _, u := range []string{"nobody-here", "locked"} {
-		if d := fastest(u); d < wrong/2 {
+		if d := best[u]; d < wrong/2 {
 			t.Errorf("reply for %s took %v, a wrong password for an existing user %v: the time tells whether the user exists", u, d, wrong)
 		}
 	}
