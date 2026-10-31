@@ -12,6 +12,8 @@ EXTRA_DIST = COPYRIGHT README.md FEDORA.md SECURITY.md Dockerfile .dockerignore 
 	tests/e2e/upstream_test.go tests/e2e/upstream_failure_test.go tests/e2e/upstream_late_failure_test.go tests/e2e/upstreams_test.go tests/e2e/spoolfull_test.go tests/e2e/clean_test.go tests/e2e/log_test.go tests/e2e/syslog_test.go \
 	tests/e2e/clienttls_test.go tests/e2e/clienttls_robust_test.go tests/e2e/serverhello_parser_test.go tests/e2e/sighup_restart_test.go
 
+EXTRA_DIST += tests/e2e/concurrency_test.go
+
 # Every Go file of the e2e suite must be in the tarball: one left out of
 # EXTRA_DIST only means fewer tests there, and nothing else would notice
 # (the client TLS tests were missing that way).
