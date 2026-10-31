@@ -3325,6 +3325,9 @@ static void set_socket_timeouts(int in_fd, int out_fd, int rcv, int snd)
 // Unlike cin, this input notices an already handled signal before blocking.
 // Keep signals blocked between checking the flag and pselect's atomic wait;
 // a check followed by a blocking read/poll would leave the same race window.
+// (Atomic on Linux, the BSDs, macOS and illumos; where the C library only
+// emulates pselect with sigprocmask around select, as on GNU/Hurd, a much
+// smaller window remains.)
 class InetdInputBuffer : public std::streambuf {
 	char buffer[4096];
 	unsigned int timeout;

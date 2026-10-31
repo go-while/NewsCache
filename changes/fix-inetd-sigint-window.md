@@ -1,2 +1,6 @@
 Bug fixes:
-* An inetd session no longer waits for another client command when SIGINT or SIGTERM arrives just before its next input read. Its signal-aware input waits atomically and preserves the descriptor flags when stdin and stdout share a socket.
+* An inetd session (newscache -i) that gets SIGINT or SIGTERM between two
+  commands ends at once with "400 ... service discontinued"; it waited for
+  the client's next line. Reads inside a command, such as the article of a
+  POST, now also give up after ClientTimeout plus 10 seconds in inetd
+  mode, as they do in the daemon; a stalled POST kept the session forever.
