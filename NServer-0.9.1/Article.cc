@@ -57,10 +57,15 @@ Article::Article(artnum_t artnbr)
 	setnbr(artnbr);
 }
 
+static void clean_text(string & text);
+
+// A stored article. One that a version before 1.3.23 stored may still
+// have a lone CR in the body.
 Article::Article(artnum_t artnbr, const char *text, int textlen)
 {
 	setnbr(artnbr);
 	_text.assign(text, textlen);
+	clean_text(_text);
 	_ctext = _text.c_str();
 }
 
@@ -70,28 +75,21 @@ Article::~Article ()
 
 // RFC 5536 allows neither NUL nor a CR outside CRLF. Kept as they came,
 // a CR in the head made the article unparsable (find_field and getfield
-// throw: 423 for an article the server has), and a NUL anywhere made the
+// throw: 423 for an article the server has), a NUL anywhere made the
 // stored record look damaged, so the whole group database was moved aside
-// at every read. Both become a space; a lone CR in the body does no harm
-// and stays. readtext ends every line with CRLF.
+// at every read, and a CR in the body went to clients as it came: a
+// reader that ends a line at a CR saw the article end there and lines
+// chosen by the news server after it (as with an overview record, see
+// Newsgroup::scrub_over). Both become a space. readtext ends every line
+// with CRLF.
 static void clean_text(string & text)
 {
 	string::size_type i, n = text.length();
-	int head = 1;
 
-	for (i = 0; i < n; i++) {
-		if (text[i] == '\0') {
+	for (i = 0; i < n; i++)
+		if (text[i] == '\0' || (text[i] == '\r' &&
+		    (i + 1 == n || text[i + 1] != '\n')))
 			text[i] = ' ';
-		} else if (text[i] == '\r' && head) {
-			if (i + 1 < n && text[i + 1] == '\n') {
-				if (i == 0 || (i >= 2 && text[i - 2] == '\r'
-						       && text[i - 1] == '\n'))
-					head = 0;	// the empty line after the head
-			} else {
-				text[i] = ' ';
-			}
-		}
-	}
 }
 
 int Article::read(std::istream & is, size_t max)

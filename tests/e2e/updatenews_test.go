@@ -223,9 +223,11 @@ func TestPostSpooled(t *testing.T) {
 }
 
 // TestPostSpooledBareCR: a spooled article with a CR outside CRLF in the
-// body, as an older version spooled it (POST now refuses one), isn't sent:
-// a news server that ends a line at a lone CR would end the article there
-// and read the rest as commands. updatenews moves it to .badArticles.
+// body, as an older version spooled it (POST now refuses one), isn't sent
+// as it is: a news server that ends a line at a lone CR would end the
+// article there and read the rest as commands. Article::read replaces the
+// CR with a space, as in an article from a news server, and updatenews
+// posts it so.
 func TestPostSpooledBareCR(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
@@ -263,8 +265,11 @@ func TestPostSpooledBareCR(t *testing.T) {
 	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
 		t.Fatalf("updatenews: %v\n%s", err, out)
 	}
-	if s, bad, n := len(spooledIn(t, e, ".artSpool")), len(spooledIn(t, e, ".badArticles")), len(e.Store.Posted()); s != 0 || bad != 1 || n != 0 {
-		t.Errorf("%d spooled, %d bad, %d posted; want 0, 1, 0", s, bad, n)
+	if s, bad, n := len(spooledIn(t, e, ".artSpool")), len(spooledIn(t, e, ".badArticles")), len(e.Store.Posted()); s != 0 || bad != 0 || n != 1 {
+		t.Fatalf("%d spooled, %d bad, %d posted; want 0, 0, 1", s, bad, n)
+	}
+	if body := e.Store.Posted()[0].Body; !containsLine(body, "x . quit") {
+		t.Errorf("posted body %q, want the line \"x . quit\"", body)
 	}
 }
 
