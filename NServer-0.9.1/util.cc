@@ -193,7 +193,7 @@ int matchgroup(const char *pattern, const char *group)
 		switch (c) {
 		case ',':
 		case '\0':
-			if (group[clen] != '\0' && !isspace(group[clen])) {
+			if (group[clen] != '\0' && !isspace((unsigned char) group[clen])) {
 				clen = -2;
 			}
 			clen++;

@@ -101,17 +101,17 @@ class Lexer {
 				return "";
 			}
 			_cbufp = _cbuf = _buf.c_str();
-			while (isspace(*_cbufp))
+			while (isspace((unsigned char) *_cbufp))
 				_cbufp++;
 			if (*_cbufp == '#')
 				_cbufp = _cbuf + _buf.length();
 		}
 		q = _cbufp;
-		while (*q && !isspace(*q))
+		while (*q && !isspace((unsigned char) *q))
 			q++;
 		_tok.assign(_cbufp, q - _cbufp);
 		_cbufp = q;
-		while (isspace(*_cbufp))
+		while (isspace((unsigned char) *_cbufp))
 			_cbufp++;
 		return _tok;
 	}

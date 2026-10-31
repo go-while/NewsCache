@@ -241,7 +241,7 @@ class NewsgroupFilter {
 			case ',':
 			case '\0':
 				if (newsgroup[clen] != '\0'
-				    && !isspace(newsgroup[clen])) {
+				    && !isspace((unsigned char) newsgroup[clen])) {
 					clen = -2;
 				}
 				clen++;

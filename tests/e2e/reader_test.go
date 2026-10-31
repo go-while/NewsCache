@@ -1335,3 +1335,46 @@ func TestNewgroupsFormat(t *testing.T) {
 		t.Errorf("NEWGROUPS since 2000 doesn't list test.alpha: %q", lines)
 	}
 }
+
+// TestCommandHighBytes: the command line went to isspace() and tolower()
+// as plain (signed) char, and the first byte of ARTICLE, STAT and
+// AUTHINFO arguments to isdigit() and tolower(): a byte of 0x80 and up
+// was a negative value, undefined for the ctype functions, and read
+// outside the table where a C library indexes it directly. The bytes
+// are not white space (only the C locale's are): each line gets the
+// reply of what it is, and the session goes on.
+func TestCommandHighBytes(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	for _, s := range []struct {
+		cmd  string
+		want int
+	}{
+		{"\xe9LIST", 500},
+		{"LIST\xa0", 500},
+		{"\xa0GROUP test.alpha", 500},
+		{"GROUP caf\xe9", 411},
+		{"GROUP test.alpha", 211},
+		{"ARTICLE \xe9", 501},
+		{"HEAD \xff1", 501},
+		{"STAT \xb9", 501},
+		{"STAT 1", 223},
+	} {
+		if code, line := c.Cmd("%s", s.cmd); code != s.want {
+			t.Errorf("%q: %q, want %d", s.cmd, line, s.want)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE: %q, want 111", line)
+	}
+
+	// AUTHINFO's argument is looked at only where a login is offered
+	a := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	a.Extra = "AuthFailureDelay 0"
+	ac := a.session()
+	if code, line := ac.Cmd("%s", "AUTHINFO \xd5ser x"); code != 501 {
+		t.Errorf("AUTHINFO \\xd5ser x: %q, want 501", line)
+	}
+	login(t, ac)
+}
