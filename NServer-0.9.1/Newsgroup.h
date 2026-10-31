@@ -132,6 +132,18 @@ class Newsgroup {
 	virtual void prefetchGroup(int lockgrp = 1) = 0;
 	virtual void prefetchOverview(void) = 0;
 
+	// An overview record from a news server is one line (RFC 3977 3.1):
+	// a CR or a NUL in it becomes a space, as in an article's head
+	// (Article::read). A lone CR stored and sent on would end the line
+	// early for a reader that takes a CR as a line end. Also done where
+	// the spool's records are printed: an older version stored them as
+	// they came.
+	static void scrub_over(std::string & over) {
+		for (std::string::size_type i = 0; i < over.length(); i++)
+			if (over[i] == '\r' || over[i] == '\0')
+				over[i] = ' ';
+	}
+
 	virtual const char *getover(artnum_t nbr) = 0;
 	virtual void setover(const std::string & over) = 0;
 	virtual void printover(std::ostream & os, artnum_t nbr) {
@@ -183,8 +195,16 @@ class Newsgroup {
 	static void headerline(std::ostream & os, artnum_t i,
 			       const std::string * fld, const char *pat) {
 		if (fld) {
-			if (headermatch(*fld, pat))
+			if (!headermatch(*fld, pat))
+				return;
+			if (fld->find_first_of(std::string("\r\0", 2)) ==
+			    std::string::npos) {
 				os << i << " " << *fld << "\r\n";
+			} else {
+				std::string v(*fld);
+				scrub_over(v);
+				os << i << " " << v << "\r\n";
+			}
 		} else if (!pat) {
 			os << i << " (none)\r\n";
 		} else if (pat == hdr_all) {

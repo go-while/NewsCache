@@ -91,7 +91,13 @@ void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 					os << over << "\r\n";
 			} else if (*data == bigarticle
 				   || *data == overview) {
-				os << data + sizeof(char) << "\r\n";
+				const char *o = data + sizeof(char);
+				if (strchr(o, '\r')) {
+					over = o;
+					scrub_over(over);
+					os << over << "\r\n";
+				} else
+					os << o << "\r\n";
 			} else {
 				// Oops, inconsistent
 				VERB(slog.
@@ -756,6 +762,7 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 			} else if (*data == bigarticle
 				   || *data == overview) {
 				over = data + sizeof(char);
+				scrub_over(over);
 			} else {
 				// Impossible
 				VERB(slog.
@@ -847,6 +854,7 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 			continue;
 		if (n > high)
 			high = n;
+		scrub_over(line1);
 		if (_OverviewFormat->dotrans) {
 			// Convert Record
 			_OverviewFormat->convert(line1, line2);
