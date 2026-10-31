@@ -2728,6 +2728,18 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			(*clt->co) << "441 invalid Message-ID header\r\n";
 			return -1;
 		}
+		// RFC 5536 allows neither a NUL nor a CR outside CRLF (the
+		// trailing CR of each line is gone here). Forwarded as they
+		// came, a news server that ends a line at a lone CR would end
+		// the article there and read the rest as commands on our own
+		// connection to it.
+		if (art.has_bare_cr_or_nul()) {
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: a NUL or a CR outside CRLF in the"
+			    " article, not posted\n";
+			(*clt->co) << "441 article contains a NUL or a bare CR\r\n";
+			return -1;
+		}
 
 		// check whether client is authorized to post this article.
 		// The same split as RServer::post, which picks the servers

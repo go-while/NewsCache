@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -218,6 +219,52 @@ func TestPostSpooled(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPostSpooledBareCR: a spooled article with a CR outside CRLF in the
+// body, as an older version spooled it (POST now refuses one), isn't sent:
+// a news server that ends a line at a lone CR would end the article there
+// and read the rest as commands. updatenews moves it to .badArticles.
+func TestPostSpooledBareCR(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline"
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: spooled\r\n" +
+		"Message-ID: <spooled.cr@client.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("POST to offline server: %q %v", line, err)
+	}
+	c.Cmd("QUIT")
+	s := spooledIn(t, e, ".artSpool")
+	if len(s) != 1 {
+		t.Fatalf("%d spooled articles, want 1", len(s))
+	}
+	b, err := os.ReadFile(s[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("\r\nhello\r\n")
+	if !bytes.Contains(b, old) {
+		t.Fatalf("spooled article %q has no line %q", b, old)
+	}
+	b = bytes.Replace(b, old, []byte("\r\nx\r.\rquit\r\n"), 1)
+	if err := os.WriteFile(s[0], b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.ServerOptions = ""
+	e.writeConf()
+	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Fatalf("updatenews: %v\n%s", err, out)
+	}
+	if s, bad, n := len(spooledIn(t, e, ".artSpool")), len(spooledIn(t, e, ".badArticles")), len(e.Store.Posted()); s != 0 || bad != 1 || n != 0 {
+		t.Errorf("%d spooled, %d bad, %d posted; want 0, 1, 0", s, bad, n)
 	}
 }
 
