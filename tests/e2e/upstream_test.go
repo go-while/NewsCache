@@ -270,6 +270,105 @@ func TestUpstreamPartialActiveDeadline(t *testing.T) {
 	}
 }
 
+// The refresh lock is taken before even issuing LIST ACTIVE, not inside the
+// reply deadline. Hold the first upstream status for longer than the short
+// reply limit, while a second already-greeted client requests a refresh.
+// Timeout zero forces both clients to fetch, even after the first succeeds.
+func TestActiveRefreshLockBeforeUpstream(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+	}
+	e := newEnv(t)
+	e.Extra = "Timeouts 0 3600"
+	e.ServerLines = "    ReadTimeout 20\n    Retries 0"
+	first := make(chan struct{})
+	second := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	var requests atomic.Int32
+	e.Upstream = fakeserver.New(t, fakeserver.Options{Handler: func(c *fakeserver.Conn) {
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				return
+			}
+			switch strings.ToUpper(fields[0]) {
+			case "MODE":
+				if c.WriteLines("200 reader ready") != nil {
+					return
+				}
+			case "LIST":
+				if len(fields) < 2 || !strings.EqualFold(fields[1], "ACTIVE") {
+					if c.WriteLines("500 unsupported") != nil {
+						return
+					}
+					continue
+				}
+				switch requests.Add(1) {
+				case 1:
+					close(first)
+					<-release
+				case 2:
+					close(second)
+				}
+				if c.WriteLines("215 active list follows", "test.alpha 1 1 y", ".") != nil {
+					return
+				}
+			case "QUIT":
+				_ = c.WriteLines("205 bye")
+				return
+			default:
+				if c.WriteLines("500 unsupported") != nil {
+					return
+				}
+			}
+		}
+	}})
+	t.Cleanup(unblock)
+	a, b := e.session(), e.session()
+	a.Deadline, b.Deadline = 10*time.Second, 10*time.Second
+	if err := a.Send("LIST ACTIVE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first:
+	case <-time.After(6 * time.Second):
+		t.Fatal("first client did not request LIST ACTIVE upstream")
+	}
+	if err := b.Send("LIST ACTIVE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-second:
+		t.Fatal("second client sent LIST ACTIVE before the first refresh released its lock")
+	case <-time.After(2500 * time.Millisecond):
+	}
+	unblock()
+	for name, c := range map[string]*client.Conn{"first": a, "second": b} {
+		code, line, err := c.ReadStatus()
+		if err != nil || code != 215 {
+			t.Fatalf("%s client LIST ACTIVE: %d %q: %v", name, code, line, err)
+		}
+		lines, err := c.TryReadDotLines()
+		if err != nil || len(lines) != 1 || lines[0] != "test.alpha 1 1 y" {
+			t.Fatalf("%s client list: %q: %v", name, lines, err)
+		}
+	}
+	select {
+	case <-second:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second client did not refresh after the first completed")
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("got %d upstream LIST ACTIVE requests, want 2", got)
+	}
+}
+
 // Verify both ACTIVE budgets, including actual wire bytes hidden by line-end
 // normalization, then confirm a later process can refresh the same database.
 func TestUpstreamActiveReplyLimits(t *testing.T) {
