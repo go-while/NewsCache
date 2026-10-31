@@ -99,8 +99,12 @@ yourself:
 echo 'u news - "News user" /var/cache/newscache -' |
     sudo tee /usr/lib/sysusers.d/newscache.conf
 sudo systemd-sysusers
-sudo install -d -o news -g news -m 755 /var/cache/newscache /var/log/newscache
+sudo install -d -o news -g news -m 750 /var/cache/newscache /var/log/newscache
 ```
+
+Mode 750 keeps other local users out: the spool holds the cached
+articles and the posts waiting to be sent, and NewsCache creates its
+files readable by others under the usual umask 022.
 
 If a `news` user already exists, for example from an earlier install,
 `systemd-sysusers` keeps it.
