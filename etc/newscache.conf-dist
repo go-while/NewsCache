@@ -379,7 +379,9 @@ MaxConnections 16
 ################################################################
 ## Spool- and Log-Directory
 ################################################################
-# All the cached newsgroups and articles go here
+# All the cached newsgroups and articles go here. Give the directory
+# mode 0750 (owner Username, group Groupname): the files in it are
+# readable by others under the usual umask 022.
 SpoolDirectory /var/cache/newscache
 
 # Size of Spool Directory in KiloBytes

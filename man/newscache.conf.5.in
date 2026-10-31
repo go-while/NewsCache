@@ -160,6 +160,13 @@ Maximal number of simultanous connections. This Parameter works only in standalo
 .TP
 .I "SpoolDirectory directory"
 The directory, where the cached newsgroups and articles should be stored. The default value is /var/cache/newscache.
+Give it mode 0750, owned by
+.I Username
+and
+.IR Groupname :
+newscache sets no umask, so under the usual umask 022 the files in it
+(cached articles, overview data, posts waiting to be sent) are readable
+by every local user unless the directory keeps them out.
 .TP
 .I "SpoolSize KBytes"
 The maximum size of the spool area, a plain number of KBytes. This is controlled by the

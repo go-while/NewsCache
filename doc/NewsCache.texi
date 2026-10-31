@@ -432,6 +432,13 @@ directory must be on a local partition! NewsCache uses file locking and
 does not make use of lockd. Mounting this directory via NFS would
 decrease performance, so it does not make sense anyway.}
 
+Give the directory mode 0750, owned by @code{Username} and
+@code{Groupname} (the Debian package does). The spool holds the cached
+articles, the overview data and the posts waiting to be sent, and
+NewsCache sets no umask: under the usual umask 022 its files there are
+readable by every local user, which the directory's mode prevents, for
+the files of older versions too.
+
 @example
 SpoolDirectory /lhome/newscache/NSpool
 SpoolSize 100000
