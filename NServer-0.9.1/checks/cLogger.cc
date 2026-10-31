@@ -9,6 +9,9 @@
 #include <string>
 
 #include "Logger.h"
+#ifndef WITH_SYSLOG
+#include "TestTempDir.h"
+#endif
 
 using namespace std;
 
@@ -35,12 +38,14 @@ int main()
 #else
 	// The lines of parallel processes (sessions) must not mix in the
 	// file log: each line goes out in one write().
-	const char *fn = "cLogger.log";
+	string dir;
+	if (!test_temp::create("cLogger", dir))
+		return 1;
+	string fn = dir + "/log";
 	const int procs = 8, lines = 2000;
 	int bad = 0, total = 0;
 
-	unlink(fn);
-	slog.open(fn);
+	slog.open(fn.c_str());
 	for (int k = 0; k < procs; k++) {
 		pid_t pid = fork();
 		if (pid < 0) {
@@ -57,7 +62,7 @@ int main()
 	while (wait(NULL) > 0);
 	slog.close();
 
-	ifstream in(fn);
+	ifstream in(fn.c_str());
 	string l;
 	while (getline(in, l)) {
 		total++;
@@ -71,16 +76,16 @@ int main()
 	cout << total << " lines, " << bad << " garbled" << endl;
 	if (bad != 0 || total != procs * lines)
 		return 1;
-	unlink(fn);
+	unlink(fn.c_str());
 
 	// A line left without "\n" goes out at its own priority when the
 	// next message sets another one (it went out at the new one, which a
 	// syslog filter may drop).
-	slog.open(fn);
+	slog.open(fn.c_str());
 	slog.p(Logger::Error) << "partial line";
 	slog.p(Logger::Info) << "next line\n";
 	slog.close();
-	in.open(fn);
+	in.open(fn.c_str());
 	int pri[2] = { -1, -1 }, n = 0;
 	while (n < 2 && getline(in, l)) {
 		cout << l << endl;
@@ -91,7 +96,6 @@ int main()
 		    << Logger::Error << ", " << Logger::Info << endl;
 		return 1;
 	}
-	unlink(fn);
 	return 0;
 #endif
 }

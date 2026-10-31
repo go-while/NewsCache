@@ -168,7 +168,12 @@ int main(int argc, char *argv[])
 	char **al = articleList;
 	int e, ef = 0, i, j = sizeof(articleList) / sizeof(articleList[0]);
 
-	chdir(getenv("srcdir"));
+	if (const char *src = getenv("srcdir")) {
+		if (chdir(src) != 0) {
+			perror("chdir srcdir");
+			return 1;
+		}
+	}
 	if (argc > 1) {
 		al = argv + 1;
 		j = argc - 1;

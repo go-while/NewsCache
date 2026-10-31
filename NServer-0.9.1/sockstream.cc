@@ -462,6 +462,10 @@ int sockstream::sockstreambuf::sync()
 
     if (rc_send < 0)
     {
+      // A failed send is final: what is left is dropped. Kept, every later
+      // flush (the session's loop, its exit) waited for the send timeout
+      // again on a client that reads nothing.
+      setp(_pbuf, _pbuf + sizeof(_pbuf));
       return -1;
     }
 
@@ -806,6 +810,14 @@ int sockstream::sslstreambuf::sync()
 	     (rc_write == GNUTLS_E_AGAIN && _buf.wait_io(true)));
     if (rc_write < 0)
     {
+      // A failed write is final, as for a plain socket: GnuTLS can't
+      // go on after a timed out record anyway. Buffered output stayed
+      // and was sent again by every later flush, each waiting for the
+      // send timeout once more on a client that reads nothing; the
+      // session ended after several ClientTimeouts, not one. No
+      // close_notify either (disconnect does nothing once not connected).
+      setp(_buf._pbuf, _buf._pbuf + sizeof(_buf._pbuf));
+      _connected = false;
       return -1;
     }
 
