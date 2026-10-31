@@ -1501,8 +1501,9 @@ int RServer::post(Article * article)
 	string newsgroups;
 	// A news server that ends a line at a lone CR would see the article
 	// end there and read the rest as commands on our connection. ns_post
-	// refuses such an article; this catches one an older version spooled
-	// (postspooled moves it to .badArticles).
+	// refuses such an article, and one an older version spooled is read
+	// back with Article::read, which replaces the CR; this keeps any other
+	// way here from sending one (postspooled moves it to .badArticles).
 	if (article->has_bare_cr_or_nul())
 		throw InvalidArticleError("NUL or CR outside CRLF in the article",
 					  ERROR_LOCATION);
