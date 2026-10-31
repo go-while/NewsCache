@@ -597,7 +597,7 @@ func TestArticleIDServerDown(t *testing.T) {
 	st.AddGroup("test.gamma", "on C")
 	st.AddArticle("test.gamma", groupArticle("test.gamma", 1, []string{"body on C"}))
 	c3 := fakeserver.New(t, fakeserver.Options{Store: st})
-	host, port, err := net.SplitHostPort(freeAddr(t)) // nothing listens there
+	host, port, err := net.SplitHostPort(deadAddr(t))
 	if err != nil {
 		t.Fatal(err)
 	}
