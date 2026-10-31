@@ -14,7 +14,9 @@
 
 using namespace std;
 
-char *articleList[] = { "article5283", "article9621", "article9622" };
+static const char *const articleList[] = {
+	"article5283", "article9621", "article9622"
+};
 
 Logger slog;
 
@@ -185,7 +187,7 @@ int checkConvertStripName()
 
 int main(int argc, char *argv[])
 {
-	char **al = articleList;
+	const char *const *al = articleList;
 	int e, ef = 0, i, j = sizeof(articleList) / sizeof(articleList[0]);
 
 	if (const char *src = getenv("srcdir")) {
