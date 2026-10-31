@@ -766,10 +766,10 @@ char **seekfile(const char *filename, const char *username)
 
 	while (getline(&buf, &bufsize, F) != -1) {
 		p = buf + strlen(buf) - 1;
-		while (p > buf && isspace(*p))
+		while (p > buf && isspace((unsigned char) *p))
 			*p-- = '\0';
 		p = buf;
-		while (isspace(*p))
+		while (isspace((unsigned char) *p))
 			p++;
 		if (*p == '#' || *p == '\0')
 			continue;
@@ -1708,7 +1708,7 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 	// error
       ns_authinfo_error:
 	if (argc > 1) {
-		switch (tolower(argv[1][0])) {
+		switch (tolower((unsigned char) argv[1][0])) {
 		case 'u':
 			(*clt->
 			 co) << "501 Syntax: authinfo user username\r\n";
@@ -1730,7 +1730,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 		goto ns_article_error;
 
 	// retrieve article|body|head by number?
-	if (argc == 1 || isdigit(argv[1][0])) {
+	if (argc == 1 || isdigit((unsigned char) argv[1][0])) {
 		if (clt->groupname[0] == '\0') {
 			(*clt->
 			 co) << "412 no newsgroup has been selected\r\n";
@@ -1818,7 +1818,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 		goto ns_stat_error;
 
 	// stat by number?
-	if (argc == 1 || isdigit(argv[1][0])) {
+	if (argc == 1 || isdigit((unsigned char) argv[1][0])) {
 		// fetch article by number
 		if (clt->groupname[0] == '\0') {
 			(*clt->
@@ -3831,7 +3831,7 @@ void nnrpd(int fd, bool tls)
 		rp = req + strlen(req);
 		while (rp > req) {
 			rp--;
-			if (!isspace(*rp))
+			if (!isspace((unsigned char) *rp))
 				break;
 			else
 				*rp = '\0';
@@ -3860,13 +3860,13 @@ void nnrpd(int fd, bool tls)
 
 		// Split command into arguments
 		for (rp = req, argc = 0; *rp && argc < 256; rp++) {
-			if (isspace(*rp)) {
+			if (isspace((unsigned char) *rp)) {
 				*rp = '\0';
 			} else {
 				if (rp == req || *(rp - 1) == '\0')
 					argv[argc++] = rp;
 				if (argc == 1)
-					*rp = tolower(*rp);
+					*rp = tolower((unsigned char) *rp);
 			}
 		}
 		if (!argc)
