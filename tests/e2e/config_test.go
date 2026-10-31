@@ -292,6 +292,47 @@ func TestConfigLastLineNoNewline(t *testing.T) {
 	}
 }
 
+// TestConfigCRLFAndIndent: configuration files edited on another system
+// or by hand, with CRLF line ends, tab indents, trailing blanks, blank
+// lines and comment lines, must mean the same as without them: newscache
+// -p prints the same configuration. An auth file with CRLF line ends,
+// a blank line and a comment line must still log the user in.
+func TestConfigCRLFAndIndent(t *testing.T) {
+	e := newEnv(t)
+	e.writeConf()
+	plain, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, plain)
+	}
+	if !strings.Contains(string(plain), "AccessList") {
+		t.Fatalf("newscache -p prints no AccessList:\n%s", plain)
+	}
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf strings.Builder
+	conf.WriteString("# written with CRLF line ends\r\n\r\n")
+	for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		conf.WriteString("\t" + strings.TrimLeft(l, " ") + " \t\r\n")
+		conf.WriteString("\r\n\t# a comment line\r\n")
+	}
+	if err := os.WriteFile(e.Conf, []byte(conf.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p, CRLF configuration: %v\n%s", err, got)
+	}
+	if string(got) != string(plain) {
+		t.Errorf("CRLF configuration prints differently:\n%s\nwant:\n%s", got, plain)
+	}
+
+	a := authFileEnv(t, "# an auth file with CRLF line ends\r", "\r",
+		"tester:"+md5Hash+":*:*:*:\r")
+	login(t, a.session())
+}
+
 // TestDefaultDenyEveryone: with only "Default { allow none }", nobody may
 // connect, not even localhost or an inetd client.
 func TestDefaultDenyEveryone(t *testing.T) {
