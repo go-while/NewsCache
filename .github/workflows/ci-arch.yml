@@ -1,0 +1,64 @@
+# Cheap architecture coverage: target C++ units, not daemons or Go/shell e2e.
+# i386 runs natively on amd64; only s390x needs QEMU user-mode emulation.
+name: CI (architectures)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-arch-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  units:
+    name: C++ units (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        arch: [i386, s390x]
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool make binutils
+          case "$ARCH" in
+            i386)
+              sudo apt-get install -y --no-install-recommends gcc-multilib g++-multilib
+              ;;
+            s390x)
+              sudo apt-get install -y --no-install-recommends g++-s390x-linux-gnu qemu-user-static
+              ;;
+            *) exit 2 ;;
+          esac
+
+      - name: Build and run C++ units
+        run: sh .github/ci/arch-units.sh "$ARCH"
+
+      - name: Show configure log on failure
+        if: failure()
+        run: |
+          if [ -f config.log ]; then tail -n 100 config.log; fi
+
+      - name: Show unit results and skip reasons
+        if: always()
+        run: |
+          find NServer-0.9.1/checks src -maxdepth 1 -type f \
+            \( -name '*.log' -o -name '*.trs' \) \
+            -print -exec tail -n 100 {} \;

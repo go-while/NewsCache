@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -299,7 +300,9 @@ static unsigned long vmsize(void)
 }
 
 // Limits the address space to what is in use now plus 1 MB; false if
-// that can't be done here.
+// that can't be done here. An emulator (QEMU user mode, the s390x unit
+// lane) accepts the limit without enforcing it: a 4 MB mapping that
+// still succeeds means the limit has no effect, and it is undone.
 static bool limit_as(struct rlimit *old)
 {
 	struct rlimit low;
@@ -310,7 +313,16 @@ static bool limit_as(struct rlimit *old)
 	low.rlim_cur = v + (1 << 20);
 	if (old->rlim_max != RLIM_INFINITY && low.rlim_cur > old->rlim_max)
 		return false;
-	return setrlimit(RLIMIT_AS, &low) == 0;
+	if (setrlimit(RLIMIT_AS, &low) != 0)
+		return false;
+	void *probe = mmap(NULL, 4 << 20, PROT_READ | PROT_WRITE,
+			   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (probe != MAP_FAILED) {
+		munmap(probe, 4 << 20);
+		setrlimit(RLIMIT_AS, old);
+		return false;
+	}
+	return true;
 }
 
 // Whether another process can lock the whole file now.
