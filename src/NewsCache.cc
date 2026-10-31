@@ -38,6 +38,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -133,7 +134,6 @@ extern "C" int hosts_ctl(char *daemon, char *client_name,
 #include "Logger.h"
 #include "sockstream.h"
 
-using std::cin;
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -3321,6 +3321,93 @@ static void set_socket_timeouts(int in_fd, int out_fd, int rcv, int snd)
 	setsockopt(in_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
+// Plain inetd may use two pipes, or stdin/stdout may be dup()s of one socket.
+// Unlike cin, this input notices an already handled signal before blocking.
+// Keep signals blocked between checking the flag and pselect's atomic wait;
+// a check followed by a blocking read/poll would leave the same race window.
+// (Atomic on Linux, the BSDs, macOS and illumos; where the C library only
+// emulates pselect with sigprocmask around select, as on GNU/Hurd, a much
+// smaller window remains.)
+class InetdInputBuffer : public std::streambuf {
+	char buffer[4096];
+	unsigned int timeout;
+
+protected:
+	virtual int underflow()
+	{
+		if (gptr() < egptr())
+			return traits_type::to_int_type(*gptr());
+
+		sigset_t signals, old_mask;
+		sigemptyset(&signals);
+		sigaddset(&signals, SIGINT);
+		sigaddset(&signals, SIGTERM);
+		sigaddset(&signals, SIGALRM);
+		if (sigprocmask(SIG_BLOCK, &signals, &old_mask) < 0)
+			return traits_type::eof();
+
+		ssize_t count = -1;
+		while (!alarmed) {
+			fd_set readable;
+			FD_ZERO(&readable);
+			FD_SET(STDIN_FILENO, &readable);
+			struct timespec wait;
+			wait.tv_sec = (time_t) std::min((unsigned long long) timeout,
+				(unsigned long long) std::numeric_limits<time_t>::max());
+			wait.tv_nsec = 0;
+			const int ready = pselect(STDIN_FILENO + 1, &readable,
+				NULL, NULL, timeout ? &wait : NULL, &old_mask);
+			if (ready < 0) {
+				if (errno == EINTR)
+					continue;
+				break;
+			}
+			if (ready == 0) {
+				errno = EAGAIN;
+				break;
+			}
+			if (alarmed)
+				break;
+
+			// Readiness can change before read(). Do not block with the
+			// signals masked. Restore flags immediately: fd 1 can share
+			// this open file description, and cout must stay blocking.
+			const int flags = fcntl(STDIN_FILENO, F_GETFL);
+			if (flags < 0)
+				break;
+			const bool change = !(flags & O_NONBLOCK);
+			if (change && fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)
+				break;
+			count = read(STDIN_FILENO, buffer, sizeof(buffer));
+			const int read_errno = errno;
+			if (change && fcntl(STDIN_FILENO, F_SETFL, flags) < 0) {
+				count = -1;
+				break;
+			}
+			errno = read_errno;
+			if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+				continue;
+			break;
+		}
+
+		const int saved_errno = errno;
+		if (sigprocmask(SIG_SETMASK, &old_mask, NULL) < 0)
+			count = -1;
+		else
+			errno = saved_errno;
+		if (count <= 0)
+			return traits_type::eof();
+		setg(buffer, buffer, buffer + count);
+		return traits_type::to_int_type(*gptr());
+	}
+
+public:
+	explicit InetdInputBuffer(unsigned int seconds) : timeout(seconds)
+	{
+		setg(buffer, buffer, buffer);
+	}
+};
+
 static void set_client_timeouts(int in_fd, int out_fd)
 {
 	// (0: no timeout; set anyway, the TLS handshake had its own)
@@ -3344,6 +3431,12 @@ static int tls_handshake_timeout(void)
 void nnrpd(int fd, bool tls)
 {
 	ClientData clt;
+	const bool stdio_client = fd < 0;
+	// As for the socket receive timeout: the command alarm expires first,
+	// but reads inside a command (POST) still have their own I/O limit.
+	InetdInputBuffer inetd_buffer(Cfg.ClientTimeout > 0 ?
+		(unsigned int) Cfg.ClientTimeout + 10U : 0);
+	istream inetd_input(&inetd_buffer);
 	char req[1024], oreq[1024], *rp;
 	char *argv[256];
 	int argc;
@@ -3352,6 +3445,9 @@ void nnrpd(int fd, bool tls)
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
 	int errc = 0;
+#ifdef NEWSCACHE_TEST_INETD_SIGINT_WINDOW
+	unsigned int inetd_test_reads = 0;
+#endif
 	// (with tls the server side of a TLS connection, see accept_tls)
 	sockstream sock_stream(tls, true);
 	int nice;
@@ -3535,8 +3631,9 @@ void nnrpd(int fd, bool tls)
 		}
 #endif
 	} else {
-		cin.unsetf(ios::skipws);
-		clt.ci = &cin;
+		inetd_input.unsetf(ios::skipws);
+		inetd_input.tie(&cout);
+		clt.ci = &inetd_input;
 		clt.co = &cout;
 		strcpy(clt.client_name, "stdin");
 		clt.client_logname = clt.client_name;
@@ -3551,7 +3648,7 @@ void nnrpd(int fd, bool tls)
 	// group hung until the client went away. The read timeout is a little
 	// longer than ClientTimeout, so that the wait for a command still
 	// ends with the alarm and its "400 ... timed out" reply.
-	set_client_timeouts(fd, clt.ci == &cin ? 1 : fd);
+	set_client_timeouts(fd, stdio_client ? STDOUT_FILENO : fd);
 	if (clt.tls) {
 		// a TLS read gives up when no data came within the receive
 		// timeout; a write 1 s after send() timed out (SO_SNDTIMEO,
@@ -3668,6 +3765,18 @@ void nnrpd(int fd, bool tls)
 		too_long = false;
 		if (Xsignal == -1) {
 			alarm (Cfg.ClientTimeout);
+#ifdef NEWSCACHE_TEST_INETD_SIGINT_WINDOW
+			// Compiled test fixture only: deliver SIGINT after the first
+			// reply was flushed, inside the old check-then-read window.
+			const char *hook = getenv("NEWSCACHE_TEST_INETD_SIGINT_WINDOW");
+			if (stdio_client && hook && strcmp(hook, "1") == 0 &&
+			    ++inetd_test_reads == 2) {
+				static const char marker[] = "test hook: SIGINT before inetd read\n";
+				const ssize_t written = write(STDERR_FILENO, marker, sizeof(marker) - 1);
+				(void) written;
+				raise(SIGINT);
+			}
+#endif
 			clt.ci->getline(req, sizeof(req), '\n');
 			if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
 			    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {

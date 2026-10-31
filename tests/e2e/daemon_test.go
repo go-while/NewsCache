@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1273,6 +1274,125 @@ func TestAdditionalSignalBehavior(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A compiled-only hook raises SIGINT after the GROUP reply is flushed and
+// after the command loop checked Xsignal, before its next input read. No
+// client command or timing sleep may be needed to finish the shutdown.
+func TestInetdSIGINTBeforeRead(t *testing.T) {
+	if os.Getenv("NEWSCACHE_INETD_SIGINT_WINDOW_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_INETD_SIGINT_WINDOW build")
+	}
+	e := newEnv(t)
+	e.ClientTimeout = 120
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "NEWSCACHE_TEST_INETD_SIGINT_WINDOW=1")
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP before the injected signal: %q, want 211", line)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 400 || !strings.Contains(line, "service discontinued") {
+		t.Fatalf("SIGINT before input read: %q, %v; want unsolicited 400 without another command", line, err)
+	}
+	if line, err := c.ReadLine(); line != "" || !errors.Is(err, io.EOF) {
+		t.Fatalf("after injected SIGINT: %q, %v; want EOF", line, err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("exit after injected SIGINT: %v", err)
+	}
+	if !strings.Contains(p.Stderr(), "test hook: SIGINT before inetd read") {
+		t.Fatal("test hook did not run; this was not the deterministic read-window case")
+	}
+}
+
+// Real inetd commonly supplies dup()s of one socket as stdin and stdout.
+// The signal-aware input must not leave stdout nonblocking or lose its reply.
+func TestInetdSharedSocket(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	peer, err := net.DialTimeout("tcp", listener.Addr().String(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { peer.Close() })
+	server, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := server.(*net.TCPConn).File()
+	server.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(e.Bin, "-c", e.Conf, "-i")
+	cmd.Stdin, cmd.Stdout = file, file
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	file.Close()
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		peer.Close()
+		select {
+		case <-done:
+		default:
+			_ = cmd.Process.Kill()
+			<-done
+		}
+		if t.Failed() {
+			t.Logf("inetd shared-socket stderr: %s", stderr.String())
+		}
+	})
+	c := client.New(t, peer)
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("shared-socket GROUP: %q, want 211", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("shared-socket ARTICLE: %q, want 220", line)
+	}
+	if article := c.ReadDotLines(); !containsLine(article, "body of article 1") {
+		t.Fatalf("shared-socket ARTICLE body missing: %q", article)
+	}
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 400 || !strings.Contains(line, "service discontinued") {
+		t.Fatalf("shared-socket SIGINT: %q, %v; want 400 service discontinued", line, err)
+	}
+	if line, err := c.ReadLine(); line != "" || !errors.Is(err, io.EOF) {
+		t.Fatalf("shared socket after SIGINT: %q, %v; want EOF", line, err)
+	}
+	select {
+	case <-done:
+		if waitErr != nil {
+			t.Fatalf("shared-socket inetd exit: %v", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("shared-socket inetd did not exit after SIGINT")
 	}
 }
 

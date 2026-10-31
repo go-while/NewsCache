@@ -122,6 +122,10 @@ jobs:
         if: matrix.name == 'file log, debug'
         run: sh .github/ci/test-short-upstream-replies.sh
 
+      - name: Test inetd SIGINT between commands
+        if: matrix.name == 'file log, debug'
+        run: sh .github/ci/test-inetd-sigint-window.sh
+
       - name: e2e tests with the race detector
         if: matrix.name == 'default'
         working-directory: tests/e2e
