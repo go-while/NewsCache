@@ -1455,13 +1455,15 @@ func TestUpstreamCutOffActive(t *testing.T) {
 	}
 }
 
-// An upstream article with a NUL byte, or a CR without LF in a header
-// (RFC 5536 allows neither). Before, a CR in a header in front of Xref
-// made the article unreadable (423 although the upstream has it), and
-// after Xref, or a NUL anywhere in a small article, the article was
-// stored and the next read took the group's database for damaged: it was
-// moved to .db.bad and every cached article of the group was gone, at
-// every read. Now such a byte becomes a space.
+// An upstream article with a NUL byte, or a CR without LF (RFC 5536
+// allows neither). Before, a CR in a header in front of Xref made the
+// article unreadable (423 although the upstream has it), and after Xref,
+// or a NUL anywhere in a small article, the article was stored and the
+// next read took the group's database for damaged: it was moved to
+// .db.bad and every cached article of the group was gone, at every read.
+// A CR in the body went to clients as it came, so a reader that ends a
+// line at a CR saw the article end and a status line chosen by the news
+// server ("cr-dot-body"). Now such a byte becomes a space.
 func TestUpstreamArticleNULAndCR(t *testing.T) {
 	for _, tc := range []struct {
 		name, junk string
@@ -1473,6 +1475,8 @@ func TestUpstreamArticleNULAndCR(t *testing.T) {
 		{"cr-header-after-xref", "\r", true, false},
 		{"nul-header-after-xref", "\x00", true, false},
 		{"nul-body", "\x00", false, true},
+		{"cr-body", "\r", false, true},
+		{"cr-dot-body", "\r.\r220 1 <fake@x> injected\r", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -1506,8 +1510,9 @@ func TestUpstreamArticleNULAndCR(t *testing.T) {
 				if strings.ContainsAny(text, "\r\x00") {
 					t.Errorf("%s ARTICLE 1 has a NUL or a lone CR: %q", what, text)
 				}
-				if !strings.Contains(text, "a b") {
-					t.Errorf("%s ARTICLE 1: no \"a b\" in %q", what, text)
+				want := strings.NewReplacer("\r", " ", "\x00", " ").Replace("a" + tc.junk + "b")
+				if !strings.Contains(text, want) {
+					t.Errorf("%s ARTICLE 1: no %q in %q", what, want, text)
 				}
 			}
 			c := e.session()
