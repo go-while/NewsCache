@@ -154,6 +154,33 @@ jobs:
           find . -name test-suite.log -o -name 'run.sh.log' -o -name '*.trs' |
             while read -r f; do echo "===== $f"; tail -n 100 "$f"; done
 
+  manual:
+    # The other lanes skip the DVI manual (no TeX on the runner,
+    # TEXI2DVI=true for distcheck); an old texinfo.tex went unnoticed for
+    # years. Build the DVI and PDF manual with TeX here.
+    name: Manual (DVI, PDF)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install TeX and texinfo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends autoconf automake \
+            texinfo texlive-base texlive-plain-generic
+
+      - name: Configure
+        run: ./autogen && ./configure --without-gnutls --without-pam
+
+      - name: Build the DVI and PDF manual
+        run: |
+          make -C doc dvi pdf
+          ls -l doc/NewsCache.dvi doc/NewsCache.pdf
+
   fedora:
     name: Fedora ${{ matrix.release }} (rpm flags)
     runs-on: ubuntu-24.04
