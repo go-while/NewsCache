@@ -325,6 +325,29 @@ static bool limit_as(struct rlimit *old)
 	return true;
 }
 
+// Whether fcntl locks belong to the process, as POSIX says: a second
+// descriptor of the same file in this process gets a lock the first one
+// holds. On GNU/Hurd they belong to the open file, and a blocking lock
+// through the second descriptor would wait for this process forever.
+static bool locks_per_process(const string & dir)
+{
+	string fn = dir + "/perproc.db";
+	int a = open(fn.c_str(), O_RDWR | O_CREAT, 0644);
+	int b = open(fn.c_str(), O_RDWR);
+	struct flock fl;
+	memset(&fl, 0, sizeof(fl));
+	fl.l_type = F_WRLCK;
+	fl.l_whence = SEEK_SET;
+	bool r = a >= 0 && b >= 0 && fcntl(a, F_SETLK, &fl) == 0 &&
+	    fcntl(b, F_SETLK, &fl) == 0;
+	if (a >= 0)
+		close(a);
+	if (b >= 0)
+		close(b);
+	unlink(fn.c_str());
+	return r;
+}
+
 // Whether another process can lock the whole file now.
 static bool other_can_lock(const string & fn)
 {
@@ -549,6 +572,11 @@ static void outer_remap_fails(const string & dir)
 	return;
 #endif
 #endif
+	if (!locks_per_process(dir)) {
+		cerr << "outer_remap_fails: fcntl locks are not per process "
+		    "here, skipped\n";
+		return;
+	}
 	string fn = dir + "/outer.db";
 	string big(8 << 20, 'b');
 	struct rlimit old;
