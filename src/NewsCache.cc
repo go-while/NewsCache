@@ -3352,6 +3352,9 @@ void nnrpd(int fd, bool tls)
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
 	int errc = 0;
+#ifdef NEWSCACHE_TEST_INETD_SIGINT_WINDOW
+	unsigned int inetd_test_reads = 0;
+#endif
 	// (with tls the server side of a TLS connection, see accept_tls)
 	sockstream sock_stream(tls, true);
 	int nice;
@@ -3668,6 +3671,18 @@ void nnrpd(int fd, bool tls)
 		too_long = false;
 		if (Xsignal == -1) {
 			alarm (Cfg.ClientTimeout);
+#ifdef NEWSCACHE_TEST_INETD_SIGINT_WINDOW
+			// Compiled test fixture only: deliver SIGINT after the first
+			// reply was flushed, inside the old check-then-read window.
+			const char *hook = getenv("NEWSCACHE_TEST_INETD_SIGINT_WINDOW");
+			if (clt.ci == &cin && hook && strcmp(hook, "1") == 0 &&
+			    ++inetd_test_reads == 2) {
+				static const char marker[] = "test hook: SIGINT before inetd read\n";
+				const ssize_t written = write(STDERR_FILENO, marker, sizeof(marker) - 1);
+				(void) written;
+				raise(SIGINT);
+			}
+#endif
 			clt.ci->getline(req, sizeof(req), '\n');
 			if (clt.ci->fail() && !clt.ci->bad() && !clt.ci->eof() &&
 			    clt.ci->gcount() == (std::streamsize) sizeof(req) - 1) {

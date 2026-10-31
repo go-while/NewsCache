@@ -1276,6 +1276,41 @@ func TestAdditionalSignalBehavior(t *testing.T) {
 	}
 }
 
+// A compiled-only hook raises SIGINT after the GROUP reply is flushed and
+// after the command loop checked Xsignal, before its next input read. No
+// client command or timing sleep may be needed to finish the shutdown.
+func TestInetdSIGINTBeforeRead(t *testing.T) {
+	if os.Getenv("NEWSCACHE_INETD_SIGINT_WINDOW_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_INETD_SIGINT_WINDOW build")
+	}
+	e := newEnv(t)
+	e.ClientTimeout = 120
+	e.addArticles("test.alpha", 1)
+	e.writeConf()
+	o := e.procOpts("-i")
+	o.Env = append(o.Env, "NEWSCACHE_TEST_INETD_SIGINT_WINDOW=1")
+	p := proc.StartStdio(t, o)
+	c := client.New(t, p.Conn())
+	if _, err := c.ReadGreeting(); err != nil {
+		t.Fatal(err)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP before the injected signal: %q, want 211", line)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 400 || !strings.Contains(line, "service discontinued") {
+		t.Fatalf("SIGINT before input read: %q, %v; want unsolicited 400 without another command", line, err)
+	}
+	if line, err := c.ReadLine(); line != "" || !errors.Is(err, io.EOF) {
+		t.Fatalf("after injected SIGINT: %q, %v; want EOF", line, err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("exit after injected SIGINT: %v", err)
+	}
+	if !strings.Contains(p.Stderr(), "test hook: SIGINT before inetd read") {
+		t.Fatal("test hook did not run; this was not the deterministic read-window case")
+	}
+}
+
 // TestSigchldStress: the SIGCHLD handler logged "<pid> returned <n>" for
 // a session that ended with an error, from inside the signal handler. The
 // Logger isn't async-signal-safe (malloc, localtime_r, stdio, syslog):
