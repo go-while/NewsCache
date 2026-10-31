@@ -20,7 +20,7 @@ import (
 func TestIncompleteActiveRetry(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
-	_, port, err := net.SplitHostPort(freeAddr(t))
+	_, port, err := net.SplitHostPort(deadAddr(t))
 	if err != nil {
 		t.Fatal(err)
 	}

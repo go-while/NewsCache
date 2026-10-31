@@ -1675,7 +1675,7 @@ func TestUpstreamLowZero(t *testing.T) {
 // 411, and a group the spool knows is still served from it while the
 // upstream is down.
 func TestGroupUpstreamFault403(t *testing.T) {
-	_, deadPort, err := net.SplitHostPort(freeAddr(t)) // nothing listens there
+	_, deadPort, err := net.SplitHostPort(deadAddr(t))
 	if err != nil {
 		t.Fatal(err)
 	}
