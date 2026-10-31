@@ -18,6 +18,7 @@
 #include "Logger.h"
 #include "NVHash.h"
 #include "History.h"
+#include "TestTempDir.h"
 
 using namespace std;
 
@@ -98,12 +99,11 @@ int main(int argc, char **argv)
 	string too_long = fits + "x";
 	CHECK(lookup_path_fits(fits.c_str()));
 	CHECK(!lookup_path_fits(too_long.c_str()));
-	char tmpl[] = "cHistory.XXXXXX";
-	if (!mkdtemp(tmpl)) {
-		perror("mkdtemp");
+	string dir;
+	if (!test_temp::create("cHistory", dir)) {
 		return 1;
 	}
-	string dir(tmpl), hist = dir + "/.history";
+	string hist = dir + "/.history";
 
 	// disabled until setspooldir
 	History::add("<a@check>", "g.one", 1);
@@ -281,8 +281,6 @@ int main(int argc, char **argv)
 		CHECK(locs(id9b.c_str()) == "g.nine:2");
 	}
 
-	if (system(("rm -rf " + dir).c_str()) != 0)
-		perror("rm");
 	if (failures) {
 		cerr << failures << " checks failed\n";
 		return 1;

@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <strings.h>
+#include <time.h>
 
 #include <iostream>
 #include <fstream>
@@ -1464,6 +1465,34 @@ void RServer::post(MPListEntry * srvr, Article * article)
 	if((i)<10) *(p)++='0'+(i);\
 	else *(p)++='a'+(i)-10;\
 }
+
+// RFC 5322 dates use English weekday/month names regardless of LC_TIME.
+static bool post_date_utc(char *buf, size_t size)
+{
+	static const char *const weekdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+	static const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+					     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+	time_t now = time(NULL);
+	struct tm utc;
+	if (now == (time_t) -1 || !gmtime_r(&now, &utc))
+		return false;
+	if (utc.tm_wday < 0 || utc.tm_wday > 6 || utc.tm_mon < 0 || utc.tm_mon > 11 ||
+	    utc.tm_year < 0 || utc.tm_year > 8099) {
+		errno = EOVERFLOW;
+		return false;
+	}
+	int n = snprintf(buf, size, "%s, %02d %s %04d %02d:%02d:%02d +0000",
+			 weekdays[utc.tm_wday], utc.tm_mday, months[utc.tm_mon],
+			 utc.tm_year + 1900, utc.tm_hour, utc.tm_min, utc.tm_sec);
+	if (n < 0)
+		return false;
+	if ((size_t) n >= size) {
+		errno = EOVERFLOW;
+		return false;
+	}
+	return true;
+}
+
 int RServer::post(Article * article)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::post(Article)\n");
@@ -1600,6 +1629,26 @@ int RServer::post(Article * article)
 			     "Message-ID: <newscache$%s>\r\n", mid) <
 		    (int) sizeof(msgid))
 			article->setfield("Message-ID:", msgid);
+	}
+
+	// Multiple injecting agents must receive identical Message-ID, Date and
+	// Injection-Date. Add missing dates once, before either posting or spooling
+	// any copy. With a single injector, leave this to that injector.
+	if (sc > 1 && (!article->has_field("date:") ||
+		       !article->has_field("injection-date:"))) {
+		char date[64], field[96];
+		if (!post_date_utc(date, sizeof(date))) {
+			free(mpe);
+			throw SystemError("cannot create posting date", errno, ERROR_LOCATION);
+		}
+		if (!article->has_field("date:")) {
+			snprintf(field, sizeof(field), "Date: %s\r\n", date);
+			article->setfield("Date:", field);
+		}
+		if (!article->has_field("injection-date:")) {
+			snprintf(field, sizeof(field), "Injection-Date: %s\r\n", date);
+			article->setfield("Injection-Date:", field);
+		}
 	}
 
 	int posts = 0, spool = 0, err = 0;

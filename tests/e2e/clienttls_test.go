@@ -184,6 +184,62 @@ func TestClientTLSListenerAndCommands(t *testing.T) {
 	}
 }
 
+// NewsCache offers implicit TLS, not STARTTLS (RFC 4642, RFC 8143).
+// Rejection must leave the existing transport and command stream usable.
+func TestClientSTARTTLSNotOffered(t *testing.T) {
+	check := func(t *testing.T, c *client.Conn) {
+		t.Helper()
+		checkCapabilities := func() {
+			t.Helper()
+			for _, line := range capabilities(t, c) {
+				fields := strings.Fields(line)
+				if len(fields) > 0 && strings.EqualFold(fields[0], "STARTTLS") {
+					t.Errorf("unimplemented STARTTLS advertised: %q", line)
+				}
+			}
+		}
+		checkCapabilities()
+		for _, command := range []string{"STARTTLS", "starttls"} {
+			if code, line := c.Cmd("%s", command); code != 500 {
+				t.Fatalf("%s: %q, want 500 for an unimplemented command", command, line)
+			}
+			if code, line := c.Cmd("DATE"); code != 111 {
+				t.Fatalf("DATE after rejected %s: %q, want 111 on the original transport", command, line)
+			}
+		}
+		checkCapabilities()
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP after rejected STARTTLS: %q, want 211", line)
+		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("ARTICLE after rejected STARTTLS: %q, want 220", line)
+		}
+		if article := c.ReadDotLines(); !containsLine(article, "body of article 1") {
+			t.Errorf("ARTICLE after rejected STARTTLS lacks the body: %q", article)
+		}
+		if code, line := c.Cmd("QUIT"); code != 205 {
+			t.Errorf("QUIT after rejected STARTTLS: %q, want 205", line)
+		}
+	}
+	t.Run("plain", func(t *testing.T) {
+		e := newEnv(t)
+		e.addArticles("test.alpha", 2)
+		e.standalone()
+		check(t, e.dial())
+	})
+	t.Run("TLS configured", func(t *testing.T) {
+		f := newClientTLSFixture(t)
+		f.e.standalone()
+		t.Run("plain", func(t *testing.T) {
+			check(t, f.e.dial().WithTB(t))
+		})
+		t.Run("implicit TLS", func(t *testing.T) {
+			c, _ := clientTLSSession(t, f.addr, f.ca)
+			check(t, c)
+		})
+	})
+}
+
 func TestClientTLSDefaultPort563(t *testing.T) {
 	f := newClientTLSFixture(t)
 	f.e.Extra = ""
