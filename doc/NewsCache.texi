@@ -456,7 +456,9 @@ link or anything else at the log file's name is refused with an error
 on stderr, so that a user who can write the directory can't make root
 write to another file. The one exception is a symbolic link to the
 program's own stderr (such as @file{/dev/stderr}), which the container
-image uses.
+image uses. A new log file is created with mode 0640 (owner and group
+only), since it names clients and users; an existing file keeps its
+mode.
 
 @example
 LogDirectory /lhome/newscache/log
