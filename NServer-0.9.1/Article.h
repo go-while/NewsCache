@@ -95,6 +95,11 @@ class Article {
 	
 	int has_field(const char *ifld);
 
+	/* Whether the text has a NUL or a CR outside CRLF, which RFC 5536
+	 * doesn't allow anywhere in an article.
+	 */
+	bool has_bare_cr_or_nul(void) const;
+
 	/*
 	 * Return a header field of the article.
 	 * \param ifld The name of the field to be extracted including `:'

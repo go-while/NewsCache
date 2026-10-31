@@ -127,6 +127,17 @@ void Article::settext(const std::string & text)
 	_ctext = _text.c_str();
 }
 
+bool Article::has_bare_cr_or_nul(void) const
+{
+	string::size_type i, n = _text.size();
+
+	for (i = 0; i < n; i++)
+		if (_text[i] == '\0' || (_text[i] == '\r' &&
+		    (i + 1 == n || _text[i + 1] != '\n')))
+			return true;
+	return false;
+}
+
 artnum_t Article::getnbr(void) const
 {
 	return _nbr;

@@ -370,6 +370,56 @@ func testPostSizeLimit(t *testing.T, extra string, tooLarge, fits int) {
 	}
 }
 
+// TestPostBareCR: RFC 5536 allows neither a NUL nor a CR outside CRLF in
+// an article. POST forwarded both as they came, so against a news server
+// that ends a line at a lone CR, "x\r.\rquit" in the body ended the article
+// there and ran "quit" as a command on NewsCache's own connection. Such an
+// article is refused with 441 and not posted, in the head or the body; the
+// session goes on, and a clean article is still posted.
+func TestPostBareCR(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	post := func(n int, subject, body string) (int, string) {
+		t.Helper()
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send(fmt.Sprintf("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"+
+			"Subject: %s\r\nMessage-ID: <barecr%d@newscache.test>\r\n\r\n%s.\r\n", subject, n, body)); err != nil {
+			t.Fatal(err)
+		}
+		code, line, err := c.ReadStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, line
+	}
+	for i, tc := range []struct{ what, subject, body string }{
+		{"CR in the body", "bare cr", "hello\r\nx\r.\rquit\r\n"},
+		{"CR at a body line's start", "bare cr", "\r.\r\n"},
+		{"CR in the head", "bare\rcr", "hello\r\n"},
+		{"NUL in the body", "nul", "hel\x00lo\r\n"},
+		{"NUL in the head", "n\x00ul", "hello\r\n"},
+	} {
+		if code, line := post(i, tc.subject, tc.body); code != 441 {
+			t.Errorf("POST with a %s: %q, want 441", tc.what, line)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after the refused posts: %q, want 111", line)
+	}
+	if n := len(e.Store.Posted()); n != 0 {
+		t.Errorf("upstream got %d posted articles, want none", n)
+	}
+	if code, line := post(9, "clean", "hello\r\n..dot line\r\n"); code != 240 {
+		t.Errorf("clean POST: %q, want 240", line)
+	}
+	if n := len(e.Store.Posted()); n != 1 {
+		t.Errorf("upstream got %d posted articles, want 1 (the clean one)", n)
+	}
+}
+
 // TestPostNewsgroupsSeparators: the PostTo check and the choice of the
 // upstream servers to post to split the Newsgroups header differently.
 // The check split on commas only, and its matcher stopped at white
