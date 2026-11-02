@@ -737,8 +737,9 @@ void NVNewsgroup::setarticle(Article * art)
 			if (old)
 				nvfree(old);
 			// The file is written under a temporary name, made
-			// durable (fsync) and renamed over the article's file;
-			// only then does the record say bigarticle. A crash, a
+			// durable (fsync) and renamed over the article's file,
+			// and the directory is synced; only then does the
+			// record say bigarticle. A crash, a
 			// power cut or a failed write (disk full, ...) leaves
 			// the record and the file as they were: a bigarticle
 			// record never names a cut-off file, and a stored copy
@@ -774,6 +775,16 @@ void NVNewsgroup::setarticle(Article * art)
 			}
 			if (!e && rename(tmp, fn) != 0)
 				e = errno;
+			// the new name on the disk too (fsync of the directory),
+			// before the record says bigarticle; a file system that
+			// can't sync a directory (EINVAL) has no other way
+			if (!e) {
+				int dfd = ::open(_SpoolDirectory, O_RDONLY);
+				if (dfd < 0 || (fsync(dfd) != 0 && errno != EINVAL))
+					e = errno;
+				if (dfd >= 0)
+					::close(dfd);
+			}
 			if (e) {
 				unlink(tmp);
 				throw SystemError(string("cannot write ") + fn,

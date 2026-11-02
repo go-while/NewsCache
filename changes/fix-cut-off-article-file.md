@@ -4,7 +4,8 @@ Bug fixes:
   NewsCache then served it without its last partial line and without a
   word; a write that failed (a full disk) removed the copy that was
   there. Now the file is written under a temporary name (.art<n>.tmp),
-  flushed to the disk (fsync) and renamed: the file is either whole or
+  flushed to the disk (fsync) and renamed, and the directory is flushed
+  too, before the article counts as stored: the file is either whole or
   the old one. A cut-off file from an older version, whose last line has
   no line end or that has no empty line after the header, is fetched
   again from the news server and written anew. If the news server
