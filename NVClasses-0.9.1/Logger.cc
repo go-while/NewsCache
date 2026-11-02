@@ -70,6 +70,14 @@ void Logger::print()
 	while ((nl = strchr(buf, '\n')) != NULL) {
 		// Print first line
 		*nl = '\0';
+		// A log line is one line of text. Client input in it (a
+		// command, a user name, a group name, a host name from DNS)
+		// can carry a lone CR, ESC sequences and other control
+		// bytes, which change how the line looks on a terminal or
+		// split it in a parser; they become '?'.
+		for (p = buf; *p; p++)
+			if ((unsigned char) *p < 0x20 || *p == 0x7f)
+				*p = '?';
 #ifdef WITH_SYSLOG
 		syslog(_priority, "%s", buf);
 #else

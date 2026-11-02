@@ -1294,6 +1294,37 @@ func TestAuthinfoVariantsNotLogged(t *testing.T) {
 	}
 }
 
+// TestLogControlBytes: client input went into the log as it came, so a
+// command or a user name with ESC sequences or a lone CR made a log line
+// look like something else on a terminal. Control bytes become '?'.
+func TestLogControlBytes(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	p, c := e.sessionProcess()
+	if code, line := c.Cmd("%s", "XYZZY a\x1b[2Jb\rc\x7fd"); code != 500 {
+		t.Errorf("XYZZY: %q, want 500", line)
+	}
+	if code, line := c.Cmd("%s", "AUTHINFO USER te\x1b[31mster"); code != 381 {
+		t.Fatalf("AUTHINFO USER: %q, want 381", line)
+	}
+	if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
+		t.Fatalf("AUTHINFO PASS: %q, want 481", line)
+	}
+	quitSession(t, p, c)
+	log := e.logFile()
+	for _, b := range []string{"\x1b", "\r", "\x7f"} {
+		if strings.Contains(log, b) {
+			t.Errorf("the log has control byte %q:\n%q", b, log)
+		}
+	}
+	for _, want := range []string{"unrecognized XYZZY a?[2Jb?c?d",
+		"failed authinfo for user  te?[31mster"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("the log lacks %q:\n%s", want, log)
+		}
+	}
+}
+
 // TestAuthFailureDelayFixed: each failed login waits the same short delay,
 // at most 1 s, also with an AuthFailureDelay from an older configuration.
 // The delay was AuthFailureDelay times the number of failures (15, 30 and
