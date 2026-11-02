@@ -849,8 +849,10 @@ int sockstream::sslstreambuf::sync()
     {
       rc_write = gnutls_write(_session, pbase() + off, pptr() - pbase() - off);
       // GNUTLS_E_AGAIN: the send timeout ran out, or GnuTLS has more
-      // to do: go on only while the socket becomes writable in time
-    } while (rc_write == GNUTLS_E_INTERRUPTED ||
+      // to do: go on only while the socket becomes writable in time.
+      // Interrupted: not again once the indicator is set (it went on,
+      // and a client that doesn't read kept the session after SIGTERM).
+    } while ((rc_write == GNUTLS_E_INTERRUPTED && !_buf.interrupted()) ||
 	     (rc_write == GNUTLS_E_AGAIN && _buf.wait_io(true)));
     if (rc_write < 0)
     {

@@ -1672,26 +1672,32 @@ func TestSIGTERMBlockedConnect(t *testing.T) {
 // server or the read of its greeting: the signal interrupts no system
 // call there. The wait must still end within a few seconds (an alarm
 // every second after the signal), not when the news server answers or
-// times out.
+// times out. With a news server that answers at once, the connect that
+// began in that moment is closed unused: no command reaches the server.
 func TestSIGTERMSignalWindow(t *testing.T) {
 	if os.Getenv("NEWSCACHE_SIGNAL_WINDOW_TEST") != "1" {
 		t.Skip("requires a NEWSCACHE_TEST_SIGNAL_WINDOW build")
 	}
 	for _, tc := range []struct {
 		call, lines string
+		answers     bool // the news server answers at once
 	}{
-		{"connect", ""},
-		{"connect", "    ConnectTimeout 30"},
-		{"recv", ""},
-		{"recv", "    ConnectTimeout 30"},
+		{"connect", "", false},
+		{"connect", "    ConnectTimeout 30", false},
+		{"connect", "", true},
+		{"recv", "", false},
+		{"recv", "    ConnectTimeout 30", false},
 	} {
-		t.Run(fmt.Sprintf("%s %q", tc.call, strings.TrimSpace(tc.lines)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s %q answers=%v", tc.call, strings.TrimSpace(tc.lines), tc.answers), func(t *testing.T) {
 			e := newEnv(t)
 			e.addArticles("test.alpha", 1)
 			e.ServerLines = tc.lines
-			if tc.call == "connect" {
+			switch {
+			case tc.answers:
+				upstreamWith(t, e, fakeserver.Options{Deadline: 2 * time.Minute})
+			case tc.call == "connect":
 				e.ServerHost, e.ServerPort = fullListener(t)
-			} else {
+			default:
 				upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Deadline: 2 * time.Minute})
 			}
 			e.writeConf()
@@ -1713,8 +1719,13 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 			if !strings.Contains(p.Stderr(), "test hook: SIGTERM before "+tc.call) {
 				t.Fatal("test hook did not run; this was not the signal-window case")
 			}
-			if tc.call == "recv" && e.Upstream.Accepted() != 1 {
-				t.Errorf("%d connections to the news server, want 1", e.Upstream.Accepted())
+			if e.Upstream != nil {
+				if n := e.Upstream.Accepted(); n > 1 {
+					t.Errorf("%d connections to the news server, want at most 1", n)
+				}
+				if l := e.Upstream.Lines(); len(l) != 0 {
+					t.Errorf("the news server got %q after the signal, want nothing", l)
+				}
 			}
 		})
 	}

@@ -87,8 +87,8 @@ These signals instruct NewsCache to abort any existing transfers, close
 all connections and terminate the process. A session process answers
 its client "400 ... service discontinued" and ends within about a
 second, also while it waits for the client or the news server; it
-doesn't retry a command or open a new connection to the news server
-after the signal. If the target of the signal is the daemon, it sends
+doesn't retry a command or reconnect to the news server after the
+signal. If the target of the signal is the daemon, it sends
 SIGTERM to all its session processes and ends. SIGPIPE is ignored.
 
 .TP 

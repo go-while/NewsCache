@@ -3803,7 +3803,12 @@ void nnrpd(int fd, bool tls)
 			alarm (0);
 		}
 		if (Xsignal != -1) {
-			alarmed = 0;	// (else the reply isn't sent)
+			// (else the reply isn't sent) The goodbye gets two
+			// seconds: then the alarm (see catchsignal; a connect
+			// or the command read may have cancelled it) ends a
+			// send to a client that doesn't read.
+			alarmed = 0;
+			alarm(2);
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
@@ -4701,13 +4706,11 @@ void sigchld(int num)
 
 void catchsigalarm(int num)
 {
-	// After SIGTERM or SIGINT the alarm only interrupts a wait (see
-	// catchsignal), every second until the process ends; alarmed stays
-	// as it is, so that "service discontinued" is still sent.
+	alarmed=1;
+	// after SIGTERM or SIGINT: again in a second, until the process
+	// ends (see catchsignal)
 	if (Xsignal > 0)
 		alarm(1);
-	else
-		alarmed=1;
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;

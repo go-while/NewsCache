@@ -450,6 +450,58 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	}
 }
 
+// TestClientTLSStalledReaderSIGTERM: SIGTERM while a TLS session writes to
+// a client that reads nothing, with ClientTimeout 0 (no send timeout).
+// GnuTLS returns GNUTLS_E_INTERRUPTED for the interrupted send, and the
+// write loop started it again without looking at the signal: the session
+// stayed until the client read or went away.
+func TestClientTLSStalledReaderSIGTERM(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session process in /proc")
+	}
+	f := newRobustTLSFixture(t)
+	f.e.ClientTimeout = 0
+	const group = "alt.binaries.tls-term"
+	f.e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	f.e.writeConf()
+	p := f.e.standalone()
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+
+	c, tlsConn := robustTLSSession(t, f.addr, f.ca)
+	defer tlsConn.Close()
+	c.Deadline = 20 * time.Second
+	if tcp, ok := tlsConn.NetConn().(*net.TCPConn); ok {
+		tcp.SetReadBuffer(4096)
+	}
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	kids := linuxProcChildren(t, p.Pid())
+	if len(kids) != 1 {
+		t.Fatalf("daemon children = %v, want the one session", kids)
+	}
+	if code, line := c.Cmd("XOVER 1-40000"); code != 224 {
+		t.Fatalf("XOVER: %q", line)
+	}
+	// the multi-megabyte reply fills the buffers; the session waits in send
+	time.Sleep(2 * time.Second)
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(kids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for running(pid) {
+		if time.Now().After(deadline) {
+			syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("TLS session %d still runs 10 s after SIGTERM to the daemon", pid)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func TestClientTLSHandshakeBoundedWhenClientTimeoutIsZero(t *testing.T) {
 	// The 2-second dribble test pins the absolute-deadline code path. This
 	// case only checks that ClientTimeout=0 is finite; it does not assert the
