@@ -9,6 +9,7 @@
 #include<errno.h>
 
 #include<vector>
+#include<sstream>
 
 #include"Logger.h"
 #include"Error.h"
@@ -531,21 +532,72 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				// that failed in an older version, kept on a
 				// full disk) is not served: the article comes
 				// from the news server, and a bad file goes.
+				//
+				// Every line NewsCache writes ends with a line
+				// end, and an article has an empty line after
+				// its header. A file without either was cut off
+				// (a crash or power cut before all of it reached
+				// the disk): the article is fetched again, and
+				// when the news server no longer has it, the
+				// copy is served as it is, with a warning. Such
+				// a file is never removed (it may be the only
+				// copy left), only an empty or unreadable one.
 				char fn[MAXPATHLEN];
 				ifstream fs;
 				artfile(fn, sizeof(fn), nbr);
-				fs.open(fn);
+				fs.open(fn, ios::in | ios::binary);
 				if (fs.good()) {
+					ostringstream raw;
+					raw << fs.rdbuf();
+					string text = raw.str();
+					bool complete = !text.empty() &&
+					    text[text.size() - 1] == '\n';
+					// (readtext drops a last line without
+					// its line end)
+					if (!complete)
+						text += "\r\n";
+					istringstream is(text);
 					Article *a = new Article(nbr);
 					bool ok = false;
 					try {
-						a->read(fs);
+						a->read(is);
 						ok = a->length() > 0 &&
 						    !a->getfield("Message-ID:").empty();
 					}
 					catch(const Error & e) {
 					}
-					if (ok) {
+					if (ok && complete &&
+					    !strstr(a->c_str(), "\r\n\r\n"))
+						complete = false;
+					if (ok && !complete) {
+						slog.p(Logger::Warning) << fn
+						    << ": cut off, fetching the article again\n";
+						Article *fresh = NULL;
+						try {
+							fresh = retrievearticle(nbr);
+						}
+						catch(const CorruptDBError &) {
+							delete a;
+							throw;
+						}
+						catch(const Error & e) {
+							slog.p(Logger::Warning)
+							    << name() << ":" << nbr
+							    << ": cannot fetch the article: "
+							    << e._errtext << "\n";
+						}
+						if (fresh) {
+							delete a;
+							art = fresh;
+							storearticle(art);
+						} else {
+							slog.p(Logger::Warning) << fn
+							    << ": not available from the news"
+							    " server, the cut-off copy is served\n";
+							art = a;
+							from_spool = true;
+						}
+					} else if (ok) {
 						art = a;
 						from_spool = true;
 					} else {
