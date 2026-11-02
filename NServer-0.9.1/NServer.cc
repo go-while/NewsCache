@@ -2088,7 +2088,19 @@ int CServer::post(Article * article)
 		return 0;
 	}
 	fs << getpid() << " " << tv.tv_sec << endl;
-	article->write(fs, Article::Head);
+	// The header as the client sent it, but without control bytes
+	// other than the line ends and tabs (ESC sequences would act on
+	// the terminal of whoever reads the file).
+	ostringstream head;
+	article->write(head, Article::Head);
+	string h = head.str();
+	for (string::size_type i = 0; i < h.size(); i++) {
+		unsigned char c = (unsigned char) h[i];
+		if ((c < 0x20 && c != '\t' && c != '\r' && c != '\n') ||
+		    c == 0x7f)
+			h[i] = '?';
+	}
+	fs << h;
 	fs.close();
 #endif
 	return 0;

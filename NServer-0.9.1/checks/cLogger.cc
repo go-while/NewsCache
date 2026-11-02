@@ -108,6 +108,25 @@ int main()
 		    << Logger::Error << ", " << Logger::Info << endl;
 		return 1;
 	}
+	in.close();
+	unlink(fn.c_str());
+
+	// Control bytes (client input: ESC sequences, a lone CR) become
+	// '?', so that a line is one line of plain text.
+	slog.open(fn.c_str());
+	slog.p(Logger::Info) << "ctl a\033[2Jb\rc\177d\te\001f\n";
+	slog.close();
+	in.clear();
+	in.open(fn.c_str());
+	l.clear();
+	getline(in, l);
+	in.close();
+	string::size_type at = l.find("ctl ");
+	if (at == string::npos || l.substr(at) != "ctl a?[2Jb?c?d?e?f") {
+		cout << "control bytes not replaced: " << l << endl;
+		return 1;
+	}
+	unlink(fn.c_str());
 	return 0;
 #endif
 }
