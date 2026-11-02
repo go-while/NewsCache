@@ -777,7 +777,9 @@ void NVNewsgroup::setarticle(Article * art)
 				e = errno;
 			// the new name on the disk too (fsync of the directory),
 			// before the record says bigarticle; a file system that
-			// can't sync a directory (EINVAL) has no other way
+			// can't sync a directory (EINVAL) has no other way. When
+			// this fails, the whole new file has already replaced
+			// the old one; only the record stays as it was.
 			if (!e) {
 				int dfd = ::open(_SpoolDirectory, O_RDONLY);
 				if (dfd < 0 || (fsync(dfd) != 0 && errno != EINVAL))
