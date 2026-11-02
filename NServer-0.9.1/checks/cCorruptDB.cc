@@ -28,6 +28,7 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include <fstream>
 #include <iostream>
@@ -37,6 +38,7 @@
 #include "TestTempDir.h"
 #include "NVActiveDB.h"
 #include "NVArray.h"
+#include "ObjLock.h"
 
 using namespace std;
 
@@ -365,6 +367,74 @@ static bool other_can_lock(const string & fn)
 	return WIFEXITED(st) && WEXITSTATUS(st) == 0;
 }
 
+// The spool's lock (ObjLock) after SIGTERM, when the alarm comes every
+// second: lockExBlk threw SystemError on EINTR, and a post the news
+// server didn't take was not spooled. It waits now.
+static void objlock_rearm(int)
+{
+	alarm(1);
+}
+
+static void objlock_eintr(const string & dir)
+{
+	string fn = dir + "/objlock.lock";
+	int go[2];
+	if (pipe(go) != 0) {
+		perror("pipe");
+		exit(1);
+	}
+	pid_t p = fork();
+	if (p == 0) {
+		// the write lock for 2.5 seconds
+		int fd = open(fn.c_str(), O_RDWR | O_CREAT, 0600);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		if (fd < 0 || fcntl(fd, F_SETLKW, &fl) != 0 ||
+		    write(go[1], "x", 1) != 1)
+			_exit(1);
+		usleep(2500000);
+		_exit(0);
+	}
+	char c;
+	if (read(go[0], &c, 1) != 1) {
+		perror("read");
+		exit(1);
+	}
+	close(go[0]);
+	close(go[1]);
+	struct sigaction sa, old;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = objlock_rearm;	// no SA_RESTART, as in the sessions
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGALRM, &sa, &old);
+	struct timespec t0, t1;
+	bool threw = false;
+	{
+		ObjLock lk(fn);
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		alarm(1);
+		try {
+			lk.lockExBlk();
+		}
+		catch(const Error & e) {
+			threw = true;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		alarm(0);
+	}
+	sigaction(SIGALRM, &old, NULL);
+	double waited = (t1.tv_sec - t0.tv_sec) +
+	    (t1.tv_nsec - t0.tv_nsec) / 1e9;
+	CHECK(!threw);
+	CHECK(waited >= 2.0);
+	int st;
+	waitpid(p, &st, 0);
+	CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	unlink(fn.c_str());
+}
+
 static void map_fails(const string & dir)
 {
 #if defined(__SANITIZE_ADDRESS__)
@@ -666,6 +736,7 @@ int main(int argc, char *argv[])
 	if (!race_only) {
 		long_open_path(dir);
 		lost_file(dir);
+		objlock_eintr(dir);
 		free_overlap(dir);
 		map_fails(dir);
 		outer_remap_fails(dir);

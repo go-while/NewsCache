@@ -53,14 +53,37 @@ ObjLock::~ObjLock()
 	close(fd);
 }
 
+// The blocking calls wait on after EINTR: after SIGTERM the alarm comes
+// every second (see catchsignal in NewsCache.cc), and a post that the
+// news server didn't take must still reach the spool. The lock is held
+// only while one file is stored or removed. They threw SystemError, and
+// the article was lost.
+#ifdef USE_FLOCK
+static int flock_wait(int fd, int op)
+{
+	int r;
+	while ((r = flock(fd, op)) == -1 && errno == EINTR)
+		;
+	return r;
+}
+#else
+static int setlk_wait(int fd, struct flock *l)
+{
+	int r;
+	while ((r = fcntl(fd, F_SETLKW, l)) == -1 && errno == EINTR)
+		;
+	return r;
+}
+#endif
+
 void ObjLock::lockShBlk(void)
 {
 #ifdef USE_FLOCK
-	if (flock(fd, LOCK_SH) == -1)
+	if (flock_wait(fd, LOCK_SH) == -1)
 		throw(SystemError("Error flock", errno));
 #else
 	l.l_type = F_RDLCK;
-	if (fcntl(fd, F_SETLKW, &l) == -1)
+	if (setlk_wait(fd, &l) == -1)
 		throw(SystemError("Error fcntl", errno));
 #endif
 }
@@ -88,12 +111,12 @@ int ObjLock::lockShNoBlk(void)
 void ObjLock::lockExBlk(void)
 {
 #ifdef USE_FLOCK
-	if (flock(fd, LOCK_EX) == -1)
+	if (flock_wait(fd, LOCK_EX) == -1)
 		throw(SystemError("Error in flock", errno,
 				  ERROR_LOCATION));
 #else
 	l.l_type = F_WRLCK;
-	if (fcntl(fd, F_SETLKW, &l) == -1)
+	if (setlk_wait(fd, &l) == -1)
 		throw(SystemError("Error in fcntl", errno,
 				  ERROR_LOCATION));
 #endif
@@ -122,12 +145,12 @@ int ObjLock::lockExNoBlk(void)
 void ObjLock::unlock(void)
 {
 #ifdef USE_FLOCK
-	if (flock(fd, LOCK_UN) == -1)
+	if (flock_wait(fd, LOCK_UN) == -1)
 		throw(SystemError("Error in flock", errno,
 				  ERROR_LOCATION));
 #else
 	l.l_type = F_UNLCK;
-	if (fcntl(fd, F_SETLKW, &l) == -1)
+	if (setlk_wait(fd, &l) == -1)
 		throw(SystemError("Error in fcntl", errno,
 				  ERROR_LOCATION));
 #endif
