@@ -4701,7 +4701,13 @@ void sigchld(int num)
 
 void catchsigalarm(int num)
 {
-	alarmed=1;
+	// After SIGTERM or SIGINT the alarm only interrupts a wait (see
+	// catchsignal), every second until the process ends; alarmed stays
+	// as it is, so that "service discontinued" is still sent.
+	if (Xsignal > 0)
+		alarm(1);
+	else
+		alarmed=1;
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -4737,6 +4743,13 @@ void catchsignal(int num)
 	// read) stops at once: the EINTR loops of sockstream end on alarmed
 	// only, so SIGTERM was noticed after the next command line.
 	alarmed = 1;
+	// The loops check these flags before each wait, but a signal that
+	// comes between the check and the system call (connect, recv, send,
+	// poll) doesn't interrupt that call: it would wait until the news
+	// server or the client sends something, or for its timeout. An
+	// alarm every second interrupts it, so every wait ends within a
+	// second. (The master's poll has the wake-up pipe instead.)
+	alarm(1);
 	wake_master();
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */

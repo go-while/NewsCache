@@ -76,6 +76,10 @@ void catchsignal(int num)
 	Xsignal = num;
 	// End upstream socket and TLS waits as well as the outer loop.
 	alarmed = 1;
+	// A wait that began between a loop's check of these flags and its
+	// system call isn't interrupted by the signal: an alarm every second
+	// (see catchsigalarm) ends it.
+	alarm(1);
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -122,6 +126,9 @@ void doprefetch(CServer * cs, const char *group)
 void catchsigalarm(int num)
 {
 	alarmed = 1;
+	// after a signal: again in a second, until the process ends
+	if (Xsignal > 0)
+		alarm(1);
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;

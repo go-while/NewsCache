@@ -1576,6 +1576,150 @@ func TestSIGTERMNoReconnect(t *testing.T) {
 	}
 }
 
+// fullListener: a listening socket on 127.0.0.1 whose queue is full, so
+// that a connect to it waits (its SYN goes unanswered) instead of being
+// refused. The test is skipped where such a connect doesn't wait.
+func fullListener(t *testing.T) (host, port string) {
+	t.Helper()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Listen(fd, 0); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port = strconv.Itoa(sa.(*syscall.SockaddrInet4).Port)
+	for i := 0; i < 8; i++ {
+		c, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 300*time.Millisecond)
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return "127.0.0.1", port
+		}
+		if err != nil {
+			t.Skipf("a connect to a full listen queue fails here: %v", err)
+		}
+		t.Cleanup(func() { c.Close() })
+	}
+	t.Skip("a connect to a full listen queue doesn't wait here")
+	return "", ""
+}
+
+// connecting reports whether a connection to 127.0.0.1:port waits for
+// the answer to its SYN (Linux: /proc/net/tcp); elsewhere it waits half a
+// second and says yes.
+func connecting(t *testing.T, port string) bool {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		time.Sleep(500 * time.Millisecond)
+		return true
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("0100007F:%04X", n)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		// sl local_address rem_address st: 02 is SYN_SENT
+		if len(f) > 3 && f[2] == want && f[3] == "02" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSIGTERMBlockedConnect: SIGTERM while the connect to the news server
+// waits for its answer. Without ConnectTimeout the interrupted connect
+// was started again and waited for the system's timeout (minutes).
+func TestSIGTERMBlockedConnect(t *testing.T) {
+	for _, lines := range []string{"", "    ConnectTimeout 30"} {
+		t.Run(fmt.Sprintf("%q", strings.TrimSpace(lines)), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerHost, e.ServerPort = fullListener(t)
+			e.ServerLines = lines
+			p, c := e.sessionProcess()
+			if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the connect to the news server", func() bool { return connecting(t, e.ServerPort) })
+			if err := p.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("the session still runs 10 s after SIGTERM")
+			}
+		})
+	}
+}
+
+// TestSIGTERMSignalWindow: a compiled-only hook raises SIGTERM after the
+// last check of the stop indicator, right before the connect to the news
+// server or the read of its greeting: the signal interrupts no system
+// call there. The wait must still end within a few seconds (an alarm
+// every second after the signal), not when the news server answers or
+// times out.
+func TestSIGTERMSignalWindow(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SIGNAL_WINDOW_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SIGNAL_WINDOW build")
+	}
+	for _, tc := range []struct {
+		call, lines string
+	}{
+		{"connect", ""},
+		{"connect", "    ConnectTimeout 30"},
+		{"recv", ""},
+		{"recv", "    ConnectTimeout 30"},
+	} {
+		t.Run(fmt.Sprintf("%s %q", tc.call, strings.TrimSpace(tc.lines)), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerLines = tc.lines
+			if tc.call == "connect" {
+				e.ServerHost, e.ServerPort = fullListener(t)
+			} else {
+				upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Deadline: 2 * time.Minute})
+			}
+			e.writeConf()
+			o := e.procOpts("-i")
+			o.Env = append(o.Env, "NEWSCACHE_TEST_SIGTERM_BEFORE="+tc.call)
+			p := proc.StartStdio(t, o)
+			c := client.New(t, p.Conn())
+			if _, err := c.ReadGreeting(); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("the session still runs 10 s after the signal")
+			}
+			if !strings.Contains(p.Stderr(), "test hook: SIGTERM before "+tc.call) {
+				t.Fatal("test hook did not run; this was not the signal-window case")
+			}
+			if tc.call == "recv" && e.Upstream.Accepted() != 1 {
+				t.Errorf("%d connections to the news server, want 1", e.Upstream.Accepted())
+			}
+		})
+	}
+}
+
 // TestSIGTERMUpdatenewsPosting: updatenews, stopped while it posts a
 // spooled article, ends without a new connection to the news server (no
 // retry of the post, no active list afterwards), and the article stays

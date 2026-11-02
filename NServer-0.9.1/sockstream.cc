@@ -161,6 +161,27 @@ namespace {
 }
 
 
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+// Compiled test fixture only: SIGTERM once, after the last check of the
+// stop indicator and right before the system call named by
+// NEWSCACHE_TEST_SIGTERM_BEFORE (connect, recv) on a connection to a
+// news server, where the signal itself interrupts nothing.
+static void test_signal_window(const char *call)
+{
+  static bool done = false;
+  const char *hook = getenv("NEWSCACHE_TEST_SIGTERM_BEFORE");
+  if (done || !hook || strcmp(hook, call) != 0)
+    return;
+  done = true;
+  static const char marker[] = "test hook: SIGTERM before ";
+  ssize_t w = write(STDERR_FILENO, marker, sizeof(marker) - 1);
+  w = write(STDERR_FILENO, call, strlen(call));
+  w = write(STDERR_FILENO, "\n", 1);
+  (void) w;
+  raise(SIGTERM);
+}
+#endif
+
 sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
 volatile sig_atomic_t *sockstream::sockstreambuf::_stop_indicator = NULL;
 
@@ -222,12 +243,20 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 	alarm(timeout);
       }
 
-      int rc_connect;
-      while (((rc_connect = ::connect(_fd, addr->ai_addr,
-				      addr->ai_addrlen)) < 0) &&
-	     (errno == EINTR) && !stopping() &&
-	     (!timeout || !_alarm_indicator || !*_alarm_indicator))
-      { }
+      // (checked after alarm(): a signal before it would have its alarm
+      // replaced by the timeout's, see catchsignal)
+      int rc_connect = -1;
+      if (!stopping())
+      {
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+	test_signal_window("connect");
+#endif
+	while (((rc_connect = ::connect(_fd, addr->ai_addr,
+					addr->ai_addrlen)) < 0) &&
+	       (errno == EINTR) && !stopping() &&
+	       (!timeout || !_alarm_indicator || !*_alarm_indicator))
+	{ }
+      }
 
       if (timeout && _alarm_indicator)
       {
@@ -503,6 +532,10 @@ int sockstream::sockstreambuf::underflow()
   {
     return traits_type::eof();
   }
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+  if (_outgoing)
+    test_signal_window("recv");
+#endif
   do
   {
     if (reply_expired())
