@@ -100,6 +100,8 @@ class NVcontainer {
 	 * \throw Error, SystemError and CorruptDBError
 	 */
 	virtual void make_current(void);
+	// open()'s lock, waited for also after EINTR
+	void open_lock(int cmnd);
 
 	/*
 	 * Whether the mapping is still current: no process has resized the
