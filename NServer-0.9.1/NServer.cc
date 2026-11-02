@@ -254,6 +254,7 @@ void RServer::init(MPList * serverlist)
     if(!_pServerStream->good()) { \
       delete _pServerStream; \
       _pServerStream = NULL; \
+      stop_check(); \
       if(i) { \
 	i--; \
 	sleep(1); \
@@ -264,6 +265,22 @@ void RServer::init(MPList * serverlist)
 	       _CurrentServer->servicename.c_str()); \
       throw SystemError(buf,errno, ERROR_LOCATION); \
     }
+/*
+ * The program stops (SIGTERM, SIGINT, see sockstream::stopping): no new
+ * connection to the news server and no retry. The exception ends the
+ * command; the callers' retry loops pass it on.
+ */
+void RServer::stop_check()
+{
+	if (!sockstream::stopping())
+		return;
+	string m("connection to news server given up: shutting down");
+	if (_CurrentServer)
+		m = "connection to " + _CurrentServer->hostname + ":" +
+		    _CurrentServer->servicename + " given up: shutting down";
+	throw SystemError(m.c_str(), -1, ERROR_LOCATION);
+}
+
 /*
  * Sets a flag for its lifetime and restores the old value, also when an
  * exception leaves the scope (connect() runs again, nested, when issue()
@@ -284,6 +301,7 @@ void RServer::connect()
 	VERB(slog.p(Logger::Debug) << "RServer::connect()\n");
 	if (is_connected())
 		return;
+	stop_check();
 
 	const time_t now = time(NULL);
 	if (now <
@@ -339,6 +357,7 @@ void RServer::connect()
 		if (!_pServerStream->good()) {
 			delete _pServerStream;
 			_pServerStream = NULL;
+			stop_check();
 			throw
 			    SystemError
 			    ("RServer::connect: cannot connect to news server",
@@ -355,7 +374,9 @@ void RServer::connect()
 		//FIXME! RECONNECT/RETRY? HOW IMPLEMENT? What happens if module 
 		//FIXME! cannot handle this?!?
 		nlreadline(*_pServerStream, grt, 0, NNTP_MAXLINE);
-		slog.p(Logger::Info) << grt << "\n";
+		// (no line when nothing came: the check below says why)
+		if (_pServerStream->good())
+			slog.p(Logger::Info) << grt << "\n";
 
 		RSERVER_CONNECT_CHECK_CONNECTION
 		    ("Connection to %s:%s failed");
@@ -550,11 +571,15 @@ void RServer::readarticle(Article * art)
 				  ERROR_LOCATION);
 	}
 	if (!_pServerStream->good()) {
-		slog.p(Logger::Warning) << "news server "
-		    << _CurrentServer->hostname
-		    << " closed the connection in the middle of an article\n";
+		// (or the program stops: then it isn't the server's doing)
+		if (!sockstream::stopping())
+			slog.p(Logger::Warning) << "news server "
+			    << _CurrentServer->hostname
+			    << " closed the connection in the middle of an article\n";
 		disconnect();
-		throw SystemError("article cut off by the news server", -1,
+		throw SystemError(sockstream::stopping() ?
+				  "article not read to its end: shutting down" :
+				  "article cut off by the news server", -1,
 				  ERROR_LOCATION);
 	}
 }
@@ -641,6 +666,8 @@ string RServer::issue(const char *command, const char *expresp)
 		// 400/503 to MODE READER or LIST OVERVIEW.FMT reconnected, which
 		// sent them again, recursing until the stack overflowed (with a
 		// new upstream connection each time).
+		if (!_pServerStream->good())
+			stop_check();
 		if (_connecting) {
 			if (!_pServerStream->good())
 				slog.p(Logger::Warning) << "RServer::issue: no "
@@ -696,6 +723,8 @@ string RServer::issue(const char *command, const char *expresp)
 				break;
 			}
 			catch(SystemError & se) {
+				if (sockstream::stopping())
+					throw;
 			}
 		}
 	}
@@ -944,7 +973,10 @@ ActiveDB *RServer::active()
 				}
 				if (!_pServerStream->good()) {
 					disconnect();
-					throw SystemError("active list cut off "
+					throw SystemError(sockstream::stopping() ?
+							  "active list not read to its end: "
+							  "shutting down" :
+							  "active list cut off "
 							  "by the news server",
 							  -1, ERROR_LOCATION);
 				}
@@ -1257,7 +1289,10 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 			if (!_pServerStream->good()) {
 				// cut off: the range isn't complete
 				reply_unread();
-				throw SystemError("overview cut off by the news "
+				throw SystemError(sockstream::stopping() ?
+						  "overview not read to its end: "
+						  "shutting down" :
+						  "overview cut off by the news "
 						  "server", -1, ERROR_LOCATION);
 			}
 			return r;
@@ -1426,6 +1461,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 		nlreadline(*_pServerStream, resp, 1, NNTP_MAXLINE);
 		if (_pServerStream->good())
 			break;
+		stop_check();
 
 		// If we have lost the connection to the news server, we try
 		// to reconnect to the server and reissue the command.
@@ -1446,6 +1482,8 @@ void RServer::post(MPListEntry * srvr, Article * article)
 				break;
 			}
 			catch(SystemError & se) {
+				if (sockstream::stopping())
+					throw;
 			}
 		}
 	}

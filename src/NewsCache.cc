@@ -4933,6 +4933,8 @@ int main(int argc, char **argv)
 	// signal handling
 	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
+	// after SIGTERM or SIGINT no new connection to a news server
+	sockstream::stop_indicator(Xsignal);
 	reReadConfig = false;
 
 #ifdef HAVE_SIGACTION

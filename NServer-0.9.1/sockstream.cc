@@ -162,6 +162,7 @@ namespace {
 
 
 sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
+volatile sig_atomic_t *sockstream::sockstreambuf::_stop_indicator = NULL;
 
 
 void sockstream::sockstreambuf::connect(const char *name, const char *service,
@@ -170,6 +171,11 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 					unsigned int timeout)
 {
   disconnect();
+  _outgoing = true;
+
+  // the program stops: no new connection
+  if (stopping())
+    return;
 
   struct addrinfo hints;
 
@@ -189,7 +195,7 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
   }
 
   struct addrinfo *addr = res;
-  while ((_fd < 0) && (addr != NULL))
+  while ((_fd < 0) && (addr != NULL) && !stopping())
   {
     _fd = ::socket(addr->ai_addr->sa_family, SOCK_STREAM, IPPROTO_TCP);
     if (_fd >= 0)
@@ -219,7 +225,7 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
       int rc_connect;
       while (((rc_connect = ::connect(_fd, addr->ai_addr,
 				      addr->ai_addrlen)) < 0) &&
-	     (errno == EINTR) &&
+	     (errno == EINTR) && !stopping() &&
 	     (!timeout || !_alarm_indicator || !*_alarm_indicator))
       { }
 
@@ -230,7 +236,12 @@ void sockstream::sockstreambuf::connect(const char *name, const char *service,
 
       if (rc_connect)
       {
-	if (timeout && _alarm_indicator && *_alarm_indicator)
+	if (stopping())
+	{
+	  slog.p(Logger::Notice) << "Connection attempt to " << name
+				 << " given up: shutting down\n";
+	}
+	else if (timeout && _alarm_indicator && *_alarm_indicator)
 	{
 	  *_alarm_indicator = 0;
 	  slog.p(Logger::Notice) << "Connection attempt to " << name
@@ -319,7 +330,7 @@ bool sockstream::sockstreambuf::wait_io(bool for_write)
   {
     // the alarm (ClientTimeout) or a signal (SIGTERM) ends the wait, as
     // it ends a plain recv() or send()
-    if (_alarm_indicator && *_alarm_indicator)
+    if (interrupted())
       return false;
     int wait = limit ? (int) limit * 1000 : -1;
     if (_reply_deadline_active) {
@@ -345,9 +356,10 @@ void sockstream::sockstreambuf::apply_io_timeout()
   setsockopt(_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
-void sockstream::sockstreambuf::attach(int fd)
+void sockstream::sockstreambuf::attach(int fd, bool outgoing)
 {
   disconnect();
+  _outgoing = outgoing;
   _fd = fd;
 }
 
@@ -450,7 +462,7 @@ int sockstream::sockstreambuf::sync()
     // The indicator is set (the alarm, SIGTERM): no new wait. A send
     // interrupted after part of the data returns that part, not EINTR,
     // so the loop would block again for the rest.
-    if (_alarm_indicator && *_alarm_indicator)
+    if (interrupted())
     {
       return -1;
     }
@@ -458,7 +470,7 @@ int sockstream::sockstreambuf::sync()
     {
       rc_send = ::send(_fd, pbase() + off, pptr() - pbase() - off, 0);
     } while ((rc_send < 0) && (errno == EINTR) &&
-	     (!_alarm_indicator || !*_alarm_indicator));
+	     !interrupted());
 
     if (rc_send < 0)
     {
@@ -487,7 +499,7 @@ int sockstream::sockstreambuf::underflow()
 
   int rc_recv;
   // (no new wait once the indicator is set, see sync)
-  if (_alarm_indicator && *_alarm_indicator)
+  if (interrupted())
   {
     return traits_type::eof();
   }
@@ -503,7 +515,7 @@ int sockstream::sockstreambuf::underflow()
       continue;
     }
     if (rc_recv < 0 && errno == EINTR &&
-	(!_alarm_indicator || !*_alarm_indicator))
+	!interrupted())
       continue;
     break;
   } while (true);
@@ -595,7 +607,7 @@ void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
   int rc;
   do
   {
-    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    if (_buf.interrupted())
     {
       rc = GNUTLS_E_INTERRUPTED;
       break;
@@ -606,7 +618,7 @@ void sockstream::sslstreambuf::connect(const char *hostname, bool verify,
       break;
     }
     rc = gnutls_handshake(_session);
-    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    if (_buf.interrupted())
     {
       rc = GNUTLS_E_INTERRUPTED;
       break;
@@ -698,7 +710,7 @@ bool sockstream::sslstreambuf::accept(unsigned int timeout, std::string &info)
   do
   {
     // SIGTERM (the daemon stops) ends the handshake too
-    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    if (_buf.interrupted())
     {
       info = "interrupted";
       handshake_deadline_set = false;
@@ -758,8 +770,7 @@ void sockstream::sslstreambuf::disconnect()
   {
     rc_shutdown = gnutls_bye(_session, GNUTLS_SHUT_WR);
   } while (rc_shutdown == GNUTLS_E_INTERRUPTED &&
-	   !(sockstreambuf::_alarm_indicator &&
-	     *sockstreambuf::_alarm_indicator));
+	   !_buf.interrupted());
 }
 
 
@@ -797,7 +808,7 @@ int sockstream::sslstreambuf::sync()
   {
     int rc_write;
     // no new wait once the alarm indicator is set (as the plain sync)
-    if (sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator)
+    if (_buf.interrupted())
     {
       return -1;
     }
@@ -843,7 +854,7 @@ int sockstream::sslstreambuf::underflow()
     // The alarm (ClientTimeout) or a signal (SIGTERM) ends the read, as
     // in the plain underflow: GnuTLS returns GNUTLS_E_INTERRUPTED for
     // the interrupted recv(), and the loop went on waiting.
-    if ((sockstreambuf::_alarm_indicator && *sockstreambuf::_alarm_indicator) ||
+    if (_buf.interrupted() ||
 	_buf.reply_expired())
     {
       return traits_type::eof();
@@ -984,7 +995,7 @@ sockstream *sockstream::starttls(const char *hostname, unsigned int connect_time
   {
     sockstream * const ssl_stream = new sockstream(true);
     ssl_stream->set_tls(_tls_verify, _tls_cafile);
-    ssl_stream->attach(_buf.fd());
+    ssl_stream->attach(_buf.fd(), _buf.outgoing());
     // The TLS stream needs the original ReadTimeout, including while
     // computing the whole-handshake deadline and later waiting for I/O.
     ssl_stream->set_io_timeout(_buf.io_timeout());
