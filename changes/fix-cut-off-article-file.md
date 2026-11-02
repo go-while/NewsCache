@@ -10,8 +10,9 @@ Bug fixes:
   no line end or that has no empty line after the header, is fetched
   again from the news server and written anew. If the news server
   doesn't have the article any more, the stored copy is served as it is
-  and the log says so; the file is kept. (A file cut right after a line
-  end in the body can't be told from a whole one.) Complete files with
-  LF line ends (as older versions or an admin may have written them) are
-  served as before. newscacheclean counts a .tmp file that a crash left
-  behind as an article file and removes it by its age.
+  and the log says so; the file is kept (one cut before its Message-ID
+  header can't be served and is removed, as before). (A file cut right
+  after a line end in the body can't be told from a whole one.) Complete
+  files with LF line ends (as older versions or an admin may have
+  written them) are served as before. newscacheclean counts a .tmp file
+  that a crash left behind as an article file and removes it by its age.

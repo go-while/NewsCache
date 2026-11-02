@@ -749,9 +749,13 @@ void NVNewsgroup::setarticle(Article * art)
 			char fn[MAXPATHLEN], tmp[MAXPATHLEN];
 			artfile(fn, sizeof(fn), nbr);
 			// (the constructor leaves room for the suffix)
-			snprintf(tmp, sizeof(tmp), "%s.tmp", fn);
+			if (snprintf(tmp, sizeof(tmp), "%s.tmp", fn) >=
+			    (int) sizeof(tmp))
+				throw NSError("article file name too long",
+					      ERROR_LOCATION);
 			int e = 0;
-			int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+			// (0644 as the group's .db; the umask still applies)
+			int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			if (fd < 0) {
 				e = errno;
 			} else {
@@ -776,13 +780,24 @@ void NVNewsgroup::setarticle(Article * art)
 			if (!e && rename(tmp, fn) != 0)
 				e = errno;
 			// the new name on the disk too (fsync of the directory),
-			// before the record says bigarticle; a file system that
-			// can't sync a directory (EINVAL) has no other way. When
+			// before the record says bigarticle. Where a directory
+			// can't be synced (EINVAL, EBADF for a read-only
+			// descriptor, ENOTSUP), there is no other way. When
 			// this fails, the whole new file has already replaced
 			// the old one; only the record stays as it was.
 			if (!e) {
 				int dfd = ::open(_SpoolDirectory, O_RDONLY);
-				if (dfd < 0 || (fsync(dfd) != 0 && errno != EINVAL))
+				if (dfd < 0)
+					e = errno;
+				else if (fsync(dfd) != 0 && errno != EINVAL &&
+					 errno != EBADF
+#ifdef ENOTSUP
+					 && errno != ENOTSUP
+#endif
+#ifdef EOPNOTSUPP
+					 && errno != EOPNOTSUPP
+#endif
+					 )
 					e = errno;
 				if (dfd >= 0)
 					::close(dfd);
