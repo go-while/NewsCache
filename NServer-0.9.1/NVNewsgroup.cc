@@ -1,6 +1,7 @@
 #include<ctype.h>
 #include<sys/stat.h>
 #include<sys/types.h>
+#include<fcntl.h>
 #include<stdio.h>
 #include<utime.h>
 #include<unistd.h>
@@ -530,18 +531,21 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				// opened (gone, or no file descriptor left) or
 				// that is empty or has no Message-ID (a write
 				// that failed in an older version, kept on a
-				// full disk) is not served: the article comes
-				// from the news server, and a bad file goes.
+				// full disk) can't be served: the article comes
+				// from the news server, and the file goes.
 				//
-				// Every line NewsCache writes ends with a line
-				// end, and an article has an empty line after
-				// its header. A file without either was cut off
-				// (a crash or power cut before all of it reached
-				// the disk): the article is fetched again, and
-				// when the news server no longer has it, the
-				// copy is served as it is, with a warning. Such
-				// a file is never removed (it may be the only
-				// copy left), only an empty or unreadable one.
+				// setarticle replaces a file only with a whole
+				// one, but older versions wrote it in place, and
+				// a crash or power cut could cut it off. Every
+				// line NewsCache writes ends with a line end, and
+				// an article has an empty line after its header.
+				// A file without either was cut off: the article
+				// is fetched again. When the news server no
+				// longer has it, the copy is served as it is,
+				// with a warning; it is kept until a whole one
+				// can be stored (it may be the only copy left).
+				// A file cut right after a line end in the body
+				// can't be told from a whole one.
 				char fn[MAXPATHLEN];
 				ifstream fs;
 				artfile(fn, sizeof(fn), nbr);
@@ -732,23 +736,46 @@ void NVNewsgroup::setarticle(Article * art)
 			}
 			if (old)
 				nvfree(old);
-			// An overview record until the file is complete (also
-			// when a stored article's file is written again): a
-			// crash in the middle must not leave a bigarticle
-			// record with a cut-off file.
-			*data = overview;
-			char fn[MAXPATHLEN];
-			ofstream fs;
+			// The file is written under a temporary name, made
+			// durable (fsync) and renamed over the article's file;
+			// only then does the record say bigarticle. A crash, a
+			// power cut or a failed write (disk full, ...) leaves
+			// the record and the file as they were: a bigarticle
+			// record never names a cut-off file, and a stored copy
+			// stays until a whole one replaces it. (Written in
+			// place, a crash left a cut-off file; a failed write
+			// removed the copy that was there.)
+			char fn[MAXPATHLEN], tmp[MAXPATHLEN];
 			artfile(fn, sizeof(fn), nbr);
-			fs.open(fn);
-			fs << *art;
-			fs.close();
-			if (fs.fail()) {
-				// (disk full, ...) a cut-off file must not be
-				// served: the article stays an overview record
-				int e = errno;
-				unlink(fn);
-				*data = overview;
+			// (the constructor leaves room for the suffix)
+			snprintf(tmp, sizeof(tmp), "%s.tmp", fn);
+			int e = 0;
+			int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+			if (fd < 0) {
+				e = errno;
+			} else {
+				const char *p = art->c_str();
+				size_t left = art->length();
+				while (left > 0) {
+					ssize_t n = ::write(fd, p, left);
+					if (n < 0) {
+						if (errno == EINTR)
+							continue;
+						e = errno;
+						break;
+					}
+					p += n;
+					left -= n;
+				}
+				if (!e && fsync(fd) != 0)
+					e = errno;
+				if (::close(fd) != 0 && !e && errno != EINTR)
+					e = errno;
+			}
+			if (!e && rename(tmp, fn) != 0)
+				e = errno;
+			if (e) {
+				unlink(tmp);
 				throw SystemError(string("cannot write ") + fn,
 						  e, ERROR_LOCATION);
 			}
