@@ -3806,9 +3806,12 @@ void nnrpd(int fd, bool tls)
 			// (else the reply isn't sent) The goodbye gets two
 			// seconds: then the alarm (see catchsignal; a connect
 			// or the command read may have cancelled it) ends a
-			// send to a client that doesn't read.
-			alarmed = 0;
+			// send to a client that doesn't read. alarm(2) comes
+			// first: it cancels the pending one-second alarm,
+			// which could otherwise set alarmed again right after
+			// it was cleared.
 			alarm(2);
+			alarmed = 0;
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
