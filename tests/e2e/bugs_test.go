@@ -190,7 +190,7 @@ func TestPostHeaderLog(t *testing.T) {
 		t.Fatalf("POST: %q", line)
 	}
 	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n" +
-		"Subject: header log\r\nMessage-ID: <headerlog@newscache.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		"Subject: header \x1b[1mlog\r\nMessage-ID: <headerlog@newscache.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
 		t.Fatal(err)
 	}
 	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
@@ -201,9 +201,13 @@ func TestPostHeaderLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no .headerlog: %v", err)
 	}
-	if !strings.Contains(string(b), "Subject: header log") ||
+	if !strings.Contains(string(b), "Subject: header ") ||
 		strings.Contains(string(b), "hello") {
 		t.Errorf(".headerlog should hold the header only:\n%s", b)
+	}
+	// control bytes other than tabs and line ends become '?'
+	if strings.Contains(string(b), "\x1b") || !strings.Contains(string(b), "Subject: header ?[1mlog\r\n") {
+		t.Errorf(".headerlog should have the ESC as '?':\n%q", b)
 	}
 }
 
