@@ -1,0 +1,29 @@
+# Dependabot version updates: weekly pull requests for the GitHub Actions
+# used in .github/workflows (pinned by commit SHA, with the version in a
+# comment) and for the Go module of the e2e tests (tests/e2e). The C++ code
+# depends only on system libraries (GnuTLS, PAM), which Dependabot doesn't
+# track. One grouped pull request per ecosystem, so a week's updates come
+# as at most two.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "CI"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/tests/e2e"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "Tests"
+    groups:
+      go:
+        patterns: ["*"]
