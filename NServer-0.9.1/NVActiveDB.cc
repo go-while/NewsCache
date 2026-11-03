@@ -292,8 +292,10 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 				  "active list not read to its end: shutting down" :
 				  "active list cut off by the news server", -1,
 				  ERROR_LOCATION);
-	time(&now);
-	setmtime(now);
+	if (!(flags & F_DEFER_MTIME)) {
+		time(&now);
+		setmtime(now);
+	}
 }
 
 

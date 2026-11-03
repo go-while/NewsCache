@@ -865,6 +865,7 @@ ActiveDB *RServer::active(bool)
 	// (it overflowed a 513-byte buffer)
 	string cgroup, cmd;
 	char c;
+	bool any_complete = false;
 	_active_incomplete = false;
 
 	ASSERT(if (!_ServerList) {
@@ -891,6 +892,7 @@ ActiveDB *RServer::active(bool)
 				  flags & MPListEntry::
 				  F_SETPOSTFLAG)) ? 0 : ActiveDB::
 			    F_STORE_READONLY;
+			flags |= ActiveDB::F_DEFER_MTIME;
 
 			connect();
 			if (_CurrentServer->
@@ -921,6 +923,7 @@ ActiveDB *RServer::active(bool)
 								 flags,
 								 _CurrentServer->limitgroupsize);
 							reply.finish();
+							any_complete = true;
 						}
 						catch(const ReplyLimitError &e) {
 							slog.p(Logger::Error) << _CurrentServer->hostname
@@ -960,6 +963,7 @@ ActiveDB *RServer::active(bool)
 							flags,
 							_CurrentServer->limitgroupsize);
 					reply.finish();
+					any_complete = true;
 				}
 				catch(const ReplyLimitError &e) {
 					slog.p(Logger::Error) << _CurrentServer->hostname
@@ -1009,10 +1013,13 @@ ActiveDB *RServer::active(bool)
 			e.print();
 		}
 	}
-	// Another server may have completed after one failed and advanced the
-	// shared timestamp. The combined active list still needs another try.
-	if (_active_incomplete)
-		_ActiveDB->setmtime(0, 1);
+	// No individual reply makes a multi-server list fresh: the whole
+	// refresh is stamped once, here, when every server answered. An
+	// incomplete one is stamped by CServer::active with the retry time
+	// (stamping it here too could, after a signal between the two checks,
+	// turn an unfinished first fill's marker into INVALIDATED).
+	if (!_active_incomplete && any_complete && !sockstream::stopping())
+		_ActiveDB->setmtime(nvtime(NULL));
 	return _ActiveDB;
 }
 
@@ -2006,7 +2013,16 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 	// caller needs a fresh one (updatenews -a).
 	// (refresh_lock is false when another process is fetching, or when
 	// this one is stopping: then the list it has is served)
-	if (!refresh_lock(wait_for_refresh || _NVActiveDB->is_empty()))
+	unsigned long stamp;
+	bool first_fill;
+	{
+		// A GROUP can add records before any full active-list refresh, so
+		// the timestamp, not database emptiness, identifies a first fill.
+		ActiveDBLock guard(_NVActiveDB);
+		_NVActiveDB->getmtime(&stamp);
+		first_fill = stamp <= ActiveDB::FIRST_REFRESH_PENDING;
+	}
+	if (!refresh_lock(wait_for_refresh || first_fill))
 		return _NVActiveDB;
 	// Another process may have refreshed the list between the check above
 	// and the lock (the non-blocking branch included): its list is as fresh
@@ -2026,6 +2042,16 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		return _NVActiveDB;
 	}
 	try {
+		// Keep first-fill waiters waiting even after the first upstream
+		// applies records. A stopped first fill leaves this marker for the
+		// next attempt; an established list invalidated by -a has its own
+		// timestamp. Check and set together against concurrent invalidation.
+		{
+			ActiveDBLock guard(_NVActiveDB, NVcontainer::ExclLock);
+			_NVActiveDB->getmtime(&stamp);
+			if (stamp == 0)
+				_NVActiveDB->setmtime(ActiveDB::FIRST_REFRESH_PENDING, 1);
+		}
 		RServer::active();
 		// (not when the fetch failed because this process is
 		// stopping: that says nothing about the news servers, and the
@@ -2038,7 +2064,8 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 			nvtime_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
 			    _TTLActive : ACTIVE_RETRY_SECONDS;
 			nvtime_t age = _TTLActive - retry;
-			_NVActiveDB->setmtime(now > age ? now - age : 0, 1);
+			_NVActiveDB->setmtime(now > age && now - age > ActiveDB::INVALIDATED ?
+			    now - age : ActiveDB::INVALIDATED + 1, 1);
 		}
 	}
 	catch(Error & e) {

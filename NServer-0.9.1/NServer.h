@@ -588,7 +588,8 @@ class CServer
 	{
 		unsigned long tm;
 		 _NVActiveDB->getmtime(&tm);
-		 return (tm + _TTLActive) > nvtime(NULL);
+		 return tm > ActiveDB::INVALIDATED &&
+		     (tm + _TTLActive) > nvtime(NULL);
 	}
 
 	int desc_valid()
@@ -801,7 +802,13 @@ class CServer
 
 inline void CServer::invalidateActiveDB (void)
 {
-	_NVActiveDB->setmtime (0,1); // force flag 1 !!
+	// Do not erase the first-fill marker while another session is still
+	// collecting its first list. Its refresh will satisfy this request.
+	ActiveDBLock guard(_NVActiveDB, NVcontainer::ExclLock);
+	unsigned long tm;
+	_NVActiveDB->getmtime(&tm);
+	if (tm > ActiveDB::FIRST_REFRESH_PENDING)
+		_NVActiveDB->setmtime(ActiveDB::INVALIDATED, 1);
 }
 #endif
 

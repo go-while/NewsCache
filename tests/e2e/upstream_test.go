@@ -1962,6 +1962,392 @@ func activeHandler(slow *atomic.Bool, lists *atomic.Int32) fakeserver.Options {
 	}}
 }
 
+// During the first multi-server refresh, a partial list must not be marked
+// fresh while the second server is still pending. Once the second server
+// receives LIST ACTIVE it waits on a channel; no timing sets up the race.
+func TestActiveFirstRefreshAcrossServers(t *testing.T) {
+	t.Run("empty", func(t *testing.T) { activeFirstRefreshAcrossServers(t, false) })
+	t.Run("group-first", func(t *testing.T) { activeFirstRefreshAcrossServers(t, true) })
+}
+
+func activeFirstRefreshAcrossServers(t *testing.T, groupFirst bool) {
+	t.Helper()
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    Read test.alpha"
+	e.Extra = "Timeouts 3600 3600"
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	second := fakeserver.New(t, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			switch {
+			case strings.HasPrefix(strings.ToLower(line), "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(strings.ToLower(line), "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case strings.HasPrefix(strings.ToLower(line), "list active"):
+				once.Do(func() { close(entered) })
+				<-release
+				c.WriteLines("215 list", "test.beta 1 1 y", ".")
+			case strings.HasPrefix(strings.ToLower(line), "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("200 ok")
+			}
+		}
+	}})
+	var releaseOnce sync.Once
+	open := func() { releaseOnce.Do(func() { close(release) }) }
+	defer open()
+	e.ExtraServers = fmt.Sprintf("  Server %s %d {\n    Read test.beta\n    PostTo test.beta\n  }", second.Host(), second.Port())
+	if groupFirst {
+		// GROUP adds an individual record even though no list was fetched.
+		c := e.session()
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP before first list: %q", line)
+		}
+	}
+	a, b := e.session(), e.session()
+	aDone := make(chan struct{})
+	go func() {
+		defer close(aDone)
+		if code, _ := a.Cmd("LIST ACTIVE"); code == 215 {
+			a.ReadDotLines()
+		}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("second upstream never reached LIST ACTIVE")
+	}
+	type result struct {
+		code  int
+		lines []string
+	}
+	bDone := make(chan result, 1)
+	go func() {
+		code, _ := b.Cmd("LIST ACTIVE")
+		var lines []string
+		if code == 215 {
+			lines = b.ReadDotLines()
+		}
+		bDone <- result{code, lines}
+	}()
+	select {
+	case got := <-bDone:
+		if got.code != 215 || !containsPrefix(got.lines, "test.alpha ") ||
+			!containsPrefix(got.lines, "test.beta ") {
+			t.Errorf("second session served incomplete first refresh: code %d lines %q", got.code, got.lines)
+		}
+		open()
+	case <-time.After(time.Second):
+		open()
+		select {
+		case got := <-bDone:
+			if got.code != 215 || !containsPrefix(got.lines, "test.alpha ") ||
+				!containsPrefix(got.lines, "test.beta ") {
+				t.Errorf("after first refresh: code %d lines %q", got.code, got.lines)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("second session did not finish after refresh was released")
+		}
+	}
+	select {
+	case <-aDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first session did not finish after refresh was released")
+	}
+}
+
+// Multiple Read patterns on one server are separate LIST ACTIVE replies,
+// and the first one must not make the initial list appear complete.
+func TestActiveFirstRefreshAcrossPatterns(t *testing.T) {
+	e := newEnv(t)
+	e.ServerLines = "    Read test.alpha,test.beta"
+	e.Extra = "Timeouts 3600 3600"
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once, releaseOnce sync.Once
+	open := func() { releaseOnce.Do(func() { close(release) }) }
+	defer open()
+	upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			switch {
+			case strings.HasPrefix(low, "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(low, "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case strings.HasPrefix(low, "list active test.alpha"):
+				c.WriteLines("215 list", "test.alpha 1 1 y", ".")
+			case strings.HasPrefix(low, "list active test.beta"):
+				once.Do(func() { close(entered) })
+				<-release
+				c.WriteLines("215 list", "test.beta 1 1 y", ".")
+			case strings.HasPrefix(low, "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("200 ok")
+			}
+		}
+	}})
+	first, second := e.session(), e.session()
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		if code, _ := first.Cmd("LIST ACTIVE"); code == 215 {
+			first.ReadDotLines()
+		}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("second pattern did not reach upstream")
+	}
+	type answer struct {
+		code  int
+		lines []string
+	}
+	answers := make(chan answer, 1)
+	go func() {
+		code, _ := second.Cmd("LIST ACTIVE")
+		var lines []string
+		if code == 215 {
+			lines = second.ReadDotLines()
+		}
+		answers <- answer{code, lines}
+	}()
+	select {
+	case got := <-answers:
+		if got.code != 215 || !containsPrefix(got.lines, "test.alpha ") || !containsPrefix(got.lines, "test.beta ") {
+			t.Errorf("second session saw incomplete initial pattern list: code %d, %q", got.code, got.lines)
+		}
+		open()
+	case <-time.After(time.Second):
+		open()
+		select {
+		case got := <-answers:
+			if got.code != 215 || !containsPrefix(got.lines, "test.alpha ") || !containsPrefix(got.lines, "test.beta ") {
+				t.Errorf("after initial pattern refresh: code %d, %q", got.code, got.lines)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("second session did not finish after patterns were released")
+		}
+	}
+	select {
+	case <-firstDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first session did not finish after patterns were released")
+	}
+}
+
+// A killed or interrupted first fill must keep its pending marker. When
+// the next session retries and reaches the second server, another reader
+// must still wait rather than treat the first server's partial list as old.
+func TestActiveFirstRefreshInterrupted(t *testing.T) {
+	for _, signal := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
+		t.Run(signal.String(), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerLines = "    Read test.alpha"
+			e.Extra = "Timeouts 3600 3600"
+			entered := make(chan int, 4)
+			gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
+			var call atomic.Int32
+			second := fakeserver.New(t, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+				c.WriteLines("200 fake ready")
+				for {
+					line, err := c.ReadLine()
+					if err != nil {
+						return
+					}
+					switch {
+					case strings.HasPrefix(strings.ToLower(line), "mode"):
+						c.WriteLines("200 reader")
+					case strings.HasPrefix(strings.ToLower(line), "list overview.fmt"):
+						c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+					case strings.HasPrefix(strings.ToLower(line), "list active"):
+						n := int(call.Add(1))
+						entered <- n
+						if n <= len(gates) {
+							<-gates[n-1]
+						}
+						c.WriteLines("215 list", "test.beta 1 1 y", ".")
+					case strings.HasPrefix(strings.ToLower(line), "quit"):
+						c.WriteLines("205 bye")
+						return
+					default:
+						c.WriteLines("200 ok")
+					}
+				}
+			}})
+			var releases [2]sync.Once
+			open := func(i int) { releases[i].Do(func() { close(gates[i]) }) }
+			defer open(0)
+			defer open(1)
+			e.ExtraServers = fmt.Sprintf("  Server %s %d {\n    Read test.beta\n    PostTo test.beta\n  }", second.Host(), second.Port())
+			p, first := e.sessionProcess()
+			if err := first.Send("LIST ACTIVE\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case n := <-entered:
+				if n != 1 {
+					t.Fatalf("first LIST count %d", n)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("first refresh did not reach second upstream")
+			}
+			if err := p.Signal(signal); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("first session did not stop")
+			}
+			retry, reader := e.session(), e.session()
+			if err := retry.Send("LIST ACTIVE\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case n := <-entered:
+				if n != 2 {
+					t.Fatalf("retry LIST count %d", n)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("retry did not reach second upstream")
+			}
+			type answer struct {
+				code  int
+				lines []string
+			}
+			answers := make(chan answer, 1)
+			go func() {
+				code, _ := reader.Cmd("LIST ACTIVE")
+				var lines []string
+				if code == 215 {
+					lines = reader.ReadDotLines()
+				}
+				answers <- answer{code, lines}
+			}()
+			select {
+			case got := <-answers:
+				if got.code != 215 || !containsPrefix(got.lines, "test.beta ") {
+					t.Errorf("reader saw interrupted partial fill: code %d, %q", got.code, got.lines)
+				}
+				open(1)
+			case <-time.After(time.Second):
+				open(1)
+				select {
+				case got := <-answers:
+					if got.code != 215 || !containsPrefix(got.lines, "test.alpha ") || !containsPrefix(got.lines, "test.beta ") {
+						t.Errorf("reader after retry: code %d, %q", got.code, got.lines)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("reader did not finish after retry was released")
+				}
+			}
+		})
+	}
+}
+
+// A forced refresh of an established list must not make other sessions
+// wait for the upstream. The channel holds updatenews in LIST ACTIVE.
+func TestActiveForcedRefreshReadersContinue(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "Timeouts 3600 3600"
+	bin := updatenewsBin(t, e)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var slow atomic.Bool
+	var enterOnce, releaseOnce sync.Once
+	open := func() { releaseOnce.Do(func() { close(release) }) }
+	defer open()
+	upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			switch {
+			case strings.HasPrefix(strings.ToLower(line), "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(strings.ToLower(line), "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case strings.HasPrefix(strings.ToLower(line), "list active"):
+				if slow.Load() {
+					enterOnce.Do(func() { close(entered) })
+					<-release
+				}
+				c.WriteLines("215 list", "test.alpha 1 1 y", ".")
+			case strings.HasPrefix(strings.ToLower(line), "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("200 ok")
+			}
+		}
+	}})
+	seed, reader := e.session(), e.session()
+	if code, line := seed.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("seed: %q", line)
+	}
+	seed.ReadDotLines()
+	slow.Store(true)
+	e.writeConf()
+	cmd := exec.Command(bin, "-c", e.Conf, "-a")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() { open(); _ = cmd.Process.Kill() })
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("forced refresh did not reach LIST ACTIVE")
+	}
+	result := make(chan []string, 1)
+	go func() {
+		code, _ := reader.Cmd("LIST ACTIVE")
+		if code == 215 {
+			result <- reader.ReadDotLines()
+		} else {
+			result <- nil
+		}
+	}()
+	select {
+	case lines := <-result:
+		if !containsPrefix(lines, "test.alpha ") {
+			t.Errorf("established list: %q", lines)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("reader waited for forced refresh instead of using the established list")
+	}
+	open()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("updatenews -a: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("updatenews did not finish")
+	}
+}
+
 func TestActiveRefreshBlocksGroup(t *testing.T) {
 	const group = "test.alpha"
 	e := newEnv(t)
