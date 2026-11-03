@@ -1,6 +1,9 @@
 #ifndef __CNewsgroup_h__
 #define __CNewsgroup_h__
 
+#include <string>
+#include <vector>
+
 #include "NServer.h"
 #include "NVNewsgroup.h"
 
@@ -24,10 +27,36 @@ class CNewsgroup:public NVNewsgroup {
 	RServer *_RServer;
 	// for numbers outside the index; holds one chunk of overview records
 	RNewsgroup *_pass;
+	// <spool>/.fetch.lock: one process fetches a chunk at a time (see
+	// ChunkFetchLock in CNewsgroup.cc)
+	std::string _FetchLockFile;
+
+	/*
+	 * A chunk's synchronization, in two steps: fetchchunk() asks the news
+	 * server without the group's lock and keeps the answer here, and
+	 * storechunk() stores it under the exclusive lock. A slow news server
+	 * then holds up only the session that waits for it, not every session
+	 * that reads the group.
+	 */
+	struct ChunkFetch {
+		artnum_t c;		// the chunk (article number / OVERVIEW_CHUNK)
+		artnum_t from, top;	// the numbers asked for (from > top: none)
+		bool full;		// a full synchronization, else only the
+					// numbers above the synchronized ones
+		nvtime_t now;		// when it began: the new synchronization time
+		bool listed;		// the news server listed the numbers it has
+					// (LISTGROUP), so the others can go
+		std::vector < char > lstgrp;	// lstgrp[n - from]: n is listed
+		std::vector < std::string > records;	// the overview records
+	};
 
 	void sUpdateGroupInfo(void);
 	void listgroup(char *lstgrp, artnum_t f, artnum_t l);
-	void syncrange(artnum_t f, artnum_t l);
+	bool synced(artnum_t c, artnum_t l, nvtime_t now);
+	bool chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf);
+	void fetchchunk(ChunkFetch & cf);
+	void storechunk(ChunkFetch & cf, bool complete);
+	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the records couldn't be stored (disk full): the
 	// caller serves the chunk from the news server instead
 	bool freshen(artnum_t f, artnum_t l, int *refreshed);
@@ -45,7 +74,7 @@ class CNewsgroup:public NVNewsgroup {
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
 		   const char *spooldir, const char *name)
 	: NVNewsgroup(fmt, spooldir, name), _TTLGroup(0), _RServer(nsrvr),
-	  _pass(NULL)
+	  _pass(NULL), _FetchLockFile(std::string(spooldir) + "/.fetch.lock")
 	{
 	}
 	virtual ~CNewsgroup();

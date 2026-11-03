@@ -47,7 +47,13 @@ Prefetch whole newsgroups (the articles of the newest 10000000 article numbers o
 Only prefetch the overview database (of the newest 10000000 article numbers of each group). With \-g as well, \-g wins.
 .TP
 .B \-l, \-\-lock-group, \-\-lock-groups
-Always  lock  the newsgroup while prefetching it (with \-g). This improves the performance of update- news slightly, but nobody else can read this newsgroup while prefetching.
+Reserve each range of 10000 article numbers of the newsgroup while
+prefetching it (with \-g): a session that needs the overview of that
+range waits for the prefetch instead of asking the news server for it
+too. Sessions reading what the spool holds don't wait; the group's
+database is locked only while an article is stored or removed. (Up to
+version 1.3.22, \-l locked the whole group while each range was
+prefetched, so nobody else could read it.)
 .TP
 .B \-w, \-\-workers n
 Accepted for old command lines and ignored (with a log line): updatenews
