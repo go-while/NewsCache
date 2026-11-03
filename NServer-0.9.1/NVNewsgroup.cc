@@ -988,6 +988,9 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
  */
 #define PRINT_CHUNK_RECORDS 64
 #define PRINT_CHUNK_BYTES 65536
+// LISTGROUP prints numbers only, so more of them fit in one lock hold: a
+// dense range is bounded by the bytes, a sparse one by the iterations.
+#define PRINT_LISTGROUP_STEP 4096
 
 void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 {
@@ -1130,10 +1133,11 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 			lock(NVcontainer::UnLock);
 			break;
 		}
-		for (i = f; i <= l; i++) {
+		for (i = f; i <= e; i++) {
 			if (shas_element(i))
 				buf << i << "\r\n";
-			if (i == e || (i - f) + 1 >= PRINT_CHUNK_RECORDS)
+			if (i == e || (i - f) + 1 >= PRINT_LISTGROUP_STEP
+			    || buf.tellp() >= PRINT_CHUNK_BYTES)
 				break;
 		}
 		lock(NVcontainer::UnLock);
