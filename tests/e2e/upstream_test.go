@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2057,6 +2058,9 @@ func TestActiveRefreshOnePerWindow(t *testing.T) {
 // every other session take the list as fresh: the next LIST ACTIVE got an
 // old or, as here, an empty list for up to a minute.
 func TestActiveRefreshStoppedNoRetryMark(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session process in /proc")
+	}
 	e := newEnv(t)
 	e.addArticles("test.alpha", 3)
 	var lists atomic.Int32
