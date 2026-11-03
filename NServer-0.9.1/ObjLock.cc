@@ -53,6 +53,18 @@ ObjLock::~ObjLock()
 	close(fd);
 }
 
+// A lock that another process holds: flock says EWOULDBLOCK; fcntl's
+// F_SETLK may say EACCES or EAGAIN (POSIX allows both, as nvflock and
+// the active list's refresh lock take them).
+static bool held_elsewhere(int e)
+{
+#ifdef USE_FLOCK
+	return e == EWOULDBLOCK;
+#else
+	return e == EACCES || e == EAGAIN || e == EWOULDBLOCK;
+#endif
+}
+
 // The blocking calls wait on after EINTR: after SIGTERM the alarm comes
 // every second (see catchsignal in NewsCache.cc), and a post that the
 // news server didn't take must still reach the spool. The lock is held
@@ -100,7 +112,7 @@ int ObjLock::lockShNoBlk(void)
 #endif
 	if (s == 0) {
 		return locked;
-	} else if (errno == EWOULDBLOCK) {
+	} else if (held_elsewhere(errno)) {
 		return not_locked;
 	} else {
 		throw(SystemError("Error in lockShNoBlk", errno,
@@ -134,7 +146,7 @@ int ObjLock::lockExNoBlk(void)
 #endif
 	if (s == 0) {
 		return locked;
-	} else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+	} else if (held_elsewhere(errno)) {
 		return not_locked;
 	} else {
 		throw(SystemError("Error in flock or fcntl", errno,
