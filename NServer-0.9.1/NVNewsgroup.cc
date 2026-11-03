@@ -88,7 +88,7 @@ void NVNewsgroup::sprintover(ostream & os, artnum_t nbr)
 				}
 				delete art;
 				if (bad)
-					dropbad(nbr);
+					dropbad(nbr, string(data, szdata));
 				else
 					os << over << "\r\n";
 			} else if (*data == bigarticle
@@ -209,20 +209,23 @@ std::string NVNewsgroup::recordmsgid(const char *data, size_t szdata)
 // itself passed sget's checks, so the file is sound: only this article
 // goes, not the whole group (corrupt), and it is fetched again when it is
 // asked for. Takes the exclusive lock, nested in the caller's: pointers
-// into the database must be taken again afterwards.
-void NVNewsgroup::dropbad(artnum_t nbr)
+// into the database must be taken again afterwards. The shared lock is
+// dropped during the upgrade: only remove the record if it still matches
+// the bad copy, not an article another process stored in the meantime.
+void NVNewsgroup::dropbad(artnum_t nbr, const string &bad)
 {
 	unsigned long f, l;
 	char *data;
 	size_t szdata;
 
-	slog.p(Logger::Warning) << name() << ": stored article " << nbr
-	    << " unreadable, dropped\n";
 	NVLock guard(*this, NVcontainer::ExclLock);
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
 		NVArray::sget(nbr, &data, &szdata);
-		if (data && *data == article) {
+		if (data && *data == article && szdata == bad.size() &&
+		    memcmp(data, bad.data(), szdata) == 0) {
+			slog.p(Logger::Warning) << name() << ": stored article " << nbr
+			    << " unreadable, dropped\n";
 			std::string id = recordmsgid(data, szdata);
 			NVArray::sdel(nbr - arrfst);
 			if (!id.empty() && History::enabled()) {
@@ -513,7 +516,7 @@ bool NVNewsgroup::lookup_stored(artnum_t nbr, stored_copy & got)
 		delete got.art;
 		got.art = NULL;
 		got.from_spool = false;
-		dropbad(nbr);
+		dropbad(nbr, string(data, szdata));
 		return true;
 	}
 	if (*data == bigarticle) {
@@ -880,7 +883,7 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 				delete art;
 				if (bad) {
 					over = "";
-					dropbad(nbr);
+					dropbad(nbr, string(data, szdata));
 				}
 			} else if (*data == bigarticle
 				   || *data == overview) {
@@ -1138,7 +1141,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 					}
 				}
 				if (bad)
-					dropbad(i);
+					dropbad(i, string(data, szdata));
 				else
 					headerline(buf, i, found ? &fld : NULL, pat);
 			}

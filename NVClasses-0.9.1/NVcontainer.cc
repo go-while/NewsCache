@@ -10,6 +10,7 @@
 #include<time.h>
 #include<unistd.h>
 #include<errno.h>
+#include<stdlib.h>
 #include<sys/resource.h>
 #include<string.h>
 
@@ -118,6 +119,22 @@ int nvflock(int fd, int cmnd, int block)
 		ulck.l_len = 0;
 		if (fcntl(fd, lck, &ulck) < 0)
 			return -1;
+#ifdef NEWSCACHE_TEST_DROPBAD_RACE
+		// Compiled test fixture: pause after the existing unlock, before
+		// taking the exclusive lock, so another process can replace a record.
+		if (ncmnd.l_type == F_WRLCK) {
+			const char *ready = getenv("NEWSCACHE_TEST_DROPBAD_READY_FD");
+			const char *go = getenv("NEWSCACHE_TEST_DROPBAD_GO_FD");
+			if (ready && go) {
+				char byte = 'x';
+				if (write(atoi(ready), &byte, 1) != 1 ||
+				    read(atoi(go), &byte, 1) != 1)
+					_exit(99);
+				unsetenv("NEWSCACHE_TEST_DROPBAD_READY_FD");
+				unsetenv("NEWSCACHE_TEST_DROPBAD_GO_FD");
+			}
+		}
+#endif
 	}
 	if ((r = fcntl(fd, lck, &ncmnd)) < 0) {
 		if (errno == EACCES || errno == EAGAIN)
