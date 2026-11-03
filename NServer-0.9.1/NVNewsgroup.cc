@@ -483,154 +483,170 @@ bool NVNewsgroup::spooled(artnum_t nbr)
 	return r;
 }
 
+bool NVNewsgroup::lookup_stored(artnum_t nbr, stored_copy & got)
+{
+	char *data;
+	size_t szdata;
+	unsigned long f, l;
+
+	NVArray::getsize(&f, &l);
+	if (nbr < f || nbr > l)
+		return true;
+	NVArray::sget(nbr, &data, &szdata);
+	if (!data)
+		return true;
+	if (*data == article) {
+		// szdata ... Size of article including type and the trailing \0
+		got.art = new Article(nbr, data + sizeof(char),
+				      szdata - sizeof(char) - 1);
+		got.from_spool = true;
+		// Every stored article has a Message-ID; one without, or that
+		// doesn't parse, goes and is fetched again (see dropbad).
+		bool ok = false;
+		try {
+			ok = !got.art->getfield("Message-ID:").empty();
+		}
+		catch(const Error & e) {
+		}
+		if (ok)
+			return false;
+		delete got.art;
+		got.art = NULL;
+		got.from_spool = false;
+		dropbad(nbr);
+		return true;
+	}
+	if (*data == bigarticle) {
+		// The article's own file. One that can't be opened (gone, or no
+		// file descriptor left) or that is empty or has no Message-ID (a
+		// write that failed in an older version, kept on a full disk)
+		// can't be served: the article comes from the news server, and
+		// the file goes.
+		//
+		// setarticle replaces a file only with a whole one, but older
+		// versions wrote it in place, and a crash or power cut could cut
+		// it off. Every line NewsCache writes ends with a line end, and
+		// an article has an empty line after its header. A file without
+		// either was cut off: the article is fetched again. When the
+		// news server no longer has it, the copy is served as it is,
+		// with a warning; it is kept until a whole one can be stored (it
+		// may be the only copy left). A file cut right after a line end
+		// in the body can't be told from a whole one.
+		char fn[MAXPATHLEN];
+		ifstream fs;
+
+		artfile(fn, sizeof(fn), nbr);
+		fs.open(fn, ios::in | ios::binary);
+		if (!fs.good())
+			return true;
+		ostringstream raw;
+		raw << fs.rdbuf();
+		string text = raw.str();
+		fs.close();
+		bool complete = !text.empty() && text[text.size() - 1] == '\n';
+		// (readtext drops a last line without its line end)
+		if (!complete)
+			text += "\r\n";
+		istringstream is(text);
+		Article *a = new Article(nbr);
+		bool ok = false;
+		try {
+			a->read(is);
+			ok = a->length() > 0 &&
+			    !a->getfield("Message-ID:").empty();
+		}
+		catch(const Error & e) {
+		}
+		if (ok && complete && !strstr(a->c_str(), "\r\n\r\n"))
+			complete = false;
+		if (ok && complete) {
+			got.art = a;
+			got.from_spool = true;
+			return false;
+		}
+		if (ok) {
+			slog.p(Logger::Warning) << fn
+			    << ": cut off, fetching the article again\n";
+			// served only if the article cannot be fetched
+			got.art = a;
+			got.from_spool = true;
+			got.cut_off = true;
+			got.cut_off_fn = fn;
+			return true;
+		}
+		delete a;
+		slog.p(Logger::Warning) << fn
+		    << ": empty or unreadable, fetching the article again\n";
+		unlink(fn);
+		return true;
+	}
+	return true;
+}
+
 Article *NVNewsgroup::getarticle(artnum_t nbr)
 {
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "NVNewsgroup::getarticle(" << nbr << ")\n");
-	char *data;
-	size_t szdata;
-	unsigned long f, l;
-	Article *art = NULL;
-	bool from_spool = false;
+	stored_copy got;
+	bool fetch;
 
-	// (retrievearticle may throw: the guard gives the lock back)
-	NVLock guard(*this, NVcontainer::ShrdLock);
-	// (an article fetched but not stored, because storing it failed with
-	// a corrupt database, is not returned: it goes with the exception)
+	// The lookup is under the shared lock; the article itself, when it has
+	// to come from the news server, is fetched with the lock released: a
+	// fetch can take ReadTimeout (300 s by default) and the exclusive lock
+	// - storing an article or an overview record, a resize - must not wait
+	// for a news server. storearticle() takes the lock itself, and
+	// setarticle() re-checks the range there, so a record that changed
+	// meanwhile is handled when the article is stored.
 	try {
-	NVArray::getsize(&f, &l);
-	if (nbr >= f && nbr <= l) {
-		NVArray::sget(nbr, &data, &szdata);
-		if (data) {
-			if (*data == article) {
-				from_spool = true;
-				// szdata ... Size of article including type and the trailing \0
-				art =
-				    new Article(nbr, data + sizeof(char),
-						szdata - sizeof(char) - 1);
-				// Every stored article has a Message-ID; one
-				// without, or that doesn't parse, goes and is
-				// fetched again (see dropbad).
-				bool ok = false;
-				try {
-					ok = !art->getfield("Message-ID:").empty();
-				}
-				catch(const Error & e) {
-				}
-				if (!ok) {
-					delete art;
-					art = NULL;
-					from_spool = false;
-					dropbad(nbr);
-					if ((art = retrievearticle(nbr)) != NULL)
-						storearticle(art);
-				}
-			} else if (*data == bigarticle) {
-				// The article's own file. One that can't be
-				// opened (gone, or no file descriptor left) or
-				// that is empty or has no Message-ID (a write
-				// that failed in an older version, kept on a
-				// full disk) can't be served: the article comes
-				// from the news server, and the file goes.
-				//
-				// setarticle replaces a file only with a whole
-				// one, but older versions wrote it in place, and
-				// a crash or power cut could cut it off. Every
-				// line NewsCache writes ends with a line end, and
-				// an article has an empty line after its header.
-				// A file without either was cut off: the article
-				// is fetched again. When the news server no
-				// longer has it, the copy is served as it is,
-				// with a warning; it is kept until a whole one
-				// can be stored (it may be the only copy left).
-				// A file cut right after a line end in the body
-				// can't be told from a whole one.
-				char fn[MAXPATHLEN];
-				ifstream fs;
-				artfile(fn, sizeof(fn), nbr);
-				fs.open(fn, ios::in | ios::binary);
-				if (fs.good()) {
-					ostringstream raw;
-					raw << fs.rdbuf();
-					string text = raw.str();
-					bool complete = !text.empty() &&
-					    text[text.size() - 1] == '\n';
-					// (readtext drops a last line without
-					// its line end)
-					if (!complete)
-						text += "\r\n";
-					istringstream is(text);
-					Article *a = new Article(nbr);
-					bool ok = false;
-					try {
-						a->read(is);
-						ok = a->length() > 0 &&
-						    !a->getfield("Message-ID:").empty();
-					}
-					catch(const Error & e) {
-					}
-					if (ok && complete &&
-					    !strstr(a->c_str(), "\r\n\r\n"))
-						complete = false;
-					if (ok && !complete) {
-						slog.p(Logger::Warning) << fn
-						    << ": cut off, fetching the article again\n";
-						Article *fresh = NULL;
-						try {
-							fresh = retrievearticle(nbr);
-						}
-						catch(const CorruptDBError &) {
-							delete a;
-							throw;
-						}
-						catch(const Error & e) {
-							slog.p(Logger::Warning)
-							    << name() << ":" << nbr
-							    << ": cannot fetch the article: "
-							    << e._errtext << "\n";
-						}
-						if (fresh) {
-							delete a;
-							art = fresh;
-							storearticle(art);
-						} else {
-							slog.p(Logger::Warning) << fn
-							    << ": not available from the news"
-							    " server, the cut-off copy is served\n";
-							art = a;
-							from_spool = true;
-						}
-					} else if (ok) {
-						art = a;
-						from_spool = true;
-					} else {
-						delete a;
-						slog.p(Logger::Warning) << fn
-						    << ": empty or unreadable, fetching the article again\n";
-						unlink(fn);
-					}
-				}
-				fs.close();
-				if (!art && (art = retrievearticle(nbr)) != NULL)
-					storearticle(art);
-			} else {
-				// Article not available
-				if ((art = retrievearticle(nbr)) != NULL)
-					storearticle(art);
-			}
-		} else {
-			// Article not available
-			if ((art = retrievearticle(nbr)) != NULL)
-				storearticle(art);
-		}
-	}
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		fetch = lookup_stored(nbr, got);
 	}
 	catch(...) {
-		delete art;
+		delete got.art;
 		throw;
 	}
-	guard.release();
+
+	Article *art = got.art;
+	bool from_spool = got.from_spool;
+
+	if (fetch) {
+		Article *fresh = NULL;
+		try {
+			fresh = retrievearticle(nbr);
+		}
+		catch(const CorruptDBError &) {
+			delete art;
+			throw;
+		}
+		catch(const Error & e) {
+			if (!got.cut_off) {
+				delete art;
+				throw;
+			}
+			slog.p(Logger::Warning)
+			    << got.cut_off_fn << ": cannot fetch the article: "
+			    << e._errtext << "\n";
+		}
+		if (fresh) {
+			delete art;
+			art = fresh;
+			from_spool = false;
+			try {
+				storearticle(art);
+			}
+			catch(...) {
+				delete art;
+				throw;
+			}
+		} else if (got.cut_off) {
+			// the news server doesn't have it: serve the copy, keep it
+			slog.p(Logger::Warning) << got.cut_off_fn
+			    << ": not available from the news server, the"
+			    " cut-off copy is served\n";
+		}
+	}
+
 	if (art && from_spool && History::enabled()) {
 		// a spool of an older version has no history entries
 		try {

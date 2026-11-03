@@ -149,6 +149,21 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	}
 
 	virtual Article *getarticle(artnum_t nbr);
+	// What the array or the article's file holds, found under the caller's
+	// shared lock (see getarticle).
+	struct stored_copy {
+		Article *art;		// the copy found, NULL when there is none
+		bool from_spool;	// art comes from the spool
+		bool cut_off;		// art is a cut-off file: keep it and
+					// serve it if the article cannot be
+					// fetched (it may be the only copy)
+		std::string cut_off_fn;	// that file's name, for the warning
+		stored_copy():art(NULL), from_spool(false), cut_off(false) {
+		}
+	};
+	// Whether article nbr has to be fetched from the news server; got is
+	// what the spool holds for it. Called with the shared lock held.
+	bool lookup_stored(artnum_t nbr, stored_copy & got);
 	// Whether the spool holds article nbr itself (not just its overview
 	// record), so getarticle needs no news server.
 	bool spooled(artnum_t nbr);

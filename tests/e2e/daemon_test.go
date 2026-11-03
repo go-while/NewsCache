@@ -914,6 +914,51 @@ func TestClientStalledReader(t *testing.T) {
 	}
 }
 
+// TestFetchDoesNotHoldGroupLock: getarticle used to fetch an article from the
+// news server while holding the group's shared lock, so a session whose fetch
+// the server stalled blocked every session that needed the exclusive lock
+// (storing an overview record, for instance) for up to ReadTimeout. The fetch
+// is made outside the lock now and storearticle() re-checks the range.
+func TestFetchDoesNotHoldGroupLock(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.ClientTimeout = 30
+	e.ServerLines = "ReadTimeout 3"
+	e.addArticles(group, 5)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		// the article fetch hangs, as a slow news server does
+		Delay: map[string]time.Duration{"ARTICLE": 5 * time.Second},
+	}})
+
+	a := e.session()
+	if code, line := a.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("A GROUP: %q", line)
+	}
+	if err := a.Send("ARTICLE 1\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // A is now waiting for its article
+
+	b := e.session()
+	b.Deadline = 20 * time.Second
+	if code, line := b.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("B GROUP: %q", line)
+	}
+	// XOVER stores the overview records it fetches: that needs the exclusive
+	// lock, which A held across its fetch before the fix.
+	start := time.Now()
+	code, line := b.Cmd("XOVER 1-5")
+	elapsed := time.Since(start)
+	if code != 224 {
+		t.Fatalf("B XOVER: %q", line)
+	}
+	b.ReadDotLines()
+	t.Logf("second session waited %v while the first session's article fetch hung (ReadTimeout 3 s)", elapsed.Round(10*time.Millisecond))
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("the second session waited %v for the group lock while another session was fetching an article; the fetch holds the shared lock", elapsed)
+	}
+}
+
 func testClientStalledReader(t *testing.T, command string) {
 	t.Helper()
 	const group = "alt.binaries.stall"
