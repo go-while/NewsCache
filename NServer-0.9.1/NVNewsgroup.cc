@@ -994,16 +994,20 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 
 /*
  * Writes a chunk to the client and empties the buffer for the next one,
- * keeping its memory: a new buffer (and a copy of it) for every chunk of
- * a long reply made the memory grow with the reply under AddressSanitizer,
- * which keeps freed memory back for a while.
+ * keeping the memory of both: a new buffer (and a copy of it) for every
+ * chunk of a long reply made the memory grow with the reply under
+ * AddressSanitizer, which keeps freed memory back for a while. The chunk
+ * goes out with one write (os << rdbuf() copies character by character
+ * with libc++).
  */
-static void flush_chunk(ostream & os, stringstream & buf)
+static void flush_chunk(ostream & os, stringstream & buf, string & out)
 {
-	// (an empty chunk inserts nothing: a streambuf inserter that copies
-	// no character would set failbit on os)
-	if (buf.tellp() > 0)
-		os << buf.rdbuf();
+	streamsize n = buf.tellp();
+	if (n > 0) {
+		out.resize((size_t) n);
+		buf.rdbuf()->sgetn(&out[0], n);
+		os.write(out.data(), n);
+	}
 	buf.str(string());
 	buf.clear();
 }
@@ -1020,6 +1024,7 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 	// or the database remapped by another process.
 	// (read back by flush_chunk: in and out)
 	stringstream buf;
+	string out;
 
 	for (;;) {
 		artnum_t e, i, last = 0;
@@ -1040,7 +1045,7 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 				break;
 		}
 		lock(NVcontainer::UnLock);
-		flush_chunk(os, buf);
+		flush_chunk(os, buf, out);
 		if (!os.good() || last >= e)
 			break;
 		f = last + 1;
@@ -1060,6 +1065,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 	// the lock free, so a client that stops reading does not keep it.
 	// (read back by flush_chunk: in and out)
 	stringstream buf;
+	string out;
 
 	for (;;) {
 		unsigned long e, last = 0;
@@ -1126,7 +1132,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 				break;
 		}
 		NVArray::lock(NVcontainer::UnLock);
-		flush_chunk(os, buf);
+		flush_chunk(os, buf, out);
 		if (!os.good() || last >= e)
 			break;
 		f = last + 1;
@@ -1143,6 +1149,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	// the lock free.
 	// (read back by flush_chunk: in and out)
 	stringstream buf;
+	string out;
 
 	for (;;) {
 		artnum_t e, i;
@@ -1163,7 +1170,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 				break;
 		}
 		lock(NVcontainer::UnLock);
-		flush_chunk(os, buf);
+		flush_chunk(os, buf, out);
 		if (!os.good() || i >= e)
 			break;
 		f = i + 1;
