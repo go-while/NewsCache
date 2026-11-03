@@ -1,6 +1,7 @@
 #include<ctype.h>
 #include<sys/stat.h>
 #include<sys/types.h>
+#include<fcntl.h>
 #include<stdio.h>
 #include<utime.h>
 #include<unistd.h>
@@ -9,6 +10,7 @@
 #include<errno.h>
 
 #include<vector>
+#include<sstream>
 
 #include"Logger.h"
 #include"Error.h"
@@ -529,23 +531,77 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 				// opened (gone, or no file descriptor left) or
 				// that is empty or has no Message-ID (a write
 				// that failed in an older version, kept on a
-				// full disk) is not served: the article comes
-				// from the news server, and a bad file goes.
+				// full disk) can't be served: the article comes
+				// from the news server, and the file goes.
+				//
+				// setarticle replaces a file only with a whole
+				// one, but older versions wrote it in place, and
+				// a crash or power cut could cut it off. Every
+				// line NewsCache writes ends with a line end, and
+				// an article has an empty line after its header.
+				// A file without either was cut off: the article
+				// is fetched again. When the news server no
+				// longer has it, the copy is served as it is,
+				// with a warning; it is kept until a whole one
+				// can be stored (it may be the only copy left).
+				// A file cut right after a line end in the body
+				// can't be told from a whole one.
 				char fn[MAXPATHLEN];
 				ifstream fs;
 				artfile(fn, sizeof(fn), nbr);
-				fs.open(fn);
+				fs.open(fn, ios::in | ios::binary);
 				if (fs.good()) {
+					ostringstream raw;
+					raw << fs.rdbuf();
+					string text = raw.str();
+					bool complete = !text.empty() &&
+					    text[text.size() - 1] == '\n';
+					// (readtext drops a last line without
+					// its line end)
+					if (!complete)
+						text += "\r\n";
+					istringstream is(text);
 					Article *a = new Article(nbr);
 					bool ok = false;
 					try {
-						a->read(fs);
+						a->read(is);
 						ok = a->length() > 0 &&
 						    !a->getfield("Message-ID:").empty();
 					}
 					catch(const Error & e) {
 					}
-					if (ok) {
+					if (ok && complete &&
+					    !strstr(a->c_str(), "\r\n\r\n"))
+						complete = false;
+					if (ok && !complete) {
+						slog.p(Logger::Warning) << fn
+						    << ": cut off, fetching the article again\n";
+						Article *fresh = NULL;
+						try {
+							fresh = retrievearticle(nbr);
+						}
+						catch(const CorruptDBError &) {
+							delete a;
+							throw;
+						}
+						catch(const Error & e) {
+							slog.p(Logger::Warning)
+							    << name() << ":" << nbr
+							    << ": cannot fetch the article: "
+							    << e._errtext << "\n";
+						}
+						if (fresh) {
+							delete a;
+							art = fresh;
+							storearticle(art);
+						} else {
+							slog.p(Logger::Warning) << fn
+							    << ": not available from the news"
+							    " server, the cut-off copy is served\n";
+							art = a;
+							from_spool = true;
+						}
+					} else if (ok) {
 						art = a;
 						from_spool = true;
 					} else {
@@ -680,23 +736,74 @@ void NVNewsgroup::setarticle(Article * art)
 			}
 			if (old)
 				nvfree(old);
-			// An overview record until the file is complete (also
-			// when a stored article's file is written again): a
-			// crash in the middle must not leave a bigarticle
-			// record with a cut-off file.
-			*data = overview;
-			char fn[MAXPATHLEN];
-			ofstream fs;
+			// The file is written under a temporary name, made
+			// durable (fsync) and renamed over the article's file,
+			// and the directory is synced; only then does the
+			// record say bigarticle. A crash, a
+			// power cut or a failed write (disk full, ...) leaves
+			// the record and the file as they were: a bigarticle
+			// record never names a cut-off file, and a stored copy
+			// stays until a whole one replaces it. (Written in
+			// place, a crash left a cut-off file; a failed write
+			// removed the copy that was there.)
+			char fn[MAXPATHLEN], tmp[MAXPATHLEN];
 			artfile(fn, sizeof(fn), nbr);
-			fs.open(fn);
-			fs << *art;
-			fs.close();
-			if (fs.fail()) {
-				// (disk full, ...) a cut-off file must not be
-				// served: the article stays an overview record
-				int e = errno;
-				unlink(fn);
-				*data = overview;
+			// (the constructor leaves room for the suffix)
+			if (snprintf(tmp, sizeof(tmp), "%s.tmp", fn) >=
+			    (int) sizeof(tmp))
+				throw NSError("article file name too long",
+					      ERROR_LOCATION);
+			int e = 0;
+			// (0644 as the group's .db; the umask still applies)
+			int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (fd < 0) {
+				e = errno;
+			} else {
+				const char *p = art->c_str();
+				size_t left = art->length();
+				while (left > 0) {
+					ssize_t n = ::write(fd, p, left);
+					if (n < 0) {
+						if (errno == EINTR)
+							continue;
+						e = errno;
+						break;
+					}
+					p += n;
+					left -= n;
+				}
+				if (!e && fsync(fd) != 0)
+					e = errno;
+				if (::close(fd) != 0 && !e && errno != EINTR)
+					e = errno;
+			}
+			if (!e && rename(tmp, fn) != 0)
+				e = errno;
+			// the new name on the disk too (fsync of the directory),
+			// before the record says bigarticle. Where a directory
+			// can't be synced (EINVAL, EBADF for a read-only
+			// descriptor, ENOTSUP), there is no other way. When
+			// this fails, the whole new file has already replaced
+			// the old one; only the record stays as it was.
+			if (!e) {
+				int dfd = ::open(_SpoolDirectory, O_RDONLY);
+				if (dfd < 0)
+					e = errno;
+				else if (fsync(dfd) != 0 && errno != EINVAL &&
+					 errno != EBADF
+#ifdef ENOTSUP
+					 && errno != ENOTSUP
+#endif
+#ifdef EOPNOTSUPP
+					 && errno != EOPNOTSUPP
+#endif
+					 )
+					e = errno;
+				if (dfd >= 0)
+					::close(dfd);
+			}
+			if (e) {
+				unlink(tmp);
 				throw SystemError(string("cannot write ") + fn,
 						  e, ERROR_LOCATION);
 			}

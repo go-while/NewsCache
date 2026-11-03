@@ -435,7 +435,11 @@ void clean(const char *cpath)
 				time_t at = MAX(s.st_atime, s.st_mtime);
 				if (dbatime <= at)
 					at = dbatime;
-				if (!parse_artnum(f->d_name + 4, &nr, &end) || *end) {
+				// .art<n>.tmp: a file NewsCache was writing when
+				// it crashed (see NVNewsgroup::setarticle); it
+				// goes by its age, as an article file does
+				if (!parse_artnum(f->d_name + 4, &nr, &end) ||
+				    (*end && strcmp(end, ".tmp") != 0)) {
 					slog.p(Logger::Error) << "error "
 						<< "parsing " << f->d_name << "\n";
 				} else if (!have_db || nr < firstnr || nr > lastnr) {

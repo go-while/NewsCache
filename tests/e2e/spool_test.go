@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -91,6 +92,155 @@ func TestExpiredBigArticleFileRemoved(t *testing.T) {
 	if _, err := os.Stat(artFile); err == nil {
 		left, _ := filepath.Glob(filepath.Join(e.Spool, "test", "big", ".art*"))
 		t.Errorf("%s is still in the spool after article 2 expired upstream (files: %q)", artFile, left)
+	}
+}
+
+// TestSpoolCutOffArticleFile: the .art file of an article over 15 kB was
+// cut off (older versions wrote it in place, and a crash or power cut
+// could stop that half-way). It was served as it was, without its last
+// partial line. Now the article is fetched again; when that fails, the
+// copy is served (the file is kept) and the log says so. When the new copy
+// can't be written, the old file stays. A complete file with LF line ends,
+// as an older version or an admin may have written it, and an article
+// without a body are served from the spool. The file is written under a
+// temporary name and renamed: no .tmp file is left, and newscacheclean
+// takes one that a crash left behind for an article file.
+func TestSpoolCutOffArticleFile(t *testing.T) {
+	const group = "test.big"
+	e := newEnv(t)
+	e.Store.AddGroup(group, "big articles")
+	e.Store.AddArticle(group, groupArticle(group, 1, bigBody()))
+
+	article := func(what string) []string {
+		t.Helper()
+		c := e.session()
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatalf("%s: GROUP: %q", what, line)
+		}
+		if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+			t.Fatalf("%s: ARTICLE 1: %q", what, line)
+		}
+		lines := c.ReadDotLines()
+		c.Cmd("QUIT")
+		return lines
+	}
+	want := article("first read")
+	artFile := filepath.Join(e.Spool, "test", "big", ".art1")
+	whole, err := os.ReadFile(artFile)
+	if err != nil {
+		t.Fatalf("the big article was not stored in its own file: %v", err)
+	}
+	if _, err := os.Stat(artFile + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("%s.tmp is left after the article was stored (%v)", artFile, err)
+	}
+	same := func(what string, got []string) {
+		t.Helper()
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: %d lines, want the %d of the article", what, len(got), len(want))
+		}
+	}
+	write := func(b []byte) {
+		t.Helper()
+		if err := os.WriteFile(artFile, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// cut in the middle of the last line, and right after a header line
+	head := bytes.Index(whole, []byte("\r\n\r\n"))
+	if head < 0 {
+		t.Fatalf("no empty line after the header in %s", artFile)
+	}
+	for _, tc := range []struct {
+		what string
+		cut  []byte
+	}{
+		{"cut in the last line", whole[:len(whole)-7]},
+		{"cut after a header line", whole[:head+2]},
+	} {
+		write(tc.cut)
+		before := e.Upstream.Count("ARTICLE")
+		same(tc.what, article(tc.what))
+		if n := e.Upstream.Count("ARTICLE") - before; n != 1 {
+			t.Errorf("%s: upstream got %d ARTICLE, want the article fetched again", tc.what, n)
+		}
+		if b, err := os.ReadFile(artFile); err != nil || !bytes.Equal(b, whole) {
+			t.Errorf("%s: the file was not written anew (%d bytes, want %d; %v)", tc.what, len(b), len(whole), err)
+		}
+	}
+
+	// LF line ends, complete: no refetch
+	write(bytes.ReplaceAll(whole, []byte("\r\n"), []byte("\n")))
+	before := e.Upstream.Count("ARTICLE")
+	same("LF line ends", article("LF line ends"))
+	if n := e.Upstream.Count("ARTICLE") - before; n != 0 {
+		t.Errorf("LF line ends: upstream got %d ARTICLE, want the file served", n)
+	}
+
+	// no body: complete, no refetch
+	write(whole[:head+4])
+	before = e.Upstream.Count("ARTICLE")
+	if got := article("no body"); len(got) == 0 || got[len(got)-1] != "" {
+		t.Errorf("no body: got %d lines, want the header and the empty line", len(got))
+	}
+	if n := e.Upstream.Count("ARTICLE") - before; n != 0 {
+		t.Errorf("no body: upstream got %d ARTICLE, want the file served", n)
+	}
+
+	cut := whole[:len(whole)-7]
+	logOf := func() string {
+		b, _ := os.ReadFile(filepath.Join(e.LogDir, "newscache.log"))
+		return string(b)
+	}
+
+	// cut off, and the new copy can't be written (a file size limit,
+	// as on a full disk): the client gets the new copy, the old file
+	// stays (written in place, the failed write removed it)
+	write(cut)
+	limitedSession(t, e, fileSizeLimit(16), "GROUP "+group, "ARTICLE 1")
+	if b, err := os.ReadFile(artFile); err != nil || !bytes.Equal(b, cut) {
+		t.Errorf("write fails: the old file changed (%d bytes, want %d; %v)", len(b), len(cut), err)
+	}
+	if _, err := os.Stat(artFile + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("write fails: %s.tmp is left (%v)", artFile, err)
+	}
+
+	// a .tmp file a crash left behind: newscacheclean counts it as an
+	// article file, without "error parsing"
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err == nil {
+		if err := os.WriteFile(artFile+".tmp", cut, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command(clean, "-c", e.Conf, "-s", "-t").CombinedOutput()
+		if err != nil {
+			t.Fatalf("newscacheclean -s -t: %v\n%s", err, out)
+		}
+		if !strings.Contains(string(out), "ArtCnt: 2\n") {
+			t.Errorf("newscacheclean -s -t: %q, want ArtCnt: 2 (.art1 and .art1.tmp)", out)
+		}
+		if strings.Contains(logOf(), "parsing .art1.tmp") {
+			t.Errorf("newscacheclean logs an error for .art1.tmp:\n%s", logOf())
+		}
+		os.Remove(artFile + ".tmp")
+	}
+
+	// cut off, and the news server is gone: the copy is served and kept
+	write(cut)
+	e.Upstream.Close()
+	got := article("news server gone")
+	// (the 7 bytes are the line end and 5 characters of the last line)
+	last := want[len(want)-1]
+	cutWant := append(append([]string{}, want[:len(want)-1]...), last[:len(last)-5])
+	if strings.Join(got, "\n") != strings.Join(cutWant, "\n") {
+		t.Errorf("news server gone: %d lines, want the %d of the cut-off copy", len(got), len(cutWant))
+	}
+	if b, err := os.ReadFile(artFile); err != nil || !bytes.Equal(b, cut) {
+		t.Errorf("news server gone: the file changed (%d bytes, want %d; %v)", len(b), len(cut), err)
+	}
+	if log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(log), "the cut-off copy is served") {
+		t.Errorf("the log doesn't say that the cut-off copy was served:\n%s", log)
 	}
 }
 
