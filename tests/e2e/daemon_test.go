@@ -1739,6 +1739,9 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 // "can't be written to". The inetd tests didn't see it: their output is
 // stdio, which doesn't look at alarmed.
 func TestSIGTERMDuringCommandDaemon(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session process in /proc")
+	}
 	for _, tc := range []struct {
 		name, cmd string
 	}{
