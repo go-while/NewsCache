@@ -386,6 +386,14 @@ void CNewsgroup::storechunk(ChunkFetch & cf, bool complete)
 		top = arrlst;
 	if (_ghave && top > _glast)
 		top = _glast;
+	// The index or group range can move completely past the fetched
+	// interval while the database lock is released. Do not stamp that
+	// old interval as synchronized when nothing in it can be stored.
+	first = cf.from > arrfst ? cf.from : arrfst;
+	if (_ghave && first < _gfirst)
+		first = _gfirst;
+	if (first > top)
+		return;
 	for (std::vector < std::string >::const_iterator r = cf.records.begin();
 	     r != cf.records.end(); ++r) {
 		artnum_t n = leading_artnum(r->c_str());

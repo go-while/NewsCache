@@ -21,6 +21,7 @@
 #include "Article.h"
 #include "NVNewsgroup.h"
 #include "OverviewFmt.h"
+#include "CNewsgroup.h"
 #include "History.h"
 
 using namespace std;
@@ -56,6 +57,85 @@ struct StoredGroup:public NVNewsgroup {
 		NVArray::sset(0, value.data(), value.size());
 	}
 };
+
+struct ChunkRangeProbe:public CNewsgroup {
+	ChunkFetch pending;
+	ChunkRangeProbe(OverviewFmt *fmt, const char *dir, const char *name)
+	: CNewsgroup(NULL, fmt, dir, name) { setttl(3600); }
+	void grow(artnum_t f, artnum_t l) { cover(f, l); }
+	bool snapshot(artnum_t from = 1) {
+		pending.c = 0;
+		pending.now = 100;
+		pending.from = 1;
+		pending.top = 0;
+		pending.full = false;
+		pending.listed = false;
+		bool ok = chunkrange(from, 100, pending);
+		CHECK(pending.from == from && pending.top == 100 && pending.full);
+		return ok;
+	}
+	void add_over(const string &line) { pending.records.push_back(line); }
+	void finish() { storechunk(pending, true); }
+	bool synced_to(artnum_t n) { return synced(0, n, 100); }
+	artnum_t synced_through() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt ent;
+		getsync(0, &ent);
+		return ent.time ? ent.through : 0;
+	}
+};
+
+// One session captures [1,100]; a second extends the index, and the first
+// learns the range is now [150,200] before storing the old fetch. A later
+// downward range expansion must not treat the un-stored fetch as synced.
+static void chunk_range_change(const string &dir, OverviewFmt &fmt)
+{
+	ChunkRangeProbe first(&fmt, dir.c_str(), "test.chunkrange");
+	first.setsize(1, 100);
+	first.grow(1, 100);
+	CHECK(first.snapshot());
+	{
+		ChunkRangeProbe other(&fmt, dir.c_str(), "test.chunkrange");
+		other.setsize(1, 200);
+		other.grow(1, 200);
+	}
+	first.setsize(150, 200);
+	first.finish();
+	CHECK(first.synced_through() == 0);
+	first.setsize(1, 200);
+	first.grow(1, 200);
+	CHECK(!first.synced_to(100));
+}
+
+// When the new range still overlaps the fetch, save and mark only the
+// overlap; a range that grows downward must not mark the unfetched prefix.
+static void chunk_range_overlap(const string &dir, OverviewFmt &fmt)
+{
+	ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkoverlap");
+	g.setsize(1, 100);
+	g.grow(1, 100);
+	CHECK(g.snapshot());
+	g.add_over("10\tsubject\tfrom@x\tdate\t<ten@x>\t\t100\t5");
+	g.add_over("50\tsubject\tfrom@x\tdate\t<fifty@x>\t\t100\t5");
+	g.add_over("90\tsubject\tfrom@x\tdate\t<ninety@x>\t\t100\t5");
+	g.setsize(40, 60);
+	g.finish();
+	CHECK(!g.hasrecord(10));
+	CHECK(g.hasrecord(50));
+	CHECK(!g.hasrecord(90));
+	CHECK(g.synced_through() == 60);
+	CHECK(g.synced_to(50));
+	CHECK(!g.synced_to(100));
+
+	ChunkRangeProbe down(&fmt, dir.c_str(), "test.chunkdown");
+	down.setsize(40, 100);
+	down.grow(40, 100);
+	CHECK(down.snapshot(40));
+	down.setsize(1, 100);
+	down.grow(1, 100);
+	down.finish();
+	CHECK(down.synced_through() == 0);
+}
 
 #ifdef NEWSCACHE_TEST_DROPBAD_RACE
 // A reader drops the shared lock before taking the exclusive lock in
@@ -232,6 +312,8 @@ int main(void)
 	replaced_before_cleanup(dir, fmt);
 #endif
 	renumbered_freerange(dir, fmt);
+	chunk_range_change(dir, fmt);
+	chunk_range_overlap(dir, fmt);
 	note_older_then_free(dir, fmt);
 
 	if (failures) {
