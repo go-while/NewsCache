@@ -904,10 +904,12 @@ func TestCachePort(t *testing.T) {
 }
 
 // TestClientStalledReader: a client that stops reading in the middle of a
-// big OVER or XOVER is cut off after ClientTimeout. It writes while it holds
-// the group's lock, and ClientTimeout only covered the wait for the next
-// command: the session stayed blocked in send() for good, and another
-// session that needed the group (storing an article it read) hung too.
+// big OVER or XOVER is cut off after ClientTimeout. ClientTimeout only
+// covered the wait for the next command: the session stayed blocked in
+// send() for good, and as it wrote while it held the group's lock, another
+// session that needed the group (storing an article it read) hung too. (The
+// records are written with the lock released now, see
+// TestXoverStalledClientDoesNotHoldGroupLock.)
 func TestClientStalledReader(t *testing.T) {
 	for _, command := range []string{"OVER", "XOVER"} {
 		t.Run(command, func(t *testing.T) { testClientStalledReader(t, command) })
@@ -1807,6 +1809,22 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 	e.ClientTimeout = 3
 	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
 	e.standalone()
+
+	// Fill the group's overview first, with a client that reads it all:
+	// fetching it holds the group's exclusive lock (freshen), and on a
+	// loaded machine that fetch could still run when B asks below.
+	w := e.dial()
+	w.Deadline = 60 * time.Second
+	if code, line := w.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP (warm-up): %q", line)
+	}
+	if code, line := w.Cmd("XOVER 1-40000"); code != 224 {
+		t.Fatalf("XOVER (warm-up): %q", line)
+	}
+	if n := len(w.ReadDotLines()); n != 40000 {
+		t.Fatalf("XOVER (warm-up): %d records, want 40000", n)
+	}
+	w.Cmd("QUIT")
 
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {

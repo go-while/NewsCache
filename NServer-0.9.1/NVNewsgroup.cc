@@ -1123,7 +1123,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	// the lock free.
 	for (;;) {
 		ostringstream buf;
-		artnum_t e, i, last = 0;
+		artnum_t e, i;
 
 		lock(NVcontainer::ShrdLock);
 		if (f < arrfst)
