@@ -172,6 +172,27 @@ int main()
 		CHECK(gi.n() == 486767816ULL);
 		CHECK(gi.ctime() == 1000000000);
 
+		// GROUP's numbers (keep_flag): the list's flag stays, and gi
+		// gets it; without keep_flag, the given flag is stored. A group
+		// that isn't there yet is added with the given flag.
+		{
+			GroupInfo g;
+			g.set("de.test", 30, 40, 11);
+			CHECK(g.flags() == 'y');
+			db.set(g, ActiveDB::keep_flag);
+			CHECK(g.flags() == 'm');
+			CHECK(db.get("de.test", &gi) == 0);
+			CHECK(gi.first() == 30 && gi.last() == 40 && gi.n() == 11);
+			CHECK(gi.flags() == 'm');
+			CHECK(gi.ctime() == 1200000000);
+			g.set("de.test", 30, 40, 11, 'n');
+			db.set(g);
+			CHECK(db.get("de.test", &gi) == 0 && gi.flags() == 'n');
+			g.set("de.test.new", 1, 2, 2);
+			db.set(g, ActiveDB::keep_flag);
+			CHECK(db.get("de.test.new", &gi) == 0 && gi.flags() == 'y');
+		}
+
 		// A cut-off reply must not advance the previous timestamp.
 		std::istringstream incomplete("de.test 20 10 y\r\n");
 		bool cut = false;

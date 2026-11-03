@@ -48,7 +48,8 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 * Set newsgroup information for group gi.name(). If the flag 
 	 * update_only is specified, it is regarded as error, if gi.name()
 	 * does not already exist. Otherwise, it is added to the active
-	 * database.
+	 * database. With keep_flag, an existing record keeps its posting
+	 * flag, and gi gets it.
 	 * \param gi Description of the newsgroup.
 	 * \param flags See description above.
 	 */

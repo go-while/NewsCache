@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 	"github.com/go-while/nntp-testkit/proc"
 )
 
@@ -261,4 +263,71 @@ func TestActiveListGrowsDuringList(t *testing.T) {
 		t.Errorf("NEWGROUPS since the first list: %d groups, want the %d added later", len(l), n)
 	}
 	c.Cmd("QUIT")
+}
+
+// A GROUP that refreshes the group's numbers from the news server keeps the
+// posting flag the active list gave the group (it was set to 'y').
+func TestGroupKeepsActiveFlag(t *testing.T) {
+	e := newEnv(t)
+	e.Extra = "Timeouts 3600 3600"
+	var groups atomic.Int32
+	upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			switch {
+			case strings.HasPrefix(low, "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(low, "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case strings.HasPrefix(low, "list active"):
+				c.WriteLines("215 list", "test.alpha 3 1 m", "test.beta 3 1 n", ".")
+			case strings.HasPrefix(low, "group test.alpha"):
+				groups.Add(1)
+				c.WriteLines("211 4 1 4 test.alpha")
+			case strings.HasPrefix(low, "group test.beta"):
+				groups.Add(1)
+				c.WriteLines("211 4 1 4 test.beta")
+			case strings.HasPrefix(low, "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("500 what")
+			}
+		}
+	}})
+	s := e.session()
+	flags := func() map[string]string {
+		t.Helper()
+		if code, line := s.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE: %q", line)
+		}
+		got := map[string]string{}
+		for _, l := range s.ReadDotLines() {
+			if f := strings.Fields(l); len(f) == 4 {
+				got[f[0]] = f[1] + " " + f[3]
+			}
+		}
+		return got
+	}
+	if got := flags(); got["test.alpha"] != "3 m" || got["test.beta"] != "3 n" {
+		t.Fatalf("list from the news server: %v", got)
+	}
+	// GroupTimeout 0: a GROUP a second later asks the news server
+	time.Sleep(1100 * time.Millisecond)
+	for _, g := range []string{"test.alpha", "test.beta"} {
+		if code, line := s.Cmd("GROUP %s", g); code != 211 {
+			t.Fatalf("GROUP %s: %q", g, line)
+		}
+	}
+	if n := groups.Load(); n != 2 {
+		t.Fatalf("news server got %d GROUP commands, want 2", n)
+	}
+	if got := flags(); got["test.alpha"] != "4 m" || got["test.beta"] != "4 n" {
+		t.Errorf("after GROUP (new last number, flag kept): %v", got)
+	}
 }
