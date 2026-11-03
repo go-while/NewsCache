@@ -142,7 +142,7 @@ static void stale_prune(const string &dir, bool change_number, bool recreate)
 		    << "', expected '" << want << "'\n";
 		failures++;
 	}
-	History::remove(id, "g.race");
+	History::remove(id, "g.race", change_number ? 8 : 7);
 	if (recreate) unlink(marker.c_str());
 }
 #endif
@@ -236,12 +236,26 @@ int main(int argc, char **argv)
 	CHECK(locs("<a@check>") == "g.one:6,g.two:7");
 	History::add("<a@check>", "g.two", 7);	// unchanged
 	CHECK(locs("<a@check>") == "g.one:6,g.two:7");
-	History::remove("<a@check>", "g.one");
+	History::remove("<a@check>", "g.one", 5); // stale number
+	CHECK(locs("<a@check>") == "g.one:6,g.two:7");
+	History::remove("<a@check>", "g.one", 6);
 	CHECK(locs("<a@check>") == "g.two:7");
-	History::remove("<a@check>", "g.two");
+	History::remove("<a@check>", "g.two", 7);
 	CHECK(locs("<a@check>") == "");
-	History::remove("<nothing@check>", "g.two");
+	History::remove("<nothing@check>", "g.two", 7);
 	CHECK(locs("<nothing@check>") == "");
+
+	// Batch operations remain ordered: a later stale removal must not
+	// delete the new number, but a matching removal still works.
+	History::add("<batch-number@check>", "g.batch", 1);
+	{
+		HistoryBatch hb;
+		History::add("<batch-number@check>", "g.batch", 2);
+		History::remove("<batch-number@check>", "g.batch", 1);
+	}
+	CHECK(locs("<batch-number@check>") == "g.batch:2");
+	History::remove("<batch-number@check>", "g.batch", 2);
+	CHECK(locs("<batch-number@check>") == "");
 
 	// invalid message-IDs and group names are ignored
 	History::add("no-brackets", "g.one", 1);

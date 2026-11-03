@@ -345,7 +345,7 @@ void apply(Shard & s, int b, const unsigned char *dg, const Op & op)
 			v.push_back(l);
 		}
 	} else {
-		if (i == v.size())
+		if (i == v.size() || v[i].nbr != op.nbr)
 			return;
 		v.erase(v.begin() + i);
 	}
@@ -474,9 +474,9 @@ void History::note(const char *msgid, const char *group, artnum_t nbr)
 	add(msgid, group, nbr);
 }
 
-void History::remove(const char *msgid, const char *group)
+void History::remove(const char *msgid, const char *group, artnum_t nbr)
 {
-	queue_op(false, msgid, group, 0);
+	queue_op(false, msgid, group, nbr);
 }
 
 void History::begin(void)

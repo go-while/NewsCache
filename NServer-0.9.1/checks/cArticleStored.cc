@@ -14,12 +14,14 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "Logger.h"
 #include "TestTempDir.h"
 #include "Article.h"
 #include "NVNewsgroup.h"
 #include "OverviewFmt.h"
+#include "History.h"
 
 using namespace std;
 
@@ -41,6 +43,10 @@ struct StoredGroup:public NVNewsgroup {
 	}
 	void grow(artnum_t f, artnum_t l) {
 		cover(f, l);
+	}
+	void free_one(artnum_t n) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		freerange(n, n);
 	}
 	void store_bad_inline() {
 		NVLock guard(*this, NVcontainer::ExclLock);
@@ -117,6 +123,33 @@ static void replaced_before_cleanup(const string &dir, OverviewFmt &fmt)
 }
 #endif
 
+// A renumbered article has two spool slots but only the newer number in
+// history. Freeing the older slot must not remove the newer history entry.
+static void renumbered_freerange(const string &dir, OverviewFmt &fmt)
+{
+	History::setspooldir(dir.c_str());
+	StoredGroup g(&fmt, dir.c_str(), "test.renumber");
+	g.setsize(1, 2);
+	g.grow(1, 2);
+	const char *text = "From: from@x\r\nSubject: s\r\nMessage-ID: <renumber@x>\r\n"
+	    "Newsgroups: test.renumber\r\n\r\nbody\r\n";
+	Article old(1), newer(2);
+	old.settext(text);
+	newer.settext(text);
+	g.setarticle(&old);
+	g.setarticle(&newer);
+	vector < History::Location > v;
+	CHECK(History::lookup("<renumber@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].group == "test.renumber" && v[0].nbr == 2);
+	g.free_one(1);
+	CHECK(g.hasrecord(2));
+	CHECK(History::lookup("<renumber@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].group == "test.renumber" && v[0].nbr == 2);
+	// The matching slot still removes its own location normally.
+	g.free_one(2);
+	CHECK(History::lookup("<renumber@x>", v) == 0);
+}
+
 // A CR that isn't the start of a CR LF.
 static bool lone_cr(const string & s)
 {
@@ -165,6 +198,7 @@ int main(void)
 #ifdef NEWSCACHE_TEST_DROPBAD_RACE
 	replaced_before_cleanup(dir, fmt);
 #endif
+	renumbered_freerange(dir, fmt);
 
 	if (failures) {
 		cerr << failures << " checks failed\n";
