@@ -25,10 +25,14 @@ class ActiveDB {
 	enum {
 		m_active, m_times
 	};
+	// Reserved timestamp: the very first active-list refresh is incomplete.
+	enum { FIRST_REFRESH_PENDING = 1 };
 
 	enum {
 		F_STORE_READONLY = 0x1,
-		F_CLEAR = 0x2
+		F_CLEAR = 0x2,
+		// The caller publishes the freshness time after all replies.
+		F_DEFER_MTIME = 0x4
 	};
 
 	virtual void clear(void) = 0;
@@ -50,6 +54,8 @@ class ActiveDB {
 			   0, int mode = m_active, const char *filter =
 			   NULL) = 0;
 
+	// 0 is invalidated; FIRST_REFRESH_PENDING marks an incomplete initial
+	// fill. Neither is a usable list freshness time.
 	virtual void setmtime(unsigned long tm, int force = 0) = 0;
 	virtual void getmtime(unsigned long *tm) = 0;
 
