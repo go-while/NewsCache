@@ -1966,6 +1966,12 @@ func activeHandler(slow *atomic.Bool, lists *atomic.Int32) fakeserver.Options {
 // fresh while the second server is still pending. Once the second server
 // receives LIST ACTIVE it waits on a channel; no timing sets up the race.
 func TestActiveFirstRefreshAcrossServers(t *testing.T) {
+	t.Run("empty", func(t *testing.T) { activeFirstRefreshAcrossServers(t, false) })
+	t.Run("group-first", func(t *testing.T) { activeFirstRefreshAcrossServers(t, true) })
+}
+
+func activeFirstRefreshAcrossServers(t *testing.T, groupFirst bool) {
+	t.Helper()
 	e := newEnv(t)
 	e.addArticles("test.alpha", 1)
 	e.ServerLines = "    Read test.alpha"
@@ -2000,6 +2006,13 @@ func TestActiveFirstRefreshAcrossServers(t *testing.T) {
 	open := func() { releaseOnce.Do(func() { close(release) }) }
 	defer open()
 	e.ExtraServers = fmt.Sprintf("  Server %s %d {\n    Read test.beta\n    PostTo test.beta\n  }", second.Host(), second.Port())
+	if groupFirst {
+		// GROUP adds an individual record even though no list was fetched.
+		c := e.session()
+		if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+			t.Fatalf("GROUP before first list: %q", line)
+		}
+	}
 	a, b := e.session(), e.session()
 	aDone := make(chan struct{})
 	go func() {

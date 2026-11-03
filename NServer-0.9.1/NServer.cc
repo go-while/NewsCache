@@ -1016,7 +1016,7 @@ ActiveDB *RServer::active(bool)
 	// Another server may have completed after one failed and advanced the
 	// shared timestamp. The combined active list still needs another try.
 	if (_active_incomplete && !sockstream::stopping())
-		_ActiveDB->setmtime(0, 1);
+		_ActiveDB->setmtime(ActiveDB::INVALIDATED, 1);
 	else if (any_complete && !sockstream::stopping())
 		// No individual reply makes a multi-server list fresh: only the
 		// last successful reply publishes the shared freshness time.
@@ -2017,12 +2017,11 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 	unsigned long stamp;
 	bool first_fill;
 	{
-		// One snapshot: another process sets the first-fill marker before
-		// it applies any records to an initially empty database.
+		// A GROUP can add records before any full active-list refresh, so
+		// the timestamp, not database emptiness, identifies a first fill.
 		ActiveDBLock guard(_NVActiveDB);
 		_NVActiveDB->getmtime(&stamp);
-		first_fill = stamp == ActiveDB::FIRST_REFRESH_PENDING ||
-		    _NVActiveDB->is_empty();
+		first_fill = stamp <= ActiveDB::FIRST_REFRESH_PENDING;
 	}
 	if (!refresh_lock(wait_for_refresh || first_fill))
 		return _NVActiveDB;
@@ -2046,9 +2045,14 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 	try {
 		// Keep first-fill waiters waiting even after the first upstream
 		// applies records. A stopped first fill leaves this marker for the
-		// next attempt; an established list invalidated by -a has mtime 0.
-		if (_NVActiveDB->is_empty())
-			_NVActiveDB->setmtime(ActiveDB::FIRST_REFRESH_PENDING, 1);
+		// next attempt; an established list invalidated by -a has its own
+		// timestamp. Check and set together against concurrent invalidation.
+		{
+			ActiveDBLock guard(_NVActiveDB, NVcontainer::ExclLock);
+			_NVActiveDB->getmtime(&stamp);
+			if (stamp == 0)
+				_NVActiveDB->setmtime(ActiveDB::FIRST_REFRESH_PENDING, 1);
+		}
 		RServer::active();
 		// (not when the fetch failed because this process is
 		// stopping: that says nothing about the news servers, and the
@@ -2061,7 +2065,8 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 			nvtime_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
 			    _TTLActive : ACTIVE_RETRY_SECONDS;
 			nvtime_t age = _TTLActive - retry;
-			_NVActiveDB->setmtime(now > age ? now - age : 0, 1);
+			_NVActiveDB->setmtime(now > age && now - age > ActiveDB::INVALIDATED ?
+			    now - age : ActiveDB::INVALIDATED + 1, 1);
 		}
 	}
 	catch(Error & e) {

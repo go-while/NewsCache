@@ -588,7 +588,7 @@ class CServer
 	{
 		unsigned long tm;
 		 _NVActiveDB->getmtime(&tm);
-		 return tm > ActiveDB::FIRST_REFRESH_PENDING &&
+		 return tm > ActiveDB::INVALIDATED &&
 		     (tm + _TTLActive) > nvtime(NULL);
 	}
 
@@ -807,8 +807,8 @@ inline void CServer::invalidateActiveDB (void)
 	ActiveDBLock guard(_NVActiveDB, NVcontainer::ExclLock);
 	unsigned long tm;
 	_NVActiveDB->getmtime(&tm);
-	if (tm != ActiveDB::FIRST_REFRESH_PENDING)
-		_NVActiveDB->setmtime(0, 1);
+	if (tm > ActiveDB::FIRST_REFRESH_PENDING)
+		_NVActiveDB->setmtime(ActiveDB::INVALIDATED, 1);
 }
 #endif
 

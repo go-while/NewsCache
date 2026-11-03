@@ -25,8 +25,9 @@ class ActiveDB {
 	enum {
 		m_active, m_times
 	};
-	// Reserved timestamp: the very first active-list refresh is incomplete.
-	enum { FIRST_REFRESH_PENDING = 1 };
+	// Reserved timestamps: a first refresh is incomplete, or an established
+	// list was invalidated and should be refreshed.
+	enum { FIRST_REFRESH_PENDING = 1, INVALIDATED = 2 };
 
 	enum {
 		F_STORE_READONLY = 0x1,
@@ -54,8 +55,9 @@ class ActiveDB {
 			   0, int mode = m_active, const char *filter =
 			   NULL) = 0;
 
-	// 0 is invalidated; FIRST_REFRESH_PENDING marks an incomplete initial
-	// fill. Neither is a usable list freshness time.
+	// 0 means no refresh has been recorded; FIRST_REFRESH_PENDING marks an
+	// incomplete initial fill and INVALIDATED forces an established list to
+	// be refreshed. None is a usable list freshness time.
 	virtual void setmtime(unsigned long tm, int force = 0) = 0;
 	virtual void getmtime(unsigned long *tm) = 0;
 

@@ -1,5 +1,7 @@
 Bug fixes:
-* A first active-list refresh across several news servers is marked fresh
-  only after every server's reply completes. While the first refresh is in
-  progress, another session waits instead of serving a partial list as if
-  the remaining servers had no groups.
+* The first fetch of the active list (the list of groups) on a new spool,
+  from several news servers or with several Read patterns, no longer gives
+  other sessions a partial list while it runs: they wait for it. If NewsCache
+  was stopped during that first fetch, the next session fetches the list
+  again; before, the part already fetched was served as complete until the
+  list timed out (Timeouts).
