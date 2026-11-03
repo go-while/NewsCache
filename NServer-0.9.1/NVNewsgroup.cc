@@ -992,6 +992,22 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 // dense range is bounded by the bytes, a sparse one by the iterations.
 #define PRINT_LISTGROUP_STEP 4096
 
+/*
+ * Writes a chunk to the client and empties the buffer for the next one,
+ * keeping its memory: a new buffer (and a copy of it) for every chunk of
+ * a long reply made the memory grow with the reply under AddressSanitizer,
+ * which keeps freed memory back for a while.
+ */
+static void flush_chunk(ostream & os, stringstream & buf)
+{
+	// (an empty chunk inserts nothing: a streambuf inserter that copies
+	// no character would set failbit on os)
+	if (buf.tellp() > 0)
+		os << buf.rdbuf();
+	buf.str(string());
+	buf.clear();
+}
+
 void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::printoverdb(os,"
@@ -1002,8 +1018,10 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 	// every session that needed the exclusive lock waited that long.
 	// The record is copied under the lock because a record can be freed
 	// or the database remapped by another process.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+
 	for (;;) {
-		ostringstream buf;
 		artnum_t e, i, last = 0;
 
 		lock(NVcontainer::ShrdLock);
@@ -1022,7 +1040,7 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 				break;
 		}
 		lock(NVcontainer::UnLock);
-		os << buf.str();
+		flush_chunk(os, buf);
 		if (!os.good() || last >= e)
 			break;
 		f = last + 1;
@@ -1040,8 +1058,10 @@ void NVNewsgroup::printheaderdb(ostream & os,
 
 	// As in printoverdb: a bounded chunk under the lock, the write with
 	// the lock free, so a client that stops reading does not keep it.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+
 	for (;;) {
-		ostringstream buf;
 		unsigned long e, last = 0;
 
 		NVArray::lock(NVcontainer::ShrdLock);
@@ -1106,7 +1126,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 				break;
 		}
 		NVArray::lock(NVcontainer::UnLock);
-		os << buf.str();
+		flush_chunk(os, buf);
 		if (!os.good() || last >= e)
 			break;
 		f = last + 1;
@@ -1121,8 +1141,10 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 
 	// As in printoverdb: a bounded chunk under the lock, the write with
 	// the lock free.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+
 	for (;;) {
-		ostringstream buf;
 		artnum_t e, i;
 
 		lock(NVcontainer::ShrdLock);
@@ -1141,7 +1163,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 				break;
 		}
 		lock(NVcontainer::UnLock);
-		os << buf.str();
+		flush_chunk(os, buf);
 		if (!os.good() || i >= e)
 			break;
 		f = i + 1;
