@@ -1731,6 +1731,70 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 	}
 }
 
+// TestSIGTERMDuringCommandDaemon: a daemon session stopped with SIGTERM
+// while a command waits for the news server still sends that command's
+// reply and then "400 ... service discontinued". The signal sets alarmed,
+// and the flush of the reply failed on it: the client got nothing, not
+// even the 240 for a post that went to the spool, and the log said
+// "can't be written to". The inetd tests didn't see it: their output is
+// stdio, which doesn't look at alarmed.
+func TestSIGTERMDuringCommandDaemon(t *testing.T) {
+	for _, tc := range []struct {
+		name, cmd string
+	}{
+		{"post", "POST"},
+		{"article", "ARTICLE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			upstreamWith(t, e, fakeserver.Options{Deadline: 2 * time.Minute,
+				Faults: fakeserver.Faults{Delay: map[string]time.Duration{tc.cmd: time.Minute}}})
+			p := e.standalone()
+			c := e.dial()
+			c.Deadline = 10 * time.Second
+			if tc.cmd == "POST" {
+				if code, line := c.Cmd("POST"); code != 340 {
+					t.Fatalf("POST: %q", line)
+				}
+				c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: s\r\n" +
+					"Message-ID: <sigterm.daemon@client.test>\r\n\r\nhello\r\n.\r\n")
+			} else {
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP: %q", line)
+				}
+				c.Send("ARTICLE 1\r\n")
+			}
+			waitFor(t, tc.cmd+" upstream", func() bool { return e.Upstream.Count(tc.cmd) >= 1 })
+			s := childPids(t, p.Pid())
+			if len(s) != 1 {
+				t.Fatalf("%d session processes, want 1", len(s))
+			}
+			syscall.Kill(s[0], syscall.SIGTERM)
+			var got []string
+			for {
+				_, line, err := c.ReadStatus()
+				if err != nil {
+					break
+				}
+				got = append(got, line)
+			}
+			if len(got) != 2 || !strings.HasPrefix(got[1], "400 ") ||
+				!strings.Contains(got[1], "service discontinued") {
+				t.Fatalf("after SIGTERM the client got %q, want the command's reply and then 400 service discontinued", got)
+			}
+			if tc.cmd == "POST" {
+				if !strings.HasPrefix(got[0], "240") {
+					t.Errorf("POST reply %q, want 240 (the article went to the spool)", got[0])
+				}
+				if n := len(spooledIn(t, e, ".artSpool")); n != 1 {
+					t.Errorf("%d articles in the spool, want 1", n)
+				}
+			}
+		})
+	}
+}
+
 // TestSIGTERMUpdatenewsPosting: updatenews, stopped while it posts a
 // spooled article, ends without a new connection to the news server (no
 // retry of the post, no active list afterwards), and the article stays

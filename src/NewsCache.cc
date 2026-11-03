@@ -3318,6 +3318,23 @@ static bool finish_reply(ostream & co, const ReplyTracker & tracker,
 }
 
 /*
+ * After SIGTERM or SIGINT, the replies still to send (the last command's
+ * and the goodbye) get two seconds together, once: then the alarm (see
+ * catchsignal; a connect or the command read may have cancelled it) ends
+ * a send to a client that doesn't read. alarm(2) comes first: it cancels
+ * the pending one-second alarm, which could otherwise set alarmed again
+ * right after it was cleared.
+ */
+static void stop_grace(bool *armed)
+{
+	if (*armed)
+		return;
+	*armed = true;
+	alarm(2);
+	alarmed = 0;
+}
+
+/*
  * Sets the send timeout of the client's output and the receive timeout of
  * its input from ClientTimeout (not for a client that isn't a socket).
  * A send or receive that times out fails; the stream goes bad and the
@@ -3453,6 +3470,8 @@ void nnrpd(int fd, bool tls)
 	char *argv[256];
 	int argc;
 	bool too_long;
+	// the two seconds after a signal are armed (see stop_grace)
+	bool stop_armed = false;
 	const char *cmd;
 	map < string, nnrp_command_t * >::iterator cmdp, end =
 	    nnrp_commands.end();
@@ -3763,6 +3782,12 @@ void nnrpd(int fd, bool tls)
 		// the old request first so a shorter line cannot leave an AUTHINFO
 		// password behind in the reused buffer.
 		memset(req, 0, sizeof(req));
+		// After a signal during the last command (catchsignal set
+		// alarmed), the flush failed: that command's reply (a POST
+		// that went to the spool, say) was dropped, and the session
+		// ended without the goodbye below.
+		if (Xsignal != -1)
+			stop_grace(&stop_armed);
 		flush(*clt.co);
 		if (!clt.co->good()) {
 			// the client doesn't read its replies (send timed out)
@@ -3803,15 +3828,9 @@ void nnrpd(int fd, bool tls)
 			alarm (0);
 		}
 		if (Xsignal != -1) {
-			// (else the reply isn't sent) The goodbye gets two
-			// seconds: then the alarm (see catchsignal; a connect
-			// or the command read may have cancelled it) ends a
-			// send to a client that doesn't read. alarm(2) comes
-			// first: it cancels the pending one-second alarm,
-			// which could otherwise set alarmed again right after
-			// it was cleared.
-			alarm(2);
-			alarmed = 0;
+			// (else the reply isn't sent; a signal during the
+			// read comes here without the flush above)
+			stop_grace(&stop_armed);
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
