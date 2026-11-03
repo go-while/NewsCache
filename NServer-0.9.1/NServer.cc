@@ -1962,8 +1962,14 @@ bool CServer::refresh_lock(bool block)
 			_refresh_locked = true;
 			return true;
 		}
-		if (errno == EINTR)
+		if (errno == EINTR) {
+			// after SIGTERM or SIGINT the process ends: it doesn't
+			// wait for another process's fetch (that can take
+			// ACTIVE_REPLY_SECONDS) and fetches nothing itself
+			if (sockstream::stopping())
+				return false;
 			continue;
+		}
 		if (!block && (errno == EACCES || errno == EAGAIN))
 			return false;	// another process is fetching
 		slog.p(Logger::Warning) << "cannot lock the active list's refresh lock: "
@@ -1998,17 +2004,24 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 	// serves that one while another refreshes, and waits only when there
 	// is no list at all (first start, a damaged .active64) or when the
 	// caller needs a fresh one (updatenews -a).
-	if (!wait_for_refresh && !_NVActiveDB->is_empty()) {
-		if (!refresh_lock(false))
-			return _NVActiveDB;	// another process is fetching
-	} else {
-		refresh_lock(true);
-	}
+	// (refresh_lock is false when another process is fetching, or when
+	// this one is stopping: then the list it has is served)
+	if (!refresh_lock(wait_for_refresh || _NVActiveDB->is_empty()))
+		return _NVActiveDB;
 	// Another process may have refreshed the list between the check above
 	// and the lock (the non-blocking branch included): its list is as fresh
 	// as one this process would fetch, so nothing is fetched again. This is
 	// the check that keeps the waiters from fetching the list a second time.
-	if (active_valid()) {
+	// (It can throw, e.g. after SIGTERM: the refresh lock goes first.)
+	bool valid;
+	try {
+		valid = active_valid();
+	}
+	catch(...) {
+		refresh_unlock();
+		throw;
+	}
+	if (valid) {
 		refresh_unlock();
 		return _NVActiveDB;
 	}

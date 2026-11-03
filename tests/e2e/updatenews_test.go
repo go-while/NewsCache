@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -957,5 +958,87 @@ func TestUpdatenewsActiveRefreshOnce(t *testing.T) {
 	run("-a") // -a invalidates the list and fetches it again
 	if got := lists(); got <= first {
 		t.Errorf("-a did not fetch the active list again (%d -> %d)", first, got)
+	}
+}
+
+// TestUpdatenewsSIGTERMWaitingRefresh: updatenews -a that waits for another
+// session's fetch of the active list ends at once on SIGTERM. It waited
+// for that fetch to finish (up to ACTIVE_REPLY_SECONDS with a slow news
+// server), and #269's "ends within about a second" didn't hold there.
+func TestUpdatenewsSIGTERMWaitingRefresh(t *testing.T) {
+	e := newEnv(t)
+	e.Extra = "Timeouts 1 3600"
+	e.addArticles("test.alpha", 3)
+	var lists atomic.Int32
+	upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			switch {
+			case strings.HasPrefix(low, "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(low, "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:",
+					"References:", ":bytes", ":lines", "Xref:full", ".")
+			case strings.HasPrefix(low, "list active"):
+				// the session's fetch is slow; updatenews waits for it
+				if lists.Add(1) == 1 {
+					time.Sleep(10 * time.Second)
+				}
+				c.WriteLines("215 list", "test.alpha 5 1 y", ".")
+			case strings.HasPrefix(low, "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("200 ok")
+			}
+		}
+	}})
+	bin := updatenewsBin(t, e)
+	a := e.session()
+	a.Deadline = 30 * time.Second
+	a.Send("LIST ACTIVE\r\n")
+	waitFor(t, "the session's LIST ACTIVE upstream", func() bool { return lists.Load() >= 1 })
+
+	var out bytes.Buffer
+	cmd := exec.Command(bin, "-c", e.Conf, "-a")
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	// give updatenews time to reach the wait for the refresh lock
+	time.Sleep(1500 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("updatenews ended before the signal (%v), it should wait for the session's fetch: %s", err, out.String())
+	default:
+	}
+	start := time.Now()
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+		took := time.Since(start)
+		t.Logf("updatenews ended %v after SIGTERM", took.Round(10*time.Millisecond))
+		if took > 3*time.Second {
+			t.Errorf("updatenews ended %v after SIGTERM, want within about a second", took.Round(10*time.Millisecond))
+		}
+	case <-time.After(20 * time.Second):
+		cmd.Process.Kill()
+		t.Fatalf("updatenews still running 20 s after SIGTERM")
+	}
+	if n := lists.Load(); n != 1 {
+		t.Errorf("%d LIST ACTIVE upstream, want 1 (updatenews must not fetch after the signal)", n)
+	}
+	// the session's own fetch goes on and its LIST ACTIVE is answered
+	if code, line, err := a.ReadStatus(); err != nil || code != 215 {
+		t.Errorf("the session's LIST ACTIVE: %q %v, want 215", line, err)
+	} else {
+		a.ReadDotLines()
 	}
 }

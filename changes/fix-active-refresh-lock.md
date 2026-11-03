@@ -10,4 +10,7 @@ Bug fixes:
   (.active.refresh) makes sure only one session fetches the list at a time: a
   session that finds another one fetching serves the list it has, and only a
   session with no list at all (first start, a damaged .active64) or
-  updatenews -a waits for the fetch to finish.
+  updatenews -a waits for the fetch to finish. Meanwhile a group that is new
+  on the news server is unknown (411) until that fetch is done. A session or
+  updatenews stopped with SIGTERM or SIGINT while it waits for another
+  one's fetch ends at once; it waited for that fetch to finish.
