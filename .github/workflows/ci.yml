@@ -307,7 +307,7 @@ jobs:
             status=0
             su newscache -s /bin/sh -c 'make check' || status=\$?
             sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
-            if [ \"\$status\" -ne 0 ]; then find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit \"\$status\"; fi
+            if [ \"\$status\" -ne 0 ]; then sh .github/ci/e2e-failures.sh tests/e2e/run.sh.log || true; find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit \"\$status\"; fi
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
           "
 
@@ -337,7 +337,9 @@ jobs:
             status=0
             su -m newscache -c 'HOME=/home/newscache gmake check' || status=$?
             sh .github/ci/e2e-skip-summary.sh tests/e2e/run.sh.log || echo 'e2e skips: summary failed'
-            if [ "$status" -ne 0 ]; then find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit "$status"; fi
+            # the failed tests' own output (the log's tail misses a test
+            # that failed early in the run)
+            if [ "$status" -ne 0 ]; then sh .github/ci/e2e-failures.sh tests/e2e/run.sh.log || true; find . -name test-suite.log -o -name run.sh.log | xargs tail -n 60 || true; exit "$status"; fi
             grep -q '^:test-result: PASS' tests/e2e/run.sh.trs
 
   container:
