@@ -1013,13 +1013,12 @@ ActiveDB *RServer::active(bool)
 			e.print();
 		}
 	}
-	// Another server may have completed after one failed and advanced the
-	// shared timestamp. The combined active list still needs another try.
-	if (_active_incomplete && !sockstream::stopping())
-		_ActiveDB->setmtime(ActiveDB::INVALIDATED, 1);
-	else if (any_complete && !sockstream::stopping())
-		// No individual reply makes a multi-server list fresh: only the
-		// last successful reply publishes the shared freshness time.
+	// No individual reply makes a multi-server list fresh: the whole
+	// refresh is stamped once, here, when every server answered. An
+	// incomplete one is stamped by CServer::active with the retry time
+	// (stamping it here too could, after a signal between the two checks,
+	// turn an unfinished first fill's marker into INVALIDATED).
+	if (!_active_incomplete && any_complete && !sockstream::stopping())
 		_ActiveDB->setmtime(nvtime(NULL));
 	return _ActiveDB;
 }
