@@ -291,8 +291,11 @@ jobs:
           CONFIGURE_FLAGS: ${{ matrix.configure }}
         run: |
           # The tree is mounted read-only and copied, so the build doesn't
-          # leave root-owned files in the workspace.
-          docker run --rm -v "$PWD:/src:ro" -e CONFIGURE_FLAGS "$IMAGE" sh -c "
+          # leave root-owned files in the workspace. --init: an init as
+          # PID 1 reaps the processes orphaned in the container (the
+          # daemon's sessions, updatenews); the shell there doesn't, and
+          # the tests that count child processes would see its zombies.
+          docker run --rm --init -v "$PWD:/src:ro" -e CONFIGURE_FLAGS "$IMAGE" sh -c "
             set -e
             $SETUP
             cp -r /src /build && cd /build
