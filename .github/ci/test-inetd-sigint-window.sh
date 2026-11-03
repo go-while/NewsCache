@@ -8,7 +8,7 @@ set -eu
 : "${RUNNER_TEMP:?}"
 for marker in 'test hook: SIGINT before inetd read' 'test hook: SIGTERM before ' 'NEWSCACHE_TEST_DROPBAD_READY_FD'; do
 	if strings "$GITHUB_WORKSPACE/src/newscache" | grep -F "$marker"; then
-		echo "normal build unexpectedly contains a signal test hook ($marker)" >&2
+		echo "normal build unexpectedly contains a test hook ($marker)" >&2
 		exit 1
 	fi
 done
@@ -23,7 +23,7 @@ make -j"$(nproc)"
 # Without the hooks the reproducers would only time out: say why.
 for marker in 'test hook: SIGINT before inetd read' 'test hook: SIGTERM before ' 'NEWSCACHE_TEST_DROPBAD_READY_FD'; do
 	if ! strings src/newscache | grep -qF "$marker"; then
-		echo "test build lacks a signal test hook ($marker; CPPFLAGS lost?)" >&2
+		echo "test build lacks a test hook ($marker; CPPFLAGS lost?)" >&2
 		exit 1
 	fi
 done

@@ -1,5 +1,5 @@
 Bug fixes:
-* A stored article found unreadable is removed only if it is still the
-  same record after taking the exclusive lock. Another session could replace
-  it while the shared lock was given up for the upgrade, and the cleanup
-  then removed that new article instead.
+* A stored article that can't be read is removed from the cache, so that
+  it is fetched again. When another session had just stored a good copy of
+  that article, the good copy could be removed instead (and was fetched
+  again on the next request). Now only the unreadable copy is removed.
