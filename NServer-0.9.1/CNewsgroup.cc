@@ -1,5 +1,11 @@
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "CNewsgroup.h"
 #include "RNewsgroup.h"
+#include "History.h"
 
 using namespace std;
 
@@ -11,6 +17,120 @@ static inline artnum_t chunk_end(artnum_t a)
 
 // the lock guard of NVcontainer.h (it was defined here first)
 typedef NVLock GroupLock;
+
+namespace {
+/*
+ * The fetch lock of a chunk: one byte of <spool>/.fetch.lock, locked
+ * with fcntl while a process fetches that chunk of a group from the news
+ * server. A second session that wants the same chunk waits for the first
+ * one and then finds it stored, instead of asking the news server again.
+ * It is not the group's database lock, which is held only while records
+ * are read or stored: a session that reads what the spool holds doesn't
+ * wait for the news server.
+ *
+ * The byte is a hash of the group's name and the chunk number; two
+ * chunks with the same byte are only fetched one after the other. It
+ * can't deadlock: a process takes the fetch lock holding no lock of a
+ * database (nor another fetch lock), and while it holds it, it waits only
+ * for the locks of the group's database, the history and the active list
+ * (the GROUP before a fetch), which nobody holds while waiting for a
+ * fetch lock. The file is not one of NVcontainer's (whose locks cover
+ * whole files, and would drop a byte lock of the same process on the
+ * same file), and holds no data; newscacheclean leaves it alone.
+ *
+ * fcntl locks belong to the process and are all given up when any of its
+ * descriptors for the file is closed, so the file is opened once per
+ * process and kept open (O_CLOEXEC: programs started with exec don't get
+ * it). A forked session doesn't inherit its parent's locks.
+ */
+int fetch_fd = -1;
+std::string fetch_fn;
+
+off_t fetch_byte(const char *group, artnum_t c)
+{
+	// FNV-1a of the name, then the chunk number mixed in
+	uint64_t h = 14695981039346656037ULL;
+	for (const unsigned char *p = (const unsigned char *) group; *p; p++) {
+		h ^= *p;
+		h *= 1099511628211ULL;
+	}
+	h ^= c;
+	h *= 1099511628211ULL;
+	h ^= h >> 29;
+	// (below 2^30: a valid offset also where off_t has 32 bits)
+	return (off_t) (h & ((1ULL << 30) - 1));
+}
+
+class ChunkFetchLock {
+	off_t _at;
+	bool _held;
+	ChunkFetchLock(const ChunkFetchLock &);
+	ChunkFetchLock & operator=(const ChunkFetchLock &);
+  public:
+	// take = false: no lock (see prefetchGroup)
+	ChunkFetchLock(const std::string & fn, const char *group, artnum_t c,
+		       bool take = true);
+	~ChunkFetchLock();
+};
+
+ChunkFetchLock::ChunkFetchLock(const std::string & fn, const char *group,
+			       artnum_t c, bool take)
+:_at(fetch_byte(group, c)), _held(false)
+{
+	struct flock lk;
+
+	if (!take)
+		return;
+	if (fetch_fd < 0 || fetch_fn != fn) {
+		if (fetch_fd >= 0)
+			close(fetch_fd);
+		fetch_fn = fn;
+		fetch_fd = open(fn.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+		if (fetch_fd < 0) {
+			// fetch anyway: at worst two sessions ask for the same
+			// chunk, as they did before there was this lock
+			slog.p(Logger::Warning) << "cannot open " << fn << ": "
+			    << strerror(errno) << ", fetching without the lock\n";
+			return;
+		}
+	}
+	memset(&lk, 0, sizeof(lk));
+	lk.l_type = F_WRLCK;
+	lk.l_whence = SEEK_SET;
+	lk.l_start = _at;
+	lk.l_len = 1;
+	while (fcntl(fetch_fd, F_SETLKW, &lk) != 0) {
+		if (errno == EINTR) {
+			// A signal. A session told to stop doesn't wait for
+			// another one's fetch (which may take minutes).
+			if (sockstream::stopping())
+				throw SystemError("waiting for another process's "
+						  "fetch: shutting down", -1,
+						  ERROR_LOCATION);
+			continue;
+		}
+		slog.p(Logger::Warning) << "cannot lock " << fn << ": "
+		    << strerror(errno) << ", fetching without the lock\n";
+		return;
+	}
+	_held = true;
+}
+
+ChunkFetchLock::~ChunkFetchLock()
+{
+	struct flock lk;
+
+	if (!_held)
+		return;
+	memset(&lk, 0, sizeof(lk));
+	lk.l_type = F_UNLCK;
+	lk.l_whence = SEEK_SET;
+	lk.l_start = _at;
+	lk.l_len = 1;
+	while (fcntl(fetch_fd, F_SETLK, &lk) != 0 && errno == EINTR)
+		;
+}
+}
 
 CNewsgroup::~CNewsgroup()
 {
@@ -111,87 +231,204 @@ void CNewsgroup::setsize(artnum_t f, artnum_t l)
 }
 
 /*
- * Brings [f,l] of the index (at most one chunk) up to date with the news
- * server: fetches the overview records the spool doesn't have and, if
- * the server supports LISTGROUP, drops the articles it no longer has.
- * Needs the exclusive lock. Throws what the server connection throws.
+ * Whether chunk c was synchronized within the group's timeout, up to l
+ * at least. Under the shared lock: a session that only reads doesn't
+ * wait for another one that stores.
  */
-void CNewsgroup::syncrange(artnum_t f0, artnum_t l0)
+bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
 {
-	VERB(slog.p(Logger::Debug) << "CNewsgroup::syncrange(" << f0 << ","
-	     << l0 << ")\n");
-	artnum_t f, l, i, done = 0;
-	char *lstgrp;
+	SyncEnt e;
+	GroupLock guard(*this, NVcontainer::ShrdLock);
 
-	if ((lstgrp = (char *) calloc(l0 - f0 + 1, sizeof(char))) == NULL) {
-		slog.p(Logger::Critical) <<
-		    "out of memory, cannot allocate lstgrp\n";
-		return;
+	getsync(c, &e);
+	return e.time && e.time + _TTLGroup >= now && e.through >= l;
+}
+
+/*
+ * The part of the chunk of [f,l] to fetch, into cf (under the shared
+ * lock): the whole chunk as far as the index and the group reach, or,
+ * within the group's timeout, the numbers above the synchronized ones.
+ * false: the index doesn't reach [f,l], nothing to do.
+ */
+bool CNewsgroup::chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf)
+{
+	SyncEnt e;
+	GroupLock guard(*this, NVcontainer::ShrdLock);
+
+	getsync(cf.c, &e);
+	cf.full = !(e.time && e.time + _TTLGroup >= cf.now);
+	if (arrfst > arrlst || f > arrlst || l < arrfst)
+		return false;
+	cf.top = chunk_end(f);
+	if (cf.top > arrlst)
+		cf.top = arrlst;
+	if (_ghave && cf.top > _glast)
+		cf.top = _glast;
+	if (cf.full) {
+		cf.from = cf.c * OVERVIEW_CHUNK;
+		if (cf.from < arrfst)
+			cf.from = arrfst;
+		if (_ghave && cf.from < _gfirst)
+			cf.from = _gfirst;
+	} else {
+		cf.from = e.through + 1;
 	}
-	try {
-		listgroup(lstgrp, f0, l0);
-		if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP) {
-			f = f0;
-			while (f <= l0) {
-				if ((NVArray::shas_element(f) && lstgrp[f - f0])
-				    || (!NVArray::shas_element(f)
-					&& !lstgrp[f - f0])) {
-					f++;
-					continue;
-				}
-				if (lstgrp[f - f0]) {
-					// We do not have this article. Articles
-					// the server lists but has no overview
-					// record for are asked for only once.
-					if (f <= done) {
-						f++;
-						continue;
-					}
-					l = f;
-					for (i = l + 1; i < l + 8 && i <= l0; i++) {
-						if (!NVArray::shas_element(i)
-						    && lstgrp[i - f0])
-							l = i;
-					}
-					_RServer->overviewdb(this, f, l);
-					done = l;
-					// Go on with the next article, not past
-					// the fetched range: articles we have in
-					// between may have expired upstream and
-					// must still be removed below.
-					f++;
-				} else {
-					// We do have this article, but it has been
-					// deleted (freerange removes a big
-					// article's file too)
-					freerange(f, f);
-					f++;
-				}
-			}
-		} else {
-			// No LISTGROUP: fetch the runs of numbers we have no
-			// record for (gaps of fewer than 8 cached ones along)
-			f = f0;
-			while (f <= l0) {
-				if (NVArray::shas_element(f)) {
-					f++;
-					continue;
-				}
-				l = f;
-				for (i = l + 1; i < l + 8 && i <= l0; i++) {
-					if (!NVArray::shas_element(i))
-						l = i;
-				}
-				_RServer->overviewdb(this, f, l);
-				f = l + 1;
-			}
+	return true;
+}
+
+namespace {
+/*
+ * Takes the overview records that RServer::overviewdb reads into memory
+ * instead of into the spool. RNewsgroup::readoverdb reads them with the
+ * same reply budget and deadline, conversion and Xref filter as
+ * NVNewsgroup::readoverdb.
+ */
+class OverCollector:public RNewsgroup {
+	std::vector < std::string > &_records;
+  public:
+	OverCollector(RServer * srvr, OverviewFmt * fmt, const char *name,
+		      std::vector < std::string > &records)
+	: RNewsgroup(srvr, fmt, name), _records(records) {
+	}
+	virtual void setover(const std::string & over) {
+		_records.push_back(over);
+	}
+};
+}
+
+/*
+ * Asks the news server for [cf.from, cf.top] (at most one chunk): which
+ * numbers it has, if it supports LISTGROUP, and the overview records the
+ * spool doesn't have. Nothing is stored and no lock is held while the
+ * news server is waited for; storechunk() stores the result. Throws what
+ * the server connection throws (cf keeps what came before).
+ */
+void CNewsgroup::fetchchunk(ChunkFetch & cf)
+{
+	VERB(slog.p(Logger::Debug) << "CNewsgroup::fetchchunk(" << cf.from
+	     << "," << cf.top << ")\n");
+	artnum_t f, l, i, done = 0, f0 = cf.from, l0 = cf.top;
+	std::vector < char > have(l0 - f0 + 1, 0);
+	OverCollector got(_RServer, _OverviewFormat, _NewsgroupName,
+			  cf.records);
+
+	cf.lstgrp.assign(l0 - f0 + 1, 0);
+	listgroup(&cf.lstgrp[0], f0, l0);
+	cf.listed = (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP) != 0;
+	{
+		// the records the spool has now (storechunk checks again)
+		GroupLock guard(*this, NVcontainer::ShrdLock);
+		for (f = f0;; f++) {
+			have[f - f0] = NVArray::shas_element(f) ? 1 : 0;
+			if (f == l0)
+				break;
 		}
 	}
-	catch(...) {
-		free(lstgrp);
-		throw;
+	if (cf.listed) {
+		// The listed numbers we have no record for, in runs (with
+		// fewer than 8 others in between). Articles the server lists
+		// but has no overview record for are asked for only once.
+		// The ones we have that it no longer lists go in storechunk.
+		for (f = f0; f <= l0; f++) {
+			if (have[f - f0] || !cf.lstgrp[f - f0] || f <= done)
+				continue;
+			l = f;
+			for (i = l + 1; i < l + 8 && i <= l0; i++) {
+				if (!have[i - f0] && cf.lstgrp[i - f0])
+					l = i;
+			}
+			_RServer->overviewdb(&got, f, l);
+			done = l;
+		}
+	} else {
+		// No LISTGROUP: fetch the runs of numbers we have no record
+		// for (gaps of fewer than 8 cached ones along)
+		f = f0;
+		while (f <= l0) {
+			if (have[f - f0]) {
+				f++;
+				continue;
+			}
+			l = f;
+			for (i = l + 1; i < l + 8 && i <= l0; i++) {
+				if (!have[i - f0])
+					l = i;
+			}
+			_RServer->overviewdb(&got, f, l);
+			f = l + 1;
+		}
 	}
-	free(lstgrp);
+}
+
+/*
+ * Stores what fetchchunk() got, under the exclusive lock. Another session
+ * may have changed the group while this one waited for the news server
+ * (the fetch lock keeps others from fetching the same chunk, not from
+ * resizing the index or storing articles), so everything is checked
+ * again here: records go only where the index still is and has none, a
+ * number the server no longer lists goes only if it is still there, and
+ * the chunk is marked synchronized only as far as the fetch covered it.
+ * complete = false: the fetch failed half way; what came is stored, but
+ * the chunk isn't marked.
+ */
+void CNewsgroup::storechunk(ChunkFetch & cf, bool complete)
+{
+	// (as in readoverdb: the history entries are added in one go per
+	// shard, after the group's lock is given back)
+	HistoryBatch hb;
+	GroupLock guard(*this, NVcontainer::ExclLock);
+	artnum_t f, top = cf.top, first;
+	SyncEnt e;
+
+	if (arrfst > arrlst)
+		return;
+	if (top > arrlst)
+		top = arrlst;
+	if (_ghave && top > _glast)
+		top = _glast;
+	for (std::vector < std::string >::const_iterator r = cf.records.begin();
+	     r != cf.records.end(); ++r) {
+		artnum_t n = leading_artnum(r->c_str());
+		if (n < arrfst || n > top || (_ghave && n < _gfirst))
+			continue;
+		// (stores only where there is no record yet)
+		NVNewsgroup::setover(*r);
+	}
+	if (cf.listed && !cf.lstgrp.empty()) {
+		// We have these articles, but the news server has deleted
+		// them (freerange removes a big article's file too)
+		f = cf.from < arrfst ? arrfst : cf.from;
+		for (; f <= top; f++) {
+			if (!cf.lstgrp[f - cf.from] && NVArray::shas_element(f))
+				freerange(f, f);
+			if (f == top)
+				break;
+		}
+	}
+	if (!complete) {
+		if (!cf.records.empty())
+			setmtime(cf.now);
+		return;
+	}
+	getsync(cf.c, &e);
+	if (cf.full) {
+		// Unless the index grew down into the chunk meanwhile: those
+		// numbers weren't fetched.
+		first = cf.c * OVERVIEW_CHUNK;
+		if (first < arrfst)
+			first = arrfst;
+		if (_ghave && first < _gfirst)
+			first = _gfirst;
+		if (first >= cf.from)
+			setsync(cf.c, cf.now, top);
+	} else if (e.through + 1 >= cf.from && top > e.through) {
+		// The new numbers above the synchronized ones; unless a lower
+		// last number cut the synchronized part below where this
+		// fetch began meanwhile (the numbers in between weren't
+		// fetched)
+		setsync(cf.c, e.time, top);
+	}
+	setmtime(cf.now);
 }
 
 /*
@@ -216,47 +453,43 @@ artnum_t CNewsgroup::cover_safe(artnum_t f, artnum_t l)
 
 bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 {
-	artnum_t c = f / OVERVIEW_CHUNK, from, top;
-	SyncEnt e;
-	nvtime_t now = nvtime(NULL);
-	int full;
+	ChunkFetch cf;
 
-	GroupLock guard(*this, NVcontainer::ExclLock);	// (sUpdateGroupInfo may throw)
-	getsync(c, &e);
-	full = !(e.time && e.time + _TTLGroup >= now);
-	if (!full && e.through >= l)
+	cf.c = f / OVERVIEW_CHUNK;
+	cf.now = nvtime(NULL);
+	cf.from = 1;
+	cf.top = 0;
+	cf.full = false;
+	cf.listed = false;
+	if (synced(cf.c, l, cf.now))
+		return true;
+	// One process fetches a chunk at a time. A session that finds another
+	// one fetching it waits, and then serves what that one stored. The
+	// group's database isn't locked while the news server is asked: the
+	// sessions that only read the group go on meanwhile.
+	ChunkFetchLock fetching(_FetchLockFile, name(), cf.c);
+	if (synced(cf.c, l, cf.now))
 		return true;
 	if (!*refreshed) {
 		// about to ask the news server: first its current numbers
 		*refreshed = 1;
 		sUpdateGroupInfo();
-		getsync(c, &e);
-		full = !(e.time && e.time + _TTLGroup >= now);
 	}
-	if (arrfst > arrlst || f > arrlst || l < arrfst)
+	if (!chunkrange(f, l, cf))
 		return true;
-	top = chunk_end(f);
-	if (top > arrlst)
-		top = arrlst;
-	if (_ghave && top > _glast)
-		top = _glast;
-	if (full) {
-		from = c * OVERVIEW_CHUNK;
-		if (from < arrfst)
-			from = arrfst;
-		if (_ghave && from < _gfirst)
-			from = _gfirst;
-	} else {
-		from = e.through + 1;
-	}
 	try {
-		if (from <= top)
-			syncrange(from, top);
-		if (full)
-			setsync(c, now, top);
-		else if (top > e.through)
-			setsync(c, e.time, top);
-		setmtime(now);
+		if (cf.from <= cf.top) {
+			try {
+				fetchchunk(cf);
+			}
+			catch(...) {
+				// what came before the failure is kept, as when
+				// the records were stored as they came
+				storechunk(cf, false);
+				throw;
+			}
+		}
+		storechunk(cf, true);
 	}
 	catch(SystemError & ex) {
 		// (disk full) the chunk's records may be missing
@@ -446,25 +679,26 @@ void CNewsgroup::prefetchOverview(void)
 		if (b > l)
 			b = l;
 		freshen(a, b, &refreshed);
-		if (b >= l)
+		// (after SIGTERM every further chunk would only fail and log)
+		if (b >= l || sockstream::stopping())
 			break;
 	}
 }
 
 /*
  * updatenews -g: the articles of the newest MAX_INDEX_SPAN numbers of the
- * group, chunk by chunk. lockgrp: keep the group locked for each chunk
- * (otherwise only while an article is stored or removed).
+ * group, chunk by chunk. The news server is asked without the group's
+ * lock; an article is stored, or one the server no longer has removed,
+ * under the exclusive lock, so the group stays readable meanwhile.
+ * lockgrp (-l): the chunk is reserved for the prefetch (its fetch lock,
+ * see ChunkFetchLock), so a session that needs the chunk's overview waits
+ * for the prefetch instead of asking the news server for it too.
  */
 void CNewsgroup::prefetchGroup(int lockgrp)
 {
 	VERB(slog.p(Logger::Debug) << "CNewsgroup::prefetchGroup()\n");
 
-	char *data;
-	size_t szdata;
 	artnum_t f, l, a, b, cl;
-	char *lstgrp;
-	Article *art = NULL;
 
 	sUpdateGroupInfo();
 	f = 0;
@@ -480,54 +714,10 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 		b = chunk_end(a);
 		if (b > l)
 			b = l;
-		if ((lstgrp = (char *) calloc(b - a + 1, sizeof(char))) == NULL) {
-			slog.p(Logger::Critical) <<
-			    "out of memory, cannot allocate lstgrp\n";
-			return;
-		}
-		// (the guards give the locks back also when an exception
-		// leaves the block: one left held kept the group locked for
-		// the rest of the prefetch)
-		GroupLock chunklock(*this, lockgrp ? NVcontainer::ExclLock :
-				    NVcontainer::ShrdLock);
 		try {
-			listgroup(lstgrp, a, b);
-			for (f = a;; f++) {
-				NVArray::sget(f, &data, &szdata);
-				if (!data) {
-					// both, we and the news server do not have
-					// the article
-					if (!lstgrp[f - a])
-						goto next;
-				} else if ((*data == article || *data == bigarticle)
-					   && lstgrp[f - a]) {
-					// both, we and the news server do have it
-					goto next;
-				}
-				{
-					GroupLock artlock(*this, NVcontainer::ExclLock,
-							  !lockgrp);
-					if (!lockgrp)
-						NVArray::sget(f, &data, &szdata);
-					if (lstgrp[f - a] && (!data || *data == overview)) {
-						if ((art = retrievearticle(f)) != NULL) {
-							setarticle(art);
-							delete art;
-						}
-					} else if (!lstgrp[f - a] && data) {
-						// We do have this article, but it has been
-						// deleted
-						freerange(f, f);
-					}
-				}
-			      next:
-				if (f == b)
-					break;
-			}
-			GroupLock synclock(*this, NVcontainer::ExclLock);
-			if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
-				setsync(a / OVERVIEW_CHUNK, nvtime(NULL), b);
-			setmtime(nvtime(NULL));
+			ChunkFetchLock reserve(_FetchLockFile, name(),
+					       a / OVERVIEW_CHUNK, lockgrp != 0);
+			prefetchchunk(a, b);
 		}
 		catch(Error & e) {
 			// (also an article the news server failed to send:
@@ -541,11 +731,71 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 			    "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
 			    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		}
-		free(lstgrp);
-		chunklock.release();
-		if (b >= l)
+		// (after SIGTERM every further chunk would only fail and log)
+		if (b >= l || sockstream::stopping())
 			break;
 	}
+}
+
+// The articles of [a,b] (one chunk at most) for prefetchGroup.
+void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
+{
+	std::vector < char > lstgrp(b - a + 1, 0), kind(b - a + 1, 0);
+	char *data;
+	size_t szdata;
+	artnum_t f, top;
+
+	listgroup(&lstgrp[0], a, b);
+	{
+		// what the spool has now (checked again before each change)
+		GroupLock guard(*this, NVcontainer::ShrdLock);
+		for (f = a;; f++) {
+			NVArray::sget(f, &data, &szdata);
+			kind[f - a] = data ? *data : 0;
+			if (f == b)
+				break;
+		}
+	}
+	for (f = a;; f++) {
+		if (lstgrp[f - a] && (!kind[f - a] || kind[f - a] == overview)) {
+			// the news server has it, we have no more than its
+			// overview record
+			Article *art = retrievearticle(f);
+			if (art) {
+				try {
+					GroupLock artlock(*this, NVcontainer::ExclLock);
+					// (a session may have stored it meanwhile)
+					NVArray::sget(f, &data, &szdata);
+					if (!data || *data == overview)
+						setarticle(art);
+				}
+				catch(...) {
+					delete art;
+					throw;
+				}
+				delete art;
+			}
+		} else if (!lstgrp[f - a] && kind[f - a]) {
+			// We do have this article, but it has been deleted
+			GroupLock artlock(*this, NVcontainer::ExclLock);
+			if (NVArray::shas_element(f))
+				freerange(f, f);
+		}
+		if (f == b)
+			break;
+	}
+	GroupLock synclock(*this, NVcontainer::ExclLock);
+	if (arrfst > arrlst)
+		return;
+	// (as far as the index and the group still reach)
+	top = b;
+	if (top > arrlst)
+		top = arrlst;
+	if (_ghave && top > _glast)
+		top = _glast;
+	if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
+		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
+	setmtime(nvtime(NULL));
 }
 
 /*

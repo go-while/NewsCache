@@ -6,16 +6,19 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/go-while/nntp-testkit"
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
 type concurrentFetchGate struct {
@@ -326,5 +329,398 @@ func TestConcurrentSpoolFetches(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// upstreamLine counts the lines the fake upstream received that are line
+// (case-insensitive), e.g. "article 1" or "over 2-30".
+func upstreamLine(e *env, line string) int {
+	n := 0
+	for _, l := range e.Upstream.Lines() {
+		if strings.EqualFold(strings.TrimSpace(l), line) {
+			n++
+		}
+	}
+	return n
+}
+
+// asyncReply is a multi-line command's reply read in a goroutine (Cmd
+// would call t.Fatal there).
+type asyncReply struct {
+	code  int
+	line  string
+	lines []string
+	err   error
+	at    time.Time
+}
+
+func sendAsync(c *client.Conn, cmd string, ok int) <-chan asyncReply {
+	ch := make(chan asyncReply, 1)
+	go func() {
+		var r asyncReply
+		r.code, r.line, r.err = c.TryCmd("%s", cmd)
+		if r.err == nil && r.code == ok {
+			r.lines, r.err = c.TryReadDotLines()
+		}
+		r.at = time.Now()
+		ch <- r
+	}()
+	return ch
+}
+
+func waitReply(t *testing.T, what string, ch <-chan asyncReply, ok, records int) asyncReply {
+	t.Helper()
+	select {
+	case r := <-ch:
+		if r.err != nil || r.code != ok || (records >= 0 && len(r.lines) != records) {
+			t.Fatalf("%s: code %d %q, %d lines, err %v; want %d with %d lines",
+				what, r.code, r.line, len(r.lines), r.err, ok, records)
+		}
+		return r
+	case <-time.After(60 * time.Second):
+		t.Fatalf("%s: no reply within 60 s", what)
+	}
+	return asyncReply{}
+}
+
+// TestFreshenNoGroupLockWhileFetching: a session's XOVER on a chunk the
+// spool hasn't synchronized asks the news server for it. While it waits
+// for a slow news server, another session that reads an article the
+// spool holds gets it at once. The overview fetch used to hold the
+// group's exclusive lock (GROUP, LISTGROUP and OVER upstream all under
+// it), so every session that read the group waited for the news server:
+// up to 2 minutes per chunk.
+func TestFreshenNoGroupLockWhileFetching(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.addArticles(group, 30)
+	// 33 lines (status, 29 records, ".") at 200 ms: OVER takes ~6.5 s
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		LineDelay: map[string]time.Duration{"OVER": 200 * time.Millisecond},
+	}})
+
+	// article 1 into the spool (no overview fetch: ARTICLE doesn't sync)
+	sp, a := e.sessionProcess()
+	if code, line := a.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("seed GROUP: %q", line)
+	}
+	if code, line := a.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("seed ARTICLE 1: %q", line)
+	}
+	a.ReadDotLines()
+	quitSession(t, sp, a)
+	if n := e.Upstream.Count("OVER"); n != 0 {
+		t.Fatalf("seeding sent %d OVER upstream, want 0", n)
+	}
+
+	// The reader is up (a session takes about a second to start) and in
+	// the group before the slow fetch begins.
+	b := e.session()
+	b.Deadline = 10 * time.Second
+	if code, line := b.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("reader GROUP: %q", line)
+	}
+	r := e.session()
+	if code, line := r.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("fetcher GROUP: %q", line)
+	}
+	over := sendAsync(r, "XOVER 1-30", 224)
+	waitFor(t, "the news server receives the OVER", func() bool {
+		return upstreamLine(e, "over 2-30") == 1
+	})
+	t.Logf("upstream so far: %q", e.Upstream.Lines())
+
+	start := time.Now()
+	code, line, err := b.TryCmd("ARTICLE 1")
+	elapsed := time.Since(start)
+	var art []string
+	if err == nil && code == 220 {
+		art, err = b.TryReadDotLines()
+	}
+	fetching := len(over) == 0
+	t.Logf("the reader's ARTICLE 1 took %v (the OVER still running: %v)",
+		elapsed.Round(time.Millisecond), fetching)
+	if err != nil || code != 220 || len(art) == 0 {
+		t.Fatalf("reader ARTICLE 1: code %d %q, %d lines, err %v", code, line, len(art), err)
+	}
+	// (a reader held up for the whole fetch is answered only after it)
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("a session reading a stored article waited %v for another session's overview fetch",
+			elapsed.Round(time.Millisecond))
+	} else if !fetching {
+		t.Fatalf("the OVER ended before the reader's ARTICLE was answered: nothing measured")
+	}
+	if n := upstreamLine(e, "article 1"); n != 1 {
+		t.Errorf("the news server got ARTICLE 1 %d times, want once (the reader's copy comes from the spool)", n)
+	}
+	rep := waitReply(t, "fetcher XOVER 1-30", over, 224, 30)
+	t.Logf("the XOVER ended %v after the reader's answer", rep.at.Sub(start.Add(elapsed)).Round(time.Millisecond))
+	if n := e.Upstream.Count("OVER"); n != 1 {
+		t.Errorf("%d OVER upstream, want 1", n)
+	}
+}
+
+// TestFreshenOneFetchPerChunk: two sessions that want the same chunk at
+// the same time fetch it once. The second one waits for the first one's
+// fetch (the chunk's fetch lock, not the group's lock) and then serves
+// what it stored.
+func TestFreshenOneFetchPerChunk(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.GroupTimeout = 300
+	e.addArticles(group, 30)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		LineDelay: map[string]time.Duration{"OVER": 100 * time.Millisecond},
+	}})
+	r1 := e.session()
+	r2 := e.session()
+	for _, c := range []*client.Conn{r1, r2} {
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatalf("GROUP: %q", line)
+		}
+	}
+	first := sendAsync(r1, "XOVER 1-30", 224)
+	waitFor(t, "the first session's OVER reaches the news server", func() bool {
+		return e.Upstream.Count("OVER") == 1
+	})
+	second := sendAsync(r2, "XOVER 1-30", 224)
+	a := waitReply(t, "first XOVER", first, 224, 30)
+	b := waitReply(t, "second XOVER", second, 224, 30)
+	for i := range a.lines {
+		if a.lines[i] != b.lines[i] {
+			t.Errorf("record %d differs: %q and %q", i+1, a.lines[i], b.lines[i])
+		}
+	}
+	t.Logf("upstream: %q", e.Upstream.Lines())
+	if n := e.Upstream.Count("OVER"); n != 1 {
+		t.Errorf("the chunk was fetched with %d OVER, want 1", n)
+	}
+	if n := e.Upstream.Count("LISTGROUP"); n != 1 {
+		t.Errorf("%d LISTGROUP upstream, want 1", n)
+	}
+}
+
+// TestFreshenSyncedChunkNoFetch: a session that finds its chunk
+// synchronized asks the news server nothing, and doesn't wait for
+// another session that fetches another chunk of the same group.
+func TestFreshenSyncedChunkNoFetch(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.GroupTimeout = 300
+	// two chunks: 1-9999 and 10000-19999
+	e.addArticles(group, 10030)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		LineDelay: map[string]time.Duration{"OVER": 200 * time.Millisecond},
+	}})
+	sp, s := e.sessionProcess()
+	if code, line := s.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("seed GROUP: %q", line)
+	}
+	if code, line := s.Cmd("XOVER 1-5"); code != 224 {
+		t.Fatalf("seed XOVER: %q", line)
+	}
+	if got := s.ReadDotLines(); len(got) != 5 {
+		t.Fatalf("seed XOVER: %d records, want 5", len(got))
+	}
+	quitSession(t, sp, s)
+
+	v := e.session()
+	v.Deadline = 10 * time.Second
+	if code, line := v.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("reader GROUP: %q", line)
+	}
+	r := e.session()
+	if code, line := r.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("fetcher GROUP: %q", line)
+	}
+	over := sendAsync(r, "XOVER 10001-10030", 224)
+	waitFor(t, "the news server receives the second chunk's OVER", func() bool {
+		return e.Upstream.Count("OVER") == 2
+	})
+	overs, listgroups := e.Upstream.Count("OVER"), e.Upstream.Count("LISTGROUP")
+
+	start := time.Now()
+	code, line, err := v.TryCmd("XOVER 1-5")
+	var recs []string
+	if err == nil && code == 224 {
+		recs, err = v.TryReadDotLines()
+	}
+	elapsed := time.Since(start)
+	fetching := len(over) == 0
+	t.Logf("XOVER 1-5 (synchronized) took %v (the other chunk's OVER still running: %v)",
+		elapsed.Round(time.Millisecond), fetching)
+	if err != nil || code != 224 || len(recs) != 5 {
+		t.Fatalf("reader XOVER 1-5: code %d %q, %d records, err %v", code, line, len(recs), err)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("XOVER of a synchronized chunk waited %v for another chunk's fetch",
+			elapsed.Round(time.Millisecond))
+	} else if !fetching {
+		t.Fatalf("the other chunk's OVER ended before the reader's XOVER: nothing measured")
+	}
+	if n := e.Upstream.Count("OVER"); n != overs {
+		t.Errorf("XOVER of a synchronized chunk sent %d OVER upstream", n-overs)
+	}
+	if n := e.Upstream.Count("LISTGROUP"); n != listgroups {
+		t.Errorf("XOVER of a synchronized chunk sent %d LISTGROUP upstream", n-listgroups)
+	}
+	waitReply(t, "fetcher XOVER 10001-10030", over, 224, 30)
+}
+
+// TestPrefetchNoGroupLockWhileFetching: updatenews -g asks the news
+// server for the articles without the group's lock, with and without
+// -l, so a session that reads an article the spool holds isn't held up
+// by a slow news server. The prefetch held the group's lock for each
+// chunk (shared, or exclusive with -l) and the exclusive lock around
+// each article's fetch.
+func TestPrefetchNoGroupLockWhileFetching(t *testing.T) {
+	const group = "test.alpha"
+	for _, args := range [][]string{{"-g"}, {"-g", "-l"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles(group, 5)
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				Delay: map[string]time.Duration{"ARTICLE": 1500 * time.Millisecond},
+			}})
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+
+			sp, a := e.sessionProcess()
+			if code, line := a.Cmd("GROUP %s", group); code != 211 {
+				t.Fatalf("seed GROUP: %q", line)
+			}
+			if code, line := a.Cmd("ARTICLE 1"); code != 220 {
+				t.Fatalf("seed ARTICLE 1: %q", line)
+			}
+			a.ReadDotLines()
+			quitSession(t, sp, a)
+
+			v := e.session()
+			v.Deadline = 10 * time.Second
+			if code, line := v.Cmd("GROUP %s", group); code != 211 {
+				t.Fatalf("reader GROUP: %q", line)
+			}
+			cmd := exec.Command(updatenewsBin(t, e), append([]string{"-c", e.Conf}, args...)...)
+			var out strings.Builder
+			cmd.Stdout, cmd.Stderr = &out, &out
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			// done is closed when updatenews has ended, with its result
+			// in waitErr
+			done := make(chan struct{})
+			var waitErr error
+			go func() { waitErr = cmd.Wait(); close(done) }()
+			t.Cleanup(func() {
+				select {
+				case <-done:
+				default:
+					_ = cmd.Process.Kill()
+					<-done
+				}
+			})
+			waitFor(t, "updatenews asks for article 2", func() bool {
+				return upstreamLine(e, "article 2") == 1
+			})
+
+			start := time.Now()
+			code, line, err := v.TryCmd("ARTICLE 1")
+			var art []string
+			if err == nil && code == 220 {
+				art, err = v.TryReadDotLines()
+			}
+			elapsed := time.Since(start)
+			running := true
+			select {
+			case <-done:
+				running = false
+			default:
+			}
+			t.Logf("the reader's ARTICLE 1 took %v (updatenews still running: %v); upstream: %q",
+				elapsed.Round(time.Millisecond), running, e.Upstream.Lines())
+			if err != nil || code != 220 || len(art) == 0 {
+				t.Fatalf("reader ARTICLE 1: code %d %q, %d lines, err %v", code, line, len(art), err)
+			}
+			if elapsed > 1500*time.Millisecond {
+				t.Errorf("a session reading a stored article waited %v for updatenews %v",
+					elapsed.Round(time.Millisecond), args)
+			} else if !running {
+				t.Fatalf("updatenews ended before the reader's ARTICLE was answered: nothing measured")
+			}
+			select {
+			case <-done:
+				if waitErr != nil {
+					t.Fatalf("updatenews %v: %v\n%s", args, waitErr, out.String())
+				}
+			case <-time.After(60 * time.Second):
+				t.Fatal("updatenews did not finish")
+			}
+			for n := 1; n <= 5; n++ {
+				if got := upstreamLine(e, fmt.Sprintf("article %d", n)); got != 1 {
+					t.Errorf("article %d asked for %d times, want once", n, got)
+				}
+			}
+			// the prefetched articles are in the spool now
+			if code, line := v.Cmd("ARTICLE 5"); code != 220 {
+				t.Fatalf("ARTICLE 5 after the prefetch: %q", line)
+			}
+			v.ReadDotLines()
+			if got := upstreamLine(e, "article 5"); got != 1 {
+				t.Errorf("ARTICLE 5 after the prefetch went upstream again")
+			}
+		})
+	}
+}
+
+// TestPrefetchOverviewStopsAfterSIGTERM: updatenews -o stopped with SIGTERM
+// while it fetches the first of a group's chunks doesn't go on to the
+// others. Each further chunk only failed (no new connection after the
+// signal) and logged a line: up to 1000 lines per group.
+func TestPrefetchOverviewStopsAfterSIGTERM(t *testing.T) {
+	const group = "alt.binaries.stop"
+	e := newEnv(t)
+	// four chunks of 10000 numbers
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"OVER": 3 * time.Second, "XOVER": 3 * time.Second},
+	}})
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	cmd := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o")
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	waitFor(t, "the first overview fetch upstream", func() bool {
+		return e.Upstream.Count("OVER")+e.Upstream.Count("XOVER") >= 1
+	})
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatalf("updatenews still running 10 s after SIGTERM: %s", out.String())
+	}
+	if n := e.Upstream.Count("OVER") + e.Upstream.Count("XOVER"); n != 1 {
+		t.Errorf("%d overview fetches upstream, want 1", n)
+	}
+	log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+	if err != nil {
+		t.Logf("no updatenews log (syslog build): %v", err)
+		return
+	}
+	if n := strings.Count(string(log), "updating the overview database failed"); n > 1 {
+		t.Errorf("%d chunk failures logged after SIGTERM, want at most 1 (updatenews went on to the next chunks)", n)
 	}
 }
