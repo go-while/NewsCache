@@ -13,4 +13,7 @@ Bug fixes:
   updatenews -a waits for the fetch to finish. Meanwhile a group that is new
   on the news server is unknown (411) until that fetch is done. A session or
   updatenews stopped with SIGTERM or SIGINT while it waits for another
-  one's fetch ends at once; it waited for that fetch to finish.
+  one's fetch ends at once; it waited for that fetch to finish. A session
+  stopped in the middle of its own fetch no longer marks the news servers
+  as failed, which made the other sessions serve the old (or an empty)
+  list for up to a minute.

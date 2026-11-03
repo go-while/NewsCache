@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -2047,5 +2048,44 @@ func TestActiveRefreshOnePerWindow(t *testing.T) {
 	// the fill and one refresh for the four sessions
 	if n := lists.Load(); n > 2 {
 		t.Errorf("%d list active commands for %d sessions that asked at once, want at most 2 (the fill and one refresh)", n, sessions)
+	}
+}
+
+// TestActiveRefreshStoppedNoRetryMark: a session stopped with SIGTERM in
+// the middle of its fetch of the active list doesn't mark the list as
+// "news server failed, retry later". That mark (ACTIVE_RETRY_SECONDS) made
+// every other session take the list as fresh: the next LIST ACTIVE got an
+// old or, as here, an empty list for up to a minute.
+func TestActiveRefreshStoppedNoRetryMark(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	var lists atomic.Int32
+	var slow atomic.Bool
+	slow.Store(true)
+	upstreamWith(t, e, activeHandler(&slow, &lists))
+	p := e.standalone()
+
+	// the first session's fetch is slow; it is stopped in the middle
+	a := e.dial()
+	a.Deadline = 20 * time.Second
+	a.Send("LIST ACTIVE\r\n")
+	time.Sleep(1500 * time.Millisecond)
+	s := childPids(t, p.Pid())
+	if len(s) != 1 {
+		t.Fatalf("%d session processes, want 1", len(s))
+	}
+	syscall.Kill(s[0], syscall.SIGTERM)
+	waitFor(t, "the stopped session to end", func() bool { return len(childPids(t, p.Pid())) == 0 })
+	slow.Store(false)
+
+	// the next session's LIST ACTIVE fetches the list
+	b := e.dial()
+	b.Deadline = 20 * time.Second
+	if code, line := b.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE after the stopped fetch: %q", line)
+	}
+	got := b.ReadDotLines()
+	if len(got) != 1 || !strings.HasPrefix(got[0], "test.alpha ") {
+		t.Errorf("LIST ACTIVE after the stopped fetch: %q, want test.alpha (the stopped session must not mark the list as retried)", got)
 	}
 }

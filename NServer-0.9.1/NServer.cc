@@ -2027,7 +2027,11 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 	}
 	try {
 		RServer::active();
-		if (_active_incomplete) {
+		// (not when the fetch failed because this process is
+		// stopping: that says nothing about the news servers, and the
+		// mark kept every other session from fetching the list for
+		// ACTIVE_RETRY_SECONDS, serving an old or even empty one)
+		if (_active_incomplete && !sockstream::stopping()) {
 			// Avoid fetching every server on every request when
 			// one is down, without extending the normal TTL.
 			nvtime_t now = nvtime(NULL);
