@@ -1496,3 +1496,302 @@ func TestSigchldStress(t *testing.T) {
 		t.Errorf("no \"<pid> returned 1\" line in the log for the failed sessions")
 	}
 }
+
+// waitFor polls cond until it holds; it fails the test after 20 s.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: not reached within 20 s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestSIGTERMNoReconnect: a session that waits for the news server when
+// SIGTERM comes (no greeting yet, a reply held back) ends without a new
+// connection to it. It reconnected: the retries of connect() (Retries
+// times, a second apart) and of issue(), and with ConnectTimeout the
+// connect cleared the signal's mark, so the new connection was set up
+// and the command sent again. The test signals once the news server has
+// the connection or the command and counts its connections afterwards;
+// nothing depends on timing.
+func TestSIGTERMNoReconnect(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		opts    fakeserver.Options
+		lines   string // ServerLines
+		command string // the client's command that reaches the news server
+		ready   func(*fakeserver.Server) bool
+	}{
+		{"no greeting", fakeserver.Options{NoGreeting: true}, "",
+			"GROUP test.alpha",
+			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
+		{"no greeting, ConnectTimeout", fakeserver.Options{NoGreeting: true}, "    ConnectTimeout 30",
+			"GROUP test.alpha",
+			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
+		{"reply held back", fakeserver.Options{Faults: fakeserver.Faults{
+			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "",
+			"ARTICLE 1",
+			func(s *fakeserver.Server) bool { return s.Count("ARTICLE") >= 1 }},
+		{"reply held back, ConnectTimeout", fakeserver.Options{Faults: fakeserver.Faults{
+			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "    ConnectTimeout 30",
+			"ARTICLE 1",
+			func(s *fakeserver.Server) bool { return s.Count("ARTICLE") >= 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerLines = tc.lines
+			tc.opts.Deadline = 2 * time.Minute
+			upstreamWith(t, e, tc.opts)
+			p, c := e.sessionProcess()
+			if tc.command == "ARTICLE 1" {
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP: %q", line)
+				}
+			}
+			if err := c.Send(tc.command + "\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the news server has the "+tc.command, func() bool { return tc.ready(e.Upstream) })
+			accepted := e.Upstream.Accepted()
+			if err := p.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(30 * time.Second):
+				t.Fatal("the session still runs 30 s after SIGTERM")
+			}
+			if n := e.Upstream.Accepted() - accepted; n != 0 {
+				t.Errorf("%d new connections to the news server after SIGTERM, want none", n)
+			}
+			// (without a greeting the command never got there)
+			if n := e.Upstream.Count("ARTICLE"); tc.command == "ARTICLE 1" && n != 1 {
+				t.Errorf("the news server got %q %d times, want once", tc.command, n)
+			}
+		})
+	}
+}
+
+// fullListener: a listening socket on 127.0.0.1 whose queue is full, so
+// that a connect to it waits (its SYN goes unanswered) instead of being
+// refused. The test is skipped where such a connect doesn't wait.
+func fullListener(t *testing.T) (host, port string) {
+	t.Helper()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Listen(fd, 0); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port = strconv.Itoa(sa.(*syscall.SockaddrInet4).Port)
+	for i := 0; i < 8; i++ {
+		c, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 300*time.Millisecond)
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return "127.0.0.1", port
+		}
+		if err != nil {
+			t.Skipf("a connect to a full listen queue fails here: %v", err)
+		}
+		t.Cleanup(func() { c.Close() })
+	}
+	t.Skip("a connect to a full listen queue doesn't wait here")
+	return "", ""
+}
+
+// connecting reports whether a connection to 127.0.0.1:port waits for
+// the answer to its SYN (Linux: /proc/net/tcp); elsewhere it waits half a
+// second and says yes.
+func connecting(t *testing.T, port string) bool {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		time.Sleep(500 * time.Millisecond)
+		return true
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("0100007F:%04X", n)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		// sl local_address rem_address st: 02 is SYN_SENT
+		if len(f) > 3 && f[2] == want && f[3] == "02" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSIGTERMBlockedConnect: SIGTERM while the connect to the news server
+// waits for its answer. Without ConnectTimeout the interrupted connect
+// was started again and waited for the system's timeout (minutes).
+func TestSIGTERMBlockedConnect(t *testing.T) {
+	for _, lines := range []string{"", "    ConnectTimeout 30"} {
+		t.Run(fmt.Sprintf("%q", strings.TrimSpace(lines)), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerHost, e.ServerPort = fullListener(t)
+			e.ServerLines = lines
+			p, c := e.sessionProcess()
+			if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the connect to the news server", func() bool { return connecting(t, e.ServerPort) })
+			if err := p.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("the session still runs 10 s after SIGTERM")
+			}
+		})
+	}
+}
+
+// TestSIGTERMSignalWindow: a compiled-only hook raises SIGTERM after the
+// last check of the stop indicator, right before the connect to the news
+// server or the read of its greeting: the signal interrupts no system
+// call there. The wait must still end within a few seconds (an alarm
+// every second after the signal), not when the news server answers or
+// times out. With a news server that answers at once, the connect that
+// began in that moment is closed unused: no command reaches the server.
+func TestSIGTERMSignalWindow(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SIGNAL_WINDOW_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SIGNAL_WINDOW build")
+	}
+	for _, tc := range []struct {
+		call, lines string
+		answers     bool // the news server answers at once
+	}{
+		{"connect", "", false},
+		{"connect", "    ConnectTimeout 30", false},
+		{"connect", "", true},
+		{"recv", "", false},
+		{"recv", "    ConnectTimeout 30", false},
+	} {
+		t.Run(fmt.Sprintf("%s %q answers=%v", tc.call, strings.TrimSpace(tc.lines), tc.answers), func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			e.ServerLines = tc.lines
+			switch {
+			case tc.answers:
+				upstreamWith(t, e, fakeserver.Options{Deadline: 2 * time.Minute})
+			case tc.call == "connect":
+				e.ServerHost, e.ServerPort = fullListener(t)
+			default:
+				upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Deadline: 2 * time.Minute})
+			}
+			e.writeConf()
+			o := e.procOpts("-i")
+			o.Env = append(o.Env, "NEWSCACHE_TEST_SIGTERM_BEFORE="+tc.call)
+			p := proc.StartStdio(t, o)
+			c := client.New(t, p.Conn())
+			if _, err := c.ReadGreeting(); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-p.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("the session still runs 10 s after the signal")
+			}
+			if !strings.Contains(p.Stderr(), "test hook: SIGTERM before "+tc.call) {
+				t.Fatal("test hook did not run; this was not the signal-window case")
+			}
+			if e.Upstream != nil {
+				if n := e.Upstream.Accepted(); n > 1 {
+					t.Errorf("%d connections to the news server, want at most 1", n)
+				}
+				if l := e.Upstream.Lines(); len(l) != 0 {
+					t.Errorf("the news server got %q after the signal, want nothing", l)
+				}
+			}
+		})
+	}
+}
+
+// TestSIGTERMUpdatenewsPosting: updatenews, stopped while it posts a
+// spooled article, ends without a new connection to the news server (no
+// retry of the post, no active list afterwards), and the article stays
+// in the spool for the next run.
+func TestSIGTERMUpdatenewsPosting(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	bin := updatenewsBin(t, e)
+	e.ServerOptions = "offline"
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: spooled\r\n" +
+		"Message-ID: <spooled.term@client.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("POST to offline server: %q %v", line, err)
+	}
+	c.Cmd("QUIT")
+	if n := len(spooledIn(t, e, ".artSpool")); n != 1 {
+		t.Fatalf("%d spooled articles, want 1", n)
+	}
+
+	e.ServerOptions = ""
+	upstreamWith(t, e, fakeserver.Options{Deadline: 2 * time.Minute,
+		Faults: fakeserver.Faults{Delay: map[string]time.Duration{"POST": time.Minute}}})
+	e.writeConf()
+	var out bytes.Buffer
+	cmd := exec.Command(bin, "-c", e.Conf)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		<-done
+	})
+	waitFor(t, "the news server has the POST", func() bool { return e.Upstream.Count("POST") >= 1 })
+	accepted := e.Upstream.Accepted()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("updatenews still runs 30 s after SIGTERM")
+	}
+	if n := e.Upstream.Accepted() - accepted; n != 0 {
+		t.Errorf("%d new connections to the news server after SIGTERM, want none\n%s", n, out.String())
+	}
+	if n := e.Upstream.Count("POST"); n != 1 {
+		t.Errorf("the news server got POST %d times, want once", n)
+	}
+	if n := len(spooledIn(t, e, ".artSpool")); n != 1 {
+		t.Errorf("%d spooled articles after SIGTERM, want the one kept", n)
+	}
+	if n := len(e.Store.Posted()); n != 0 {
+		t.Errorf("%d articles posted, want none", n)
+	}
+}

@@ -68,7 +68,7 @@ const char *cmnd;
 Config Cfg;
 int opt_flags = 0;
 int opt_workers = 0;
-int Xsignal;
+volatile sig_atomic_t Xsignal;
 sig_atomic_t alarmed = 0;
 
 void catchsignal(int num)
@@ -76,6 +76,10 @@ void catchsignal(int num)
 	Xsignal = num;
 	// End upstream socket and TLS waits as well as the outer loop.
 	alarmed = 1;
+	// A wait that began between a loop's check of these flags and its
+	// system call isn't interrupted by the signal: an alarm every second
+	// (see catchsigalarm) ends it.
+	alarm(1);
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -122,6 +126,9 @@ void doprefetch(CServer * cs, const char *group)
 void catchsigalarm(int num)
 {
 	alarmed = 1;
+	// after a signal: again in a second, until the process ends
+	if (Xsignal > 0)
+		alarm(1);
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -274,6 +281,8 @@ void update(void)
 
 	slog.p(Logger::Info) << "posting spooled articles\n";
 	cs.postspooled();
+	if (Xsignal > 0)
+		return;
 	if (opt_flags & F_PREFETCH_ACTIVE) {
 		slog.p(Logger::Debug) << "invalidate the ActiveDB (force update)\n";
 		cs.invalidateActiveDB ();
@@ -475,6 +484,8 @@ int main(int argc, char **argv)
 	// signal; without the alarm indicator ConnectTimeout never applied
 	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
+	// after a termination signal no new connection to a news server
+	sockstream::stop_indicator(Xsignal);
 #ifdef HAVE_SIGACTION
 	struct sigaction action;
 	// signals indicating to terminate NewsCache

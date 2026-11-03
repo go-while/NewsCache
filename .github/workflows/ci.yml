@@ -122,7 +122,7 @@ jobs:
         if: matrix.name == 'file log, debug'
         run: sh .github/ci/test-short-upstream-replies.sh
 
-      - name: Test inetd SIGINT between commands
+      - name: Test signals between a check and the wait
         if: matrix.name == 'file log, debug'
         run: sh .github/ci/test-inetd-sigint-window.sh
 

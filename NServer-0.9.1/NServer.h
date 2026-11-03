@@ -271,6 +271,12 @@ class RServer:virtual public NServer {
 	void reply_unread();
 
 	/**
+	* Throws a SystemError when the program stops (SIGTERM, SIGINT):
+	* then no connection is opened and no command retried.
+	*/
+	void stop_check();
+
+	/**
 	* One OVER (or XOVER) request for [fst,lst]: stores the records in
 	* ng and returns the highest article number among them, 0 when
 	* there were none. Throws like overviewdb.

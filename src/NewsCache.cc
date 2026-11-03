@@ -3803,7 +3803,12 @@ void nnrpd(int fd, bool tls)
 			alarm (0);
 		}
 		if (Xsignal != -1) {
-			alarmed = 0;	// (else the reply isn't sent)
+			// (else the reply isn't sent) The goodbye gets two
+			// seconds: then the alarm (see catchsignal; a connect
+			// or the command read may have cancelled it) ends a
+			// send to a client that doesn't read.
+			alarmed = 0;
+			alarm(2);
 			(*clt.co) << "400 " PACKAGE " " VERSION ", service discontinued\r\n";
 			slog.p(Logger::Notice) << clt.client_logname << " discontinued due to Signal\n";
 			goto client_exit;
@@ -4702,6 +4707,10 @@ void sigchld(int num)
 void catchsigalarm(int num)
 {
 	alarmed=1;
+	// after SIGTERM or SIGINT: again in a second, until the process
+	// ends (see catchsignal)
+	if (Xsignal > 0)
+		alarm(1);
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
 	struct sigaction action;
@@ -4737,6 +4746,13 @@ void catchsignal(int num)
 	// read) stops at once: the EINTR loops of sockstream end on alarmed
 	// only, so SIGTERM was noticed after the next command line.
 	alarmed = 1;
+	// The loops check these flags before each wait, but a signal that
+	// comes between the check and the system call (connect, recv, send,
+	// poll) doesn't interrupt that call: it would wait until the news
+	// server or the client sends something, or for its timeout. An
+	// alarm every second interrupts it, so every wait ends within a
+	// second. (The master's poll has the wake-up pipe instead.)
+	alarm(1);
 	wake_master();
 #ifdef HAVE_SIGACTION
 	/* Reinstall the signal handler */
@@ -4933,6 +4949,8 @@ int main(int argc, char **argv)
 	// signal handling
 	sockstream::alarm_indicator(alarmed);
 	Xsignal = -1;
+	// after SIGTERM or SIGINT no new connection to a news server
+	sockstream::stop_indicator(Xsignal);
 	reReadConfig = false;
 
 #ifdef HAVE_SIGACTION

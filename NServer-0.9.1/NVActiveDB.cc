@@ -256,7 +256,9 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 	// A list cut off (the connection ended before the ".") isn't
 	// complete: without the new mtime it is fetched again next time.
 	if (!done)
-		throw SystemError("active list cut off by the news server", -1,
+		throw SystemError(sockstream::stopping() ?
+				  "active list not read to its end: shutting down" :
+				  "active list cut off by the news server", -1,
 				  ERROR_LOCATION);
 	time(&now);
 	setmtime(now);

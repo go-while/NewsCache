@@ -87,6 +87,13 @@ class sockstream
     friend class sslstreambuf;
 
     static sig_atomic_t *_alarm_indicator;
+    // > 0 once the program is told to stop (SIGTERM, SIGINT: the
+    // signal number); unlike the alarm indicator never cleared, so a
+    // connect timeout can't make the stop be forgotten. It ends only
+    // connections the program opened (connect(), to a news server):
+    // a session still says goodbye to its client.
+    static volatile sig_atomic_t *_stop_indicator;
+    bool _outgoing;		// opened with connect(), not attach()
 
     int _fd;
     unsigned int _io_timeout;	// seconds per send/recv, 0 = none
@@ -113,8 +120,26 @@ class sockstream
       _alarm_indicator = &var;
     }
 
+    static inline void stop_indicator(volatile sig_atomic_t &var)
+    {
+      _stop_indicator = &var;
+    }
+
+    static inline bool stopping()
+    {
+      return _stop_indicator && *_stop_indicator > 0;
+    }
+
+    // The alarm or a signal: a wait ends, and no new one starts.
+    inline bool interrupted() const
+    {
+      return (_alarm_indicator && *_alarm_indicator) ||
+	(_outgoing && stopping());
+    }
+
     inline sockstreambuf()
-      : _fd(-1), _io_timeout(0), _reply_deadline_active(false),
+      : _outgoing(false), _fd(-1), _io_timeout(0),
+	_reply_deadline_active(false),
 	_reply_saved_flags(0), _wait_read(0), _wait_write(0)
     {
       setg(_gbuf, _gbuf + sizeof(_gbuf), _gbuf + sizeof(_gbuf));
@@ -137,7 +162,12 @@ class sockstream
 		 const struct sockaddr *from, socklen_t fromlen,
 		 unsigned int timeout = 0);
 
-    void attach(int fd);
+    // outgoing: a connection the program opened (STARTTLS hands the
+    // socket of connect() to a new stream)
+    void attach(int fd, bool outgoing = false);
+
+    inline bool outgoing() const
+    { return _outgoing; }
 
     void disconnect();
     void abort();
@@ -181,6 +211,18 @@ class sockstream
   static inline void alarm_indicator(sig_atomic_t &var)
   {
     sockstreambuf::alarm_indicator(var);
+  }
+
+  // The program stops (see sockstreambuf::_stop_indicator): no new
+  // connection is opened, and a running one ends at its next wait.
+  static inline void stop_indicator(volatile sig_atomic_t &var)
+  {
+    sockstreambuf::stop_indicator(var);
+  }
+
+  static inline bool stopping()
+  {
+    return sockstreambuf::stopping();
   }
 
   // ssl: with TLS; server: as the server of a client's connection
@@ -252,9 +294,9 @@ class sockstream
     _tls_cafile = cafile;
   }
 
-  inline void attach(int fd)
+  inline void attach(int fd, bool outgoing = false)
   {
-    _buf.attach(fd);
+    _buf.attach(fd, outgoing);
     clear();
   }
 
