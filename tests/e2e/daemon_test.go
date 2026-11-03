@@ -908,6 +908,12 @@ func TestCachePort(t *testing.T) {
 // the group's lock, and ClientTimeout only covered the wait for the next
 // command: the session stayed blocked in send() for good, and another
 // session that needed the group (storing an article it read) hung too.
+func TestClientStalledReader(t *testing.T) {
+	for _, command := range []string{"OVER", "XOVER"} {
+		t.Run(command, func(t *testing.T) { testClientStalledReader(t, command) })
+	}
+}
+
 // TestFetchDoesNotHoldGroupLock: getarticle used to fetch an article from the
 // news server while holding the group's shared lock, so a session whose fetch
 // the server stalled blocked every session that needed the exclusive lock
@@ -950,12 +956,6 @@ func TestFetchDoesNotHoldGroupLock(t *testing.T) {
 	t.Logf("second session waited %v while the first session's article fetch hung (ReadTimeout 3 s)", elapsed.Round(10*time.Millisecond))
 	if elapsed > 1500*time.Millisecond {
 		t.Errorf("the second session waited %v for the group lock while another session was fetching an article; the fetch holds the shared lock", elapsed)
-	}
-}
-
-func TestClientStalledReader(t *testing.T) {
-	for _, command := range []string{"OVER", "XOVER"} {
-		t.Run(command, func(t *testing.T) { testClientStalledReader(t, command) })
 	}
 }
 
