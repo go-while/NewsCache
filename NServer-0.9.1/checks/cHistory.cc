@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/param.h>
 
@@ -73,6 +75,77 @@ static bool exists(const string & fn)
 	struct stat st;
 	return stat(fn.c_str(), &st) == 0;
 }
+
+#ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
+static bool race_keep(const string &group, void *arg)
+{
+	return group != "g.race" || exists(*(string *)arg);
+}
+
+// Freeze the cleaner after collection. Exercise the two independent reasons
+// not to delete, and ensure an unchanged absent location is still pruned.
+static void stale_prune(const string &dir, bool change_number, bool recreate)
+{
+	const char *id = "<prune.race@check>";
+	const char *scenario = change_number ? "changed number" :
+	    recreate ? "recreated group" : "still absent";
+	string marker = dir + "/race-recreated";
+	History::add(id, "g.race", 7);
+	CHECK(locs(id) == "g.race:7");
+	int ready[2], go[2];
+	if (pipe(ready) != 0) { failures++; return; }
+	if (pipe(go) != 0) { close(ready[0]); close(ready[1]); failures++; return; }
+	pid_t child = fork();
+	if (child < 0) {
+		close(ready[0]); close(ready[1]); close(go[0]); close(go[1]);
+		failures++;
+		return;
+	}
+	if (child == 0) {
+		close(ready[0]); close(go[1]);
+		char r[32], g[32];
+		snprintf(r, sizeof(r), "%d", ready[1]);
+		snprintf(g, sizeof(g), "%d", go[0]);
+		setenv("NEWSCACHE_TEST_PRUNE_READY_FD", r, 1);
+		setenv("NEWSCACHE_TEST_PRUNE_GO_FD", g, 1);
+		long dropped = History::prune(race_keep, &marker);
+		_exit(dropped == (change_number || recreate ? 0 : 1) ? 0 : 1);
+	}
+	close(ready[1]); close(go[0]);
+	struct pollfd p = {ready[0], POLLIN, 0};
+	char byte;
+	if (poll(&p, 1, 10000) != 1 || read(ready[0], &byte, 1) != 1) {
+		cerr << "prune did not reach its test barrier\n";
+		failures++;
+		kill(child, SIGKILL);
+	} else {
+		if (recreate) {
+			int fd = open(marker.c_str(), O_CREAT | O_WRONLY, 0600);
+			if (fd < 0) failures++; else close(fd);
+		}
+		if (change_number) {
+			History::add(id, "g.race", 8);
+			CHECK(locs(id) == "g.race:8");
+		}
+		if (write(go[1], "x", 1) != 1) failures++;
+	}
+	close(ready[0]); close(go[1]);
+	int status;
+	if (waitpid(child, &status, 0) != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		cerr << "prune race (" << scenario << "): wrong child status or drop count\n";
+		failures++;
+	}
+	string got = locs(id);
+	string want = change_number ? "g.race:8" : recreate ? "g.race:7" : "";
+	if (got != want) {
+		cerr << "prune race (" << scenario << "): got '" << got
+		    << "', expected '" << want << "'\n";
+		failures++;
+	}
+	History::remove(id, "g.race");
+	if (recreate) unlink(marker.c_str());
+}
+#endif
 
 static bool lookup_path_fits(const char *dir)
 {
@@ -234,6 +307,12 @@ int main(int argc, char **argv)
 	CHECK(locs("<m3@check>") == "");
 	CHECK(locs("<m1@check>") == "g.keep:2");
 	CHECK(locs("<m2@check>") == "g.keep:3");
+
+#ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
+	stale_prune(dir, true, false);
+	stale_prune(dir, false, true);
+	stale_prune(dir, false, false);
+#endif
 
 	// a damaged shard: moved aside, lookups find nothing, then it works
 	string id5 = id_for_shard(5, 1);

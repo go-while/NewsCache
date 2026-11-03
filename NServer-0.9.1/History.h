@@ -71,7 +71,9 @@ class History {
 	/*
 	 * Drops every location for which keep(group, arg) is false, and
 	 * records without locations (newscacheclean: groups whose database
-	 * is gone). Returns the number of locations dropped.
+	 * is gone). keep may be called again under the shard's exclusive lock
+	 * and must not cache a false answer or take a history lock. Returns the
+	 * number of locations actually dropped.
 	 */
 	static long prune(bool (*keep) (const std::string & group, void *arg),
 			  void *arg);
