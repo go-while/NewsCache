@@ -50,9 +50,9 @@ class History {
 	// Records that group holds the article msgid as number nbr
 	// (replaces an older number of the same group).
 	static void add(const char *msgid, const char *group, artnum_t nbr);
-	// Like add, but first looks (with a shared lock) whether the entry
-	// is there already: for articles read from the spool, so a spool of
-	// an older version gets into the history as clients read it.
+	// Adds the location only if the group has no entry for this message-ID;
+	// for spool reads, so older spools acquire history without overwriting a
+	// location at another number. The check and add share a shard lock.
 	static void note(const char *msgid, const char *group, artnum_t nbr);
 	// Removes the location only if its number still matches nbr, and the
 	// record when no location is left.

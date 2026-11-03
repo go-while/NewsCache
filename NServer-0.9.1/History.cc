@@ -183,6 +183,7 @@ Shard shards[History::SHARDS];
 
 struct Op {
 	bool add;
+	bool only_if_missing;
 	string msgid, group;
 	artnum_t nbr;
 };
@@ -335,7 +336,7 @@ void apply(Shard & s, int b, const unsigned char *dg, const Op & op)
 	for (i = 0; i < v.size() && v[i].group != op.group; i++);
 	if (op.add) {
 		if (i < v.size()) {
-			if (v[i].nbr == op.nbr)
+			if (op.only_if_missing || v[i].nbr == op.nbr)
 				return;
 			v[i].nbr = op.nbr;
 		} else {
@@ -389,13 +390,15 @@ void apply_all(int n, const vector < const Op *>&ops)
 
 void flush(void);
 
-void queue_op(bool add, const char *msgid, const char *group, artnum_t nbr)
+void queue_op(bool add, const char *msgid, const char *group, artnum_t nbr,
+	      bool only_if_missing = false)
 {
 	if (spool.empty() || !msgid || !group || !valid_msgid(msgid) ||
 	    !valid_group(group))
 		return;
 	Op op;
 	op.add = add;
+	op.only_if_missing = only_if_missing;
 	op.msgid = msgid;
 	op.group = group;
 	op.nbr = nbr;
@@ -418,6 +421,7 @@ void prune_one(const string & msgid, const string & locs, void *a)
 		if (!ctx->keep(v[i].group, ctx->arg)) {
 			Op op;
 			op.add = false;
+			op.only_if_missing = false;
 			op.msgid = msgid;
 			op.group = v[i].group;
 			op.nbr = v[i].nbr;
@@ -463,15 +467,20 @@ void History::add(const char *msgid, const char *group, artnum_t nbr)
 
 void History::note(const char *msgid, const char *group, artnum_t nbr)
 {
-	if (spool.empty() || !msgid || !group || !valid_msgid(msgid) ||
-	    !valid_group(group))
-		return;
-	vector < Location > v;
-	lookup(msgid, v);
-	for (size_t i = 0; i < v.size(); i++)
-		if (v[i].group == group && v[i].nbr == nbr)
-			return;
-	add(msgid, group, nbr);
+	// An existing group location makes this a no-op at the shared-lock
+	// snapshot. A later removal is ordered after the note. In a batch,
+	// earlier queued operations are not visible yet, so skip this check.
+	if (batch_depth == 0 && !spool.empty() && msgid && group &&
+	    valid_msgid(msgid) && valid_group(group)) {
+		vector < Location > v;
+		lookup(msgid, v);
+		for (size_t i = 0; i < v.size(); i++)
+			if (v[i].group == group)
+				return;
+	}
+	// If it was absent, check again while adding under the shard's
+	// exclusive lock, so another writer's location is not replaced.
+	queue_op(true, msgid, group, nbr, true);
 }
 
 void History::remove(const char *msgid, const char *group, artnum_t nbr)
