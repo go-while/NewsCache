@@ -679,7 +679,8 @@ void CNewsgroup::prefetchOverview(void)
 		if (b > l)
 			b = l;
 		freshen(a, b, &refreshed);
-		if (b >= l)
+		// (after SIGTERM every further chunk would only fail and log)
+		if (b >= l || sockstream::stopping())
 			break;
 	}
 }
@@ -730,7 +731,8 @@ void CNewsgroup::prefetchGroup(int lockgrp)
 			    "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
 			    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		}
-		if (b >= l)
+		// (after SIGTERM every further chunk would only fail and log)
+		if (b >= l || sockstream::stopping())
 			break;
 	}
 }

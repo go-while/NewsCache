@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -671,5 +672,55 @@ func TestPrefetchNoGroupLockWhileFetching(t *testing.T) {
 				t.Errorf("ARTICLE 5 after the prefetch went upstream again")
 			}
 		})
+	}
+}
+
+// TestPrefetchOverviewStopsAfterSIGTERM: updatenews -o stopped with SIGTERM
+// while it fetches the first of a group's chunks doesn't go on to the
+// others. Each further chunk only failed (no new connection after the
+// signal) and logged a line: up to 1000 lines per group.
+func TestPrefetchOverviewStopsAfterSIGTERM(t *testing.T) {
+	const group = "alt.binaries.stop"
+	e := newEnv(t)
+	// four chunks of 10000 numbers
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"OVER": 3 * time.Second, "XOVER": 3 * time.Second},
+	}})
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+
+	cmd := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o")
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	waitFor(t, "the first overview fetch upstream", func() bool {
+		return e.Upstream.Count("OVER")+e.Upstream.Count("XOVER") >= 1
+	})
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatalf("updatenews still running 10 s after SIGTERM: %s", out.String())
+	}
+	if n := e.Upstream.Count("OVER") + e.Upstream.Count("XOVER"); n != 1 {
+		t.Errorf("%d overview fetches upstream, want 1", n)
+	}
+	log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache_updatenews.log"))
+	if err != nil {
+		t.Logf("no updatenews log (syslog build): %v", err)
+		return
+	}
+	if n := strings.Count(string(log), "updating the overview database failed"); n > 1 {
+		t.Errorf("%d chunk failures logged after SIGTERM, want at most 1 (updatenews went on to the next chunks)", n)
 	}
 }

@@ -692,11 +692,12 @@ a time in a dense group, larger steps (up to 100000000 numbers) across
 gaps without articles. A @code{LISTGROUP} that has passed no number to
 the client for 5 minutes fails.
 
-While NewsCache asks the news server for such a step, the group isn't
-locked: other sessions read what the spool holds meanwhile, and the
-records are stored when they have arrived. Only one session fetches a
-step at a time; a second one that wants the same step waits for it and
-then serves what the first one stored. The lock for that is the file
+While NewsCache fetches the overview records of a range of 10000
+article numbers from the news server (for XOVER, OVER, XHDR, HDR or
+updatenews), the group isn't locked: other sessions read what the spool
+holds meanwhile, and the records are stored when they have arrived.
+Only one session fetches a range at a time; a second one that wants the
+same range waits for it and then serves what the first one stored. The lock for that is the file
 @file{.fetch.lock} in the spool directory. It holds no data,
 newscacheclean leaves it alone, and backups can skip it.
 
