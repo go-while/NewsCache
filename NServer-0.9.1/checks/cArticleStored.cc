@@ -150,6 +150,39 @@ static void renumbered_freerange(const string &dir, OverviewFmt &fmt)
 	CHECK(History::lookup("<renumber@x>", v) == 0);
 }
 
+// Reading an older copy must not replace the newer history location: if it
+// did, freeing the old copy would leave the surviving copy unindexed.
+static void note_older_then_free(const string &dir, OverviewFmt &fmt)
+{
+	StoredGroup g(&fmt, dir.c_str(), "test.note");
+	g.setsize(1, 2);
+	g.grow(1, 2);
+	const char *text = "From: from@x\r\nSubject: s\r\nMessage-ID: <note@x>\r\n"
+	    "Newsgroups: test.note\r\n\r\nbody\r\n";
+	Article old(1), newer(2);
+	old.settext(text);
+	newer.settext(text);
+	g.setarticle(&old);
+	g.setarticle(&newer);
+	vector < History::Location > v;
+	CHECK(History::lookup("<note@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].nbr == 2);
+	Article *current = g.getarticle(2);
+	CHECK(current != NULL);
+	delete current;
+	CHECK(History::lookup("<note@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].nbr == 2);
+	Article *read = g.getarticle(1);
+	CHECK(read != NULL);
+	delete read;
+	CHECK(History::lookup("<note@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].nbr == 2);
+	g.free_one(1);
+	CHECK(g.hasrecord(2));
+	CHECK(History::lookup("<note@x>", v) == 1);
+	CHECK(v.size() == 1 && v[0].group == "test.note" && v[0].nbr == 2);
+}
+
 // A CR that isn't the start of a CR LF.
 static bool lone_cr(const string & s)
 {
@@ -199,6 +232,7 @@ int main(void)
 	replaced_before_cleanup(dir, fmt);
 #endif
 	renumbered_freerange(dir, fmt);
+	note_older_then_free(dir, fmt);
 
 	if (failures) {
 		cerr << failures << " checks failed\n";
