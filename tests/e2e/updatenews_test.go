@@ -916,3 +916,46 @@ func TestUpdatenewsPrefetchFileDevNull(t *testing.T) {
 		t.Errorf("PrefetchFile /dev/null prefetched groups %q", groups)
 	}
 }
+
+// TestUpdatenewsActiveRefreshOnce: updatenews fetches the active list when it
+// is stale, not on every run. Before the split of CServer::active's
+// wait_for_refresh (which only means "block on the refresh lock, don't serve a
+// stale list") a plain run would have fetched the list every time, because the
+// validity check was skipped for it; -a still forces a fetch.
+func TestUpdatenewsActiveRefreshOnce(t *testing.T) {
+	e := newEnv(t)
+	e.Extra = "Timeouts 300 3600"
+	e.addArticles("test.alpha", 3)
+	upstreamWith(t, e, fakeserver.Options{})
+	e.writeConf()
+	bin := updatenewsBin(t, e)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-c", e.Conf}, args...)
+		if out, err := exec.Command(bin, cmd...).CombinedOutput(); err != nil {
+			t.Fatalf("updatenews %v: %v\n%s", args, err, out)
+		}
+	}
+	lists := func() int {
+		n := 0
+		for _, l := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToLower(l), "list active") {
+				n++
+			}
+		}
+		return n
+	}
+	run()
+	first := lists()
+	if first == 0 {
+		t.Fatalf("the first run did not fetch the active list")
+	}
+	run() // within Timeouts 300: no second fetch
+	if got := lists(); got != first {
+		t.Errorf("a second run within the active list's timeout fetched it again (%d -> %d)", first, got)
+	}
+	run("-a") // -a invalidates the list and fetches it again
+	if got := lists(); got <= first {
+		t.Errorf("-a did not fetch the active list again (%d -> %d)", first, got)
+	}
+}

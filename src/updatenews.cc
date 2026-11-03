@@ -288,7 +288,7 @@ void update(void)
 		cs.invalidateActiveDB ();
 	};
 	slog.p(Logger::Info) << "prefetching active database\n";
-	ActiveDB *active = cs.active();
+	ActiveDB *active = cs.active(true);
 
 	if (!(opt_flags & (F_PREFETCH_GROUP | F_PREFETCH_OVER)))
 		return;

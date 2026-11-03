@@ -54,6 +54,16 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 */
 	void sset(GroupInfo & gi, int flags = 0);
 
+	// Parses an active list from is without touching the database: the
+	// lines the filter keeps go into lines, separated by '\n', bounded by
+	// the reply budget (ACTIVE_REPLY_ROWS rows, ACTIVE_REPLY_BYTES, and
+	// ACTIVE_REPLY_SECONDS). Returns true when the reply was complete (the
+	// "." line). A caller holds no lock here: the news server is not
+	// waited for under the database's lock.
+	bool collect(std::istream & is, const char *filter, std::string & lines);
+	// Applies the lines collect() gathered, under the exclusive lock.
+	void apply(const std::string & lines, int flags, unsigned int limit);
+
 	// The group name in record r of a hash chain, checked: the record
 	// comes from the file, and the name must end within it.
 	const char *recname(Record * r);

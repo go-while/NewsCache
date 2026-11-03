@@ -190,21 +190,12 @@ int NVActiveDB::hasgroup(const char *group)
 	return 1;
 }
 
-void NVActiveDB::read(istream & is, const char *filter, int flags,
-		      unsigned int limit)
+bool NVActiveDB::collect(istream & is, const char *filter, string & lines)
 {
-	VERB(slog.
-	     p(Logger::Debug) << "NVActiveDB::read(&is,*filter,flags)\n");
-
-	GroupInfo gd;
-	string line;
-	time_t now;
-	bool done = false;
 	ReplyBudget budget(ACTIVE_REPLY_ROWS, ACTIVE_REPLY_BYTES, ACTIVE_REPLY_SECONDS);
+	string line;
+	bool done = false;
 
-	NVLock guard(*this, NVcontainer::ExclLock);
-	if (flags & F_CLEAR)
-		clear();
 	while (!is.eof()) {
 		// Each line has the following form
 		// GroupName Last First Flags
@@ -226,35 +217,76 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 		}
 		if (!budget.add(wire_bytes))
 			throw ReplyLimitError(budget);
-
 		if (!filter || matchgroup(filter, line.c_str()) > 0) {
-			// Add group. Skip a line we can't parse (e.g. a group
-			// name longer than GroupInfo allows) instead of giving
-			// up: that left the rest of the list unread on the
-			// connection, the database locked and no groups at all.
-			try {
-				gd.set(line.c_str());
-			} catch (const Error &e) {
-				slog.p(Logger::Warning)
-				    << "active list: skipping a line ("
-				    << e._errtext << "): " << line.substr(0, 80)
-				    << (line.size() > 80 ? "..." : "") << "\n";
-				continue;
-			}
-			if (flags & F_STORE_READONLY)
-				gd.setflag('n');
-			// Keep the configured newest-article limit in the active DB,
-			// just as GROUP replies do in RServer::selectgroup().
-			if (limit && gd.last() >= gd.first() &&
-			    gd.last() - gd.first() >= limit)
-				gd.setfln(gd.last() - limit + 1, gd.last(), limit,
-					  gd.flags());
-			// The caller closes an unread reply on storage failure.
-			sset(gd);
+			lines += line;
+			lines += '\n';
 		}
 	}
+	return done;
+}
+
+void NVActiveDB::apply(const string & lines, int flags, unsigned int limit)
+{
+	GroupInfo gd;
+	NVLock guard(*this, NVcontainer::ExclLock);
+
+	if (flags & F_CLEAR)
+		clear();
+	string::size_type b = 0;
+	for (;;) {
+		string::size_type e = lines.find('\n', b);
+		if (e == string::npos)
+			break;
+		string line = lines.substr(b, e - b);
+		b = e + 1;
+		// Add group. Skip a line we can't parse (e.g. a group name
+		// longer than GroupInfo allows) instead of giving up: that
+		// left the rest of the list unread on the connection, the
+		// database locked and no groups at all.
+		try {
+			gd.set(line.c_str());
+		}
+		catch (const Error &e) {
+			slog.p(Logger::Warning)
+			    << "active list: skipping a line (" << e._errtext
+			    << "): " << line.substr(0, 80)
+			    << (line.size() > 80 ? "..." : "") << "\n";
+			continue;
+		}
+		if (flags & F_STORE_READONLY)
+			gd.setflag('n');
+		// Keep the configured newest-article limit in the active DB,
+		// just as GROUP replies do in RServer::selectgroup().
+		if (limit && gd.last() >= gd.first() &&
+		    gd.last() - gd.first() >= limit)
+			gd.setfln(gd.last() - limit + 1, gd.last(), limit,
+				  gd.flags());
+		// The caller closes an unread reply on storage failure.
+		sset(gd);
+	}
+}
+
+void NVActiveDB::read(istream & is, const char *filter, int flags,
+		      unsigned int limit)
+{
+	VERB(slog.
+	     p(Logger::Debug) << "NVActiveDB::read(&is,*filter,flags)\n");
+
+	string lines;
+	time_t now;
+	bool done;
+
+	// The reply is parsed into memory without the database's lock and
+	// stored afterwards: CServer::active used to hold the lock across the
+	// fetch, and every other session's GROUP waited for the news server.
+	// The memory is bounded by the reply budget (ACTIVE_REPLY_BYTES,
+	// 256 MB, and ACTIVE_REPLY_ROWS rows).
+	done = collect(is, filter, lines);
+	apply(lines, flags, limit);
 	// A list cut off (the connection ended before the ".") isn't
-	// complete: without the new mtime it is fetched again next time.
+	// complete: without the new mtime it is fetched again next time. What
+	// was read stays in the database, as it did when the list was stored
+	// line by line.
 	if (!done)
 		throw SystemError(sockstream::stopping() ?
 				  "active list not read to its end: shutting down" :
@@ -263,6 +295,7 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 	time(&now);
 	setmtime(now);
 }
+
 
 namespace {
 // A GroupInfo as NewsCache 1.3.21 and older stored it (file .active).

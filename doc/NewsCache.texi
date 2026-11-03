@@ -1275,7 +1275,10 @@ itself from the new server again. With @code{History on}, entries that
 point to the removed articles are dropped when they are looked up.
 @item What happens if a spool database is damaged?
 NewsCache checks the files of its spool (a group's @file{.db} and the
-active database @file{.active64}) when it uses them. A damaged file is
+active database @file{.active64}) when it uses them. @file{.active.refresh}
+next to @file{.active64} only carries the lock that lets one session fetch
+the active list at a time; it holds no data and can be ignored by backups
+and by newscacheclean. A damaged file is
 moved to @file{.db.bad} or @file{.active64.bad} and a new one is started,
 which fills itself from the news server again; the log names the file
 and what was wrong. newscacheclean removes the @file{.bad} files.
