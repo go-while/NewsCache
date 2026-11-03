@@ -467,9 +467,19 @@ void History::add(const char *msgid, const char *group, artnum_t nbr)
 
 void History::note(const char *msgid, const char *group, artnum_t nbr)
 {
-	// Check and add together under the shard's exclusive lock, also when
-	// operations are batched. A cached read must not replace a location
-	// already recorded for another number of the same group.
+	// An existing group location makes this a no-op at the shared-lock
+	// snapshot. A later removal is ordered after the note. In a batch,
+	// earlier queued operations are not visible yet, so skip this check.
+	if (batch_depth == 0 && !spool.empty() && msgid && group &&
+	    valid_msgid(msgid) && valid_group(group)) {
+		vector < Location > v;
+		lookup(msgid, v);
+		for (size_t i = 0; i < v.size(); i++)
+			if (v[i].group == group)
+				return;
+	}
+	// If it was absent, check again while adding under the shard's
+	// exclusive lock, so another writer's location is not replaced.
 	queue_op(true, msgid, group, nbr, true);
 }
 

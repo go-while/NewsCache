@@ -152,12 +152,13 @@ static bool lookup_path_fits(const char *dir)
 	return strlen(dir) < MAXPATHLEN - sizeof("/.history/0") + 1;
 }
 
-// The queued note is applied after another process removes the same number.
-// Checking before the batch is flushed would lose that note.
-static void note_after_concurrent_remove()
+// Another process changes the location after a note is queued but before
+// the batch applies it. The note must use the state at application time.
+static void note_after_concurrent_change(bool add)
 {
 	const char *id = "<note-remove@check>";
-	History::add(id, "g.note", 7);
+	if (!add)
+		History::add(id, "g.note", 7);
 	int start[2], done[2];
 	if (pipe(start) != 0) { failures++; return; }
 	if (pipe(done) != 0) { close(start[0]); close(start[1]); failures++; return; }
@@ -171,7 +172,10 @@ static void note_after_concurrent_remove()
 		close(start[1]); close(done[0]);
 		char byte;
 		if (read(start[0], &byte, 1) != 1) _exit(1);
-		History::remove(id, "g.note", 7);
+		if (add)
+			History::add(id, "g.note", 8);
+		else
+			History::remove(id, "g.note", 7);
 		if (write(done[1], "x", 1) != 1) _exit(1);
 		_exit(0);
 	}
@@ -182,7 +186,7 @@ static void note_after_concurrent_remove()
 	struct pollfd p = {done[0], POLLIN, 0};
 	char byte;
 	if (poll(&p, 1, 10000) != 1 || read(done[0], &byte, 1) != 1) {
-		cerr << "concurrent history remove did not finish\n";
+		cerr << "concurrent history change did not finish\n";
 		failures++;
 		kill(child, SIGKILL);
 	}
@@ -190,8 +194,8 @@ static void note_after_concurrent_remove()
 	int status;
 	CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	History::commit();
-	CHECK(locs(id) == "g.note:7");
-	History::remove(id, "g.note", 7);
+	CHECK(locs(id) == (add ? "g.note:8" : "g.note:7"));
+	History::remove(id, "g.note", add ? 8 : 7);
 }
 
 int main(int argc, char **argv)
@@ -279,7 +283,8 @@ int main(int argc, char **argv)
 	CHECK(locs("<note@check>") == "g.note:1,g.other:3");
 	History::remove("<note@check>", "g.note", 1);
 	History::remove("<note@check>", "g.other", 3);
-	note_after_concurrent_remove();
+	note_after_concurrent_change(false);
+	note_after_concurrent_change(true);
 
 	History::add("<a@check>", "g.one", 5);
 	History::add("<a@check>", "g.two", 7);
