@@ -164,7 +164,9 @@ using std::vector;
 #define SOCKLEN_TYPE size_t
 #endif
 
-sig_atomic_t alarmed=0;
+// set by the signal handlers (catchsigalarm, catchsignal): volatile, so
+// that every test reads it from memory (C++ [intro.execution], C 7.14.1.1)
+volatile sig_atomic_t alarmed = 0;
 Logger slog;
 const char *cmnd;
 class ClientData;
