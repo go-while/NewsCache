@@ -274,7 +274,7 @@ void NVcontainer::make_current()
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::make_current(): wrong database size stored "
+		sb << "NVcontainer::make_current(): wrong database size stored "
 		   << "in db-header - may be a hazard"
 		   << " mem_fn: " << mem_fn
 		   << " mem_sz: " << (unsigned long int) mem_sz
@@ -313,7 +313,7 @@ size_t NVcontainer::resize(size_t nsz)
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::resize(): cannot grow the file"
+		sb << "NVcontainer::resize(): cannot grow the file"
 		   << " mem_fn: " << mem_fn
 		   << " nsz: " << (unsigned long int) nsz;
 		lock(UnLock);
@@ -797,7 +797,7 @@ void NVcontainer::open_lock(int cmnd)
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::open(): cannot lock"
+		sb << "NVcontainer::open(): cannot lock"
 		   << " mem_fn: " << mem_fn;
 		// not open (nothing is mapped yet): a later open() tries again
 		while (::close(mem_fd) != 0 && errno == EINTR)
@@ -844,7 +844,7 @@ void NVcontainer::open(const char *dbname, int flags)
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::open(): cannot open("
+		sb << "NVcontainer::open(): cannot open("
 		   << " mem_fn: " << dbname
 		   << ",O_RDWR|O_CREAT)";
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
@@ -857,7 +857,7 @@ void NVcontainer::open(const char *dbname, int flags)
 #else
 		strstream sb;
 #endif
-		sb << "NVConatiner::open(): fstat failed"
+		sb << "NVcontainer::open(): fstat failed"
 		   << " mem_fn: " << mem_fn;
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
@@ -881,7 +881,7 @@ void NVcontainer::open(const char *dbname, int flags)
 #else
 			strstream sb;
 #endif
-			sb << "NVConatiner::open(): cannot create the file, unlinked"
+			sb << "NVcontainer::open(): cannot create the file, unlinked"
 			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), e, ERROR_LOCATION);
 			}
@@ -892,7 +892,7 @@ void NVcontainer::open(const char *dbname, int flags)
 #else
 			strstream sb;
 #endif
-			sb << "NVConatiner::open(): write(info-record) failed, unlinked"
+			sb << "NVcontainer::open(): write(info-record) failed, unlinked"
 			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 		}
@@ -904,7 +904,7 @@ void NVcontainer::open(const char *dbname, int flags)
 #else
 			strstream sb;
 #endif
-			sb << "NVConatiner::open(): write(free-record) failed unlinked"
+			sb << "NVcontainer::open(): write(free-record) failed unlinked"
 			   << " mem_fn: " << mem_fn;
 			throw SystemError (sb.rdbuf()->str(), errno, ERROR_LOCATION);
 		}
