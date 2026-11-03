@@ -268,11 +268,22 @@ func TestCorruptDBFuzz(t *testing.T) {
 					}
 				}
 			}
-			// With this seed, damage to the group's .db interrupts lists
-			// (96 sessions on Linux): none closed means such a list was
-			// ended with a "." as if it were complete.
+			// With this seed, damage to the group's .db used to interrupt
+			// lists (96 sessions on Linux). The reply is now printed in
+			// chunks buffered under the lock, so a damaged record is found
+			// before any of that chunk reached the client: the command is
+			// retried on the repaired database (NewsCache.cc, "nothing
+			// sent yet: once more") and the list is served complete
+			// instead of the session being closed. Either way a truncated
+			// list must never be ended with a "." as if it were complete:
+			// if no session closed, the log has to say the damaged
+			// database was moved aside.
 			if target == "db" && closed == 0 {
-				t.Errorf("no session was closed in the middle of a list: interrupted lists are ended as if complete")
+				if strings.Contains(e.logFile(), "moved to") {
+					t.Logf("no session closed mid-list: the damaged database was moved aside and the command retried")
+				} else {
+					t.Errorf("no session was closed in the middle of a list and no damaged database was moved aside: interrupted lists are ended as if complete")
+				}
 			}
 			if closed > 0 {
 				t.Logf("%s: %d damaged sessions were closed in the middle of a list", target, closed)
