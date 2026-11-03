@@ -780,6 +780,34 @@ int NVcontainer::get_lock()
 	    NVcontainer_LOCKSTACKSIZE ? lck_stack[lck_stackp] : UnLock;
 }
 
+// The lock of open(), waited for: the checks after it must not run
+// without it. A signal's EINTR (after SIGTERM the alarm comes every
+// second) doesn't end the wait; the holder, a session or updatenews,
+// lets go soon, or stops too. The result was ignored, so the checks of
+// make_current() could run without the lock and call a file corrupt that
+// another process was changing. Any other failure throws.
+void NVcontainer::open_lock(int cmnd)
+{
+	while (nvflock(mem_fd, cmnd, Block) != 0) {
+		if (errno == EINTR)
+			continue;
+		int e = errno;
+#ifdef HAVE_SSTREAM
+		stringstream sb;
+#else
+		strstream sb;
+#endif
+		sb << "NVConatiner::open(): cannot lock"
+		   << " mem_fn: " << mem_fn;
+		// not open (nothing is mapped yet): a later open() tries again
+		while (::close(mem_fd) != 0 && errno == EINTR)
+			;
+		mem_fd = -1;
+		mem_fn[0] = '\0';
+		throw SystemError(sb.rdbuf()->str(), e, ERROR_LOCATION);
+	}
+}
+
 /*
  */
 void NVcontainer::open(const char *dbname, int flags)
@@ -822,7 +850,7 @@ void NVcontainer::open(const char *dbname, int flags)
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
 
-	nvflock(mem_fd, ExclLock, Block);
+	open_lock(ExclLock);
 	if (fstat(mem_fd, &st) < 0) {
 #ifdef HAVE_SSTREAM
 		stringstream sb;
@@ -885,7 +913,7 @@ void NVcontainer::open(const char *dbname, int flags)
 	// without one, they could see another process half way through an
 	// allocation (the free list), call a sound file corrupt and move it
 	// aside, with everything the others had written to it.
-	nvflock(mem_fd, ShrdLock, Block);
+	open_lock(ShrdLock);
 	in_open++;
 	try {
 		make_current();
@@ -963,7 +991,11 @@ static int lock_dir(const string & fn)
 
 	if (fd < 0)
 		return -1;
-	if (flock(fd, LOCK_EX) != 0) {
+	// (a signal doesn't end the wait, see NVcontainer::open_lock)
+	int r;
+	while ((r = flock(fd, LOCK_EX)) != 0 && errno == EINTR)
+		;
+	if (r != 0) {
 		::close(fd);
 		return -1;
 	}

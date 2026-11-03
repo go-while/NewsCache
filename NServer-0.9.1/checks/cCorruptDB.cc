@@ -28,6 +28,7 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include <fstream>
 #include <iostream>
@@ -508,6 +509,72 @@ static void lock_eintr(const string & dir)
 	unlink(fn.c_str());
 }
 
+// After SIGTERM an alarm comes every second until the process ends (see
+// catchsignal in NewsCache.cc). open() ignored a lock wait it ended: the
+// checks of make_current() ran while another process held the write
+// lock, and could call a file corrupt that it was changing.
+static void rearm_alarm(int)
+{
+	alarm(1);
+}
+
+static void open_lock_eintr(const string & dir)
+{
+	string fn = dir + "/openeintr.db";
+	{
+		NVArray a(fn.c_str());
+		a.setsize(0, 9);
+	}
+	int go[2];
+	if (pipe(go) != 0) {
+		perror("pipe");
+		exit(1);
+	}
+	pid_t p = fork();
+	if (p == 0) {
+		// the write lock for 3.5 seconds
+		int fd = open(fn.c_str(), O_RDWR);
+		struct flock fl;
+		memset(&fl, 0, sizeof(fl));
+		fl.l_type = F_WRLCK;
+		fl.l_whence = SEEK_SET;
+		if (fd < 0 || fcntl(fd, F_SETLKW, &fl) != 0 ||
+		    write(go[1], "x", 1) != 1)
+			_exit(1);
+		usleep(3500000);
+		_exit(0);
+	}
+	char c;
+	if (read(go[0], &c, 1) != 1) {
+		perror("read");
+		exit(1);
+	}
+	close(go[0]);
+	close(go[1]);
+	struct sigaction sa, old;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = rearm_alarm;	// no SA_RESTART, as in the sessions
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGALRM, &sa, &old);
+	struct timespec t0, t1;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	alarm(1);
+	{
+		NVArray b(fn.c_str());
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		alarm(0);
+		double waited = (t1.tv_sec - t0.tv_sec) +
+		    (t1.tv_nsec - t0.tv_nsec) / 1e9;
+		// (it returned at 2 s, after two alarms, with the lock held)
+		CHECK(waited >= 3.0);
+	}
+	sigaction(SIGALRM, &old, NULL);
+	int st;
+	waitpid(p, &st, 0);
+	CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 0);
+	unlink(fn.c_str());
+}
+
 struct CurArray:public NVArray {
 	CurArray(const char *fn) {
 		open(fn);
@@ -670,6 +737,7 @@ int main(int argc, char *argv[])
 		map_fails(dir);
 		outer_remap_fails(dir);
 		lock_eintr(dir);
+		open_lock_eintr(dir);
 		longer_file(dir);
 	}
 	for (int r = 0; r < 20 && failures == 0; r++)
