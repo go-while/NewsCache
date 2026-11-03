@@ -242,6 +242,25 @@ func TestSpoolCutOffArticleFile(t *testing.T) {
 		!strings.Contains(string(log), "the cut-off copy is served") {
 		t.Errorf("the log doesn't say that the cut-off copy was served:\n%s", log)
 	}
+
+	// cut off, and the news server answers that it no longer has the
+	// article (430, no error): the copy is served and kept, and the log
+	// says so as well
+	write(cut)
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"ARTICLE 1": {"430 no such article"}},
+	}})
+	got = article("news server says 430")
+	if strings.Join(got, "\n") != strings.Join(cutWant, "\n") {
+		t.Errorf("430: %d lines, want the %d of the cut-off copy", len(got), len(cutWant))
+	}
+	if b, err := os.ReadFile(artFile); err != nil || !bytes.Equal(b, cut) {
+		t.Errorf("430: the file changed (%d bytes, want %d; %v)", len(b), len(cut), err)
+	}
+	if log, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+		!strings.Contains(string(log), "not available from the news server, the cut-off copy is served") {
+		t.Errorf("the log doesn't say that the news server no longer has the article:\n%s", log)
+	}
 }
 
 // TestNewscachecleanNiceClean: newscacheclean lowers its priority by
