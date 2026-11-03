@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -270,10 +272,15 @@ func TestUpstreamPartialActiveDeadline(t *testing.T) {
 	}
 }
 
-// The refresh lock is taken before even issuing LIST ACTIVE, not inside the
-// reply deadline. Hold the first upstream status for longer than the short
-// reply limit, while a second already-greeted client requests a refresh.
-// Timeout zero forces both clients to fetch, even after the first succeeds.
+// One refresh at a time: the refresh lock (<spool>/.active.refresh) is taken
+// before LIST ACTIVE is issued, not the database's lock (which is only held
+// while the parsed list is stored). Hold the first upstream status, while a
+// second already-greeted client asks for a refresh: it must not send its own
+// LIST ACTIVE while the first is fetching. Here the list starts empty, so the
+// second client waits for the refresh lock instead of serving a stale list
+// (with a list already stored it is served at once, see
+// TestActiveRefreshBlocksGroup). Timeout zero makes it fetch once more after
+// the first completed, so exactly two requests are expected.
 func TestActiveRefreshLockBeforeUpstream(t *testing.T) {
 	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
 		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
@@ -345,7 +352,7 @@ func TestActiveRefreshLockBeforeUpstream(t *testing.T) {
 	}
 	select {
 	case <-second:
-		t.Fatal("second client sent LIST ACTIVE before the first refresh released its lock")
+		t.Fatal("second client sent LIST ACTIVE while the first refresh was still running: the refresh lock was not held")
 	case <-time.After(2500 * time.Millisecond):
 	}
 	unblock()
@@ -1917,5 +1924,172 @@ func TestCurrentGroupGone412(t *testing.T) {
 		if code != tc.want {
 			t.Errorf("%s with the current group gone: %q, want %d", tc.cmd, line, tc.want)
 		}
+	}
+}
+
+func activeHandler(slow *atomic.Bool, lists *atomic.Int32) fakeserver.Options {
+	delay := 5 * time.Second
+	return fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			switch {
+			case strings.HasPrefix(low, "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(low, "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:",
+					"Message-ID:", "References:", ":bytes",
+					":lines", "Xref:full", ".")
+			case strings.HasPrefix(low, "list active"):
+				if slow != nil && slow.Load() {
+					time.Sleep(delay)
+				}
+				lists.Add(1)
+				c.WriteLines("215 list", "test.alpha 5 1 y", ".")
+			case strings.HasPrefix(low, "group"):
+				c.WriteLines("211 5 1 5 test.alpha")
+			case strings.HasPrefix(low, "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("200 ok")
+			}
+		}
+	}}
+}
+
+func TestActiveRefreshBlocksGroup(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.Extra = "Timeouts 1 3600"
+	e.addArticles(group, 3)
+	var slow atomic.Bool
+	var lists atomic.Int32
+	upstreamWith(t, e, activeHandler(&slow, &lists))
+
+	// the list is filled once, quickly
+	a := e.session()
+	if code, line := a.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("A LIST ACTIVE: %q", line)
+	}
+	a.ReadDotLines()
+
+	// the victim is up and has read its greeting before the refresh starts
+	b := e.session()
+	b.Deadline = 30 * time.Second
+
+	time.Sleep(1500 * time.Millisecond) // Timeouts 1: the list is stale now
+	slow.Store(true)
+
+	r := e.session()
+	done := make(chan int, 1)
+	go func() {
+		code, _ := r.Cmd("LIST ACTIVE")
+		done <- code
+	}()
+	time.Sleep(300 * time.Millisecond) // the refresh is in flight (5 s)
+
+	start := time.Now()
+	code, line := b.Cmd("GROUP %s", group)
+	elapsed := time.Since(start)
+	if code != 211 {
+		t.Fatalf("B GROUP: %q", line)
+	}
+	t.Logf("the waiting session was answered after %v", elapsed.Round(10*time.Millisecond))
+	if code := <-done; code != 215 {
+		t.Fatalf("refreshing LIST ACTIVE: %d", code)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("a GROUP waited %v for another session's active list refresh; the database lock is held across the fetch", elapsed)
+	}
+}
+
+func TestActiveRefreshOnePerWindow(t *testing.T) {
+	const group = "test.alpha"
+	const sessions = 4
+	e := newEnv(t)
+	e.Extra = "Timeouts 1 3600"
+	e.addArticles(group, 3)
+	var lists atomic.Int32
+	var slow atomic.Bool
+	upstreamWith(t, e, activeHandler(&slow, &lists))
+
+	// fill the list once, then let it go stale
+	a := e.session()
+	if code, line := a.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("A LIST ACTIVE: %q", line)
+	}
+	a.ReadDotLines()
+
+	// pre-start every session, so the test measures the refresh and not
+	// the time a session needs to start
+	cs := make([]*client.Conn, sessions)
+	for i := range cs {
+		cs[i] = e.session()
+		cs[i].Deadline = 30 * time.Second
+	}
+	time.Sleep(1500 * time.Millisecond) // stale now
+	slow.Store(true)
+	var wg sync.WaitGroup
+	wg.Add(sessions)
+	for i := range cs {
+		go func(c *client.Conn) {
+			defer wg.Done()
+			if code, _ := c.Cmd("LIST ACTIVE"); code == 215 {
+				c.ReadDotLines()
+			}
+		}(cs[i])
+	}
+	wg.Wait()
+	t.Logf("%d sessions, %d list active reached the news server", sessions, lists.Load())
+	// the fill and one refresh for the four sessions
+	if n := lists.Load(); n > 2 {
+		t.Errorf("%d list active commands for %d sessions that asked at once, want at most 2 (the fill and one refresh)", n, sessions)
+	}
+}
+
+// TestActiveRefreshStoppedNoRetryMark: a session stopped with SIGTERM in
+// the middle of its fetch of the active list doesn't mark the list as
+// "news server failed, retry later". That mark (ACTIVE_RETRY_SECONDS) made
+// every other session take the list as fresh: the next LIST ACTIVE got an
+// old or, as here, an empty list for up to a minute.
+func TestActiveRefreshStoppedNoRetryMark(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the session process in /proc")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 3)
+	var lists atomic.Int32
+	var slow atomic.Bool
+	slow.Store(true)
+	upstreamWith(t, e, activeHandler(&slow, &lists))
+	p := e.standalone()
+
+	// the first session's fetch is slow; it is stopped in the middle
+	a := e.dial()
+	a.Deadline = 20 * time.Second
+	a.Send("LIST ACTIVE\r\n")
+	time.Sleep(1500 * time.Millisecond)
+	s := childPids(t, p.Pid())
+	if len(s) != 1 {
+		t.Fatalf("%d session processes, want 1", len(s))
+	}
+	syscall.Kill(s[0], syscall.SIGTERM)
+	waitFor(t, "the stopped session to end", func() bool { return len(childPids(t, p.Pid())) == 0 })
+	slow.Store(false)
+
+	// the next session's LIST ACTIVE fetches the list
+	b := e.dial()
+	b.Deadline = 20 * time.Second
+	if code, line := b.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE after the stopped fetch: %q", line)
+	}
+	got := b.ReadDotLines()
+	if len(got) != 1 || !strings.HasPrefix(got[0], "test.alpha ") {
+		t.Errorf("LIST ACTIVE after the stopped fetch: %q, want test.alpha (the stopped session must not mark the list as retried)", got)
 	}
 }

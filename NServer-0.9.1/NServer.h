@@ -129,7 +129,7 @@ class NServer {
 	virtual OverviewFmt * overviewfmt() {
 		return _OverviewFormat;
 	}
-	virtual ActiveDB *active() = 0;
+	virtual ActiveDB *active(bool wait_for_refresh = false) = 0;
 	virtual GroupInfo *groupinfo(const char *name) = 0;
 	virtual Newsgroup *getgroup(const char *name) = 0;
 
@@ -170,7 +170,7 @@ class LServer:virtual public NServer {
 	* it should not be modified by the user and must not be
 	* deleted!
 	*/
-	virtual ActiveDB *active();
+	virtual ActiveDB *active(bool wait_for_refresh = false);
 
 	/**
 	* \param name Name of the newsgroup
@@ -408,7 +408,7 @@ class RServer:virtual public NServer {
 	* 
 	* \return Pointer to the active database.
 	*/
-	virtual ActiveDB *active();
+	virtual ActiveDB *active(bool wait_for_refresh = false);
 
 	/**
 	* Returns the GroupInfo object of a given newsgroup.
@@ -575,6 +575,15 @@ class CServer
 	nvtime_t _TTLActive;
 	nvtime_t _TTLDesc;
 
+	// The active list's refresh lock (.<spool>/.active.refresh): one
+	// session fetches the list at a time, and the others serve the list
+	// they have (see CServer::active).
+	int _refresh_fd;
+	// true when the lock is held by this process
+	bool _refresh_locked;
+	bool refresh_lock(bool block);
+	void refresh_unlock();
+
 	int active_valid()
 	{
 		unsigned long tm;
@@ -626,14 +635,17 @@ class CServer
 	virtual OverviewFmt *overviewfmt() {
 		return _OverviewFormat;
 	}
-
 	/**
 	* Retrieves the active database (list of newsgroup and the number
 	* of their first and last article) from the news servers, if the
 	* local copy is older than _TTLActive seconds.
+	*
+	* wait_for_refresh: wait for a refresh that another process is
+	* running (updatenews -a wants a fresh list); otherwise a session
+	* that has a list serves that one while another refreshes it.
 	* \return ActiveDB* Pointer to the active database.
 	*/
-	virtual ActiveDB *active();
+	virtual ActiveDB *active(bool wait_for_refresh = false);
 
 	/**
 	 * Invalidate the Active DB. This is done by reseting the datebase

@@ -155,7 +155,7 @@ void LServer::init(const char *spooldir)
 		_ActiveDB = NULL;
 }
 
-ActiveDB *LServer::active()
+ActiveDB *LServer::active(bool)
 {
 	return _ActiveDB;
 }
@@ -857,7 +857,7 @@ void RServer::setserverlist(MPList * serverlist)
 	_ServerList = serverlist;
 }
 
-ActiveDB *RServer::active()
+ActiveDB *RServer::active(bool)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
 	unsigned int i, flags;
@@ -1764,6 +1764,8 @@ int RServer::post(Article * article)
 //********************
 CServer::CServer(const char *spooldir, MPList * serverlist)
 {
+	_refresh_fd = -1;
+	_refresh_locked = false;
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "CServer::CServer(" << spooldir <<
@@ -1808,11 +1810,23 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 	);
 	_TTLActive = 300;
 	_TTLDesc = 500;
+
+	// One refresh of the active list at a time: a session that has a
+	// list serves it while another one fetches (see CServer::active).
+	snprintf(buf, sizeof(buf), "%s/.active.refresh", spooldir);
+	_refresh_fd = open(buf, O_RDWR | O_CREAT | O_CLOEXEC, 0640);
+	if (_refresh_fd < 0)
+		slog.p(Logger::Warning) << "cannot open " << buf << ": "
+		    << strerror(errno) << ", the active list refresh is not"
+		    " serialized\n";
 }
 
 CServer::~CServer()
 {
 	VERB(slog.p(Logger::Debug) << "CServer::~CServer()\n");
+	if (_refresh_fd >= 0)
+		close(_refresh_fd);
+	_refresh_fd = -1;
 	if (_OverviewFormat) {
 		delete _OverviewFormat;
 		_OverviewFormat = NULL;
@@ -1935,50 +1949,114 @@ class XrefRecordFilter:public OverRecordFilter {
 	}
 };
 
-ActiveDB *CServer::active()
+bool CServer::refresh_lock(bool block)
 {
-	// The validity of the active database has to be tested twice,
-	// because it is possible that several processes can reach
-	// this point and in this case all these processes would
-	// transfer the active database
-	// Locking the database before the first active_valid call
-	// is no good idea, since this requires to set a lock
-	// even in cases where this is not necessary at all
-
-	if (!active_valid()) {
-		slog.p(Logger::Info) << "CServer::active: active database timed out\n";
-		_NVActiveDB->lock(NVcontainer::ExclLock);
-		try {
-			if (!active_valid()) {
-				RServer::active();
-				if (_active_incomplete) {
-					// Avoid fetching every server on every request when
-					// one is down, without extending the normal TTL.
-					nvtime_t now = nvtime(NULL);
-					nvtime_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
-					    _TTLActive : ACTIVE_RETRY_SECONDS;
-					nvtime_t age = _TTLActive - retry;
-					_NVActiveDB->setmtime(now > age ? now - age : 0, 1);
-				}
-			}
+	struct flock l;
+	if (_refresh_fd < 0)
+		return true;	// no lock file: fetch, as before
+	memset(&l, 0, sizeof(l));
+	l.l_type = F_WRLCK;
+	l.l_whence = SEEK_SET;
+	for (;;) {
+		if (fcntl(_refresh_fd, block ? F_SETLKW : F_SETLK, &l) == 0) {
+			_refresh_locked = true;
+			return true;
 		}
-		catch(Error & e) {
-			slog.p(Logger::Alert)
-			    <<
-			    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
-			    <<
-			    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
-			e.print();
+		if (errno == EINTR) {
+			// after SIGTERM or SIGINT the process ends: it doesn't
+			// wait for another process's fetch (that can take
+			// ACTIVE_REPLY_SECONDS) and fetches nothing itself
+			if (sockstream::stopping())
+				return false;
+			continue;
 		}
-		catch(...) {
-			slog.p(Logger::Alert)
-			    <<
-			    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
-			    <<
-			    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
-		}
-		_NVActiveDB->lock(NVcontainer::UnLock);
+		if (!block && (errno == EACCES || errno == EAGAIN))
+			return false;	// another process is fetching
+		slog.p(Logger::Warning) << "cannot lock the active list's refresh lock: "
+		    << strerror(errno) << "\n";
+		return true;	// fetch anyway rather than keep the old list
 	}
+}
+
+void CServer::refresh_unlock()
+{
+	struct flock l;
+	if (_refresh_fd < 0 || !_refresh_locked)
+		return;
+	_refresh_locked = false;
+	memset(&l, 0, sizeof(l));
+	l.l_type = F_UNLCK;
+	l.l_whence = SEEK_SET;
+	while (fcntl(_refresh_fd, F_SETLK, &l) != 0 && errno == EINTR)
+		;
+}
+
+ActiveDB *CServer::active(bool wait_for_refresh)
+{
+	// The validity is tested twice: another process may have refreshed the
+	// list while this one waited for the refresh lock.
+	if (active_valid())
+		return _NVActiveDB;
+	slog.p(Logger::Info) << "CServer::active: active database timed out\n";
+	// The list is fetched without the database's lock - a slow news server
+	// used to block every other session's GROUP for ACTIVE_REPLY_SECONDS -
+	// and only one process fetches at a time: a session that has a list
+	// serves that one while another refreshes, and waits only when there
+	// is no list at all (first start, a damaged .active64) or when the
+	// caller needs a fresh one (updatenews -a).
+	// (refresh_lock is false when another process is fetching, or when
+	// this one is stopping: then the list it has is served)
+	if (!refresh_lock(wait_for_refresh || _NVActiveDB->is_empty()))
+		return _NVActiveDB;
+	// Another process may have refreshed the list between the check above
+	// and the lock (the non-blocking branch included): its list is as fresh
+	// as one this process would fetch, so nothing is fetched again. This is
+	// the check that keeps the waiters from fetching the list a second time.
+	// (It can throw, e.g. after SIGTERM: the refresh lock goes first.)
+	bool valid;
+	try {
+		valid = active_valid();
+	}
+	catch(...) {
+		refresh_unlock();
+		throw;
+	}
+	if (valid) {
+		refresh_unlock();
+		return _NVActiveDB;
+	}
+	try {
+		RServer::active();
+		// (not when the fetch failed because this process is
+		// stopping: that says nothing about the news servers, and the
+		// mark kept every other session from fetching the list for
+		// ACTIVE_RETRY_SECONDS, serving an old or even empty one)
+		if (_active_incomplete && !sockstream::stopping()) {
+			// Avoid fetching every server on every request when
+			// one is down, without extending the normal TTL.
+			nvtime_t now = nvtime(NULL);
+			nvtime_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
+			    _TTLActive : ACTIVE_RETRY_SECONDS;
+			nvtime_t age = _TTLActive - retry;
+			_NVActiveDB->setmtime(now > age ? now - age : 0, 1);
+		}
+	}
+	catch(Error & e) {
+		slog.p(Logger::Alert)
+		    <<
+		    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
+		    <<
+		    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
+		e.print();
+	}
+	catch(...) {
+		slog.p(Logger::Alert)
+		    <<
+		    "CServer::active: UNEXPECTED EXCEPTION CAUGHT, WHILE IN CRITICAL REGION!\n"
+		    <<
+		    "CServer::active: PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
+	}
+	refresh_unlock();
 	return _NVActiveDB;
 }
 
