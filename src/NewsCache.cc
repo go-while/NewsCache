@@ -1454,7 +1454,7 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
 			over = o;
 			return 1;
 		}
-		History::remove(id, locs[i].group.c_str());
+		History::remove(id, locs[i].group.c_str(), locs[i].nbr);
 	}
 	return 0;
 }

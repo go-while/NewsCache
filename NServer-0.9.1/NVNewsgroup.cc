@@ -230,7 +230,7 @@ void NVNewsgroup::dropbad(artnum_t nbr, const string &bad)
 			NVArray::sdel(nbr - arrfst);
 			if (!id.empty() && History::enabled()) {
 				try {
-					History::remove(id.c_str(), name());
+					History::remove(id.c_str(), name(), nbr);
 				}
 				catch(...) {
 				}
@@ -264,7 +264,7 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 			if (History::enabled()) {
 				std::string id = recordmsgid(data, szdata);
 				if (!id.empty())
-					History::remove(id.c_str(), name());
+					History::remove(id.c_str(), name(), i);
 			}
 			if (*data == bigarticle) {
 				artfile(fn, sizeof(fn), i);

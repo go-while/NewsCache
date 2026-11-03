@@ -54,9 +54,9 @@ class History {
 	// is there already: for articles read from the spool, so a spool of
 	// an older version gets into the history as clients read it.
 	static void note(const char *msgid, const char *group, artnum_t nbr);
-	// Removes the location of msgid in group, and the record when no
-	// location is left.
-	static void remove(const char *msgid, const char *group);
+	// Removes the location only if its number still matches nbr, and the
+	// record when no location is left.
+	static void remove(const char *msgid, const char *group, artnum_t nbr);
 	// The locations of msgid; their number.
 	static int lookup(const char *msgid, std::vector<Location> &locs);
 
