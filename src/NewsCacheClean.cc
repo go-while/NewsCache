@@ -284,7 +284,8 @@ static bool clean_history(long long max_blocks)
 }
 
 // For History::prune: whether the group still has a database in the
-// spool (the current directory); arg caches the answers.
+// spool (the current directory); arg caches only positive answers. A group
+// found absent can be recreated before History::prune rechecks it.
 static bool group_has_db(const string & group, void *arg)
 {
 	map < string, bool > &dbs = *(map < string, bool > *)arg;
@@ -294,7 +295,8 @@ static bool group_has_db(const string & group, void *arg)
 	const char *dir = group2dir(group.c_str());
 	struct stat s;
 	bool has = dir && stat((string(dir) + "/.db").c_str(), &s) == 0;
-	dbs[group] = has;
+	if (has)
+		dbs[group] = true;
 	return has;
 }
 

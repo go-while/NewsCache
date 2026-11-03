@@ -122,7 +122,7 @@ jobs:
         if: matrix.name == 'file log, debug'
         run: sh .github/ci/test-short-upstream-replies.sh
 
-      - name: Test signals between a check and the wait
+      - name: Test-hook builds (signal windows, lock races)
         if: matrix.name == 'file log, debug'
         run: sh .github/ci/test-inetd-sigint-window.sh
 

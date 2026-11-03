@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -419,7 +420,7 @@ void prune_one(const string & msgid, const string & locs, void *a)
 			op.add = false;
 			op.msgid = msgid;
 			op.group = v[i].group;
-			op.nbr = 0;
+			op.nbr = v[i].nbr;
 			ctx->ops.push_back(op);
 		}
 	}
@@ -585,11 +586,63 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 			continue;
 		}
 		vector < Op > &ops = ctx.ops;
-		vector < const Op *>p;
-		for (size_t i = 0; i < ops.size(); i++)
-			p.push_back(&ops[i]);
-		apply_all(n, p);
-		dropped += ops.size();
+#ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
+		// Test-only barrier after the shared-lock snapshot, before applying.
+		if (!ops.empty()) {
+			const char *ready = getenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+			const char *go = getenv("NEWSCACHE_TEST_PRUNE_GO_FD");
+			if (ready && go) {
+				char byte = 'x';
+				if (write(atoi(ready), &byte, 1) != 1 ||
+				    read(atoi(go), &byte, 1) != 1)
+					_exit(99);
+				unsetenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+				unsetenv("NEWSCACHE_TEST_PRUNE_GO_FD");
+			}
+		}
+#endif
+		// A group or its location may have been recreated after collection.
+		// Recheck both while holding the shard exclusively: a concurrent
+		// history writer then either happened before this check or will add
+		// its location after the removal.
+		try {
+			s->lock(NVcontainer::ExclLock);
+			try {
+				for (size_t i = 0; i < ops.size(); i++) {
+					const Op &op = ops[i];
+					unsigned char dg[16];
+					int sh, b;
+					route(op.msgid.c_str(), dg, &sh, &b);
+					Shard::Record *r = s->sfind(b, dg, op.msgid.c_str(), NULL);
+					if (!r)
+						continue;
+					vector < Location > v = parse(s->locations(r));
+					bool same = false;
+					for (size_t j = 0; j < v.size(); j++)
+						if (v[j].group == op.group && v[j].nbr == op.nbr) {
+							same = true;
+							break;
+						}
+					if (same && !keep(op.group, arg)) {
+						apply(*s, b, dg, op);
+						dropped++;
+					}
+				}
+			}
+			catch(...) {
+				s->lock(NVcontainer::UnLock);
+				throw;
+			}
+			s->lock(NVcontainer::UnLock);
+		}
+		catch(Corrupt &) {
+			reset_shard(*s, "is damaged", true);
+		}
+		catch(Error & e) {
+			slog.p(Logger::Error) << "history: " << s->path << ": "
+			    << e._errtext << "\n";
+			reset_shard(*s, "failed", false);
+		}
 	}
 	return dropped;
 }
