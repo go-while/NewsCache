@@ -904,10 +904,12 @@ func TestCachePort(t *testing.T) {
 }
 
 // TestClientStalledReader: a client that stops reading in the middle of a
-// big OVER or XOVER is cut off after ClientTimeout. It writes while it holds
-// the group's lock, and ClientTimeout only covered the wait for the next
-// command: the session stayed blocked in send() for good, and another
-// session that needed the group (storing an article it read) hung too.
+// big OVER or XOVER is cut off after ClientTimeout. ClientTimeout only
+// covered the wait for the next command: the session stayed blocked in
+// send() for good, and as it wrote while it held the group's lock, another
+// session that needed the group (storing an article it read) hung too. (The
+// records are written with the lock released now, see
+// TestXoverStalledClientDoesNotHoldGroupLock.)
 func TestClientStalledReader(t *testing.T) {
 	for _, command := range []string{"OVER", "XOVER"} {
 		t.Run(command, func(t *testing.T) { testClientStalledReader(t, command) })
@@ -1905,5 +1907,73 @@ func TestSIGTERMUpdatenewsPosting(t *testing.T) {
 	}
 	if n := len(e.Store.Posted()); n != 0 {
 		t.Errorf("%d articles posted, want none", n)
+	}
+}
+
+// TestXoverStalledClientDoesNotHoldGroupLock: a client that asks for a big
+// XOVER and then stops reading used to hold the group's shared lock until its
+// send timed out (ClientTimeout), and every session that needed the exclusive
+// lock - storing an article or an overview record - waited that long. The
+// records are now formatted in chunks under a shortened lock.
+func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
+	const group = "alt.binaries.lockhold"
+	e := newEnv(t)
+	e.ClientTimeout = 3
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
+	e.standalone()
+
+	// Fill the group's overview first, with a client that reads it all:
+	// fetching it holds the group's exclusive lock (freshen), and on a
+	// loaded machine that fetch could still run when B asks below.
+	w := e.dial()
+	w.Deadline = 60 * time.Second
+	if code, line := w.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP (warm-up): %q", line)
+	}
+	if code, line := w.Cmd("XOVER 1-40000"); code != 224 {
+		t.Fatalf("XOVER (warm-up): %q", line)
+	}
+	if n := len(w.ReadDotLines()); n != 40000 {
+		t.Fatalf("XOVER (warm-up): %d records, want 40000", n)
+	}
+	w.Cmd("QUIT")
+
+	a, err := net.Dial("tcp", e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	a.(*net.TCPConn).SetReadBuffer(4096)
+	ra := bufio.NewReader(a)
+	a.SetDeadline(time.Now().Add(90 * time.Second))
+	ra.ReadString('\n')
+	io.WriteString(a, "GROUP "+group+"\r\n")
+	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
+		t.Fatalf("GROUP: %q %v", l, err)
+	}
+	io.WriteString(a, "XOVER 1-40000\r\n")
+	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
+		t.Fatalf("XOVER: %q %v", l, err)
+	}
+	// A reads nothing more; give its reply time to fill the socket.
+	time.Sleep(700 * time.Millisecond)
+
+	b := e.dial()
+	b.Deadline = 30 * time.Second
+	if code, line := b.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("B GROUP: %q", line)
+	}
+	// ARTICLE 1 is not cached yet: it is fetched and then stored, which
+	// needs the group's exclusive lock.
+	start := time.Now()
+	code, line := b.Cmd("ARTICLE 1")
+	elapsed := time.Since(start)
+	if code != 220 {
+		t.Fatalf("B ARTICLE 1: %q, want 220", line)
+	}
+	b.ReadDotLines()
+	t.Logf("second session waited %v (ClientTimeout %d s)", elapsed.Round(10*time.Millisecond), e.ClientTimeout)
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", elapsed)
 	}
 }

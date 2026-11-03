@@ -268,11 +268,16 @@ func TestCorruptDBFuzz(t *testing.T) {
 					}
 				}
 			}
-			// With this seed, damage to the group's .db interrupts lists
-			// (96 sessions on Linux): none closed means such a list was
-			// ended with a "." as if it were complete.
+			// This group has 21 records, fewer than the 64 that are
+			// formatted in one chunk, so damage is found before any of
+			// the list reached the client: the command retries on the
+			// repaired database (NewsCache.cc, "nothing sent yet: once
+			// more") and no session is closed mid-list. That is why this
+			// fuzz no longer produces the closed-mid-list case; the
+			// closing path is covered by TestCorruptDBMidListCloses with
+			// a range of more than one chunk.
 			if target == "db" && closed == 0 {
-				t.Errorf("no session was closed in the middle of a list: interrupted lists are ended as if complete")
+				t.Logf("no session closed mid-list: the damaged database was moved aside and the command retried")
 			}
 			if closed > 0 {
 				t.Logf("%s: %d damaged sessions were closed in the middle of a list", target, closed)
@@ -627,5 +632,102 @@ func TestBadStoredArticle(t *testing.T) {
 				t.Errorf("the group database was moved aside: %v", m)
 			}
 		})
+	}
+}
+
+// TestCorruptDBMidListCloses: the chunked printing formats 64 records under
+// the lock and writes them with it released, so a damaged record past the
+// first chunk is found after part of the list reached the client. The session
+// must then be closed without a ".", which would make the truncated list look
+// complete, and the log must say why.
+func TestCorruptDBMidListCloses(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 200)
+	// fill the group's database with all 200 overview records
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("XOVER 1-200"); code != 224 {
+		t.Fatalf("XOVER: %q", line)
+	}
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+
+	path := filepath.Join(e.Spool, "test", "alpha", ".db")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// break the record of article 100: it is read in the second chunk
+	// (articles 65..128), after the first chunk went to the client
+	breakRecord(t, path, b, 100)
+
+	d, p := corruptSession(t, e)
+	if code, line := d.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP (damaged): %q", line)
+	}
+	if code, line, err := d.TryCmd("XOVER 1-200"); err != nil {
+		t.Fatalf("XOVER status: %v", err)
+	} else if code != 224 {
+		t.Fatalf("XOVER (damaged): %q", line)
+	}
+	lines := 0
+	for {
+		l, err := d.ReadLine()
+		if err != nil {
+			break
+		}
+		if l == "." {
+			t.Fatalf("the interrupted list ended with a \".\" after %d lines, as if it were complete", lines)
+		}
+		lines++
+	}
+	t.Logf("the interrupted list sent %d of 200 lines, then the session closed", lines)
+	if lines == 0 || lines >= 200 {
+		t.Errorf("the damaged list sent %d lines, want a partial list of fewer than 200", lines)
+	}
+	if err := p.Wait(); err != nil {
+		t.Errorf("session after the interrupted list: %v, want a clean exit", err)
+	}
+	if mode, err := logMode(e.Bin); err == nil && mode == "file" {
+		if log := e.logFile(); !strings.Contains(log, "after part of") {
+			t.Errorf("the session was closed mid-list but the log does not say why")
+		}
+	}
+}
+
+// breakRecord damages the length prefix of one article's record in a group
+// database: sget then rejects it ("bad index entry") wherever that record is
+// read. The layout is NVcontainer's: a Header, then the index block the header
+// points at (userdata), first article number, last article number, then one
+// file offset per article.
+func breakRecord(t *testing.T, path string, b []byte, artnum uint64) {
+	t.Helper()
+	if len(b) < 48 {
+		t.Fatalf("%s: only %d bytes", path, len(b))
+	}
+	if hdr := uint64(binary.LittleEndian.Uint32(b[0:4])); hdr != 48 {
+		t.Skipf("%s: header size %d, this test knows 48", path, hdr)
+	}
+	userdata := binary.LittleEndian.Uint64(b[40:48])
+	if userdata+16 > uint64(len(b)) {
+		t.Fatalf("%s: index block at %d outside the file", path, userdata)
+	}
+	fst := binary.LittleEndian.Uint64(b[userdata:])
+	lst := binary.LittleEndian.Uint64(b[userdata+8:])
+	if artnum < fst || artnum > lst {
+		t.Fatalf("%s: articles %d..%d, no %d", path, fst, lst, artnum)
+	}
+	off := binary.LittleEndian.Uint64(b[userdata+16+(artnum-fst)*8:])
+	if off == 0 || off+8 > uint64(len(b)) {
+		t.Fatalf("%s: record %d at %d outside the file", path, artnum, off)
+	}
+	// the 8-byte size prefix no longer fits the block: sget calls corrupt()
+	for i := uint64(0); i < 8; i++ {
+		b[off+i] = 0xff
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

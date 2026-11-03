@@ -997,23 +997,75 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 	return high;
 }
 
+/*
+ * How much is formatted while the group's lock is held, before the records go
+ * to the client with the lock released: a client that stops reading must not
+ * keep the lock (see printoverdb).
+ */
+#define PRINT_CHUNK_RECORDS 64
+#define PRINT_CHUNK_BYTES 65536
+// LISTGROUP prints numbers only, so more of them fit in one lock hold: a
+// dense range is bounded by the bytes, a sparse one by the iterations.
+#define PRINT_LISTGROUP_STEP 4096
+
+/*
+ * Writes a chunk to the client and empties the buffer for the next one,
+ * keeping the memory of both: a new buffer (and a copy of it) for every
+ * chunk of a long reply made the memory grow with the reply under
+ * AddressSanitizer, which keeps freed memory back for a while. The chunk
+ * goes out with one write (os << rdbuf() copies character by character
+ * with libc++).
+ */
+static void flush_chunk(ostream & os, stringstream & buf, string & out)
+{
+	streamsize n = buf.tellp();
+	if (n > 0) {
+		out.resize((size_t) n);
+		buf.rdbuf()->sgetn(&out[0], n);
+		os.write(out.data(), n);
+	}
+	buf.str(string());
+	buf.clear();
+}
+
 void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::printoverdb(os,"
 	     << f << "," << l << ")\n");
-	artnum_t i;
-	lock(NVcontainer::ShrdLock);
-	if (f < arrfst)
-		f = arrfst;
-	if (arrlst < l)
-		l = arrlst;
-	// i == l ends the loop, so l == ARTNUM_MAX can't wrap around
-	for (i = f; i <= l; i++) {
-		sprintover(os, i);
-		if (i == l)
+	// The records go into a buffer under a shortened lock and are written
+	// with the lock free: a client that stops reading used to hold the
+	// group's shared lock until its send timed out (ClientTimeout), and
+	// every session that needed the exclusive lock waited that long.
+	// The record is copied under the lock because a record can be freed
+	// or the database remapped by another process.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+	string out;
+
+	for (;;) {
+		artnum_t e, i, last = 0;
+
+		lock(NVcontainer::ShrdLock);
+		if (f < arrfst)
+			f = arrfst;
+		e = arrlst < l ? arrlst : l;
+		if (f > e) {
+			lock(NVcontainer::UnLock);
 			break;
+		}
+		for (i = f; i <= l && i <= e; i++) {
+			sprintover(buf, i);
+			last = i;
+			if (i == e || (i - f + 1) >= PRINT_CHUNK_RECORDS
+			    || buf.tellp() >= PRINT_CHUNK_BYTES)
+				break;
+		}
+		lock(NVcontainer::UnLock);
+		flush_chunk(os, buf, out);
+		if (!os.good() || last >= e)
+			break;
+		f = last + 1;
 	}
-	lock(NVcontainer::UnLock);
 }
 
 void NVNewsgroup::printheaderdb(ostream & os,
@@ -1025,63 +1077,82 @@ void NVNewsgroup::printheaderdb(ostream & os,
 	size_t szdata;
 	unsigned long gf, i, gl;
 
-	NVArray::lock(NVcontainer::ShrdLock);
-	NVArray::getsize(&gf, &gl);
-	if (f < gf)
-		f = gf;
-	if (l > gl)
-		l = gl;
-	for (i = f; i <= l; i++) {
-		NVArray::sget(i, &data, &szdata);
-		if (data && (*data == article || *data == bigarticle
-			     || *data == overview)) {
-			bool found = true, bad = false;
-			if (*data == article) {
-				//FIX! This is inefficient!
-				//FIX! The article is copied and all the overview data is copied 
-				//FIX! again. We should allow Articles to use externally provided 
-				//FIX! memory (eg. memory from the NVNewsgroup).
-				// szdata ... Size of article including the trailing \0 plus
-				//            1char (= InformationTag of NVNewsgroup)
-				Article art(i, data + sizeof(char),
-					    szdata - sizeof(char) - 1);
-				try {
-					// Lines is the count of body lines
-					// (:lines), as in the overview, not
-					// the poster's Lines header
-					if (strcasecmp(xheader.c_str(),
-						       "lines:") == 0) {
-						char n[32];
-						snprintf(n, sizeof(n), "%lu",
-							 art.bodylines());
-						fld = n;
-					} else
-						fld = art.getfield(xheader.c_str(), 0);
-				} catch(NoSuchFieldError & nfe) {
-					found = false;
-				} catch(const InvalidArticleError & e) {
-					bad = true;
-				}
-			} else {
-				const char *over = data + sizeof(char);
-				try {
-					fld =
-					    _OverviewFormat->getfield(over,
-								      xheader.c_str(),
-								      0);
-				} catch(NoSuchFieldError & nfe) {
-					found = false;
-				}
-			}
-			if (bad)
-				dropbad(i);
-			else
-				headerline(os, i, found ? &fld : NULL, pat);
-		}
-		if (i == l)
+	// As in printoverdb: a bounded chunk under the lock, the write with
+	// the lock free, so a client that stops reading does not keep it.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+	string out;
+
+	for (;;) {
+		unsigned long e, last = 0;
+
+		NVArray::lock(NVcontainer::ShrdLock);
+		NVArray::getsize(&gf, &gl);
+		if (f < gf)
+			f = gf;
+		e = l > gl ? gl : (unsigned long) l;
+		if (f > e) {
+			NVArray::lock(NVcontainer::UnLock);
 			break;
+		}
+		for (i = (unsigned long) f; i <= e; i++) {
+			NVArray::sget(i, &data, &szdata);
+			if (data && (*data == article || *data == bigarticle
+				     || *data == overview)) {
+				bool found = true, bad = false;
+				if (*data == article) {
+					//FIX! This is inefficient!
+					//FIX! The article is copied and all the overview data is copied 
+					//FIX! again. We should allow Articles to use externally provided 
+					//FIX! memory (eg. memory from the NVNewsgroup).
+					// szdata ... Size of article including the trailing \0 plus
+					//            1char (= InformationTag of NVNewsgroup)
+					Article art(i, data + sizeof(char),
+						    szdata - sizeof(char) - 1);
+					try {
+						// Lines is the count of body lines
+						// (:lines), as in the overview, not
+						// the poster's Lines header
+						if (strcasecmp(xheader.c_str(),
+							       "lines:") == 0) {
+							char n[32];
+							snprintf(n, sizeof(n), "%lu",
+								 art.bodylines());
+							fld = n;
+						} else
+							fld = art.getfield(xheader.c_str(), 0);
+					} catch(NoSuchFieldError & nfe) {
+						found = false;
+					} catch(const InvalidArticleError & e) {
+						bad = true;
+					}
+				} else {
+					const char *over = data + sizeof(char);
+					try {
+						fld =
+						    _OverviewFormat->getfield(over,
+									      xheader.c_str(),
+									      0);
+					} catch(NoSuchFieldError & nfe) {
+						found = false;
+					}
+				}
+				if (bad)
+					dropbad(i);
+				else
+					headerline(buf, i, found ? &fld : NULL, pat);
+			}
+			last = i;
+			if (i == e || (i - f) + 1 >= PRINT_CHUNK_RECORDS
+			    || buf.tellp() >= PRINT_CHUNK_BYTES)
+				break;
+		}
+		NVArray::lock(NVcontainer::UnLock);
+		flush_chunk(os, buf, out);
+		if (!os.good() || last >= e)
+			break;
+		f = last + 1;
 	}
-	NVArray::lock(NVcontainer::UnLock);
 }
 
 void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
@@ -1090,20 +1161,36 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	     p(Logger::Debug) << "NVNewsgroup::printlistgroup(&os," << f
 	     << "," << l << ")\n");
 
-	artnum_t i;
-	lock(NVcontainer::ShrdLock);
-	if (f < arrfst)
-		f = arrfst;
-	if (l > arrlst)
-		l = arrlst;
-	// i == l ends the loop, so l == ARTNUM_MAX can't wrap around
-	for (i = f; i <= l; i++) {
-		if (shas_element(i))
-			os << i << "\r\n";
-		if (i == l)
+	// As in printoverdb: a bounded chunk under the lock, the write with
+	// the lock free.
+	// (read back by flush_chunk: in and out)
+	stringstream buf;
+	string out;
+
+	for (;;) {
+		artnum_t e, i;
+
+		lock(NVcontainer::ShrdLock);
+		if (f < arrfst)
+			f = arrfst;
+		e = l < arrlst ? l : arrlst;
+		if (f > e) {
+			lock(NVcontainer::UnLock);
 			break;
+		}
+		for (i = f; i <= e; i++) {
+			if (shas_element(i))
+				buf << i << "\r\n";
+			if (i == e || (i - f) + 1 >= PRINT_LISTGROUP_STEP
+			    || buf.tellp() >= PRINT_CHUNK_BYTES)
+				break;
+		}
+		lock(NVcontainer::UnLock);
+		flush_chunk(os, buf, out);
+		if (!os.good() || i >= e)
+			break;
+		f = i + 1;
 	}
-	lock(NVcontainer::UnLock);
 }
 
 /*
