@@ -44,9 +44,7 @@ class GroupInfo {
 	// All data-types stored in NVcontainers must have a set- and getraw
 	// method
 	void setraw(const char *buf, unsigned int bufsz) {
-		if (bufsz > sizeof(_ctime) + sizeof(_mtime) +
-		    sizeof(_fst) + sizeof(_lst) + sizeof(_n) +
-		    sizeof(_flag) + sizeof(_name))
+		if (bufsz > rawmaxsize())
 			throw Error("GroupInfo(24230): setraw buf too big",
 				    ERROR_LOCATION);
 		// a record from the file: the name must end in _name
@@ -58,6 +56,12 @@ class GroupInfo {
 	// Where the name starts in the raw form (getraw/setraw).
 	static size_t rawnameoffset(void) {
 		return offsetof(GroupInfo, _name);
+	}
+
+	// The most a record can hold: without the padding at the end of the
+	// object (sizeof(GroupInfo) counts it, setraw refuses it).
+	static size_t rawmaxsize(void) {
+		return offsetof(GroupInfo, _name) + sizeof(_name);
 	}
 
 	void getraw(const char **buf, unsigned int *bufsz) {

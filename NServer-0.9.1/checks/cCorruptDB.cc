@@ -31,6 +31,7 @@
 #include <time.h>
 
 #include <fstream>
+#include <iterator>
 #include <iostream>
 #include <string>
 
@@ -172,6 +173,50 @@ static void lost_file(const string & dir)
 	CHECK(tryget(db, "de.test") == 0);
 	addgroup(db, "de.new");
 	CHECK(tryget(db, "de.new") == 1);
+	unlink(fn.c_str());
+	unlink((fn + ".bad").c_str());
+}
+
+// A record longer than a GroupInfo can hold (but not longer than
+// sizeof(GroupInfo), which has padding at its end) is damage like any
+// other: the file is moved aside and started anew, and get() doesn't
+// fail with a plain Error for every GROUP afterwards.
+static void long_record(const string & dir)
+{
+	string fn = dir + "/longrec.active64";
+	// (the name field of a GroupInfo has 512 bytes)
+	const unsigned long maxsz = GroupInfo::rawnameoffset() + 512;
+	string name = "de." + string(508, 'x');	// raw record: 553 bytes
+	{
+		NVActiveDB db(fn.c_str());
+		GroupInfo gi;
+		gi.set((name + " 10 1 y").c_str());
+		db.set(gi);
+	}
+	// the size field, 8 bytes before the record's data
+	string data;
+	{
+		ifstream is(fn.c_str(), ios::binary);
+		data.assign(istreambuf_iterator<char>(is),
+			    istreambuf_iterator<char>());
+	}
+	string::size_type at = data.find(name);
+	CHECK(at != string::npos && at > GroupInfo::rawnameoffset() + 8);
+	if (at != string::npos) {
+		unsigned long sz = maxsz + 3;
+		off_t pos = at - GroupInfo::rawnameoffset() - sizeof(sz);
+		unsigned long old;
+		memcpy(&old, data.data() + pos, sizeof(old));
+		CHECK(old == maxsz);
+		int fd = open(fn.c_str(), O_WRONLY);
+		CHECK(fd >= 0 && pwrite(fd, &sz, sizeof(sz), pos) == (ssize_t) sizeof(sz));
+		if (fd >= 0)
+			close(fd);
+		NVActiveDB db(fn.c_str());
+		tryget(db, name.c_str());
+		CHECK(exists(fn + ".bad"));
+		CHECK(tryget(db, name.c_str()) == 0);
+	}
 	unlink(fn.c_str());
 	unlink((fn + ".bad").c_str());
 }
@@ -802,6 +847,7 @@ int main(int argc, char *argv[])
 	if (!race_only) {
 		long_open_path(dir);
 		lost_file(dir);
+		long_record(dir);
 		objlock_eintr(dir);
 		free_overlap(dir);
 		map_fails(dir);
