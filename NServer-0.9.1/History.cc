@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -39,8 +40,9 @@ class Shard:public NVHash {
 	string path;
 	pid_t pid;		// process that opened it (0: not open)
 	bool usable;
+	time_t retry_at;	// not usable: no new attempt to open before
 
-	Shard():NVHash(), pid(0), usable(false) {
+	Shard():NVHash(), pid(0), usable(false), retry_at(0) {
 	}
 
 	// Moves the file aside the way NVcontainer does for any damaged
@@ -178,6 +180,9 @@ class Shard:public NVHash {
 	}
 };
 
+// How long a shard that could not be opened stays unused.
+const int RETRY_SECONDS = 5;
+
 string spool;			// "" = disabled
 Shard shards[History::SHARDS];
 
@@ -225,8 +230,16 @@ Shard *shard(int n)
 	Shard & s = shards[n];
 	if (spool.empty())
 		return NULL;
-	if (s.pid == getpid())
-		return s.usable ? &s : NULL;
+	if (s.pid == getpid()) {
+		if (s.usable)
+			return &s;
+		// The last attempts to open it failed (EMFILE, ENOSPC, ...
+		// may have been short-lived): try again later, but not at
+		// every call, which would cost an open() each time for a
+		// shard that stays broken.
+		if (time(NULL) < s.retry_at)
+			return NULL;
+	}
 	// first use in this process (or after a fork)
 	if (s.pid != 0) {
 		try {
@@ -270,6 +283,7 @@ Shard *shard(int n)
 		}
 		s.pid = getpid();
 	}
+	s.retry_at = time(NULL) + RETRY_SECONDS;
 	return NULL;
 }
 

@@ -431,6 +431,33 @@ int main(int argc, char **argv)
 		CHECK(locs(id9b.c_str()) == "g.nine:2");
 	}
 
+	// A shard that can't be opened (here: no permission to create the
+	// file) is tried again a little later, not given up for the rest of
+	// the process. A child process opens the shards anew.
+	if (geteuid() != 0) {
+		string id11 = id_for_shard(11, 0);
+		CHECK(rename((hist + "/b").c_str(), (hist + "/b.gone").c_str()) == 0);
+		CHECK(chmod(hist.c_str(), 0500) == 0);
+		pid_t pid = fork();
+		if (pid == 0) {
+			int bad = 0;
+			History::add(id11.c_str(), "g.eleven", 1);
+			bad += locs(id11.c_str()) != "";
+			if (chmod(hist.c_str(), 0755) != 0)
+				_exit(9);
+			History::add(id11.c_str(), "g.eleven", 2);
+			bad += locs(id11.c_str()) != "";	// not yet
+			sleep(6);
+			History::add(id11.c_str(), "g.eleven", 3);
+			bad += locs(id11.c_str()) != "g.eleven:3";
+			_exit(bad);
+		}
+		int st = 0;
+		CHECK(pid > 0 && waitpid(pid, &st, 0) == pid && WIFEXITED(st) &&
+		      WEXITSTATUS(st) == 0);
+		CHECK(chmod(hist.c_str(), 0755) == 0);
+	}
+
 	if (failures) {
 		cerr << failures << " checks failed\n";
 		return 1;
