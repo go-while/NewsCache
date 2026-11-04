@@ -95,6 +95,10 @@ int main()
 	CHECK(next_listgroup_step(M, 1) == M);
 	// a server that sends more numbers than the step holds: no smaller
 	CHECK(next_listgroup_step(T, 3 * T) == T);
+	// the article deadline grows with MaxArticleSize and never wraps
+	CHECK(article_reply_seconds(0) == ARTICLE_REPLY_SECONDS);
+	CHECK(article_reply_seconds(1024 * 1024) >= article_reply_seconds(1024));
+	CHECK(article_reply_seconds(UINT64_MAX) == UINT_MAX);
 	ReplyBudget rows(2, 100);
 	CHECK(rows.add(2));
 	CHECK(rows.add(3));

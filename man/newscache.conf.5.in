@@ -480,7 +480,7 @@ instead. Each session (one per client) and each updatenews run keeps
 its own record. The default is 0, which tries every time; the range is
 0 to 86400.
 .IP "ReadTimeout \fIseconds\fR"
-Give up the connection to this server when it sends (or accepts) nothing for this long: each read and write, not a whole reply, so a large article on a slow line is fine. NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300, the range 0 to 86400; 0 waits for ever on ordinary reads and writes.
+Give up the connection to this server when it sends (or accepts) nothing for this long: each read and write, not a whole reply, so a large article on a slow line is fine (a whole article has a limit of its own: two minutes plus MaxArticleSize at 4 KB/s). NewsCache connects again (up to Retries times) or answers the client with 403. The default is 300, the range 0 to 86400; 0 waits for ever on ordinary reads and writes.
 An upstream TLS handshake (both implicit TLS and STARTTLS) has a limit for the whole handshake: ReadTimeout if nonzero, otherwise ConnectTimeout if nonzero, otherwise 60 seconds. Sending partial handshake data does not extend this limit.
 .IP "Options \fIflags\fR"
 Specifies a list of options that should be turned on or off. The default flags are: cached setpostflag. Valid flags are:

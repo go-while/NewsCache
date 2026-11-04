@@ -15,6 +15,9 @@ static const uint64_t ACTIVE_REPLY_BYTES = 4096;
 static const unsigned int ACTIVE_REPLY_SECONDS = 2;
 static const unsigned int RANGE_REPLY_SECONDS = 2;
 static const unsigned int ACTIVE_RETRY_SECONDS = 2;
+static const unsigned int ARTICLE_REPLY_SECONDS = 2;
+static const unsigned int ARTICLE_REPLY_BYTES_PER_SECOND = 1U << 30;
+static const unsigned int OVERVIEW_FMT_SECONDS = 2;
 #else
 // Full provider active lists normally contain far fewer than one million
 // groups; these limits leave ample headroom without allowing unlimited input.
@@ -26,7 +29,27 @@ static const uint64_t ACTIVE_REPLY_BYTES = 256ULL * 1024 * 1024;
 static const unsigned int ACTIVE_REPLY_SECONDS = 5 * 60;
 static const unsigned int RANGE_REPLY_SECONDS = 2 * 60;
 static const unsigned int ACTIVE_RETRY_SECONDS = 60;
+// An article takes two minutes plus the time MaxArticleSize bytes need at
+// 4 KB/s (32 kbit/s): 6 minutes for the default 1 MiB, slower than any
+// link a news server is reached over, so a real article never hits it. A
+// hostile upstream that sends one byte per ReadTimeout is cut off long
+// before the per-read timeouts add up to hours.
+static const unsigned int ARTICLE_REPLY_SECONDS = 2 * 60;
+static const unsigned int ARTICLE_REPLY_BYTES_PER_SECOND = 4096;
+// LIST OVERVIEW.FMT is a few dozen short lines.
+static const unsigned int OVERVIEW_FMT_SECONDS = 30;
 #endif
+
+static const uint64_t OVERVIEW_FMT_ROWS = 1000;
+static const uint64_t OVERVIEW_FMT_BYTES = 1024 * 1024;
+
+// Seconds a whole article reply (up to max_bytes) may take.
+inline unsigned int article_reply_seconds(uint64_t max_bytes)
+{
+	uint64_t s = ARTICLE_REPLY_SECONDS +
+	    max_bytes / ARTICLE_REPLY_BYTES_PER_SECOND;
+	return s > UINT_MAX ? UINT_MAX : (unsigned int) s;
+}
 
 // OVER and LISTGROUP replies are bounded by the requested number range.
 // Allow a few extraneous rows from servers that ignore a range, but count

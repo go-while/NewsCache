@@ -503,7 +503,24 @@ void RServer::connect()
 			RSERVER_CONNECT_CHECK_CONNECTION
 			    ("Cannot read data from %s:%s");
 			if (resp[0] == '2' && resp[1] == '1' && resp[2] == '5') {
-				_OverviewFormat->readxoin(*_pServerStream);
+				// (the whole reply within a time and size limit,
+				// else the connection is closed as for a cut-off
+				// list; a slow or endless list held connect())
+				ReplyBudget budget(OVERVIEW_FMT_ROWS, OVERVIEW_FMT_BYTES,
+						   OVERVIEW_FMT_SECONDS);
+				try {
+					ReplyReadGuard reply(*_pServerStream, OVERVIEW_FMT_SECONDS);
+					_OverviewFormat->readxoin(*_pServerStream, &budget);
+					reply.finish();
+				} catch(const ReplyLimitError &e) {
+					slog.p(Logger::Error) << _CurrentServer->hostname
+					    << ": LIST OVERVIEW.FMT: " << e._errtext << "\n";
+					reply_unread();
+					throw;
+				} catch(...) {
+					reply_unread();
+					throw;
+				}
 				// (a list cut off, or a line too long: else
 				// the next command reconnected, nested)
 				RSERVER_CONNECT_CHECK_CONNECTION
@@ -581,13 +598,31 @@ void RServer::reply_unread()
 void RServer::readarticle(Article * art)
 {
 	int r;
+	bool expired = false;
 
+	// the whole article within a time that grows with MaxArticleSize: a
+	// server that sends a byte per ReadTimeout would hold the session, and
+	// the locks its caller holds, for ever
 	try {
+		ReplyReadGuard reply(*_pServerStream,
+				     article_reply_seconds(_MaxArticleSize));
 		r = art->read(*_pServerStream, _MaxArticleSize);
+		expired = !_pServerStream->good() && _pServerStream->reply_expired();
+		reply.finish();
 	}
 	catch(...) {
 		reply_unread();
 		throw;
+	}
+	if (expired) {
+		slog.p(Logger::Error) << "news server "
+		    << _CurrentServer->hostname
+		    << " took too long to send an article, closing the connection\n";
+		_pServerStream->abort();
+		delete _pServerStream;
+		_pServerStream = NULL;
+		throw SystemError("article reply deadline exceeded", -1,
+				  ERROR_LOCATION);
 	}
 	if (r < 0) {
 		// the rest of it is unread: the connection is out of step

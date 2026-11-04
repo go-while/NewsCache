@@ -612,7 +612,10 @@ the TCP connection; the greeting falls under @code{ReadTimeout}.
 How long NewsCache waits for the server to send (or accept) anything on
 an open connection, in seconds; the default is 300, 0 waits for ever.
 It applies to each read and write, not to a whole reply, so a large
-article on a slow line is fine. A server that stops answering ends the
+article on a slow line is fine (a whole article has a limit of its own:
+two minutes plus @code{MaxArticleSize} at 4 KB/s, so a server that sends
+a byte at a time can't hold the session for hours). A server that stops
+answering ends the
 connection after this time; NewsCache connects again (up to
 @code{Retries} times) and otherwise answers the client with 403. Without
 it, a session waited for good, holding the group's or the active list's

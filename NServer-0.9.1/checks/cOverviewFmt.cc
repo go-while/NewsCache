@@ -185,6 +185,35 @@ int checkConvertStripName()
 			    "2\thello\tfrom\tdate\t<id@x>\t\t10\t1\tXref: h g:2");
 }
 
+// A LIST OVERVIEW.FMT reply with more rows than the limit: ReplyLimitError,
+// not an endless read. A reply within the limit is read as before.
+static int checkReadRowLimit()
+{
+	string many;
+	for (int i = 0; i < 5; i++)
+		many += "Subject:\r\n";
+	many += ".\r\n";
+	{
+		istringstream is(many);
+		OverviewFmt o;
+		ReplyBudget budget(10, 1000);
+		o.readxoin(is, &budget);
+		if (budget.rows() != 5)
+			return -1;
+	}
+	{
+		istringstream is(many);
+		OverviewFmt o;
+		ReplyBudget budget(4, 1000);
+		try {
+			o.readxoin(is, &budget);
+		} catch (const ReplyLimitError &) {
+			return 0;
+		}
+	}
+	return -1;
+}
+
 int main(int argc, char *argv[])
 {
 	const char *const *al = articleList;
@@ -230,6 +259,12 @@ int main(int argc, char *argv[])
 		ef++;
 	else
 		cout << "checkConvertStripName succeeded\n";
+
+	if (checkReadRowLimit() < 0) {
+		cout << "checkReadRowLimit failed\n";
+		ef++;
+	} else
+		cout << "checkReadRowLimit succeeded\n";
 
 	if (ef == 0) {
 		cout << "cOverviewFmt: all tests succeeded\n";
