@@ -4502,6 +4502,7 @@ void nntpd()
 	lfd[nlfd].fd = wake_pipe[0];
 	lfd[nlfd].events = POLLIN;
 	int next_lfd = 0;	// the listener asked first, in turns
+	bool accept_failing = false;	// the last accept() failed
 
 	for (;;) {
 		int clt_fd;
@@ -4613,12 +4614,29 @@ void nntpd()
 			}
 		} while (errno == EINTR);
 		if (clt_fd < 0) {
-			slog.
-			    p(Logger::
-			      Warning) << "accept failed: " <<
-			    strerror(errno) << "\n";
+			// Out of descriptors or memory: the connection stays
+			// queued and poll() reports it again at once. Log it
+			// once and wait a second (a signal ends the wait)
+			// instead of spinning and filling the log.
+			if (!accept_failing) {
+				slog.
+				    p(Logger::
+				      Warning) << "accept failed: " <<
+				    strerror(errno) << "\n";
+				accept_failing = true;
+			}
+			struct pollfd wake;
+			wake.fd = wake_pipe[0];
+			wake.events = POLLIN;
+			wake.revents = 0;
+			if (poll(&wake, 1, 1000) > 0) {
+				char buf[128];
+				while (read(wake_pipe[0], buf, sizeof(buf)) > 0)
+					;
+			}
 			continue;
 		}
+		accept_failing = false;
 		// blocking, as before: on BSD and macOS the accepted socket
 		// inherits O_NONBLOCK from the listener
 		{
