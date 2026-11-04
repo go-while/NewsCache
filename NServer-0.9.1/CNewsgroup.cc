@@ -801,7 +801,19 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		top = arrlst;
 	if (_ghave && top > _glast)
 		top = _glast;
-	if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
+	// The chunk is marked from its first number the index and the group
+	// have now, so only if [a,b] began there: prefetchGroup starts the
+	// newest MAX_INDEX_SPAN numbers in the middle of a chunk, and the
+	// numbers before a were neither fetched nor listed. Nor when the
+	// index has moved past b meanwhile (another session's numbers):
+	// nothing of [a,b] is in it any more.
+	artnum_t first = a / OVERVIEW_CHUNK * OVERVIEW_CHUNK;
+	if (first < arrfst)
+		first = arrfst;
+	if (_ghave && first < _gfirst)
+		first = _gfirst;
+	if (a <= first && first <= top &&
+	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
 		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
 	setmtime(nvtime(NULL));
 }
