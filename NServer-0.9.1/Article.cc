@@ -44,7 +44,7 @@ void InvalidArticleError::print(void) const
 }
 
 Article::Article()
-	: _nbr(0)
+	: _nbr(0), _ctext(_text.c_str())
 {
 }
 
@@ -53,6 +53,7 @@ Article::Article(Article * a)
 { }
 
 Article::Article(artnum_t artnbr)
+	: _ctext(_text.c_str())
 {
 	setnbr(artnbr);
 }
@@ -98,7 +99,15 @@ int Article::read(std::istream & is, size_t max)
 	int r;
 
 	_text = "";
-	r = readtext(is, _text, 1, ".\r\n", max);
+	_ctext = _text.c_str();
+	try {
+		r = readtext(is, _text, 1, ".\r\n", max);
+	}
+	catch(...) {
+		// (_text may have been reallocated before the throw)
+		_ctext = _text.c_str();
+		throw;
+	}
 	if (r < 0)
 		std::string().swap(_text);
 	else
