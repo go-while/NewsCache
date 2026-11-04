@@ -110,8 +110,14 @@ int nvflock(int fd, int cmnd, int block)
 	else
 		lck = F_SETLKW;
 
-	// Unlock, before applying the new lock
-	if (ncmnd.l_type != F_UNLCK) {
+	// Unlock before an exclusive lock: two processes that both hold the
+	// shared lock and both ask for the exclusive one would wait for each
+	// other. A shared lock is not given up first: fcntl turns an
+	// exclusive lock into a shared one at once (the lock stack's way back
+	// to an outer shared lock), and an unlock in between let another
+	// process change the file (resize it, move it aside) in the middle of
+	// the outer shared section.
+	if (ncmnd.l_type == F_WRLCK) {
 		struct flock ulck;
 		ulck.l_type = F_UNLCK;
 		ulck.l_whence = SEEK_SET;
@@ -727,9 +733,9 @@ int NVcontainer::lock(int command, int block)
 		res = nvflock(mem_fd, command, block);
 		if (res < 0 && errno == EINTR && asked == UnLock) {
 			// Back to the caller's outer lock (the stack points at
-			// it already). nvflock gave the inner one up first, so
-			// the outer one must be held again: a signal only
-			// interrupts the wait.
+			// it already): the outer one must be held again, a
+			// signal only interrupts the wait. (Back to a shared
+			// lock, fcntl doesn't wait; flock may, see USE_FLOCK.)
 			do
 				res = nvflock(mem_fd, command, Block);
 			while (res < 0 && errno == EINTR);
@@ -776,8 +782,9 @@ int NVcontainer::lock(int command, int block)
 						;
 				}
 				// Back to an outer lock and the remap failed
-				// (the file grew while the inner lock was
-				// given up): the outer lock would be held with
+				// (the file grew under the inner lock, e.g. through
+				// another object of this process on the same
+				// file): the outer lock would be held with
 				// no mapping, and the outer caller (an NVLock
 				// destructor swallows this exception) would
 				// go on with it. Give up the outer locks as
