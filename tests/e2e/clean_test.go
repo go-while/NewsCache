@@ -470,3 +470,121 @@ func TestNewscachecleanWhileArticleIsFetched(t *testing.T) {
 	}
 	reader.Cmd("QUIT")
 }
+
+// TestNewscachecleanRange: an article file stored while newscacheclean
+// scans the group's directory is not taken for one outside the group's
+// range (removed at the end of the run whatever SpoolSize says), nor is a
+// file stored again under the name of a stale one the scan found. The
+// test build waits right after the cleaner has read the group's range
+// (NEWSCACHE_TEST_CLEAN_RACE); a session stores articles 2 and 3 then.
+func TestNewscachecleanRange(t *testing.T) {
+	if os.Getenv("NEWSCACHE_CLEAN_RACE_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_CLEAN_RACE build (NEWSCACHE_CLEAN_RACE_TEST=1)")
+	}
+	const group = "test.clean-range"
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.Store.AddGroup(group, "test group "+group)
+	e.Store.AddArticle(group, groupArticle(group, 1, []string{"small body"}))
+	e.Store.AddArticle(group, groupArticle(group, 2, bigBody()))
+	e.Store.AddArticle(group, groupArticle(group, 3, bigBody()))
+	reader := e.session()
+	if code, line := reader.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	// the index covers 1 only
+	if code, line := reader.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	reader.ReadDotLines()
+	reader.Cmd("QUIT")
+	// a file a crash left behind, outside the index: the scan finds it
+	// and marks it stale
+	stale := filepath.Join(e.Spool, "test", "clean-range", ".art3")
+	if err := os.WriteFile(stale, []byte("left behind\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	readyR, readyW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goR, goW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	cmd := exec.Command(clean, "-c", e.Conf)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.ExtraFiles = []*os.File{readyW, goR}
+	cmd.Env = append(os.Environ(), "NEWSCACHE_TEST_CLEAN_READY_FD=3",
+		"NEWSCACHE_TEST_CLEAN_GO_FD=4")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	readyW.Close()
+	goR.Close()
+	defer goW.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	ready := make(chan error, 1)
+	go func() {
+		b := make([]byte, 1)
+		_, err := readyR.Read(b)
+		ready <- err
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatalf("newscacheclean did not reach its test pause: %v\n%s", err, out.String())
+		}
+	case err := <-done:
+		t.Fatalf("newscacheclean ended before its test pause: %v\n%s", err, out.String())
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("newscacheclean did not reach its test pause")
+	}
+
+	// the cleaner has the range [1,1]; articles 2 and 3 come into the
+	// spool now (3 replaces the stale file)
+	writer := e.session()
+	if code, line := writer.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	for _, n := range []int{2, 3} {
+		if code, line := writer.Cmd("ARTICLE %d", n); code != 220 {
+			t.Fatalf("ARTICLE %d: %q", n, line)
+		}
+		writer.ReadDotLines()
+	}
+	writer.Cmd("QUIT")
+	if b, err := os.ReadFile(stale); err != nil || strings.Contains(string(b), "left behind") {
+		t.Fatalf("article 3 not stored over the stale file: %v", err)
+	}
+	artFile := filepath.Join(e.Spool, "test", "clean-range", ".art2")
+	if _, err := os.Stat(artFile); err != nil {
+		t.Fatalf("article file before the cleaner goes on: %v", err)
+	}
+
+	if _, err := goW.Write([]byte{'x'}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("newscacheclean: %v\n%s", err, out.String())
+		}
+	case <-time.After(30 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("newscacheclean did not finish")
+	}
+	if _, err := os.Stat(artFile); err != nil {
+		t.Errorf("article file stored during the scan: %v (SpoolSize was not exceeded)", err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("article file stored again over a stale one during the scan: %v", err)
+	}
+}

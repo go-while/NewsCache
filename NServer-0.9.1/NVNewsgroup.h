@@ -142,6 +142,13 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	virtual artnum_t lastnbr() {
 		return _ghave ? _glast : arrlst;
 	}
+	// The spool index's range as the file has it now (newscacheclean,
+	// which opens the group before it reads the directory).
+	void spoolrange(artnum_t *f, artnum_t *l) {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		*f = arrfst;
+		*l = arrlst;
+	}
 	virtual int hasrecord(artnum_t i) {
 		// The spool's index is an unsigned long (32 bits on 32-bit
 		// systems); setsize refuses numbers above that.

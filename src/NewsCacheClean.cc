@@ -29,6 +29,7 @@
  */
 #include "config.h"
 
+#include <stdlib.h>
 #include <string.h>
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
@@ -75,7 +76,13 @@ Config Cfg;
 class Entry {
   public:
 	Entry (const char *path, time_t time, long long blocks) 
-		: Path(path), atime(time), blocks(blocks)
+		: Path(path), atime(time), blocks(blocks), known(false)
+	{ }
+	// The file as it was scanned: it is removed only if it is still that
+	// file (a session may have stored a new one under the name since).
+	Entry (const char *path, time_t time, const struct stat &st)
+		: Path(path), atime(time), blocks(st.st_blocks), known(true),
+		  dev(st.st_dev), ino(st.st_ino)
 	{ }
 
 	void print (ostream &out)
@@ -86,6 +93,9 @@ class Entry {
 	string Path;
 	time_t atime;
 	long long blocks;
+	bool known;
+	dev_t dev;
+	ino_t ino;
 };
 
 
@@ -185,6 +195,20 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 		}
 		if ((*begin)->atime != 0 && _blocks <= max_blocks)
 			continue;
+		// The run may take long; meanwhile a session can store the
+		// article again (a new file under the name) or a group start a
+		// new database. That file wasn't scanned: it stays.
+		if ((*begin)->known) {
+			struct stat now;
+			if (lstat(path.c_str(), &now) != 0 ||
+			    now.st_dev != (*begin)->dev ||
+			    now.st_ino != (*begin)->ino) {
+				slog.p(Logger::Debug) << path
+					<< " changed since the scan, kept\n";
+				_blocks -= (*begin)->blocks;
+				continue;
+			}
+		}
 		if (unlink((*begin)->Path.c_str()) == 0) {
 			_blocks -= (*begin)->blocks;
 			if (!isDb) {
@@ -314,6 +338,30 @@ static NVNewsgroup *open_spool_group(OverviewFmt *fmt, const char *cpath,
 	return new NVNewsgroup (fmt, (const char *) Cfg.SpoolDirectory, ngname);
 }
 
+// An .art file of a group directory, as the scan found it.
+struct ArtFile {
+	string path;
+	struct stat st;
+};
+
+#ifdef NEWSCACHE_TEST_CLEAN_RACE
+// Compiled test fixture: waits after a group's range is read, so that a
+// session can store an article meanwhile (tests/e2e TestNewscachecleanRange).
+static void test_pause_after_range(void)
+{
+	const char *ready = getenv("NEWSCACHE_TEST_CLEAN_READY_FD");
+	const char *go = getenv("NEWSCACHE_TEST_CLEAN_GO_FD");
+	if (!ready || !go)
+		return;
+	char byte = 'x';
+	if (write(atoi(ready), &byte, 1) != 1 ||
+	    read(atoi(go), &byte, 1) != 1)
+		_exit(99);
+	unsetenv("NEWSCACHE_TEST_CLEAN_READY_FD");
+	unsetenv("NEWSCACHE_TEST_CLEAN_GO_FD");
+}
+#endif
+
 void clean(const char *cpath)
 {
 	VERB(slog.p(Logger::Debug) << "clean(" << cpath << ")\n");
@@ -339,7 +387,7 @@ void clean(const char *cpath)
 	}
 	if (lstat(buf, &s) == 0 && S_ISREG(s.st_mode)) {
 		dbatime = MAX(s.st_atime, s.st_mtime);
-		pvector.push_back( new Entry (buf, dbatime, s.st_blocks) );
+		pvector.push_back( new Entry (buf, dbatime, s) );
 		_blocks += s.st_blocks;
 		--dbatime;
 	} else {
@@ -377,10 +425,6 @@ void clean(const char *cpath)
 	}
 	closedir(d);
 
-	if ((d = opendir(cpath)) == NULL) {
-		slog.p(Logger::Error) << "cannot reopen " << cpath << "\n";
-		return;
-	}
 	// sanity check
 	string ngname (cpath);
 	// ./be/comp/os/unix -> be.comp.os.unix
@@ -394,28 +438,34 @@ void clean(const char *cpath)
 	artnum_t firstnr = 0;
 	artnum_t lastnr = 0;
 	// A corrupt database is moved to .db.bad when it is opened (and a
-	// new one started), see NVcontainer::corrupt. Any other error: log
-	// it and treat the group as having no database, so its .art files
-	// go. (NC_CATCH_ALL rethrew it, and the run ended with SIGABRT.)
-	try {
-		ng = open_spool_group(fmt, cpath, ngname.c_str());
-		if (ng != NULL) {
-			firstnr = ng->firstnbr ();
-			lastnr = ng->lastnbr ();
+	// new one started), see NVcontainer::corrupt: opened before the
+	// directory is read, so that the .db.bad is found there. Any other
+	// error: log it and treat the group as having no database, so its
+	// .art files go. (NC_CATCH_ALL rethrew it, and the run ended with
+	// SIGABRT.)
+	if (dbatime != 0) {
+		try {
+			ng = open_spool_group(fmt, cpath, ngname.c_str());
+		} catch (const NoSuchGroupError &e) {
+		} catch (const Error &e) {
+			slog.p(Logger::Error) << "cannot read the database of "
+				<< ngname << ": " << e._errtext << "\n";
+			delete ng;
+			ng = NULL;
 		}
-	} catch (const NoSuchGroupError &e) {
-	} catch (const Error &e) {
-		slog.p(Logger::Error) << "cannot read the database of "
-			<< ngname << ": " << e._errtext << "\n";
-		firstnr = lastnr = 0;
-		delete ng;
-		ng = NULL;
 	}
-	int have_db = ng != NULL;
-	delete ng;
-	delete fmt;
-	artnum_t nr;
-	const char *end;
+
+	if ((d = opendir(cpath)) == NULL) {
+		slog.p(Logger::Error) << "cannot reopen " << cpath << "\n";
+		delete ng;
+		delete fmt;
+		return;
+	}
+	// The .art files first, then the group's range: an article stored
+	// while the directory is read has a number the range then covers.
+	// (Read the other way round, a big article stored just after the
+	// range was taken was outside it, and removed at the end of the run.)
+	vector < ArtFile > arts;
 	while ((f = readdir(d)) != NULL) {
 		if (snprintf(buf, sizeof(buf), "%s/%s", cpath, f->d_name) >=
 		    (int) sizeof(buf)) {
@@ -430,26 +480,14 @@ void clean(const char *cpath)
 			    strcmp(f->d_name + nl - 4, ".bad") == 0) {
 				// a database moved aside as corrupt: kept for a
 				// look until this run, removed first
-				pvector.push_back (new Entry(buf, 0, s.st_blocks));
+				pvector.push_back (new Entry(buf, 0, s));
 				_blocks += s.st_blocks;
 			} else if (S_ISREG(s.st_mode) && dbatime != 0 &&
 			    strncmp(f->d_name, ".art", 4) == 0) {
-				time_t at = MAX(s.st_atime, s.st_mtime);
-				if (dbatime <= at)
-					at = dbatime;
-				// .art<n>.tmp: a file NewsCache was writing when
-				// it crashed (see NVNewsgroup::setarticle); it
-				// goes by its age, as an article file does
-				if (!parse_artnum(f->d_name + 4, &nr, &end) ||
-				    (*end && strcmp(end, ".tmp") != 0)) {
-					slog.p(Logger::Error) << "error "
-						<< "parsing " << f->d_name << "\n";
-				} else if (!have_db || nr < firstnr || nr > lastnr) {
-					at = 0;
-				}
-				pvector.push_back (new Entry(buf, at, 
-					s.st_blocks) );
-				_blocks += s.st_blocks;
+				ArtFile a;
+				a.path = buf;
+				a.st = s;
+				arts.push_back(a);
 			}
 		} else {
 			slog.
@@ -458,7 +496,47 @@ void clean(const char *cpath)
 		}
 	}
 	closedir(d);
-	return;
+	if (ng != NULL) {
+		try {
+			ng->spoolrange(&firstnr, &lastnr);
+		} catch (const Error &e) {
+			slog.p(Logger::Error) << "cannot read the database of "
+				<< ngname << ": " << e._errtext << "\n";
+			firstnr = lastnr = 0;
+			delete ng;
+			ng = NULL;
+		}
+	}
+	int have_db = ng != NULL;
+	delete ng;
+	delete fmt;
+	if (dbatime == 0)
+		return;
+#ifdef NEWSCACHE_TEST_CLEAN_RACE
+	if (have_db)
+		test_pause_after_range();
+#endif
+	artnum_t nr;
+	const char *end;
+	for (size_t k = 0; k < arts.size(); k++) {
+		const char *name = strrchr(arts[k].path.c_str(), '/') + 1;
+		const struct stat &st = arts[k].st;
+		time_t at = MAX(st.st_atime, st.st_mtime);
+		if (dbatime <= at)
+			at = dbatime;
+		// .art<n>.tmp: a file NewsCache was writing when
+		// it crashed (see NVNewsgroup::setarticle); it
+		// goes by its age, as an article file does
+		if (!parse_artnum(name + 4, &nr, &end) ||
+		    (*end && strcmp(end, ".tmp") != 0)) {
+			slog.p(Logger::Error) << "error "
+				<< "parsing " << name << "\n";
+		} else if (!have_db || nr < firstnr || nr > lastnr) {
+			at = 0;
+		}
+		pvector.push_back (new Entry(arts[k].path.c_str(), at, st));
+		_blocks += st.st_blocks;
+	}
 }
 
 
