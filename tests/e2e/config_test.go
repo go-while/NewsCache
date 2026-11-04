@@ -560,6 +560,24 @@ func TestPrintHostnameBindFrom(t *testing.T) {
 	}
 }
 
+// TestBindFromConnects: with BindFrom the connection to the news server is
+// bound to that address first. bind() got the size of a sockaddr_storage as
+// the address length, which FreeBSD and macOS refuse (EINVAL): the server
+// was unreachable whenever BindFrom was set.
+func TestBindFromConnects(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	e.ServerLines = "    BindFrom 127.0.0.1"
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q, want 220 from the news server", line)
+	}
+	c.ReadDotLines()
+}
+
 // TestAccessPrefixNeedsAddress: a /prefix after something that isn't an IP
 // address is a config error. It used to become a host name that never
 // matches, silently.

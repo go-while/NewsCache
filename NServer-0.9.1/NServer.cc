@@ -29,6 +29,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
@@ -372,6 +373,11 @@ void RServer::connect()
 		const struct sockaddr *bindFrom =
 		  (_CurrentServer->bindFrom.ss_family == AF_UNSPEC) ?
 		  NULL : (const struct sockaddr *) &_CurrentServer->bindFrom;
+		// bind() wants the length of the address family: FreeBSD and
+		// macOS refuse the size of a whole sockaddr_storage
+		const socklen_t bindFromLen =
+		  (_CurrentServer->bindFrom.ss_family == AF_INET6) ?
+		  sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 
 		// a server that stops answering (or reading) ends the
 		// connection after ReadTimeout instead of holding the
@@ -380,7 +386,7 @@ void RServer::connect()
 		_pServerStream->connect(_CurrentServer->hostname.c_str(),
 					_CurrentServer->servicename.c_str(),
 					bindFrom,
-					sizeof(_CurrentServer->bindFrom),
+					bindFromLen,
 					_CurrentServer->connectTimeout);
 		if (!_pServerStream->good()) {
 			delete _pServerStream;
