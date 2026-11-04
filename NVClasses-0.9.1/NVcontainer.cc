@@ -336,8 +336,17 @@ size_t NVcontainer::resize(size_t nsz)
 		lock(UnLock);
 		throw SystemError(sb.rdbuf()->str(), e, ERROR_LOCATION);
 	}
-	mem_hdr->bytes_free += nsz - mem_sz;
-	flhead->size += nsz - mem_sz;
+	// The last free block ends where the header says the database
+	// ends, so it grows by what the header's size grows. That is mem_sz
+	// unless a process was killed after its ftruncate and before it
+	// wrote the header: the file is then longer than the header says
+	// (make_current accepts it, and checks hdr->size <= mem_sz), and
+	// growing the block from mem_sz would leave it ending short of the
+	// new end of the file by the difference, a hole nvalloc never
+	// uses.
+	size_t grown = nsz - mem_hdr->size;
+	mem_hdr->bytes_free += grown;
+	flhead->size += grown;
 	mem_hdr->size = nsz;
 	try {
 		make_current();
