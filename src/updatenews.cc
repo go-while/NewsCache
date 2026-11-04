@@ -117,6 +117,9 @@ void doprefetch(CServer * cs, const char *group)
 			continue;
 		}
 		catch(...) {
+			// give the group back: it holds an open file and a mapping
+			if (grp)
+				cs->freegroup(grp);
 			break;
 		}
 	}
