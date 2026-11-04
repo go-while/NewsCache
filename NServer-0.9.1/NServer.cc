@@ -301,6 +301,28 @@ class FlagGuard {
 	~FlagGuard() { release(); }
 };
 
+/*
+ * Deletes the stream connect() is setting up when an exception leaves it
+ * before the set-up is done. issue() throws on a reply shorter than a
+ * code (to MODE READER, STARTTLS or LIST OVERVIEW.FMT), and authenticate()
+ * on a refused login: the stream stayed, is_connected() was true, and the
+ * next command went out on it without STARTTLS or the login. A 480 to it
+ * then made issue() send User and Password in plain text.
+ */
+class StreamGuard {
+	sockstream *&stream;
+	bool active;
+  public:
+	explicit StreamGuard(sockstream *&s) : stream(s), active(true) {}
+	void release() { active = false; }
+	~StreamGuard() {
+		if (active && stream) {
+			delete stream;
+			stream = NULL;
+		}
+	}
+};
+
 void RServer::connect()
 {
 	VERB(slog.p(Logger::Debug) << "RServer::connect()\n");
@@ -322,6 +344,7 @@ void RServer::connect()
 	// by anyone in the middle) used to send User and Password in plain
 	// text before STARTTLS.
 	FlagGuard connecting(_connecting);
+	StreamGuard half_open(_pServerStream);
 	int mode_reader_after_login = 0;
 #if !defined(HAVE_GNUTLS)
 	// Without GnuTLS, ssl and starttls can't be honoured; connecting in
@@ -506,6 +529,7 @@ void RServer::connect()
 		}
 
 		// set up: from here a 480 may be answered with a new login
+		half_open.release();
 		connecting.release();
 		if (_CurrentGroup.name()[0] != '\0') {
 			selectgroup(_CurrentGroup.name(), 1);
