@@ -193,6 +193,52 @@ int main()
 			CHECK(db.get("de.test.new", &gi) == 0 && gi.flags() == 'y');
 		}
 
+		// Numbers asked for later stay (keep_newer): a list read
+		// while another session stored a newer GROUP reply keeps that
+		// reply's numbers, and takes only its flag; an older GROUP
+		// reply gets the stored numbers. In the same second the higher
+		// last number stays.
+		{
+			GroupInfo g;
+			g.set("de.test", 1, 150, 150, 'y');
+			g.setmtime(2000000010);
+			db.set(g);
+			std::istringstream older("de.test 100 1 m\r\n.\r\n");
+			db.read(older, "*", ActiveDB::F_DEFER_MTIME, 0,
+				2000000005);
+			CHECK(db.get("de.test", &gi) == 0);
+			CHECK(gi.last() == 150 && gi.mtime() == 2000000010);
+			CHECK(gi.flags() == 'm');
+
+			g.set("de.test", 1, 120, 120);
+			g.setmtime(2000000008);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(g.last() == 150 && g.mtime() == 2000000010);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
+
+			g.set("de.test", 1, 140, 140);
+			g.setmtime(2000000010);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
+			g.set("de.test", 1, 160, 160);
+			g.setmtime(2000000010);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 160);
+
+			// A newer reply is stored, also a lower last number (the
+			// news server renumbered).
+			g.set("de.test", 1, 90, 90);
+			g.setmtime(2000000020);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 90);
+			CHECK(gi.flags() == 'm' && gi.ctime() == 1200000000);
+			std::istringstream newer("de.test 80 1 y\r\n.\r\n");
+			db.read(newer, "*", ActiveDB::F_DEFER_MTIME, 0,
+				2000000030);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 80);
+			CHECK(gi.mtime() == 2000000030);
+		}
+
 		// A cut-off reply must not advance the previous timestamp.
 		std::istringstream incomplete("de.test 20 10 y\r\n");
 		bool cut = false;

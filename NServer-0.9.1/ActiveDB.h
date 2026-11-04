@@ -23,7 +23,14 @@ class ActiveDB {
 		// An existing record keeps its posting flag (y, m, n, ...):
 		// a GROUP reply has numbers only, the flag comes from the
 		// active list. Read and written under one exclusive lock.
-		keep_flag = 0x02
+		keep_flag = 0x02,
+		// gi's numbers are from the time in its mtime, when they were
+		// asked for: an existing record asked for later keeps its
+		// numbers and mtime, and gi gets them. A slow LIST ACTIVE (or
+		// a GROUP reply stored late) put older numbers over a newer
+		// GROUP reply, and the group's last number went back. In the
+		// same second the higher last number stays.
+		keep_newer = 0x04
 	};
 
 	enum {
@@ -53,8 +60,10 @@ class ActiveDB {
 	virtual int get(const char *group, GroupInfo * gi) = 0;
 	virtual int hasgroup(const char *group) = 0;
 
+	// since: when the list was asked for (0: now), see keep_newer
 	virtual void read(std::istream & is, const char *filter,
-			  int flags = 0, unsigned int limit = 0) = 0;
+			  int flags = 0, unsigned int limit = 0,
+			  nvtime_t since = 0) = 0;
 	virtual void write(std::ostream & os, nvtime_t ctime =
 			   0, int mode = m_active, const char *filter =
 			   NULL) = 0;

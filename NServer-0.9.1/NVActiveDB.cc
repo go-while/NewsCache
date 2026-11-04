@@ -69,9 +69,18 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 		// The last (sizeof(GroupInfo)-r->szdata) bytes don't
 		// matter. These are junk anyways.
 		if (strcmp(recname(r), gi.name()) == 0) {
-			gi.setctime(((GroupInfo *) r->datap())->ctime());
+			const GroupInfo *old = (GroupInfo *) r->datap();
+			gi.setctime(old->ctime());
 			if (flags & keep_flag)
-				gi.setflag(((GroupInfo *) r->datap())->flags());
+				gi.setflag(old->flags());
+			if ((flags & keep_newer) &&
+			    (old->mtime() > gi.mtime() ||
+			     (old->mtime() == gi.mtime() &&
+			      old->last() > gi.last()))) {
+				gi.setfln(old->first(), old->last(), old->n(),
+					  gi.flags());
+				gi.setmtime(old->mtime());
+			}
 			gi.getraw(&gidata, &gisz);
 			if (gisz != r->szdata) {
 				VERB(slog.
@@ -227,7 +236,8 @@ bool NVActiveDB::collect(istream & is, const char *filter, string & lines)
 	return done;
 }
 
-void NVActiveDB::apply(const string & lines, int flags, unsigned int limit)
+void NVActiveDB::apply(const string & lines, int flags, unsigned int limit,
+		       nvtime_t since)
 {
 	GroupInfo gd;
 	NVLock guard(*this, NVcontainer::ExclLock);
@@ -263,13 +273,17 @@ void NVActiveDB::apply(const string & lines, int flags, unsigned int limit)
 		    gd.last() - gd.first() >= limit)
 			gd.setfln(gd.last() - limit + 1, gd.last(), limit,
 				  gd.flags());
+		// The numbers are as old as the list: a GROUP reply another
+		// session stored meanwhile keeps its newer ones. The flag is
+		// the list's (GROUP replies have none).
+		gd.setmtime(since);
 		// The caller closes an unread reply on storage failure.
-		sset(gd);
+		sset(gd, keep_newer);
 	}
 }
 
 void NVActiveDB::read(istream & is, const char *filter, int flags,
-		      unsigned int limit)
+		      unsigned int limit, nvtime_t since)
 {
 	VERB(slog.
 	     p(Logger::Debug) << "NVActiveDB::read(&is,*filter,flags)\n");
@@ -283,8 +297,10 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 	// fetch, and every other session's GROUP waited for the news server.
 	// The memory is bounded by the reply budget (ACTIVE_REPLY_BYTES,
 	// 256 MB, and ACTIVE_REPLY_ROWS rows).
+	if (!since)
+		nvtime(&since);
 	done = collect(is, filter, lines);
-	apply(lines, flags, limit);
+	apply(lines, flags, limit, since);
 	// A list cut off (the connection ended before the ".") isn't
 	// complete: without the new mtime it is fetched again next time. What
 	// was read stays in the database, as it did when the list was stored

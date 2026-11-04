@@ -331,3 +331,120 @@ func TestGroupKeepsActiveFlag(t *testing.T) {
 		t.Errorf("after GROUP (new last number, flag kept): %v", got)
 	}
 }
+
+// TestActiveListKeepsNewerGroupNumbers: a LIST ACTIVE that is still being
+// read when another session's GROUP stores newer numbers doesn't put the
+// list's older ones back. It did: the group's last number went back for
+// GroupTimeout (150, then 100), and the next GROUP threw away the
+// overview records above 100 that the other session had cached.
+func TestActiveListKeepsNewerGroupNumbers(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.GroupTimeout = 60
+	var lists, overs atomic.Int32
+	release := make(chan struct{})
+	upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
+		c.WriteLines("200 fake ready")
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			f := strings.Fields(low)
+			switch {
+			case strings.HasPrefix(low, "mode"):
+				c.WriteLines("200 reader")
+			case strings.HasPrefix(low, "list overview.fmt"):
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case strings.HasPrefix(low, "list active"):
+				// the list as it was when asked for; the rest of
+				// the reply comes when the test says so
+				c.WriteLines("215 list", group+" 100 1 y")
+				if lists.Add(1) == 1 {
+					<-release
+				}
+				c.WriteLines(".")
+			case strings.HasPrefix(low, "group "+group):
+				c.WriteLines("211 150 1 150 " + group)
+			case (f[0] == "over" || f[0] == "xover") && len(f) == 2:
+				overs.Add(1)
+				from, to := 1, 150
+				if r := strings.SplitN(f[1], "-", 2); len(r) == 2 {
+					from, _ = strconv.Atoi(r[0])
+					if r[1] != "" {
+						to, _ = strconv.Atoi(r[1])
+					}
+				}
+				out := []string{"224 overview"}
+				for n := max(from, 1); n <= min(to, 150); n++ {
+					out = append(out, fmt.Sprintf("%d\tsubject %d\ta@b.test\tMon, 2 Nov 2026 10:00:00 +0000\t<%d.%s@fake>\t\t100\t1", n, n, n, group))
+				}
+				c.WriteLines(append(out, ".")...)
+			case strings.HasPrefix(low, "quit"):
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("500 what")
+			}
+		}
+	}})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	// A asks for the list; its reply stops after the group's line.
+	a := e.session()
+	a.Deadline = 60 * time.Second
+	if err := a.Send("LIST ACTIVE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the news server receives LIST ACTIVE", func() bool { return lists.Load() == 1 })
+	// B's GROUP is asked for in a later second than the list.
+	time.Sleep(1100 * time.Millisecond)
+
+	b := e.session()
+	if code, line := b.Cmd("GROUP %s", group); code != 211 || !strings.HasPrefix(line, "211 150 1 150 ") {
+		t.Fatalf("B: GROUP: %q", line)
+	}
+	if code, line := b.Cmd("XOVER 101-150"); code != 224 {
+		t.Fatalf("B: XOVER 101-150: %q", line)
+	}
+	if got := b.ReadDotLines(); len(got) != 50 {
+		t.Fatalf("B: XOVER 101-150: %d records, want 50", len(got))
+	}
+	b.Cmd("QUIT")
+	fetched := overs.Load()
+	if fetched == 0 {
+		t.Fatalf("B's XOVER sent no OVER upstream")
+	}
+
+	released = true
+	close(release)
+	if code, line, err := a.ReadStatus(); code != 215 {
+		t.Fatalf("A: LIST ACTIVE: %d %q %v", code, line, err)
+	}
+	if l, err := a.TryReadDotLines(); err != nil {
+		t.Fatalf("A: LIST ACTIVE: %v", err)
+	} else {
+		t.Logf("A: LIST ACTIVE: %q", l)
+	}
+	a.Cmd("QUIT")
+
+	c := e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 || !strings.HasPrefix(line, "211 150 1 150 ") {
+		t.Errorf("C: GROUP after the list: %q, want 211 150 1 150 (B's newer numbers)", line)
+	}
+	if code, line := c.Cmd("XOVER 101-150"); code != 224 {
+		t.Errorf("C: XOVER 101-150: %q", line)
+	} else if got := c.ReadDotLines(); len(got) != 50 {
+		t.Errorf("C: XOVER 101-150: %d records, want 50", len(got))
+	}
+	if n := overs.Load(); n != fetched {
+		t.Errorf("C's XOVER sent %d OVER upstream, want 0 (B cached the records)", n-fetched)
+	}
+	c.Cmd("QUIT")
+}
