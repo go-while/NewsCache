@@ -1657,7 +1657,10 @@ int RServer::post(Article * article)
 		TOBASE36(i, j, p);
 		*p++ = '$';
 
-		TOBASE36(i, pc, p);
+		// the macro divides its argument down to 0: convert a copy,
+		// or the counter would restart at 1 after every post
+		j = pc;
+		TOBASE36(i, j, p);
 		*p++ = '@';
 		// RFC 3977 limits the complete Message-ID, including < and >,
 		// to 250 octets. Preserve the hostname when it fits; otherwise

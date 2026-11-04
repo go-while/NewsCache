@@ -140,3 +140,31 @@ func boolInt(value bool) int {
 	}
 	return 0
 }
+
+// Two posts without a Message-ID in one session, within the same second,
+// must get different generated Message-IDs; otherwise the second is taken
+// for a duplicate and lost.
+func TestMultiInjectorGeneratedIDsDiffer(t *testing.T) {
+	e, b := twoServers(t, "")
+	c := e.session()
+	for i := 0; i < 2; i++ {
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST %d: %q", i, line)
+		}
+		if err := c.Send("Newsgroups: test.alpha,test.beta\r\nFrom: poster@client.test\r\nSubject: crosspost\r\n\r\nbody\r\n.\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+			t.Fatalf("POST %d result: %q %v", i, line, err)
+		}
+	}
+	for name, posts := range map[string][][]string{"A": e.Upstream.Articles(), "B": b.Articles()} {
+		if len(posts) != 2 {
+			t.Fatalf("server %s got %d articles, want 2", name, len(posts))
+		}
+		id1, id2 := multiPostFields(posts[0], "Message-ID"), multiPostFields(posts[1], "Message-ID")
+		if len(id1) != 1 || len(id2) != 1 || id1[0] == id2[0] {
+			t.Errorf("server %s Message-IDs %q and %q must differ", name, id1, id2)
+		}
+	}
+}
