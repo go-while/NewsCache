@@ -430,7 +430,7 @@ indicates the port, where the news server is listening for connections.
 .IP "Read \fINewsgroupList\fR"
 A comma separated list of wildmat patterns: the groups NewsCache takes from this server. NewsCache fetches the active list with one LIST ACTIVE command per pattern; for example, Read at.*,de.* sends "list active at.*" and "list active de.*" to the server (RFC 3977 7.6.3). This can save bandwidth. If the server refuses LIST ACTIVE with a pattern, NewsCache asks it for the whole list once instead and keeps the groups that match. No default value.
 .IP "PostTo \fINGSpecification\fR"
-NewsCache post an article to the best matching upstream newsserver. If the article cannot be submitted immediately, it is kept for later transmission. See the example: Multiple Upstream NewsServer.
+NewsCache post an article to the best matching upstream newsserver. If the article cannot be submitted immediately, it is kept for later transmission. The default is the value of Read, whatever the order of the two in the block. See the example: Multiple Upstream NewsServer.
 .IP "GroupTimeout \fIseconds\fR"
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
