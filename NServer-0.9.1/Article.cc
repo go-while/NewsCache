@@ -403,7 +403,7 @@ ostream & Article::write(ostream & os, int flags)
 		os.write(p, q - p);
 	} else if (flags & Body) {
 		if (*q == '\n')
-			p++;
+			q++;
 		else if (*q == '\r' && *(q + 1) == '\n')
 			q += 2;
 
