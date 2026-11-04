@@ -274,6 +274,43 @@ func TestPostSpooledBareCR(t *testing.T) {
 	}
 }
 
+// TestPostSpoolTmpFileRemoved: a tmp_* file in .artSpool, left by a
+// process that was killed while it stored an article, was never removed
+// (newscacheclean skips .artSpool). updatenews removes it, and still posts
+// the whole article next to it.
+func TestPostSpoolTmpFileRemoved(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline"
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: spooled\r\n" +
+		"Message-ID: <spooled.tmp@client.test>\r\n\r\nhello\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("POST to offline server: %q %v", line, err)
+	}
+	c.Cmd("QUIT")
+	stale := filepath.Join(e.Spool, ".artSpool", "tmp_1234567890")
+	if err := os.WriteFile(stale, []byte("Newsgroups: test.al"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.ServerOptions = ""
+	e.writeConf()
+	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Fatalf("updatenews: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale temporary file still there: %v", err)
+	}
+	if n := len(e.Store.Posted()); n != 1 {
+		t.Errorf("%d posted, want 1", n)
+	}
+}
+
 // TestPrefetchWildcards: lines of the prefetch file can be wildmat patterns,
 // and "!pattern" excludes groups. updatenews used to take every line as a
 // group name, so "de.*" asked the upstream for a group called "de.*".
