@@ -197,7 +197,7 @@ typedef struct nnrp_command_t {
 } nnrp_command_t;
 
 static nnrp_command_t all_nnrp_commands[] = {
-	{"authinfo", "[user username|pass password]", ns_authinfo}
+	{"authinfo", "user username|pass password", ns_authinfo}
 	,
 	{"article", "[number|<id>]", ns_article}
 	,
@@ -218,14 +218,14 @@ static nnrp_command_t all_nnrp_commands[] = {
 	{"last", "", ns_lastnext}
 	,
 	{"list",
-	 "[active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]",
+	 "[active [wildmat]|active.times [wildmat]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]",
 	 ns_list}
 	,
 	{"listgroup", "[newsgroup [range]]", ns_listgroup}
 	,
-	{"mode", "reader", ns_mode}
+	{"mode", "reader|query", ns_mode}
 	,
-	{"newgroups", "date time [GMT] [wildmat]", ns_newgroups}
+	{"newgroups", "date time [GMT]", ns_newgroups}
 	,
 	{"next", "", ns_lastnext}
 	,
@@ -235,7 +235,7 @@ static nnrp_command_t all_nnrp_commands[] = {
 	,
 	{"quit", "", ns_quit}
 	,
-	{"xdebug", "help", ns_xdebug}
+	{"xdebug", "help|dump authorization|dump configuration", ns_xdebug}
 	,
 	{"xhdr", "header [range|<id>]", ns_xover}
 	,
@@ -2307,7 +2307,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 
 	(*clt->
 	 co) <<
-      "501 Syntax: list [active [wildmat]|active.times [time]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]\r\n";
+      "501 Syntax: list [active [wildmat]|active.times [wildmat]|extensions|headers [msgid|range]|newsgroups [wildmat]|overview.fmt]\r\n";
 	return -1;
 }
 

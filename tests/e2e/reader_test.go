@@ -1378,3 +1378,38 @@ func TestCommandHighBytes(t *testing.T) {
 	}
 	login(t, ac)
 }
+
+// TestHelpSyntax: HELP shows the syntax the handlers accept. It showed a
+// wildmat for NEWGROUPS (answered 501) and a time for LIST ACTIVE.TIMES
+// (which takes a wildmat).
+func TestHelpSyntax(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	if code, line := c.Cmd("HELP"); code != 100 {
+		t.Fatalf("HELP: %q, want 100", line)
+	}
+	help := c.ReadDotLines()
+	for _, want := range []string{"  newgroups date time [GMT]", "active.times [wildmat]"} {
+		found := false
+		for _, l := range help {
+			if strings.Contains(l, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("HELP has no %q: %q", want, help)
+		}
+	}
+	for _, l := range help {
+		if strings.HasPrefix(l, "  newgroups ") && l != "  newgroups date time [GMT]" {
+			t.Errorf("HELP line %q, want the NEWGROUPS syntax without a wildmat", l)
+		}
+		if strings.Contains(l, "active.times [time]") {
+			t.Errorf("HELP line %q: LIST ACTIVE.TIMES takes a wildmat", l)
+		}
+	}
+	if code, line := c.Cmd("NEWGROUPS 20200101 000000 GMT *"); code != 501 {
+		t.Errorf("NEWGROUPS with a wildmat: %q, want 501", line)
+	}
+}
