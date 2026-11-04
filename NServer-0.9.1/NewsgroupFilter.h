@@ -142,7 +142,8 @@ class NewsgroupFilter {
 	 * \param filter The initial filter
 	 */
 	NewsgroupFilter(const NewsgroupFilter & filter)
-		: rulelist(filter.rulelist), WildmatSearch(0)
+		: rulelist(filter.rulelist), Wildmat(filter.Wildmat),
+		  WildmatSearch(filter.WildmatSearch)
 	{
 		this->c_rulelist = this->rulelist.c_str();
 	}
@@ -191,7 +192,8 @@ class NewsgroupFilter {
 	 * INN Project.
 	 * \author Herbert Straub
 	 * \param pWildmat Wildmat Pattern. Do shell-style pattern
-	 * 	matching for ?, \, [], and * characters.
+	 * 	matching for ?, \, [], and * characters; a comma
+	 * 	separated list with "!" is allowed (RFC 3977 4.2).
 	 */
 	void setWildmat(const char *pWildmat) {
 		Wildmat = pWildmat;
@@ -275,7 +277,7 @@ class NewsgroupFilter {
 			// accepts stays out (it let LIST ACTIVE <wildmat> show
 			// groups outside the client's List)
 			return (bmlen > 0 &&
-				wildmat(newsgroup, Wildmat.c_str())) ? (1) : (0);
+				wildmat_list(newsgroup, Wildmat.c_str())) ? (1) : (0);
 		}
 		//return bmrej?-bmlen:bmlen;
 	}
