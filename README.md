@@ -92,8 +92,8 @@ Added by Christof Meerwald (1.3.ipv6, 2008 to 2024):
   through GnuTLS. The server certificate is verified against the system trust
   store or a `TLSCAFile`, and a refused STARTTLS ends the connection instead
   of falling back to plain text.
-- Server options `ConnectTimeout`, `ConnectBackoff`, `LimitGroupSize` and
-  `dontgenmsgid`.
+- Server options `ConnectTimeout`, `ConnectBackoff`, `ReadTimeout`,
+  `Retries`, `LimitGroupSize` and `dontgenmsgid`.
 - A no-fork mode (`newscache -n`) and a systemd unit
   ([`debian/newscache.service`](debian/newscache.service)).
 
@@ -206,13 +206,14 @@ installed as `newscache.conf-dist` (source:
   see [FEDORA.md](FEDORA.md#letting-clients-in)), allows it.
 - **`NewsServerList`:** one `Server host port { … }` entry per upstream server,
   with `Read`, `PostTo`, `GroupTimeout`, `User`/`Password`, `BindFrom`,
-  `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `TLSCAFile`, `Options`
+  `LimitGroupSize`, `ConnectTimeout`, `ConnectBackoff`, `ReadTimeout`,
+  `Retries`, `TLSCAFile`, `Options`
   (`offline`, `semioffline`, `setpostflag`, `ssl`, `starttls`, `noverify`,
   `dontgenmsgid`) and
   `Commands` (for example `not-over`).
-  - `dontgenmsgid` is accepted by the parser, but neither the sample file nor
-    the manual page documents it.
-- **`Timeouts`:** how long the active and newsgroups lists stay valid.
+  - `dontgenmsgid` is documented in newscache.conf(5) and the manual.
+- **`Timeouts`:** how long the active list stays valid (the second value has
+  no effect).
 
 ### Public news servers
 
@@ -395,12 +396,12 @@ Checked on 2026-10-17 against `trunk` (SVN r80):
 | Christof Meerwald's package adds `lowbandwidth` and `dontgenmsgid` | linuxhacker.at Links | **Partly.** `dontgenmsgid` exists. `lowbandwidth` is not in the code (it was never in SVN). |
 | LDAP authentication patch (Arnold Schiller), regex patch (Konstantin Nikonenko) | linuxhacker.at Feature Requests | **Not included.** |
 | No UTF-8 in wildmat | linuxhacker.at Bugs | **Still true.** |
-| May hang when the server's close packet is lost; needs read timeouts | TU Wien Status | **Mitigated.** Connects time out (`ConnectTimeout`, `ConnectBackoff`). A stuck upstream read is only interrupted when the client's `ClientTimeout` alarm fires; there is no separate server read timeout. |
+| May hang when the server's close packet is lost; needs read timeouts | TU Wien Status | **Mitigated.** Connects time out (`ConnectTimeout`, `ConnectBackoff`), and a stalled upstream read or write is given up after `ReadTimeout` (default 300 s). |
 | Small articles are stored in the database, overview generated on the fly | TU Wien | **Valid** for this code. |
 | Mailing lists `newscache@infosys.tuwien.ac.at` and `newscache@linuxhacker.org` | both | **Dead.** |
 | CVS access | linuxhacker.at | **Obsolete.** History is in this git repo and in SVN. |
 | Home pages `members.aon.at/hstraub`, `infosys.tuwien.ac.at/NewsCache`, `linuxhacker.at` | README, both | **Dead** (a redirect, a 404 and no DNS). Use the archive.org links above. |
-| Packages in Fedora | linuxhacker.at News | **Still present:** 1.2rc6 (`newscache-1.2-0.55.rc6`, Fedora rawhide/fc45). Its source URL points at the dead site. |
+| Packages in Fedora | linuxhacker.at News | **Present.** Fedora Rawhide ships 1.3.22 (packaged by Dmitry Butskoy); the stable Fedora releases still ship 1.2rc6. |
 | FreeBSD port `news/newscache` | linuxhacker.at News | **Removed** from the ports tree. |
 | Debian packages | linuxhacker.at | No official package. Build one from [`debian/`](debian/). |
 | Tested readers: gnus, knews, Outlook Express, Netscape, slrn, tin, xrn; servers: INN, ANU NEWS, MS, Netscape Collabra | TU Wien | **Historical**, not re-tested. |

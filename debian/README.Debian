@@ -71,7 +71,7 @@ the file readable for the group news only:
   chown root:news /etc/newscache.users
   chmod 0640 /etc/newscache.users
 
-Without login a client can then only send AUTHINFO, HELP and QUIT. Note
+Without login a client can then only send AUTHINFO, CAPABILITIES, MODE READER, HELP and QUIT. Note
 that "allow read post" together with an Authentication entry does not
 require a login: clients that don't log in get the allowed access anyway,
 and a login only adds the permissions from the file.

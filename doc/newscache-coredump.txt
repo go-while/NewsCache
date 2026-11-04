@@ -4,6 +4,7 @@
 							   Author Herbert Straub
 						  e-mail: herbert@linuxhacker.at
 								Date: 2004-06-10
+				    (updated for the current packages)
 
 1) Compiling Newscache with --enable-debug
 ------------------------------------------
@@ -18,33 +19,56 @@ su -c 'make install'
 2) Run NewsCache as root
 ------------------------
 
-Core Dumps are only written, if the process run under root. You have to modify
-the /etc/newscache.conf file, parameter: User, Group
+Core dumps are only written if the process runs as root (or the kernel is
+set to dump processes that changed their user, see fs.suid_dumpable). Set
+the keywords Username and Groupname in /etc/newscache.conf to root for the
+test.
 
 
 
-2) Starting daemon with ulimit -c unlimited
--------------------------------------------
+3) Allow core dumps
+-------------------
 
-Next modify the NewsCache startup script (/etc/init.d/newscache) and add the
-following line (before the daemon start line):
+With systemd (the Debian and Fedora packages), add this to the service
+(systemctl edit newscache):
+
+[Service]
+LimitCORE=infinity
+
+and restart the service. debian/newscache.service is the packaged unit.
+
+With the optional SysV script (--enable-sysv-init, etc/NewsCache.init.in)
+or when you start newscache by hand, run
 
 ulimit -c unlimited
 
+in the same shell before the daemon start line.
 
 
-3) Wait for the coredump
+
+4) Wait for the coredump
 ------------------------
 
-If the NewsCache process crashes with segfault (example), then you should find
-in the newscache spool directory the coredump file.
+If the NewsCache process crashes with a segfault (for example), the core
+goes where the kernel puts it: see /proc/sys/kernel/core_pattern. The
+daemon does not change into the spool directory, so a plain pattern like
+"core" means the directory the daemon was started in. With systemd-coredump
+use
+
+coredumpctl list newscache
 
 
-4) Analyse
-----------------
+
+5) Analyse
+----------
 
 gdb /usr/sbin/newscache
-(gdb) core /var/cache/newscache/coredump
+(gdb) core /path/to/core
+(gdb) bt
+
+or, with systemd-coredump:
+
+coredumpctl gdb newscache
 (gdb) bt
 
 Then you should see the stacktrace. Report it at

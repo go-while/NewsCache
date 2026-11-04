@@ -14,8 +14,9 @@ install steps (user, config, systemd unit with reload, cleanup timer). The
 build uses the same compiler flags and `configure` options as Fedora's own
 package. CI builds and tests on all three on every pull request.
 
-Fedora's `newscache` package is still 1.2rc6 from 2004 (Herbert Straub's
-tarball plus the socket++ library). This tree is the later 1.3 line: IPv6,
+Fedora Rawhide ships `newscache` 1.3.22 (packaged by Dmitry Butskoy); the
+stable Fedora releases still ship 1.2rc6 from 2004 (Herbert Straub's tarball
+plus the socket++ library). This tree is the later 1.3 line: IPv6,
 GnuTLS, no-fork mode, and the fixes and tests from this repo. socket++ is no
 longer needed.
 
@@ -66,8 +67,9 @@ Useful `configure` options:
 make check
 ```
 
-This runs the C++ unit tests (`cArticle`, `cNSError`, `cOverviewFmt`,
-`cNewsgroupFilter`, `cConfig`) and the Go end-to-end tests in `tests/e2e`.
+This runs the C++ unit tests (in `NServer-0.9.1/checks` and `src`), the
+shell tests in `tests/*.sh` (configure with GnuTLS, the SysV init script) and
+the Go end-to-end tests in `tests/e2e`.
 The Go tests start the built `newscache` against a fake upstream server, so
 they need no network access except to download the Go modules the first time.
 To run them by hand, with the race detector:
@@ -192,7 +194,8 @@ for example `alice:$6$...:*:*:*:read,post`; `openssl passwd -6` makes the
 hash. Only `user:hash` is required: fields missing at the end add nothing,
 like empty ones. The file is read at login, after NewsCache has switched to its
 `Username` (news), so that user must be able to read it. Until a client has
-logged in, it can only use `AUTHINFO`, `HELP` and `QUIT`.
+logged in, it can only use `AUTHINFO`, `CAPABILITIES`, `MODE READER`, `HELP`
+and `QUIT`.
 
 Don't combine `allow read post` with `Authentication file:` if you want a
 login to be required: then the login is optional. Clients that don't log in

@@ -4,112 +4,125 @@
 							Author: Herbert Straub
 						 e-mail: herbert.straub@aon.at
 							      Date: 2004-02-01
+				     (updated for the current parser)
 
 o) PAM - Pluggable Authentication Modules
 -----------------------------------------
 
-The System Adminstrators' Guide, The Modules Writes' Guide and The Application
-Developers' Manual can be downloaded from:
-http://www.kernel.org/pub/linux/libs/pam/pre/doc/
-
-The Linux-PAM page can be found under:
-http://www.kernel.org/pub/linux/libs/pam/
-
-NewsCache is a registraded PAM application:
-http://www.kernel.org/pub/linux/libs/pam/modules.html
+The Linux-PAM project, with the System Administrators' Guide, the Module
+Writers' Guide and the Application Developers' Manual, is at:
+https://github.com/linux-pam/linux-pam
 
 
 
 o) Configuration Options
 ------------------------
 
-That you can use PAM with usecache, you have to use the configuration options:
+To use PAM with NewsCache, configure it with:
 
---with-pam 
-  enable the PAM code in NewsCache. NewsCache uses "newscache" as PAM
-  ServiceName.
+--with-pam
+  enable the PAM code in NewsCache. NewsCache uses "newscache" as the PAM
+  service name.
 
 --with-pam=pam-service-name-string
-  with a optional argument the PAM Servicename can be specified.
+  with an optional argument the default PAM service name can be changed.
 
 
 
 o) PAM Service Name
 -------------------
 
-The System Administrator configure the PAM with the PAM Service Name (read the
-System Administrator's Guide section 4.1 Configuration file syntax). The PAM
-Service Name is investigate in the following way:
+The system administrator configures PAM with the PAM service name (read
+the System Administrators' Guide, section on the configuration file
+syntax). The PAM service name is chosen in the following way:
 
-1) no specific configuration option is specified, then using the actual
-program name.
-2) --with-pam=foo is specified, then this parameter is used
-3) the newscache.conf AccessList -> Client -> PAMServicename is specified,
-then this name is used for the client, who matches the Client criteria.
+1) By default it is "newscache" (not the program name).
+2) --with-pam=foo is specified at configure time: then "foo" is the default.
+3) The newscache.conf AccessList -> Client -> PAMServicename is specified:
+   then this name is used for the clients who match that entry.
+
+
+
+o) Which user checks the password
+---------------------------------
+
+NewsCache checks passwords after it has switched to its Username (news),
+and only root may read /etc/shadow. So pam_unix cannot check local
+accounts: its helper unix_chkpwd only checks the password of the user
+NewsCache runs as. Use a PAM module that works without root, such as
+pam_sss (SSSD, LDAP, FreeIPA), pam_pwdfile or pam_radius_auth, or use
+"Authentication file:" instead (see etc/newscache.conf-dist and
+FEDORA.md).
 
 
 
 o) Simple example configuration
 -------------------------------
 
-Allow only authenticated users! The configuration option --with-pam is used
+Allow only authenticated users. The configuration option --with-pam is used.
 
 Part of /etc/newscache.conf:
 
 AccessList {
-        Client stdin {
+        Default {
         allow authentication
         List !*
         Read !*
         PostTo !*
         Authentication pam:*:*:*:read,post
         }
+}
 
-The /etc/pam.d/newscache contains:
-auth       required     pam_unix.so
+The /etc/pam.d/newscache contains (pam_pwdfile as an example; the options
+depend on the module):
+auth       required     pam_pwdfile.so pwdfile=/etc/newscache.passwd
 account    required     pam_permit.so
 
 
 
-o) Using two pam configuration - RADIUS
----------------------------------------
+o) Using two pam configurations - RADIUS
+----------------------------------------
 
-The configuration option --with-pam is used
+The configuration option --with-pam is used.
 What you need: http://www.freeradius.org/pam_radius_auth/
 
-Part of /etc/newscache.conf:
+Part of /etc/newscache.conf (the first matching entry is used, and a
+Default entry is required):
 
 AccessList {
         Client net1.mynet.at {
-        allow
-        List 
-        Read
-        PostTo
+        allow authentication
+        List !*
+        Read !*
+        PostTo !*
         Authentication pam:*:*:*:read,post
-	PAMServicename newscache_net1
+        PAMServicename newscache_net1
         }
 
         Client net2.mynet.at {
-        allow
-        List 
-        Read
-        PostTo
+        allow authentication
+        List !*
+        Read !*
+        PostTo !*
         Authentication pam:*:*:*:read,post
-	PAMServicename newscache_net2
+        PAMServicename newscache_net2
         }
 
+        Default {
+        allow none
+        }
+}
+
 /etc/pam.d/newscache_net1 contains:
-The /etc/pam.d/newscache contains:
-auth       required     pam_unix.so
+auth       required     pam_radius_auth.so conf=/etc/pam_radius1_auth.conf
 account    required     pam_permit.so
 
 /etc/pam.d/newscache_net2 contains:
-auth	   required	pam_radius_auth.so conf=/etc/pam_radius2_auth.conf
+auth       required     pam_radius_auth.so conf=/etc/pam_radius2_auth.conf
 account    required     pam_permit.so
 
 
-Clients from net1.mynet.at addresses are authorized against the radius
-server I. Clients from the net2.mynet.at are authorized against the
-radius server II. For information about the pam_radius_auth see:
+Clients from net1.mynet.at addresses are authorized against radius
+server I. Clients from net2.mynet.at are authorized against radius
+server II. For information about pam_radius_auth see:
 http://www.freeradius.org/pam_radius_auth/
-
