@@ -1,5 +1,5 @@
 Bug fixes:
-* When a group's article range moves entirely past an overview fetch before
-  it is stored, the old fetch is no longer marked synchronized. If the range
-  later expands back, NewsCache will fetch the missing overview records
-  instead of treating them as fresh in the spool.
+* When a group's article range changes during an overview fetch, NewsCache
+  no longer marks an out-of-range fetch as synchronized. If the index later
+  grows down into a partly covered chunk, its synchronization mark is cleared
+  so missing overview records are fetched instead of treated as fresh.

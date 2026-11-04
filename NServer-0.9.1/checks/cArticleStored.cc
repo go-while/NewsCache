@@ -126,6 +126,12 @@ static void chunk_range_overlap(const string &dir, OverviewFmt &fmt)
 	CHECK(g.synced_through() == 60);
 	CHECK(g.synced_to(50));
 	CHECK(!g.synced_to(100));
+	// Reopening the expired prefix must not inherit a mark for records
+	// that were filtered out when the snapshot was stored.
+	g.setsize(1, 60);
+	g.grow(1, 60);
+	CHECK(!g.hasrecord(10));
+	CHECK(!g.synced_to(39));
 
 	ChunkRangeProbe down(&fmt, dir.c_str(), "test.chunkdown");
 	down.setsize(40, 100);
@@ -135,6 +141,25 @@ static void chunk_range_overlap(const string &dir, OverviewFmt &fmt)
 	down.grow(1, 100);
 	down.finish();
 	CHECK(down.synced_through() == 0);
+}
+
+// Even without a concurrent fetch, expiration followed by a downward
+// expansion must not retain a sync mark for records the resize removed.
+static void chunk_expired_then_restored(const string &dir, OverviewFmt &fmt)
+{
+	ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkexpired");
+	g.setsize(1, 100);
+	g.grow(1, 100);
+	CHECK(g.snapshot());
+	g.add_over("10\tsubject\tfrom@x\tdate\t<expired@x>\t\t100\t5");
+	g.finish();
+	CHECK(g.hasrecord(10));
+	CHECK(g.synced_to(39));
+	g.setsize(40, 100);
+	CHECK(!g.hasrecord(10));
+	g.setsize(1, 100);
+	g.grow(1, 100);
+	CHECK(!g.synced_to(39));
 }
 
 #ifdef NEWSCACHE_TEST_DROPBAD_RACE
@@ -314,6 +339,7 @@ int main(void)
 	renumbered_freerange(dir, fmt);
 	chunk_range_change(dir, fmt);
 	chunk_range_overlap(dir, fmt);
+	chunk_expired_then_restored(dir, fmt);
 	note_older_then_free(dir, fmt);
 
 	if (failures) {
