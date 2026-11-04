@@ -1,3 +1,4 @@
+#include <new>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -90,6 +91,23 @@ int checkArticle(const char *artfn)
 		return -84;
 
 	delete art2;
+	return 0;
+}
+
+// A new article has an empty text, also when its storage held anything
+// before (a constructor that leaves the text pointer unset reads wild).
+int checkEmpty(void)
+{
+	static char buf[2][sizeof(Article)]
+	    __attribute__((aligned(sizeof(void *) * 2)));
+
+	for (int i = 0; i < 2; i++) {
+		memset(buf[i], 0xaa, sizeof(buf[i]));
+		Article *a = i ? new(buf[i]) Article(7) : new(buf[i]) Article();
+		if (*a->c_str() != '\0')
+			return -1;
+		a->~Article();
+	}
 	return 0;
 }
 
@@ -221,6 +239,10 @@ int main(int argc, char *argv[])
 			cout << "checkArticle(" << al[i] <<
 			    ") succeeded\n";
 		}
+	}
+	if ((e = checkEmpty()) < 0) {
+		cout << "checkEmpty() failed with: " << e << endl;
+		ef++;
 	}
 	if ((e = checkSizes()) < 0) {
 		cout << "checkSizes() failed with: " << e << endl;
