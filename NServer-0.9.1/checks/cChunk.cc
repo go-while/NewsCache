@@ -92,7 +92,7 @@ static std::string closed_port(void)
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	char buf[16] = "1";
-	if (s >= 0 && bind(s, (struct sockaddr *) &sa, sizeof(sa)) == 0 &&
+	if (s >= 0 && ::bind(s, (struct sockaddr *) &sa, sizeof(sa)) == 0 &&
 	    getsockname(s, (struct sockaddr *) &sa, &len) == 0)
 		snprintf(buf, sizeof(buf), "%u", (unsigned) ntohs(sa.sin_port));
 	if (s >= 0)
