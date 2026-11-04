@@ -2151,3 +2151,61 @@ func TestAcceptOutOfDescriptors(t *testing.T) {
 		t.Error("the daemon ignores SIGTERM")
 	}
 }
+
+// sigCaught reports whether a process has a handler for the signal.
+func sigCaught(t *testing.T, pid int, sig int) bool {
+	t.Helper()
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		t.Skipf("no /proc: %v", err)
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "SigCgt:"); ok {
+			mask, err := strconv.ParseUint(strings.TrimSpace(v), 16, 64)
+			if err != nil {
+				t.Fatalf("bad SigCgt line %q", l)
+			}
+			return mask&(1<<(uint(sig)-1)) != 0
+		}
+	}
+	t.Fatalf("no SigCgt in /proc/%d/status", pid)
+	return false
+}
+
+// TestSessionSigchldDefault: the master reaps its sessions with a SIGCHLD
+// handler (waitpid on any child). A session must not keep it: a helper
+// process of a PAM module would lose its exit status to the handler.
+func TestSessionSigchldDefault(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs /proc")
+	}
+	t.Run("inetd", func(t *testing.T) {
+		e := newEnv(t)
+		p, c := e.sessionProcess()
+		if sigCaught(t, p.Pid(), int(syscall.SIGCHLD)) {
+			t.Error("inetd session catches SIGCHLD")
+		}
+		quitSession(t, p, c)
+	})
+	t.Run("daemon", func(t *testing.T) {
+		e := newEnv(t)
+		d := e.standalone()
+		if !sigCaught(t, d.Pid(), int(syscall.SIGCHLD)) {
+			t.Fatal("the master doesn't catch SIGCHLD")
+		}
+		c := e.dial()
+		defer c.Close()
+		out, err := exec.Command("pgrep", "-P", strconv.Itoa(d.Pid())).Output()
+		if err != nil {
+			t.Skipf("pgrep: %v", err)
+		}
+		kids := strings.Fields(string(out))
+		if len(kids) != 1 {
+			t.Fatalf("children of the master: %q, want one session", kids)
+		}
+		pid, _ := strconv.Atoi(kids[0])
+		if sigCaught(t, pid, int(syscall.SIGCHLD)) {
+			t.Error("session of the daemon catches SIGCHLD")
+		}
+	})
+}

@@ -4754,6 +4754,10 @@ void nntpd()
 				close(wake_pipe[1]);
 				Xsignal = -1;
 				alarmed = 0;
+				// The master's handler reaps with waitpid(0):
+				// a helper process of the session (a PAM
+				// module's) would lose its exit status to it.
+				signal(SIGCHLD, SIG_DFL);
 				sigprocmask(SIG_SETMASK, &old_mask, NULL);
 				sessions.clear();
 				close(sock);
@@ -5199,6 +5203,9 @@ int main(int argc, char **argv)
 		warn_missing_pam_services(Cfg.clnts);
 #endif
 		warn_auth_requires_tls(Cfg.clnts, opt_tls != 0);
+		// (the master's zombie reaper is of no use to the session,
+		// and would take the exit status of a PAM module's helper)
+		signal(SIGCHLD, SIG_DFL);
 		if (getuid() == CONF_UIDROOT)
 			setugid(Cfg.Username, Cfg.Groupname);
 		// with -t, standard input is the client's socket; the plain
