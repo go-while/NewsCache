@@ -302,6 +302,14 @@ void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
 				ents[c - first] = e[k];
 		}
 	}
+	// A saved first-chunk mark covers only the old index. Growing down
+	// within that chunk introduces numbers it never covered (or records
+	// that were expired), so the chunk must be fetched again.
+	if (arrfst <= arrlst && f < arrfst && arrfst % OVERVIEW_CHUNK) {
+		uint64_t c = arrfst / OVERVIEW_CHUNK;
+		if (first <= c && c - first < n)
+			ents[c - first].time = ents[c - first].through = 0;
+	}
 	if (arrfst <= arrlst) {
 		if (arrfst < f)
 			freerange(arrfst, f - 1);
