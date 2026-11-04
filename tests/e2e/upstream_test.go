@@ -2555,3 +2555,41 @@ func TestUpstreamDrippedOverviewFmt(t *testing.T) {
 		t.Errorf("GROUP took %v, want about the 2 s reply deadline", took)
 	}
 }
+
+// TestUpstreamTLSReadTimeoutOnce: a TLS upstream that goes quiet is given up
+// after one ReadTimeout, as a plain one is. The receive timeout of the
+// socket ended GnuTLS' read, and the wait for the socket then started the
+// timeout over: silence took twice ReadTimeout.
+func TestUpstreamTLSReadTimeoutOnce(t *testing.T) {
+	e := newEnv(t)
+	requireTLS(t, e.Bin)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    ReadTimeout 3\n    Retries 0"
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"ARTICLE": time.Minute},
+	}})
+	ca := newTestCA(t, e.Dir)
+	p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), false, false)
+	e.ServerHost = "localhost"
+	e.ServerPort = p.port()
+	e.ServerOptions = "ssl"
+	e.ServerLines += "\n    TLSCAFile " + ca.file
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	start := time.Now()
+	code, line, err := c.TryCmd("ARTICLE 1")
+	took := time.Since(start)
+	if err != nil {
+		t.Fatalf("ARTICLE 1: %v", err)
+	}
+	t.Logf("ARTICLE 1 -> %q after %v", line, took.Round(10*time.Millisecond))
+	if code != 403 {
+		t.Errorf("ARTICLE 1: %q, want 403", line)
+	}
+	if took > 5*time.Second {
+		t.Errorf("ARTICLE 1 failed after %v, want about ReadTimeout (3 s)", took)
+	}
+}

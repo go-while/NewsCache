@@ -884,6 +884,11 @@ int sockstream::sslstreambuf::underflow()
   }
 
   int rc_read;
+  // The receive timeout of a blocking socket (SO_RCVTIMEO) makes
+  // gnutls_read return GNUTLS_E_AGAIN after that long without data. That
+  // is the timeout: waiting for the socket once more would double it.
+  const unsigned int rcv_timeout = _buf._wait_read ? _buf._wait_read :
+    _buf._io_timeout;
   do
   {
     // The alarm (ClientTimeout) or a signal (SIGTERM) ends the read, as
@@ -894,10 +899,22 @@ int sockstream::sslstreambuf::underflow()
     {
       return traits_type::eof();
     }
+    struct timespec t0, t1;
+    const bool timed = rcv_timeout && !_buf._reply_deadline_active &&
+      clock_gettime(CLOCK_MONOTONIC, &t0) == 0;
     rc_read = gnutls_read(_session, _buf._gbuf, sizeof(_buf._gbuf));
     // GNUTLS_E_AGAIN: the receive timeout ran out, or a record without
     // application data (a TLS 1.3 session ticket) was taken in: go on
     // while data is pending or arrives in time
+    if (rc_read == GNUTLS_E_AGAIN && timed &&
+	gnutls_record_check_pending(_session) == 0 &&
+	clock_gettime(CLOCK_MONOTONIC, &t1) == 0 &&
+	((long long) t1.tv_sec - t0.tv_sec) * 1000 +
+	((long long) t1.tv_nsec - t0.tv_nsec) / 1000000 >=
+	(long long) rcv_timeout * 1000 - 100)
+    {
+      return traits_type::eof();
+    }
   } while (rc_read == GNUTLS_E_INTERRUPTED ||
 	   (rc_read == GNUTLS_E_AGAIN &&
 	    (gnutls_record_check_pending(_session) > 0 ||
