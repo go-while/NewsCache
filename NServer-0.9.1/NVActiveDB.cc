@@ -73,7 +73,11 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 			gi.setctime(old->ctime());
 			if (flags & keep_flag)
 				gi.setflag(old->flags());
+			// (A time still to come can't be right - the clock
+			// was put back - and would hold the numbers until
+			// then: the new ones are stored.)
 			if ((flags & keep_newer) &&
+			    old->mtime() <= nvtime(NULL) &&
 			    (old->mtime() > gi.mtime() ||
 			     (old->mtime() == gi.mtime() &&
 			      old->last() > gi.last()))) {

@@ -199,44 +199,64 @@ int main()
 		// reply gets the stored numbers. In the same second the higher
 		// last number stays.
 		{
+			// times in the past: one still to come is replaced
+			const nvtime_t t = nvtime(NULL) - 1000;
 			GroupInfo g;
 			g.set("de.test", 1, 150, 150, 'y');
-			g.setmtime(2000000010);
+			g.setmtime(t + 10);
 			db.set(g);
 			std::istringstream older("de.test 100 1 m\r\n.\r\n");
 			db.read(older, "*", ActiveDB::F_DEFER_MTIME, 0,
-				2000000005);
+				t + 5);
 			CHECK(db.get("de.test", &gi) == 0);
-			CHECK(gi.last() == 150 && gi.mtime() == 2000000010);
+			CHECK(gi.last() == 150 && gi.mtime() == t + 10);
 			CHECK(gi.flags() == 'm');
 
 			g.set("de.test", 1, 120, 120);
-			g.setmtime(2000000008);
+			g.setmtime(t + 8);
 			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
-			CHECK(g.last() == 150 && g.mtime() == 2000000010);
+			CHECK(g.last() == 150 && g.mtime() == t + 10);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
 
 			g.set("de.test", 1, 140, 140);
-			g.setmtime(2000000010);
+			g.setmtime(t + 10);
 			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
 			g.set("de.test", 1, 160, 160);
-			g.setmtime(2000000010);
+			g.setmtime(t + 10);
 			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 160);
 
 			// A newer reply is stored, also a lower last number (the
 			// news server renumbered).
 			g.set("de.test", 1, 90, 90);
-			g.setmtime(2000000020);
+			g.setmtime(t + 20);
 			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 90);
 			CHECK(gi.flags() == 'm' && gi.ctime() == 1200000000);
 			std::istringstream newer("de.test 80 1 y\r\n.\r\n");
 			db.read(newer, "*", ActiveDB::F_DEFER_MTIME, 0,
-				2000000030);
+				t + 30);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 80);
-			CHECK(gi.mtime() == 2000000030);
+			CHECK(gi.mtime() == t + 30);
+
+			// A time still to come (the clock was put back) holds
+			// nothing: an older list and an older GROUP reply, both
+			// of now, replace it.
+			g.set("de.test", 1, 500, 500);
+			g.setmtime(nvtime(NULL) + 86400);
+			db.set(g);
+			std::istringstream now_list("de.test 200 1 y\r\n.\r\n");
+			db.read(now_list, "*", ActiveDB::F_DEFER_MTIME, 0, 0);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 200);
+			CHECK(gi.mtime() <= nvtime(NULL));
+			g.set("de.test", 1, 500, 500);
+			g.setmtime(nvtime(NULL) + 86400);
+			db.set(g);
+			g.set("de.test", 1, 210, 210);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(g.last() == 210);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 210);
 		}
 
 		// A cut-off reply must not advance the previous timestamp.

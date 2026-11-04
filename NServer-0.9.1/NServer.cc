@@ -2192,8 +2192,11 @@ GroupInfo *CServer::groupinfo(const char *name)
 	if (mpe->flags & MPListEntry::F_OFFLINE)
 		return LServer::groupinfo(name);
 
+	// (a time still to come is stale too: the clock was put back)
+	nvtime_t now = nvtime(NULL);
 	if ((errc = _NVActiveDB->get(name, &agroup)) < 0 ||
-	    agroup.mtime() + mpe->groupTimeout < nvtime(NULL)) {
+	    agroup.mtime() > now ||
+	    agroup.mtime() + mpe->groupTimeout < now) {
 		VERB(slog.p(Logger::Debug) << "CServer::groupinfo " 
 				<< "groupinfo timed out\n");
 		// If the news server fails, use the cached values. Without

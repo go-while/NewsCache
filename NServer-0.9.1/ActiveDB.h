@@ -29,7 +29,8 @@ class ActiveDB {
 		// numbers and mtime, and gi gets them. A slow LIST ACTIVE (or
 		// a GROUP reply stored late) put older numbers over a newer
 		// GROUP reply, and the group's last number went back. In the
-		// same second the higher last number stays.
+		// same second the higher last number stays. A record whose
+		// time is still to come (the clock was put back) is replaced.
 		keep_newer = 0x04
 	};
 
