@@ -150,7 +150,8 @@ func TestPostAllowsFoldedAndBodyLookalikes(t *testing.T) {
 	if code, line := c.Cmd("POST"); code != 340 {
 		t.Fatalf("POST: %q", line)
 	}
-	if err := c.Send("Newsgroups: test.alpha\r\nFrom: poster@client.test\r\nSubject: test\r\n Subject: folded\r\n\r\nNewsgroups: alt.other\r\n.\r\n"); err != nil {
+	// (Keywords may appear more than once: RFC 5322 3.6)
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: poster@client.test\r\nSubject: test\r\n Subject: folded\r\nKeywords: a\r\nKeywords: b\r\n\r\nNewsgroups: alt.other\r\n.\r\n"); err != nil {
 		t.Fatal(err)
 	}
 	if code, line, err := c.ReadStatus(); err != nil || code != 240 {

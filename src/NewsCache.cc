@@ -2691,7 +2691,8 @@ static bool valid_post_msgid(const string &text, const Article &art)
 	return strlen(id.c_str()) == id.size() && valid_msgid_5536(id.c_str());
 }
 
-// RFC 5536 3.1 and 3.2: these headers appear at most once. The checks and
+// RFC 5536 3.1 and 3.2 (and RFC 5322 3.6 for Reply-To and Sender): these
+// headers appear at most once (Keywords and Comments may repeat). The checks and
 // the choice of upstream servers read only the first Newsgroups header, so
 // a second one would go upstream unchecked. Returns the name of the first
 // header that is there more than once, or NULL. Only header lines are
@@ -2702,7 +2703,7 @@ static const char *repeated_post_header(const string &text)
 		"Newsgroups", "From", "Subject", "Date", "Path", "Followup-To",
 		"Distribution", "Injection-Date", "Reply-To", "Sender",
 		"References", "Expires", "Control", "Approved", "Supersedes",
-		"Organization", "Summary", "Keywords", "Lines", "Xref", NULL
+		"Organization", "Summary", "Xref", NULL
 	};
 	int seen[sizeof(once) / sizeof(once[0])] = { 0 };
 	size_t start = 0;
