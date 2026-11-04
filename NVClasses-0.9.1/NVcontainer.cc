@@ -1091,6 +1091,23 @@ void NVcontainer::corrupt(const std::string & why)
 			e.print();
 			close();
 		}
+		catch(...) {
+			// (std::bad_alloc from a string in open or reinit)
+			// The directory lock and in_corrupt must not outlive
+			// this call: every other process that has to move a
+			// damaged database aside would wait for the lock until
+			// this one exits, and every later corrupt() here would
+			// give up at once. Closed, the object is in the state
+			// of a failed start (lock() tries again).
+			close();
+			if (dfd >= 0) {
+				flock(dfd, LOCK_UN);
+				::close(dfd);
+			}
+			in_corrupt = 0;
+			snprintf(lost_fn, sizeof(lost_fn), "%s", fn.c_str());
+			throw;
+		}
 	}
 	if (dfd >= 0) {
 		flock(dfd, LOCK_UN);
