@@ -127,7 +127,7 @@ Admin root@localhost
 #	List Read and PostTo Parameters (see above). If only unix is
 #	specified, then all clients must step throuh the authentication.
 #	If further fields specified, then unauthenticated clients have
-# 	the access specified with the parameter allow, List, ReadTo,
+# 	the access specified with the parameter allow, List, Read,
 #	PostTo and authenticated clients uses the arguments and modify 
 #	the original parameters.
 #	NewsCache checks passwords as Username (news), and only root may
@@ -268,6 +268,9 @@ AccessList {
 #                in plain text
 #   noverify ... with ssl/starttls, don't verify the server's certificate
 #                (logged as a warning); only for self-signed certificates
+#   dontgenmsgid ... a posted article without a Message-ID that goes only
+#                to this server is passed on without one, and the server
+#                makes it (otherwise NewsCache makes one, see Hostname)
 # TLSCAFile:
 #   PEM file with the CA certificates for this server's TLS certificate.
 #   Without it, the system trust store is used. With ssl or starttls the
