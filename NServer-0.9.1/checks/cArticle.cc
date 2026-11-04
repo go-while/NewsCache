@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 #include <stdio.h>
@@ -165,6 +166,35 @@ int checkUnfold(void)
 	return e ? -1 : 0;
 }
 
+// write(os, Body) skips the empty line that ends the head (Head stops before it), with CRLF
+// and with bare LF line ends, and writes exactly the rest.
+int checkWriteBody(void)
+{
+	static const struct {
+		const char *text;
+		const char *head;
+		const char *body;
+	} cases[] = {
+		{"From: a@b.c\r\n\r\nbody\r\n", "From: a@b.c\r\n", "body\r\n"},
+		{"From: a@b.c\n\nbody\nmore\n", "From: a@b.c\n", "body\nmore\n"},
+	};
+	int e = 0;
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		Article a(1, cases[i].text, strlen(cases[i].text));
+		ostringstream hs, bs;
+		a.write(hs, Article::Head);
+		a.write(bs, Article::Body);
+		if (hs.str() != cases[i].head || bs.str() != cases[i].body) {
+			cout << "checkWriteBody: case " << i << " gives head ("
+			    << hs.str().length() << " bytes), body ("
+			    << bs.str().length() << " bytes) \"" << bs.str()
+			    << "\"\n";
+			e++;
+		}
+	}
+	return e ? -1 : 0;
+}
+
 int main(int argc, char *argv[])
 {
 	const char *const *al = articleList;
@@ -203,6 +233,12 @@ int main(int argc, char *argv[])
 		ef++;
 	} else {
 		cout << "checkUnfold() succeeded\n";
+	}
+	if ((e = checkWriteBody()) < 0) {
+		cout << "checkWriteBody() failed with: " << e << endl;
+		ef++;
+	} else {
+		cout << "checkWriteBody() succeeded\n";
 	}
 	if (ef == 0) {
 		cout << "cArticle: all tests succeeded\n";
