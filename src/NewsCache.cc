@@ -2706,8 +2706,24 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "340 send article to be posted.\r\n";
 		clt->co->flush();
 		string text;
+		// The command loop's alarm ended with the command line. Without
+		// one here only the per-read timeout applied, which every byte
+		// restarts: a client sending a byte now and then held the
+		// session (and one of MaxConnections) for ever. The whole
+		// article gets ClientTimeout.
+		alarmed = 0;
+		alarm(Cfg.ClientTimeout);
 		int r = read_post_article(*clt->ci, text,
 					  (size_t) Cfg.MaxPostSize);
+		alarm(0);
+		if (r < 0 && alarmed) {
+			alarmed = 0;
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: ClientTimeout reached, not posted\n";
+			(*clt->co) << "400 " PACKAGE " " VERSION
+			    ", service timed out!\r\n";
+			return 1;
+		}
 		if (r < 0) {
 			// the input ended (or failed) before the "." line:
 			// the article is cut off and must not be posted

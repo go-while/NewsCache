@@ -141,7 +141,7 @@ Timeouts in seconds for the retrieval of the active database (first parameter) a
 The default values are 3600 seconds for both parameter.
 .TP
 .I "ClientTimeout t"
-Terminate the connection after t seconds inactivity. The default value is 1200 seconds. The same limit applies to each write to the client and, plus 10 seconds, to each read inside a command (the article of a POST): a client that stops reading its replies, or stops sending in the middle of an article, is disconnected too.
+Terminate the connection after t seconds inactivity. The default value is 1200 seconds. The same limit applies to each write to the client and, plus 10 seconds, to each read inside a command (the article of a POST). The whole article of a POST must arrive within t seconds after the 340 reply, however steadily it is sent: a client that stops reading its replies, or sends an article too slowly, is disconnected too, with 400 for the article.
 .TP
 .I "AuthFailureDelay seconds"
 After a failed login (AUTHINFO PASS), wait this many seconds before answering 481; after the third failure the connection is closed. The default is 1 second; 0 answers at once. Values up to 3600 are accepted for older configuration files, but the delay is at most 1 second: a longer one only keeps a process busy per connection. (Up to 1.3.22 the delay was multiplied by the number of failed logins: 15, 30 and 45 seconds by default.)
