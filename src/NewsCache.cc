@@ -2240,7 +2240,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			active = clt->srvr->active();
 			NewsgroupFilter filter(clt->access_entry->list);
 			if (argc == 3)
-				filter &= NewsgroupFilter(argv[2]);
+				filter.setWildmat(argv[2]);
 			ostringstream lines;
 			collect_active(active, active_filter_group <
 				       print_list_active_times > (lines,
@@ -2269,7 +2269,7 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				string name =
 				    strg.substr(0, strg.find_first_of(" \t\r\n"));
 				if (filter.matches(name.c_str()) <= 0 ||
-				    (argc == 3 && !wildmat(name.c_str(), argv[2])))
+				    (argc == 3 && !wildmat_list(name.c_str(), argv[2])))
 					continue;
 				(*clt->co) << strg;
 			}

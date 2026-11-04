@@ -238,6 +238,61 @@ int main(int argc, char *argv[])
 		cout << endl;
 	}
 
+	// RFC 3977 4.2 wildmat lists: the last matching pattern decides
+	cout << "wildmat lists: " << flush;
+	{
+		static const struct {
+			const char *text, *list;
+			int want;
+		} t[] = {
+			{ "comp.lang.c", "comp.*,alt.*", 1 },
+			{ "alt.test", "comp.*,alt.*", 1 },
+			{ "misc.test", "comp.*,alt.*", 0 },
+			{ "comp.os.linux", "comp.*,!comp.os.*", 0 },
+			{ "comp.lang.c", "comp.*,!comp.os.*", 1 },
+			{ "comp.os.linux", "comp.*,!comp.os.*,comp.os.linux", 1 },
+			{ "comp.os.linux", "comp.os.linux,!comp.*", 0 },
+			{ "comp.lang.c", "!comp.*", 0 },
+			{ "misc.test", "!comp.*", 0 },
+			{ "a,b", "a\\,b", 1 },
+			{ "a", "a\\,b", 0 },
+			{ "comp.lang.c", "*", 1 },
+			{ "comp.lang.c", "", 0 },
+			{ "comp.lang.c", ",comp.*", 1 },
+			{ "comp.lang.c", "comp.*,", 1 },
+			{ 0, 0, 0 }
+		};
+		for (int i = 0; t[i].text; i++) {
+			if (wildmat_list(t[i].text, t[i].list) != t[i].want) {
+				cout << "-" << flush;
+				V(cout << " {" << t[i].list << "} on {" << t[i].text << "} ");
+				ef++;
+			} else {
+				cout << "+" << flush;
+			}
+		}
+		cout << endl;
+	}
+
+	// a filter with a wildmat keeps it when copied
+	cout << "filter copy: " << flush;
+	{
+		NewsgroupFilter f("*");
+		f.setWildmat("comp.*,!comp.os.*");
+		NewsgroupFilter g(f);
+		NewsgroupFilter h;
+		h = f;
+		if (g.matches("alt.test") > 0 || h.matches("alt.test") > 0 ||
+		    g.matches("comp.os.linux") > 0 || h.matches("comp.os.linux") > 0 ||
+		    g.matches("comp.lang.c") <= 0 || h.matches("comp.lang.c") <= 0) {
+			cout << "-" << flush;
+			ef++;
+		} else {
+			cout << "+" << flush;
+		}
+		cout << endl;
+	}
+
 	if (ef == 0) {
 		cout << "cNewsgroupFilter: all tests succeeded\n";
 		exit(0);

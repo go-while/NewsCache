@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -639,5 +640,49 @@ func TestPostToDeniedSecondStage(t *testing.T) {
 	}
 	if n := len(e.Store.Posted()); n != 1 {
 		t.Errorf("upstream got %d posted articles, want 1", n)
+	}
+}
+
+// TestListWildmatLists: the wildmat of LIST ACTIVE, LIST ACTIVE.TIMES and
+// LIST NEWSGROUPS is a comma separated list with "!" (RFC 3977 4.2), the
+// last matching pattern deciding. A list matched nothing, and the
+// ACTIVE.TIMES wildmat was read as an access rule list, so "*.test" showed
+// every group the client may list.
+func TestListWildmatLists(t *testing.T) {
+	e := newEnv(t)
+	for _, g := range []string{"test.alpha", "test.beta", "other.alpha", "other.beta.sub", "secret.group"} {
+		e.addArticles(g, 1)
+	}
+	desc := "test.alpha A.\ntest.beta B.\nother.alpha C.\nother.beta.sub D.\nsecret.group E.\n"
+	if err := os.WriteFile(filepath.Join(e.Spool, ".newsgroups"), []byte(desc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.AccessList = strings.Replace(DefaultAccessList,
+		"Client stdin {\n    allow read post\n    List *\n", "Client stdin {\n    allow read post\n    List test.*,other.*\n", 1)
+	c := e.session()
+	for _, form := range []string{"ACTIVE", "ACTIVE.TIMES", "NEWSGROUPS"} {
+		for wildmat, want := range map[string]string{
+			"test.*,other.*":               "other.alpha other.beta.sub test.alpha test.beta",
+			"other.*,!other.beta.*":        "other.alpha",
+			"*.alpha,*.beta":               "other.alpha test.alpha test.beta",
+			"*,!test.*,test.beta":          "other.alpha other.beta.sub test.beta",
+			"!test.*":                      "",
+			"*.alpha":                      "other.alpha test.alpha",
+			"secret.*":                     "",
+			"test.alpha,test.beta,!*.beta": "test.alpha",
+		} {
+			cmd := "LIST " + form + " " + wildmat
+			if code, line := c.Cmd("%s", cmd); code != 215 {
+				t.Fatalf("%s: %q, want 215", cmd, line)
+			}
+			var groups []string
+			for _, l := range c.ReadDotLines() {
+				groups = append(groups, strings.Fields(l)[0])
+			}
+			sort.Strings(groups)
+			if got := strings.Join(groups, " "); got != want {
+				t.Errorf("%s: groups %q, want %q", cmd, got, want)
+			}
+		}
 	}
 }

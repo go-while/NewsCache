@@ -32,8 +32,10 @@
 
 #ifdef __cplusplus
 extern "C" int wildmat(const char *pText, const char *p);
+extern "C" int wildmat_list(const char *pText, const char *pList);
 #else
 int wildmat(const char *pText, const char *p);
+int wildmat_list(const char *pText, const char *pList);
 #endif
 
 #endif

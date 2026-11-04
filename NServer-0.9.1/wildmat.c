@@ -36,6 +36,8 @@
 **  on.
 */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 //#include "configdata.h"
 //#include "clibrary.h"
@@ -143,6 +145,47 @@ int wildmat(const char *text, const char *p)
 	return DoMatch(text, p) == TRUE;
 }
 
+
+
+/*
+**  A wildmat as RFC 3977 4.2 defines it: a comma separated list of
+**  patterns, each optionally led by "!".  The last pattern that matches
+**  the text decides: it accepts the text, or, with a "!", rejects it.
+**  No match at all rejects.  A backslash protects a comma (or another
+**  character) in a pattern.  Returns TRUE or FALSE.
+*/
+int wildmat_list(const char *text, const char *list)
+{
+	int result = FALSE;
+	const char *start = list;
+	char *buf;
+
+	buf = (char *) malloc(strlen(list) + 1);
+	if (buf == NULL)
+		return FALSE;
+	for (;;) {
+		const char *end = start;
+		size_t len;
+		int negated;
+
+		while (*end && *end != ',') {
+			if (*end == '\\' && end[1])
+				end++;
+			end++;
+		}
+		len = (size_t) (end - start);
+		memcpy(buf, start, len);
+		buf[len] = '\0';
+		negated = buf[0] == '!';
+		if (wildmat(text, buf + negated))
+			result = !negated;
+		if (*end == '\0')
+			break;
+		start = end + 1;
+	}
+	free(buf);
+	return result;
+}
 
 
 #if	defined(TEST)
