@@ -685,6 +685,45 @@ static void longer_file(const string & dir)
 	unlink(fn.c_str());
 }
 
+// After a crash between a resize's ftruncate and its header update the
+// file is longer than the header says. The next resize must grow the last
+// free block from the header's size: it ends at the end of the file, and
+// no bytes are left out.
+static void longer_file_accounting(const string & dir)
+{
+	string fn = dir + "/longeracc.db";
+	struct stat st;
+	{
+		NVArray a(fn.c_str());
+		a.setsize(0, 9);
+		a.set(1, "one", 4);
+	}
+	if (stat(fn.c_str(), &st) != 0 ||
+	    truncate(fn.c_str(), st.st_size + 65536) != 0) {
+		perror(fn.c_str());
+		exit(1);
+	}
+	{
+		CurArray a(fn.c_str());
+		string big(200000, 'b');
+		a.set(2, big.data(), big.size());
+	}
+	// Header: two ints, then size, mtime, freelist, bytes_free
+	// (nvoff_t is as wide as unsigned long); FreeList: next, size.
+	static_assert(sizeof(nvoff_t) == sizeof(unsigned long), "nvoff_t");
+	unsigned long hdr[5], fl[2];
+	int fd = open(fn.c_str(), O_RDONLY);
+	CHECK(fd >= 0 && pread(fd, hdr, sizeof(hdr), 8) == (ssize_t) sizeof(hdr));
+	CHECK(fstat(fd, &st) == 0);
+	CHECK(pread(fd, fl, sizeof(fl), hdr[2]) == (ssize_t) sizeof(fl));
+	close(fd);
+	// hdr[0] size, hdr[1] mtime, hdr[2] freelist, hdr[3] bytes_free
+	CHECK(hdr[0] == (unsigned long) st.st_size);
+	CHECK(hdr[2] + fl[1] == hdr[0]);
+	CHECK(!exists(fn + ".bad"));
+	unlink(fn.c_str());
+}
+
 // 7. Back to the caller's outer lock: the file grew while the inner one
 // was given up (fcntl unlocks before it relocks), and the outer remap
 // fails. The outer lock must not stay held with no mapping.
@@ -809,6 +848,7 @@ int main(int argc, char *argv[])
 		lock_eintr(dir);
 		open_lock_eintr(dir);
 		longer_file(dir);
+		longer_file_accounting(dir);
 	}
 	for (int r = 0; r < 20 && failures == 0; r++)
 		race(dir, r);
