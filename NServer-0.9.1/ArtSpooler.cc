@@ -17,6 +17,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -115,33 +116,79 @@ void ArtSpooler::storeBadArt(Article & a)
 	}
 }
 
-// The article is written under a temporary name and renamed to art_*
-// after a good close, so getSpooledArt never takes a half-written file.
-// A failed open or write (a full disk, a file size limit) throws
-// SystemError and leaves nothing behind: the client was told "240
-// Article posted", and a cut-off article was posted later.
+// The article is written under a temporary name, made durable (fsync) and
+// renamed to art_*, and the directory is synced; only then does the
+// caller tell the client "240 Article posted". getSpooledArt never takes
+// a half-written file, and after a power cut art_* is not a zero-length
+// file (a newly named file is not flushed by the rename alone). A failed
+// open or write (a full disk, a file size limit) throws SystemError and
+// leaves nothing behind: the client was told "240 Article posted", and a
+// cut-off article was posted later.
 int ArtSpooler::storeArticle(const string & path, Article & a)
 {
-	ofstream os;
-	string fn, tmp, id;
+	ostringstream os;
+	string fn, tmp, id, text;
 	struct stat st;
-	int s, e;
+	int s, e = 0, fd;
 
 	id = createID();;
 	fn = path + "/art_" + id;
 	tmp = path + "/tmp_" + id;
 	s = lstat(fn.c_str(), &st);
 	if (s == -1) {
-		errno = 0;
-		os.open(tmp.c_str());
 		os << a;
-		os.close();
-		if (os.fail() || rename(tmp.c_str(), fn.c_str()) != 0) {
+		text = os.str();
+		fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
+		if (fd < 0) {
 			e = errno;
+		} else {
+			const char *p = text.data();
+			size_t left = text.length();
+			while (left > 0) {
+				ssize_t n = ::write(fd, p, left);
+				if (n < 0) {
+					if (errno == EINTR)
+						continue;
+					e = errno;
+					break;
+				}
+				p += n;
+				left -= n;
+			}
+			if (!e && fsync(fd) != 0)
+				e = errno;
+			if (::close(fd) != 0 && !e && errno != EINTR)
+				e = errno;
+			if (!e && rename(tmp.c_str(), fn.c_str()) != 0)
+				e = errno;
+		}
+		// the new name on the disk too. Where a directory can't be
+		// synced (EINVAL, EBADF for a read-only descriptor,
+		// ENOTSUP), there is no other way.
+		if (!e) {
+			int dfd = ::open(path.c_str(), O_RDONLY);
+			if (dfd < 0)
+				e = errno;
+			else if (fsync(dfd) != 0 && errno != EINVAL &&
+				 errno != EBADF
+#ifdef ENOTSUP
+				 && errno != ENOTSUP
+#endif
+#ifdef EOPNOTSUPP
+				 && errno != EOPNOTSUPP
+#endif
+				 )
+				e = errno;
+			if (dfd >= 0)
+				::close(dfd);
+			if (e)
+				unlink(fn.c_str());
+		} else if (fd >= 0) {
 			unlink(tmp.c_str());
+		}
+		if (e)
 			throw SystemError("cannot store article in " + path, e,
 					  ERROR_LOCATION);
-		}
 		s = 0;
 	} else {
 		s = 1;
@@ -182,6 +229,15 @@ Article *ArtSpooler::nextSpooledArt(string & name)
 		throw SystemError("cannot open " + artSpool, e, ERROR_LOCATION);
 	}
 	for (d = readdir(dir); d != NULL; d = readdir(dir)) {
+		// A tmp_* file is left by a process that was killed or lost
+		// power while it stored an article. Every writer holds this
+		// lock, so none is being written now, and nothing else
+		// would ever remove it (newscacheclean skips .artSpool).
+		if (strncmp("tmp_", d->d_name, 4) == 0) {
+			an = artSpool + "/" + d->d_name;
+			unlink(an.c_str());
+			continue;
+		}
 		if (strncmp("art_", d->d_name, 4) == 0) {
 			an = artSpool + "/" + d->d_name;
 			is.open(an.c_str());
