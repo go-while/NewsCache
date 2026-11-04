@@ -4097,6 +4097,34 @@ void nnrpd(int fd, bool tls)
 				}
 				break;
 			}
+			catch(...) {
+				// Not one of ours: std::bad_alloc,
+				// std::length_error, std::out_of_range ...
+				// Answered like an Error; it used to end the
+				// session without a reply (in inetd mode with
+				// SIGABRT).
+				const char *what = "unknown exception";
+				try {
+					throw;
+				}
+				catch(const std::exception & e) {
+					what = e.what();
+				}
+				catch(...) {
+				}
+				slog.p(Logger::Error) << clt.client_logname
+				    << " " << cmd << " failed: " << what
+				    << "\n";
+				errc = -1;
+				if (!finish_reply(*clt.co, tracker,
+						  "internal error")) {
+					slog.p(Logger::Error) << clt.client_logname
+					    << " " << cmd << ": failed after part of"
+					    << " the reply, closing\n";
+					goto client_exit;
+				}
+				break;
+			}
 		}
 		if (!(Cfg.LogStyle & Config::LogINN)) {
 			if (errc < 0) {
@@ -4735,6 +4763,9 @@ void nntpd()
 					slog.p(Logger::Error) << "nnrpd caught "
 						<< "Error ";
 					e.print();
+				} catch (const std::exception &e) {
+					slog.p(Logger::Error) << "nnrpd caught "
+						<< e.what() << "\n";
 				} catch ( ... ) {
 					slog.p(Logger::Error) << "nnrpd caught "
 						<< "unknown!!"	<< "\n";
@@ -5121,10 +5152,28 @@ int main(int argc, char **argv)
 			setugid(Cfg.Username, Cfg.Groupname);
 		// with -t, standard input is the client's socket; the plain
 		// inetd mode reads cin and writes cout, as before
-		if (opt_tls)
-			nnrpd(STDIN_FILENO, true);
-		else
-			nnrpd(-1, false);
+		// (an exception ended the process with SIGABRT)
+		try {
+			if (opt_tls)
+				nnrpd(STDIN_FILENO, true);
+			else
+				nnrpd(-1, false);
+		}
+		catch(const Error & e) {
+			slog.p(Logger::Error) << "nnrpd caught Error: "
+			    << e._errtext << "\n";
+			return 1;
+		}
+		catch(const std::exception & e) {
+			slog.p(Logger::Error) << "nnrpd caught "
+			    << e.what() << "\n";
+			return 1;
+		}
+		catch(...) {
+			slog.p(Logger::Error) << "nnrpd caught "
+			    << "unknown!!" << "\n";
+			return 1;
+		}
 	} else {
 		if (opt_debug == 0 && opt_nofork == 0) {
 			switch (fork()) {
