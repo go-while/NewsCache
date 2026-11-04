@@ -86,7 +86,8 @@ class sockstream
   {
     friend class sslstreambuf;
 
-    static sig_atomic_t *_alarm_indicator;
+    // (volatile: a signal handler sets it, see catchsigalarm)
+    static volatile sig_atomic_t *_alarm_indicator;
     // > 0 once the program is told to stop (SIGTERM, SIGINT: the
     // signal number); unlike the alarm indicator never cleared, so a
     // connect timeout can't make the stop be forgotten. It ends only
@@ -115,7 +116,7 @@ class sockstream
     long long reply_ms_left() const;
 
    public:
-    static inline void alarm_indicator(sig_atomic_t &var)
+    static inline void alarm_indicator(volatile sig_atomic_t &var)
     {
       _alarm_indicator = &var;
     }
@@ -208,7 +209,7 @@ class sockstream
   } _buf;
 
  public:
-  static inline void alarm_indicator(sig_atomic_t &var)
+  static inline void alarm_indicator(volatile sig_atomic_t &var)
   {
     sockstreambuf::alarm_indicator(var);
   }

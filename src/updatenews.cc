@@ -69,7 +69,8 @@ Config Cfg;
 int opt_flags = 0;
 int opt_workers = 0;
 volatile sig_atomic_t Xsignal;
-sig_atomic_t alarmed = 0;
+// set by the signal handlers: volatile (see NewsCache.cc)
+volatile sig_atomic_t alarmed = 0;
 
 void catchsignal(int num)
 {

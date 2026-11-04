@@ -182,7 +182,7 @@ static void test_signal_window(const char *call)
 }
 #endif
 
-sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
+volatile sig_atomic_t *sockstream::sockstreambuf::_alarm_indicator = NULL;
 volatile sig_atomic_t *sockstream::sockstreambuf::_stop_indicator = NULL;
 
 
