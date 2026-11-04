@@ -1977,3 +1977,139 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", elapsed)
 	}
 }
+
+// cpuTicks returns the user and system CPU time (clock ticks) of a process.
+func cpuTicks(t *testing.T, pid int) int {
+	t.Helper()
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		t.Skipf("no /proc: %v", err)
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndex(s, ") ")+2:])
+	var ticks int
+	for _, i := range []int{11, 12} { // utime, stime
+		n, err := strconv.Atoi(f[i])
+		if err != nil {
+			t.Fatalf("bad stat %q", s)
+		}
+		ticks += n
+	}
+	return ticks
+}
+
+// openFds returns the number of the highest descriptor a process has open.
+func maxFd(t *testing.T, pid int) int {
+	t.Helper()
+	ents, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
+	if err != nil {
+		t.Skipf("no /proc: %v", err)
+	}
+	top := 0
+	for _, ent := range ents {
+		if n, err := strconv.Atoi(ent.Name()); err == nil && n > top {
+			top = n
+		}
+	}
+	return top
+}
+
+// TestAcceptOutOfDescriptors: when accept() fails because the daemon has no
+// descriptor left, the connection stays queued and poll() reports it again
+// at once. The daemon used to spin on it and log a warning for every
+// failure. It must wait, log once, and still end at SIGTERM.
+func TestAcceptOutOfDescriptors(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs /proc")
+	}
+	e := newEnv(t)
+	// No Username and Groupname: the user lookup would need a descriptor
+	// at the start, which the daemon doesn't use afterwards.
+	e.writeConf()
+	b, err := os.ReadFile(e.Conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "Username ") && !strings.HasPrefix(l, "Groupname ") {
+			conf = append(conf, l)
+		}
+	}
+	if err := os.WriteFile(e.Conf, []byte(strings.Join(conf, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := func(ulimit ...string) (*proc.Process, net.Conn) {
+		o := e.procOpts("-n")
+		o.Ulimit = ulimit
+		p := proc.StartStdio(t, o)
+		_ = p.Conn().SetReadDeadline(time.Now().Add(24 * time.Hour))
+		go func() { _, _ = io.Copy(io.Discard, p.Conn()) }()
+		for i := 0; i < 100; i++ {
+			select {
+			case <-p.Done():
+				return p, nil
+			default:
+			}
+			if c, err := net.DialTimeout("tcp", e.Listen, 250*time.Millisecond); err == nil {
+				return p, c
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatal("the daemon did not listen")
+		return nil, nil
+	}
+	first, c := start()
+	if c == nil {
+		t.Fatal("the daemon did not start")
+	}
+	c.Close()
+	steady := maxFd(t, first.Pid()) + 1
+	limit := steady
+	first.Stop()
+
+	// Find the limit at which the daemon's descriptors fill it: accept()
+	// has none for the client (one more and it works).
+	var p *proc.Process
+	var conn net.Conn
+	for ; limit >= steady-3; limit-- {
+		var c net.Conn
+		p, c = start(fmt.Sprintf("-n %d", limit))
+		if c == nil {
+			break
+		}
+		_ = c.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		if _, err := bufio.NewReader(c).ReadString('\n'); err != nil {
+			conn = c
+			break
+		}
+		c.Close()
+		p.Stop()
+	}
+	if conn == nil {
+		t.Skip("no limit where the daemon starts but cannot accept")
+	}
+	defer conn.Close()
+	time.Sleep(300 * time.Millisecond)
+	before := cpuTicks(t, p.Pid())
+	time.Sleep(2500 * time.Millisecond)
+	if used := cpuTicks(t, p.Pid()) - before; used > 25 {
+		t.Errorf("daemon used %d ticks of CPU in 2.5 s without descriptors: busy loop", used)
+	}
+	if mode, err := logMode(e.Bin); err == nil && mode != "syslog" {
+		log := e.logFile()
+		if n := strings.Count(log, "accept failed"); n > 1 {
+			t.Errorf("%d \"accept failed\" lines in the log, want 1:\n%s", n, log)
+		}
+	}
+	stopped := time.Now()
+	_ = p.Signal(syscall.SIGTERM)
+	select {
+	case <-p.Done():
+		if d := time.Since(stopped); d > 1500*time.Millisecond {
+			t.Errorf("SIGTERM took %v", d)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the daemon ignores SIGTERM")
+	}
+}
