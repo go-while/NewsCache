@@ -108,8 +108,11 @@ grep -F "checking build system type" "$tmp/gnu-hurd/configure.log" >/dev/null
 
 # A small real process lets the init script lifecycle be tested without root,
 # network ports, or NewsCache configuration.
-mkdir -p "$tmp/lifecycle/prefix/sbin" "$tmp/lifecycle/var"
-${CC:-cc} -o "$tmp/lifecycle/prefix/sbin/newscache" \
+# sbin is a symlink to bin, as /usr/sbin is on Fedora and Arch: the process's
+# /proc/PID/exe then differs from the path the script starts.
+mkdir -p "$tmp/lifecycle/prefix/bin" "$tmp/lifecycle/var"
+ln -s bin "$tmp/lifecycle/prefix/sbin"
+${CC:-cc} -o "$tmp/lifecycle/prefix/bin/newscache" \
 	"$src/tests/sysv-init-fake-daemon.c"
 configure_install lifecycle --enable-sysv-init \
 	"--prefix=$tmp/lifecycle/prefix" \
@@ -121,7 +124,7 @@ lifecycle_pidfile="$tmp/lifecycle/var/run/newscache.init.pid"
 cp "$src/tests/sysv-init-lifecycle.sh" "$tmp/sysv-init-lifecycle.sh"
 chmod 755 "$tmp/sysv-init-lifecycle.sh"
 chmod 755 "$tmp" "$tmp/lifecycle" "$tmp/lifecycle/prefix" \
-	"$tmp/lifecycle/prefix/sbin"
+	"$tmp/lifecycle/prefix/bin"
 chmod 777 "$tmp/lifecycle/var"
 if [ "$(id -u)" = 0 ]; then
 	if command -v runuser >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then

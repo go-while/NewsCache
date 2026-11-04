@@ -96,8 +96,11 @@ pid_is_newscache()
 	[ "$pid" -gt 1 ] 2>/dev/null || return 1
 	kill -0 "$pid" 2>/dev/null || return 1
 	process_exe=$(readlink "/proc/$pid/exe" 2>/dev/null) || return 1
+	# /proc/PID/exe is fully resolved: with a symlink in the path of
+	# $DAEMON (sbin -> bin) compare with the resolved name as well.
+	daemon_real=$(readlink -f "$DAEMON" 2>/dev/null) || daemon_real=$DAEMON
 	case "$process_exe" in
-		"$DAEMON"|"$DAEMON (deleted)") ;;
+		"$DAEMON"|"$DAEMON (deleted)"|"$daemon_real"|"$daemon_real (deleted)") ;;
 		*) return 1 ;;
 	esac
 	process_info=$(proc_info "$pid") || return 1
