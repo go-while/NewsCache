@@ -19,7 +19,11 @@ class ActiveDB {
 	virtual ~ ActiveDB();
 	// Used for set
 	enum {
-		update_only = 0x01
+		update_only = 0x01,
+		// An existing record keeps its posting flag (y, m, n, ...):
+		// a GROUP reply has numbers only, the flag comes from the
+		// active list. Read and written under one exclusive lock.
+		keep_flag = 0x02
 	};
 
 	enum {

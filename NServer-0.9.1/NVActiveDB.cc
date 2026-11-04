@@ -70,6 +70,8 @@ void NVActiveDB::sset(GroupInfo & gi, int flags)
 		// matter. These are junk anyways.
 		if (strcmp(recname(r), gi.name()) == 0) {
 			gi.setctime(((GroupInfo *) r->datap())->ctime());
+			if (flags & keep_flag)
+				gi.setflag(((GroupInfo *) r->datap())->flags());
 			gi.getraw(&gidata, &gisz);
 			if (gisz != r->szdata) {
 				VERB(slog.

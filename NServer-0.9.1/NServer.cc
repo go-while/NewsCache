@@ -824,10 +824,6 @@ void RServer::selectgroup(const char *name, int force)
 			_ActiveDB->set(_CurrentGroup);
 		}
 	} else {
-		_ActiveDB->get(name, &_CurrentGroup);
-		// If the above call fails, _ActiveDB will be updated with a
-		// probably inconsistent posting flag ('y')
-
 		if (mpe->limitgroupsize) {
 			if (lst >= fst &&
 			    lst - fst + 1 > mpe->limitgroupsize) {
@@ -836,8 +832,13 @@ void RServer::selectgroup(const char *name, int force)
 			}
 		}
 
+		// The reply has the numbers; the posting flag stays as the
+		// active list gave it (a group not in the list gets 'y'). The
+		// record is read and written under one lock: reading it first
+		// with get() put back a stale flag over a list refresh, and
+		// the flag was set to 'y' anyway.
 		_CurrentGroup.set(name, fst, lst, nbr);
-		_ActiveDB->set(_CurrentGroup);
+		_ActiveDB->set(_CurrentGroup, ActiveDB::keep_flag);
 	}
 }
 
