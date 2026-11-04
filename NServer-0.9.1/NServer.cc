@@ -221,10 +221,15 @@ int LServer::post(Article * article)
 //********************
 //***   RServer
 //********************
+// Every member as RServer() sets it: this constructor left the connection
+// (_pServerStream) and the login state uninitialised, and the first
+// command wrote to whatever the memory held (cChunk crashed on FreeBSD).
 RServer::RServer(MPList * serverlist)
+:	_ServerList(NULL), _CurrentServer(NULL), _pServerStream(NULL),
+	_authenticating(0), _connecting(0), _active_incomplete(false),
+	_MaxArticleSize(1024 * 1024)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::RServer/1\n");
-	_MaxArticleSize = 1024 * 1024;
 	init(serverlist);
 }
 

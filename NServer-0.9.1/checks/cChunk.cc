@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 
 #include <iostream>
+#include <new>
 #include <string>
 
 #include "Logger.h"
@@ -98,6 +99,33 @@ static std::string closed_port(void)
 	if (s >= 0)
 		close(s);
 	return buf;
+}
+
+// RServer(MPList *) sets every member, whatever the memory held before:
+// it left _pServerStream unset, and the first command wrote through it
+// (SIGSEGV on FreeBSD, where the stack wasn't zero).
+static void rserver_initialised(void)
+{
+	MPList list;
+	MPListEntry e;
+	e.hostname = "127.0.0.1";
+	e.servicename = closed_port();
+	e.read = "*";
+	e.retries = 0;
+	list.entries.push_back(e);
+	alignas(RServer) static unsigned char mem[sizeof(RServer)];
+	memset(mem, 0xa5, sizeof(mem));
+	RServer *rs = new (mem) RServer(&list);
+	char lst[1];
+	bool threw = false;
+	try {
+		rs->listgroup("test.x", lst, 1, 1);
+	}
+	catch(const Error &) {
+		threw = true;	// (nothing listens there)
+	}
+	CHECK(threw);
+	rs->~RServer();
 }
 
 static void prefetch_sync(void)
@@ -204,6 +232,7 @@ int main()
 	CHECK(next_chunk(ARTNUM_LIMIT) != 0);
 	CHECK(ARTNUM_MAX - ARTNUM_LIMIT == 2 * OVERVIEW_CHUNK);
 
+	rserver_initialised();
 	prefetch_sync();
 
 	if (failures) {
