@@ -1234,11 +1234,13 @@ func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
 // A build without plainpass refuses the login (the field is no hash), and
 // the test is skipped.
 func TestAuthFilePlainFieldNoCryptError(t *testing.T) {
-	e := authFileEnv(t, "plain:plainpw:*:*:*:")
+	// "%" can't start a DES salt: crypt() refuses this field on every
+	// system (a field like "plainpw" is a valid DES salt where DES is on)
+	e := authFileEnv(t, "plain:%plainpw:*:*:*:")
 	e.Extra = "AuthFailureDelay 0"
 	p, c := e.sessionProcess()
 	c.Cmd("AUTHINFO USER plain")
-	if code, _ := c.Cmd("AUTHINFO PASS plainpw"); code != 281 {
+	if code, _ := c.Cmd("AUTHINFO PASS %s", "%plainpw"); code != 281 {
 		quitSession(t, p, c)
 		t.Skip("newscache is built without --enable-plainpass")
 	}
