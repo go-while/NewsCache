@@ -1084,13 +1084,16 @@ int check_auth_file (ClientData *clt)
 				     auth_file_sample_hash(authfile.c_str()).c_str());
 		return -1;
 	}
-	passf = auto_cryptcheck(clt->auth_pass, authv[1]);
 #ifdef PLAIN_TEXT_PASSWORDS
-	// (only for a field that is no hash; the plain comparison came
-	// first and accepted a hash as its own password)
-	if (passf && plain_password_field(authv[1]))
+	// A field that is no hash is compared as plain text, without
+	// crypt(): it can't use the field and logged an error for every
+	// login. A hash is never compared as plain text (the plain
+	// comparison came first and accepted a hash as its own password).
+	if (plain_password_field(authv[1]))
 		passf = hashes_differ(clt->auth_pass, authv[1]);
+	else
 #endif
+		passf = auto_cryptcheck(clt->auth_pass, authv[1]);
 	if (passf)
 		return -1;
 
