@@ -1228,6 +1228,29 @@ func TestAuthFileLockedAndHashAsPassword(t *testing.T) {
 	}
 }
 
+// TestAuthFilePlainFieldNoCryptError: with --enable-plainpass a plain text
+// password field is compared as it is. crypt() was tried on it first and
+// logged "crypt() can't use the stored hash" for every successful login.
+// A build without plainpass refuses the login (the field is no hash), and
+// the test is skipped.
+func TestAuthFilePlainFieldNoCryptError(t *testing.T) {
+	// "%" can't start a DES salt: crypt() refuses this field on every
+	// system (a field like "plainpw" is a valid DES salt where DES is on)
+	e := authFileEnv(t, "plain:%plainpw:*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	p, c := e.sessionProcess()
+	c.Cmd("AUTHINFO USER plain")
+	if code, _ := c.Cmd("AUTHINFO PASS %s", "%plainpw"); code != 281 {
+		quitSession(t, p, c)
+		t.Skip("newscache is built without --enable-plainpass")
+	}
+	quitSession(t, p, c)
+	if log := e.logFile(); strings.Contains(log, "can't use the stored hash") {
+		t.Errorf("the log has a crypt() error for a plain text login:\n%s",
+			grepLines(log, "stored hash"))
+	}
+}
+
 // TestAuthinfoLeadingBlankNotLogged: the log shows AUTHINFO without its
 // arguments, also when the line starts with blanks. The test for AUTHINFO
 // looked at the line as it came, but the command split skips leading
