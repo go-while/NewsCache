@@ -1405,7 +1405,9 @@ static Newsgroup *open_group(ClientData * clt, const string & group,
  * history: the group and number of a location whose record in the spool
  * has this Message-ID (the client's current group first), and that
  * overview record. Locations whose record is gone or holds another
- * article are dropped from the history. Returns 0 if the spool has none.
+ * article are dropped from the history; a location that couldn't be read
+ * (an exception: no file descriptor, lock timeout) stays. Returns 0 if the
+ * spool has none.
  */
 // Orders history locations: the client's current group, then groups the
 // client may read, then the others.
@@ -1435,7 +1437,7 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
 	OverviewFmt *of = clt->srvr->overviewfmt();
 	for (size_t i = 0; i < locs.size(); i++) {
 		Newsgroup *g = NULL;
-		bool own = false;
+		bool own = false, failed = false;
 		string o;
 		try {
 			g = open_group(clt, locs[i].group, &own);
@@ -1446,10 +1448,12 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
 				o = p;
 		}
 		catch(...) {
-			o = "";
+			failed = true;
 		}
 		if (own && g)
 			clt->srvr->freegroup(g);
+		if (failed)
+			continue;	// not known to be gone: keep the entry
 		if (!o.empty() && of->getfield(o.c_str(), "Message-ID:", 0) == id) {
 			group = locs[i].group;
 			nbr = locs[i].nbr;
