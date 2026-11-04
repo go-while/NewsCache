@@ -568,7 +568,8 @@ argument has the same syntax as the argument of the
 @code{Read}-option. All articles posted to one or more of these
 newsgroups will be sent to that news server. NewsCache takes articles of
 up to @code{MaxPostSize} (1 MiB by default) from clients; a larger one
-is refused (441).
+is refused (441). Without @code{PostTo} the default is the value of
+@code{Read}, whatever the order of the two in the block.
 @item GroupTimeout
 @cdindex GroupTimeout
 after that amount of seconds the newsgroup's active database is

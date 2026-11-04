@@ -1049,3 +1049,25 @@ func TestXdebugReplies(t *testing.T) {
 		t.Errorf("DATE after XDEBUG: %q, want 111", line)
 	}
 }
+
+// TestServerPostToBeforeRead: a PostTo that stands before Read in a Server
+// block stays; Read sets PostTo only when the block has none. Read
+// overwrote it, whatever the order.
+func TestServerPostToBeforeRead(t *testing.T) {
+	e := newEnv(t)
+	e.ExtraServers = "  Server other.test 119 {\n    PostTo b.*\n    Read a.*\n  }\n" +
+		"  Server third.test 119 {\n    Read c.*\n  }"
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	for _, want := range []string{"PostTo b.*", "PostTo c.*"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("newscache -p output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(string(out), "PostTo a.*") {
+		t.Errorf("newscache -p: Read overwrote PostTo:\n%s", out)
+	}
+}

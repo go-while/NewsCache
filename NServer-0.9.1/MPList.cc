@@ -207,6 +207,7 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 		} else if (tok == "PostTo") {
 			a1 = lex.getToken();
 			cur.postTo = a1;
+			havePostTo = 1;
 		} else if (tok == "GroupTimeout") {
 			cur.groupTimeout = getNumber(lex, "GroupTimeout", 0, INT_MAX);
 		} else if (tok == "LimitGroupSize") {
