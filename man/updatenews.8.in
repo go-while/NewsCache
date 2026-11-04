@@ -19,6 +19,10 @@ reached, the rest of the queue is kept for the next run. Articles the
 news servers refuse are moved to .badArticles, for the administrator.
 Only one updatenews at a time posts the queue.
 .PP
+updatenews always talks to the news servers: it ignores the offline and
+semioffline Options of the Server entries, and uses a GroupTimeout of
+60 seconds for all of them.
+.PP
 .\" TeX users may be more comfortable with the \fB<whatever>\fP and
 .\" \fI<whatever>\fP escape sequences to invode bold face and italics, 
 .\" respectively.
@@ -46,7 +50,7 @@ Prefetch whole newsgroups (the articles of the newest 10000000 article numbers o
 .B \-o, \-\-over
 Only prefetch the overview database (of the newest 10000000 article numbers of each group). With \-g as well, \-g wins.
 .TP
-.B \-l, \-\-lock-group, \-\-lock-groups
+.B \-l, \-\-lock\-group, \-\-lock\-groups
 Reserve each range of 10000 article numbers of the newsgroup while
 prefetching it (with \-g): a session that needs the overview of that
 range waits for the prefetch instead of asking the news server for it

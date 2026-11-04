@@ -37,7 +37,7 @@ Read config-file instead of
 Show statistic informations: how many databases, directories and
 articles were found and removed, and their sizes.
 .TP
-.B \-p \-\-print-purgetable
+.B \-p \-\-print\-purgetable
 Print the sorted purge table.
 .TP
 .B \-t \-\-try

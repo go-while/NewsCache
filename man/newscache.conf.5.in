@@ -80,7 +80,8 @@ for a standalone server or
 .I inetd
 if NewsCache 
 is started from inetd. A standalone server has the advantage that the
-configuration file will be read once only, for the cost of an extra
+configuration file is read once at startup (and again on SIGHUP), not
+for every connection, for the cost of an extra
 process running all the time. Usually, you use a standalone server, if
 NewsCache is frequently accessed. The default value is standalone.
 .TP
@@ -115,7 +116,8 @@ Change the group id to groupname as soon as NewsCache has bound to
 No default value.
 .TP
 .I "Admin email-address"
-The email address of this NewsCache's administrator.
+The email address of this NewsCache's administrator, which HELP shows
+("Report problems to ..."). Without it, HELP shows notset.
 .TP
 .I "Hostname name"
 The host name NewsCache puts into the Message-IDs it makes for posted
@@ -147,7 +149,7 @@ Terminate the connection after t seconds inactivity. The default value is 1200 s
 After a failed login (AUTHINFO PASS), wait this many seconds before answering 481; after the third failure the connection is closed. The default is 1 second; 0 answers at once. Values up to 3600 are accepted for older configuration files, but the delay is at most 1 second: a longer one only keeps a process busy per connection. (Up to 1.3.22 the delay was multiplied by the number of failed logins: 15, 30 and 45 seconds by default.)
 .TP
 .I "History on|off"
-With on, keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
+With on (or yes), keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
 .TP
 .I "MaxArticleSize bytes"
 The largest article NewsCache takes from a news server. A larger one is an error: NewsCache closes the connection to that server (the rest of the article is unread on it), the client gets 403, nothing is stored, and the log says so. The default is 1048576 (1 MiB), the range 1024 to 1073741824. A session holds an article in memory as a whole. Lines from a news server outside articles (status lines, overview records, the active list, LISTGROUP) are limited to 16384 bytes each, with the same effect; lines in articles count only towards MaxArticleSize.
@@ -190,6 +192,7 @@ it names clients and users; an existing file keeps its mode.
 .TP
 .I "LogStyle [strict-inn][hostname][ip-address]
 StrictINN style logging; log client's hostname and or IP-address.
+The default is hostname ip-address.
 .TP
 .I "CachePort port"
 Listen on port, on all addresses, for incoming requests. Port may be a
@@ -233,7 +236,8 @@ The default value is 3.
 The Address, where NewsCache is listening, if running in
 standalone mode.  
 In a multihomed environment the address of one NIC can be 
-specified. The default Port is nntp from /etc/services. For
+specified. Without ListenTo and CachePort, NewsCache listens as with
+DEFAULT (on port nntp). The default Port is nntp from /etc/services. For
 the port-number an entry fom /etc/services or a port-number
 can be specified. 
 .B DEFAULT
@@ -348,11 +352,11 @@ formatdescription:
 .nf
 		username:password:list:read:postto:allow
 .fi
-Only username and password are required. Fields missing at the end add nothing, like empty ones: a line \fBalice:hash\fR only checks the login, and the client keeps the rights of its Client entry.
+Only username and password are required. Fields missing at the end add nothing, like empty ones: a line \fBalice:hash\fR only checks the login, and the client keeps the rights of its Client entry. A password field that is empty or starts with * or ! locks the user: no password matches it.
 The additional access specifications are added to the normal List, Read and PostTo parameters (see above and the examples).
 In the default build, NewsCache recognizes a raw-MD5 password value as base64-encoded MD5, 24 characters ending in \fB==\fR. This legacy format is unsalted and weak; do not use it for new passwords. Otherwise, NewsCache passes the stored value to the system's \fBcrypt(3)\fR; the supported algorithms vary by platform. Apache \fBhtpasswd\fR defaults to APR1 hashes (\fB$apr1$\fR), which are not supported by the system \fBcrypt(3)\fR implementations used with NewsCache. SHA-512 crypt hashes (\fB$6$\fR) work only where the system's \fBcrypt(3)\fR supports them; generate one with \fBopenssl passwd -6\fR or \fBmkpasswd -m sha-512\fR where available. With \fB--without-md5auto\fR, all stored values are checked as MD5, so \fBcrypt(3)\fR hashes cannot be used. Plaintext passwords are accepted only if NewsCache was built with \fB--enable-plainpass\fR. In the allow field, additional permissions can be specified (for example, allowing an authenticated user to post).
 .IP unix:list:read:postto:allow
-Use unix authentication (getpwnam or getspnam). The additional access specification are added to the normal List Read and PostTo Parameters and allow(see above and the example section). If only unix is specified, then all clients must step throuh the authentication.  If further fields specified, then unauthenticated clients have the access specified with the parameter allow, List, ReadTo, PostTo and authenticated clients uses the arguments and modify the original parameters.
+Use unix authentication (getpwnam or getspnam). The additional access specification are added to the normal List Read and PostTo Parameters and allow(see above and the example section). If only unix is specified, then all clients must step throuh the authentication.  If further fields specified, then unauthenticated clients have the access specified with the parameter allow, List, Read, PostTo and authenticated clients uses the arguments and modify the original parameters.
 .br
 It is also possible to specifiy empty fields, example: unix:::*:debug. Which means, that the PostTo parameter is extended with *. What actual settings are used by NewsCache can be determined with the xdebug dump authorization command.
 .br
@@ -525,7 +529,7 @@ posted twice under different IDs.
 .IP
 With ssl or starttls, NewsCache verifies the server's certificate during the TLS handshake: it must chain to a trusted CA, be valid now and match the host name (or IP address) in the Server line, which is also sent as SNI. Otherwise the connection fails and the error is logged.
 .IP "Commands \fIcommands\fR"
-All commands are switched on by default and NewsCache tries itself to find out which of the commands are supported. In some situations it might be necessary to deactivate a command manually (eg. it is not implemented correctly by your news server). To switch off, prepend the command with not-support commands: listgroup, over
+All commands are switched on by default and NewsCache tries itself to find out which of the commands are supported. In some situations it might be necessary to deactivate a command manually (eg. it is not implemented correctly by your news server). To switch one off, prepend not- to its name (not-listgroup, not-over). The commands are: listgroup, over
 .SH EXAMPLES
 .IP "Reducing Load from a NewsServer - cached mode"
 .nf

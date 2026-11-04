@@ -3,8 +3,7 @@
 @setfilename NewsCache.info
 @settitle NewsCache
 
-@set edition 0.2
-@set version 0.99.13
+@include version.texi
 @setchapternewpage odd
 @defindex cd
 @syncodeindex cd cp
@@ -23,7 +22,7 @@ This is the NewsCache Reference Manual.
 
 Copyright @copyright{} 1998 Thomas Gschwind <tom@@infosys.tuwien.ac.at>
 
-This edition is for NewsCache version @value{edition}.
+This edition is for NewsCache version @value{VERSION}.
 
 Permission is granted to make and distribute verbatim copies of this
 manual provided the copyright notice and this permission notice are
@@ -52,7 +51,7 @@ approved by the Free Software Foundation.
 @c ***
 @titlepage
 @title NewsCache Reference Manual
-@subtitle for NewsCache version @value{version}
+@subtitle for NewsCache version @value{VERSION}
 @author Thomas Gschwind
 
 @c Start copyright page
@@ -86,7 +85,7 @@ by the Free Software Foundation.
 NewsCache is a free cache server for USENET News. This manual explains
 the configuration options and describes, how to configure NewsCache to
 work in different environments. This manual applies to NewsCache version
-@value{edition}.
+@value{VERSION}.
 @end ifinfo
 
 @menu
@@ -94,7 +93,7 @@ work in different environments. This manual applies to NewsCache version
 * Compatibility::               Compatible news readers and servers
 * General Options::             General configuration options
 * ServerList Option::           How to configure the list of news servers
-* Access Control::              Allow/Deby hosts from connecting to NewsCache
+* Access Control::              Allow/Deny hosts from connecting to NewsCache
 * Statistics::                  Gathering statistics from the log files
 * Bugs and Misfeatures::        Bugs and Misfeatures
 * FAQ::                         Frequently Asked Questions
@@ -258,7 +257,8 @@ ConfigVersion 5
 @cdindex PidFile
 NewsCache can be started either as @code{standalone} server or from
 @code{inetd}. Using a standalone server has the advantage that the
-configuration file will be read only at the first startup. However, you
+configuration file is read once at startup (and again on SIGHUP), not
+for every connection. However, you
 will have one more process running all of the time (although sleeping).
 Starting NewsCache in standalone mode allows you specify some additional
 configuration options.  Usually, you start a service (NewsCache in this
@@ -356,8 +356,9 @@ Admin you@@your.provider
 
 @cdindex Timeouts
 Timeouts for the retrieval of the active database and the description
-(@emph{In version @value{version}, the retrieval of the newsgroup
-descriptions is not implemented}) of the newsgroups are set with the
+(@emph{NewsCache doesn't fetch the newsgroup descriptions from the news
+server: LIST NEWSGROUPS answers from the file @file{.newsgroups} in the
+spool directory, and the second value is not used}) of the newsgroups are set with the
 @code{Timeouts} command (The values are given in seconds). The values
 indicate the time, when NewsCache reloads the active database or the
 description of the newsgroups. While the active database changes rather
@@ -478,8 +479,8 @@ or both. NewsCache uses the same log format as INN and some additional
 log entries. If you want to log only INN style log messages, add the
 @code{strict-inn} option. This will be only useful if you use some
 statistic tools for INN that get confused with those extra
-messages. @emph{In version @value{version} @code{strict-inn} is only
-supported on the LOG_NOTICE level.}
+messages. @emph{@code{strict-inn} is only supported on the LOG_NOTICE
+level.}
 
 @example
 LogStyle ip-address strict-inn
@@ -849,12 +850,6 @@ pointless because our local news server is not that much loaded and has
 a good connection to our local news server. In fact they are located on
 the same machine.
 
-@emph{Whether the cached/not-cached flag is supported depends on your
-installation. If you configured NewsCache at compile time with the
-@code{--enable-notcached} flag this flag is supported, otherwise
-not. This is disabled by default due to problems of gcc-2.7.2.  If you
-are using egcs or gcc-2.8.1, you can turn on this flag safely.}
-
 @section Replacing a Leaf Node News Server
 
 @cindex replace leaf node news server
@@ -877,7 +872,7 @@ NewsServerList @{
     Read stardivision.*
     PostTo stardivision.*
     GroupTimeout 180
-    Options cached,semioffline
+    Options cached semioffline
   @}
   NoServer @{
     Read alt.binaries.*,another.hierarchy.*
@@ -886,7 +881,7 @@ NewsServerList @{
 @}
 @end example
 
-In this example, we read all groups except @code{stardivison.*},
+In this example, we read all groups except @code{stardivision.*},
 @code{alt.binaries.*}, and @code{another.hierarchy.*} from
 @code{news.tuwien.ac.at}. All postings, except for @code{stardivision.*}
 and @code{alt.binaries.*} are posted to @code{news.tuwien.ac.at}.  All
@@ -1243,8 +1238,8 @@ comp.os.linux.m68k  Linux operating system on 680x0 Amiga, Atari, VME.
 You can can get NewsCache from its
 @uref{https://github.com/go-while/NewsCache, homepage}. 
 @item What is the latest version of NewsCache?
-As of this writing the latest version is @value{version}. The latest
-version of NewsCache can always be found at its
+This manual is for version @value{VERSION}. The latest version of
+NewsCache can always be found at its
 @uref{https://github.com/go-while/NewsCache, homepage}. 
 @item How does this compare to NNTPCACHE?
 NNTPCACHE is a cache server similar to NewsCache. Features of NewsCache
@@ -1256,13 +1251,10 @@ needs.
 Volunteers are always welcome! Open an issue or a pull request at
 @uref{https://github.com/go-while/NewsCache}.
 @item Does it have any concept of expiry of articles?
-At the moment, NewsCache expires articles on a per newsgroup basis.
-This degrades the hit rate of NewsCache only slightly as long as the
-most frequently read newsgroups fit into the spool area. With the
-current implementation, expiry on a per article basis would be too
-inefficient, since this requires an index of all the articles.  An index
-with all the articles and thus article replacement on a per article
-basis should be finished around January.
+Yes, per article. @command{newscacheclean} keeps the spool within
+@code{SpoolSize}: it removes the articles and newsgroup databases that
+were read least recently first, one after the other, until the spool is
+small enough (see @command{newscacheclean(8)}).
 @item Which newsgroups are returned by the list commands?
 The list command will return those newsgroups from the news server(s)
 that match the newsgroup descriptions of the Server directives.
@@ -1300,7 +1292,7 @@ syslog.conf.
 @item When I start my news reader it takes several seconds before I can
 read news. 
 Many news readers request the active database or a list of new
-newsgrousp when starting up. The latter is implemented by the former in
+newsgroups when starting up. The latter is implemented by the former in
 NewsCache which may take more time. If your news reader issues only a
 request for new newsgroups it will take substantially longer when you
 use NewsCache. In this situation set the timeout for the active database
@@ -1320,19 +1312,19 @@ newsgroup).
 The source code of NewsCache is structured as follows:
 
 @table @code
-@item src/Config*
+@item src/NewsCacheConfig*
 reads and stores the general configuration options.
-@item NServer/MPList*
+@item NServer-0.9.1/MPList*
 responsible for storing per server configuration options.
-@item NServer/*
+@item NServer-0.9.1/*
 handles all the news databases and the communication with News Servers. 
-@item NServer/NServer*
+@item NServer-0.9.1/NServer*
 the logic to retrieve information from different servers (LServer for
 retrieving information from the local database; RServer for retrieving
 articles from a remote News Server; CServer an RServer with caching
 functionality)
-@item NVClasses/*
-the basic database routines.
+@item NVClasses-0.9.1/*
+the basic database routines (memory-mapped files and their locks).
 @item src/NewsCache.cc
 responsible for interacting with news readers.
 @end table

@@ -67,14 +67,14 @@ Do not detach: stay in the foreground (the same as \-n).
 Do not fork into the background, as for systemd (Type=simple) or a
 container; the same as \-d.
 .TP
-.B \-p \-\-print-parameter
+.B \-p \-\-print\-parameter
 Print current parameter settings; with TLSCertFile set, it loads the
 certificate, key and TLSPriority first and exits with status 2 if that
 fails. Upstream server passwords are not shown;
 each one is replaced by the comment
 .IR "# Password set, not shown" .
 .TP
-.B \-o \-\-configuration-options
+.B \-o \-\-configuration\-options
 Print all options specified in the configure phase. It doesn't read
 the configuration file, so it works when that is missing or has an error.
 
@@ -96,7 +96,7 @@ SIGTERM to all its session processes and ends. SIGPIPE is ignored.
 
 This  signal instruct NewsCache to reread its configuration file
 .I @SYSCONFDIR@/newscache.conf
-\. With TLSListenTo it loads TLSCertFile and TLSKeyFile again, as
+\&. With TLSListenTo it loads TLSCertFile and TLSKeyFile again, as
 Username; listening addresses change only with a restart.
 
 .SH NOTES
