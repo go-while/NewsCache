@@ -2691,6 +2691,37 @@ static bool valid_post_msgid(const string &text, const Article &art)
 	return strlen(id.c_str()) == id.size() && valid_msgid_5536(id.c_str());
 }
 
+// RFC 5536 3.1 and 3.2: these headers appear at most once. The checks and
+// the choice of upstream servers read only the first Newsgroups header, so
+// a second one would go upstream unchecked. Returns the name of the first
+// header that is there more than once, or NULL. Only header lines are
+// looked at (a folded line starts with white space and never matches).
+static const char *repeated_post_header(const string &text)
+{
+	static const char *const once[] = {
+		"Newsgroups", "From", "Subject", "Date", "Path", "Followup-To",
+		"Distribution", "Injection-Date", "Reply-To", "Sender",
+		"References", "Expires", "Control", "Approved", "Supersedes",
+		"Organization", "Summary", "Keywords", "Lines", "Xref", NULL
+	};
+	int seen[sizeof(once) / sizeof(once[0])] = { 0 };
+	size_t start = 0;
+	while (start < text.size()) {
+		size_t end = text.find("\r\n", start);
+		if (end == string::npos || end == start)
+			break;
+		for (int i = 0; once[i]; i++) {
+			size_t n = strlen(once[i]);
+			if (end - start > n && text[start + n] == ':' &&
+			    strncasecmp(text.c_str() + start, once[i], n) == 0 &&
+			    ++seen[i] > 1)
+				return once[i];
+		}
+		start = end + 2;
+	}
+	return NULL;
+}
+
 int ns_post(ClientData * clt, int argc, char *argv[])
 {
 	VERB(slog.p(Logger::Debug) << "NewsCache::ns_post\n");
@@ -2728,6 +2759,14 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		art.settext(text);
 		if (!valid_post_msgid(text, art)) {
 			(*clt->co) << "441 invalid Message-ID header\r\n";
+			return -1;
+		}
+		if (const char *dup = repeated_post_header(text)) {
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: more than one " << dup
+			    << " header, not posted\n";
+			(*clt->co) << "441 more than one " << dup
+			    << " header\r\n";
 			return -1;
 		}
 		// RFC 5536 allows neither a NUL nor a CR outside CRLF (the
