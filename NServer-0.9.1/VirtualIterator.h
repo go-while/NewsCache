@@ -42,8 +42,11 @@ template < class T > class Iter {
 	}
 
 	Iter & operator=(const Iter & i2) {
+		// (clone first: i2 may be this iterator)
+		_Iter < T > *c = i2.iter->clone();
 		delete iter;
-		iter = i2.iter->clone();
+		iter = c;
+		return *this;
 	}
 
 	T operator*() {
