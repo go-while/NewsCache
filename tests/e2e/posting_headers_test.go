@@ -105,3 +105,56 @@ func TestPostRejectsMissingEssentialHeaders(t *testing.T) {
 		})
 	}
 }
+
+// RFC 5536 3.1/3.2: Newsgroups, From, Subject, Date and the like appear
+// once. The PostTo check and the choice of servers read the first header
+// only, so a second Newsgroups header (any case) must not get through.
+func TestPostRejectsRepeatedHeaders(t *testing.T) {
+	base := []string{"Newsgroups: test.alpha", "From: poster@client.test", "Subject: test"}
+	for _, tc := range []struct{ name, extra string }{
+		{"newsgroups", "Newsgroups: alt.other"},
+		{"newsgroups-lowercase", "newsgroups: alt.other"},
+		{"from", "From: other@client.test"},
+		{"subject", "SUBJECT: again"},
+		{"date", "Date: Tue, 02 Jan 2024 03:04:05 +0000\r\nDate: Tue, 02 Jan 2024 03:04:06 +0000"},
+		{"followup-to", "Followup-To: alt.a\r\nFollowup-To: alt.b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 1)
+			c := e.session()
+			if code, line := c.Cmd("POST"); code != 340 {
+				t.Fatalf("POST: %q", line)
+			}
+			if err := c.Send(strings.Join(base, "\r\n") + "\r\n" + tc.extra + "\r\n\r\nbody\r\n.\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			if code, line, err := c.ReadStatus(); err != nil || code != 441 {
+				t.Errorf("post with repeated %s: %q %v, want 441", tc.name, line, err)
+			}
+			if posts := e.Upstream.Articles(); len(posts) != 0 {
+				t.Errorf("post with repeated %s reached upstream: %q", tc.name, posts)
+			}
+			if code, line := c.Cmd("DATE"); code != 111 {
+				t.Errorf("DATE after rejected post: %q", line)
+			}
+		})
+	}
+}
+
+// A folded line or a body line that looks like a repeated header is not one.
+func TestPostAllowsFoldedAndBodyLookalikes(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	// (Keywords may appear more than once: RFC 5322 3.6)
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: poster@client.test\r\nSubject: test\r\n Subject: folded\r\nKeywords: a\r\nKeywords: b\r\n\r\nNewsgroups: alt.other\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Errorf("post: %q %v, want 240", line, err)
+	}
+}
