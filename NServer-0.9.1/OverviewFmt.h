@@ -12,6 +12,7 @@
 #include "Debug.h"
 #include "Article.h"
 #include "readline.h"
+#include "ReplyBudget.h"
 
 /**
  * CONF_OverviewFmt
@@ -148,8 +149,10 @@ class OverviewFmt {
 	/**
 	 * Read overview format and set up conversion table.
 	 * \param is Input stream where the overview database is read from.
+	 * \param budget Row, byte and time limit of a reply from a news
+	 *  server; ReplyLimitError when it is exceeded. NULL: no limit.
 	 */
-	void readxoin(std::istream & is);
+	void readxoin(std::istream & is, ReplyBudget *budget = NULL);
 
 	/**
 	 * Convert from server overview format to local overview format

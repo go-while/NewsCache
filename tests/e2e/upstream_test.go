@@ -2479,3 +2479,79 @@ func TestActiveRefreshStoppedNoRetryMark(t *testing.T) {
 		t.Errorf("LIST ACTIVE after the stopped fetch: %q, want test.alpha (the stopped session must not mark the list as retried)", got)
 	}
 }
+
+// TestUpstreamDrippedArticle: a news server that sends an article one byte
+// every 50 ms never trips the per-read ReadTimeout (20 s here). The whole
+// reply has a deadline of its own (2 s in the short-limit build): the
+// client gets 403 soon and the connection is closed, not held until the
+// article is complete.
+func TestUpstreamDrippedArticle(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	e.ServerLines = "    ReadTimeout 20\n    Retries 0"
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Drip: map[string]time.Duration{"ARTICLE": 50 * time.Millisecond},
+	}})
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	start := time.Now()
+	code, line, err := c.TryCmd("ARTICLE 1")
+	took := time.Since(start)
+	if err != nil {
+		t.Fatalf("ARTICLE 1: %v", err)
+	}
+	t.Logf("ARTICLE 1 -> %q after %v", line, took.Round(10*time.Millisecond))
+	if code != 403 {
+		t.Errorf("ARTICLE 1: %q, want 403 (the article never arrived in time)", line)
+	}
+	if took > 10*time.Second {
+		t.Errorf("ARTICLE 1 took %v, want about the 2 s reply deadline", took)
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after it: %q", line)
+	}
+}
+
+// TestUpstreamDrippedOverviewFmt: the same for LIST OVERVIEW.FMT, read when
+// the connection to the news server is made. The list has no deadline of
+// its own before: a server that dripped it held the first command of the
+// session. Now the connection is closed after the reply deadline (2 s in
+// the short-limit build) and the command fails.
+func TestUpstreamDrippedOverviewFmt(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	e.ServerLines = "    ReadTimeout 20\n    Retries 0"
+	list := []string{"215 order of fields follows"}
+	for i := 0; i < 30; i++ {
+		list = append(list, "Subject:")
+	}
+	list = append(list, ".")
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Override: map[string][]string{"LIST": list},
+		Drip:     map[string]time.Duration{"LIST": 50 * time.Millisecond},
+	}})
+	c := e.session()
+	c.Deadline = 40 * time.Second
+	start := time.Now()
+	code, line, err := c.TryCmd("GROUP test.alpha")
+	took := time.Since(start)
+	if err != nil {
+		t.Fatalf("GROUP: %v", err)
+	}
+	t.Logf("GROUP -> %q after %v", line, took.Round(10*time.Millisecond))
+	if code == 211 {
+		t.Errorf("GROUP: %q, want an error: the list never arrived in time", line)
+	}
+	if took > 10*time.Second {
+		t.Errorf("GROUP took %v, want about the 2 s reply deadline", took)
+	}
+}
