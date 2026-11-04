@@ -543,6 +543,25 @@ func TestListNewsgroupsFilter(t *testing.T) {
 	}
 }
 
+// TestListNewsgroupsLastLine: the last description line counts without a
+// newline at the end of the file; it was dropped.
+func TestListNewsgroupsLastLine(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	desc := "test.alpha Alpha group.\ntest.beta Beta group."
+	if err := os.WriteFile(filepath.Join(e.Spool, ".newsgroups"), []byte(desc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := e.session()
+	if code, line := c.Cmd("LIST NEWSGROUPS"); code != 215 {
+		t.Fatalf("LIST NEWSGROUPS: %q, want 215", line)
+	}
+	got := c.ReadDotLines()
+	if len(got) != 2 || got[1] != "test.beta Beta group." {
+		t.Errorf("LIST NEWSGROUPS: %q, want both descriptions", got)
+	}
+}
+
 // TestListActiveWildmatList: LIST ACTIVE with a wildmat shows only groups
 // in the client's List. The wildmat replaced the List for every group no
 // List rule matched, so "LIST ACTIVE *" from a client with "List test.*"

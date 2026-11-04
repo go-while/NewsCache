@@ -2264,7 +2264,9 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			 co) << "215 Description follows\r\n";
 			for (;;) {
 				nlreadline(ifs, strg);
-				if (!ifs.good())
+				// the last line may end at EOF without a
+				// newline: that sets eofbit, not failbit
+				if (ifs.fail())
 					break;
 				string name =
 				    strg.substr(0, strg.find_first_of(" \t\r\n"));
