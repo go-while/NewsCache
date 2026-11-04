@@ -4146,6 +4146,40 @@ static int bind_listen_socket(const struct addrinfo *addr, bool dualstack,
 #define LISTEN_BACKLOG 128
 
 /*
+ * The detached daemon's parent waits for a byte on this pipe (its write
+ * end, in the daemon) before it exits: the start command then reports a
+ * daemon that could not bind, drop its privileges and so on, which the
+ * daemon says on stderr, as it can't after the parent has gone. -1 without
+ * a parent waiting (-n, -d, inetd mode).
+ */
+static int ready_fd = -1;
+
+/*
+ * The daemon listens: its stdin, stdout and stderr go to /dev/null (not
+ * closed: else the next files opened became fds 0-2, and what went to stderr
+ * (an abort message) went to a client's socket or into a spool file), and
+ * the parent is told to exit with success.
+ */
+static void daemon_ready(void)
+{
+	if (ready_fd < 0)
+		return;
+	int fd = open("/dev/null", O_RDWR);
+	if (fd >= 0) {
+		dup2(fd, STDIN_FILENO);
+		dup2(fd, STDOUT_FILENO);
+		dup2(fd, STDERR_FILENO);
+		if (fd > STDERR_FILENO)
+			close(fd);
+	}
+	if (write(ready_fd, "1", 1) < 0) {
+		// the parent has gone: nobody to tell
+	}
+	close(ready_fd);
+	ready_fd = -1;
+}
+
+/*
  * listen() failed: the daemon would run without that listener. On Linux
  * two sockets with SO_REUSEADDR can both bind the same address and port
  * (TLSListenTo the same as ListenTo, or another process's socket), and
@@ -4436,6 +4470,7 @@ void nntpd()
 		listen_failed("ListenTo", Cfg.ListenTo);
 	if (tls_sock >= 0 && listen(tls_sock, LISTEN_BACKLOG) < 0)
 		listen_failed("TLSListenTo", Cfg.TLSListenTo);
+	daemon_ready();
 
 	struct pollfd lfd[3];
 	int nlfd = 0;
@@ -5055,12 +5090,25 @@ int main(int argc, char **argv)
 			nnrpd(-1, false);
 	} else {
 		if (opt_debug == 0 && opt_nofork == 0) {
+			// the child says when it listens (see ready_fd)
+			int ready[2];
+			if (pipe(ready) < 0) {
+				ready[0] = ready[1] = -1;
+			}
 			switch (fork()) {
 			case -1:
 				cerr << "cannot fork\n";
 				slog.p(Logger::Error) << "cannot fork\n";
+				if (ready[0] >= 0) {
+					close(ready[0]);
+					close(ready[1]);
+				}
 				break;
 			case 0:
+				if (ready[0] >= 0) {
+					close(ready[0]);
+					ready_fd = ready[1];
+				}
 				if (setsid() == -1) {
 					cerr << "setsid failed\n";
 					slog.
@@ -5068,23 +5116,22 @@ int main(int argc, char **argv)
 					      Error) << "setsid failed\n";
 					exit(1);
 				}
-				// /dev/null, not closed: else the next files
-				// opened became fds 0-2, and what went to stderr
-				// (an abort message, setugid's errors) went to a
-				// client's socket or into a spool file
-				{
-					int fd = open("/dev/null", O_RDWR);
-					if (fd >= 0) {
-						dup2(fd, STDIN_FILENO);
-						dup2(fd, STDOUT_FILENO);
-						dup2(fd, STDERR_FILENO);
-						if (fd > STDERR_FILENO)
-							close(fd);
-					}
-				}
 				break;
 			default:
-				return 0;
+				if (ready[0] < 0)
+					return 0;
+				close(ready[1]);
+				char c;
+				ssize_t n;
+				while ((n = read(ready[0], &c, 1)) < 0 &&
+				       errno == EINTR)
+					;
+				if (n == 1)
+					return 0;
+				// the daemon ended before it listened; what it
+				// said is on this stderr
+				cerr << cmnd << ": the daemon did not start\n";
+				return 1;
 			}
 		}
 		nntpd();

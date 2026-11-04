@@ -55,6 +55,41 @@ func TestListenerBindError(t *testing.T) {
 	}
 }
 
+// TestDetachedStartError: the parent of a detached daemon exited with 0
+// at once, and the daemon failed later with its stderr on /dev/null: the
+// start command reported success and said nothing, with no daemon running.
+// Now the parent waits until the daemon listens, and exits with 1 and the
+// daemon's message when it ends before that.
+func TestDetachedStartError(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	e := newEnv(t)
+	e.Listen = listener.Addr().String()
+	e.writeConf()
+	t.Cleanup(func() {
+		if runtime.GOOS == "linux" {
+			stopDetached(t, e.Bin, e.Conf)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.Bin, "-c", e.Conf)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("start command did not return: %v", ctx.Err())
+	}
+	if err == nil {
+		t.Fatalf("start reported success on an occupied port; output %q", out)
+	}
+	if !strings.Contains(strings.ToLower(string(out)), "can't listen on listento") {
+		t.Errorf("start output %q does not say why the daemon ended", out)
+	}
+}
+
 // TestStandaloneSession: the daemon accepts a TCP client and serves it.
 func TestStandaloneSession(t *testing.T) {
 	e := newEnv(t)
@@ -742,10 +777,13 @@ func TestDaemonDetached(t *testing.T) {
 		if err := os.WriteFile(e.Conf, []byte(conf), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if pid := startDetached(t, e); pid != 0 {
-			for i := 0; i < 50 && syscall.Kill(pid, 0) == nil; i++ {
-				time.Sleep(100 * time.Millisecond)
-			}
+		// the start command fails and shows the reason on its stderr
+		out, err := exec.Command(e.Bin, "-c", e.Conf).CombinedOutput()
+		if err == nil {
+			t.Errorf("start succeeded with an unknown Username: %q", out)
+		}
+		if !strings.Contains(string(out), "Cannot get pwent for nosuchuser_e2e") {
+			t.Errorf("the start output doesn't say why the daemon stopped: %q", out)
 		}
 		log := e.logFile()
 		if !strings.Contains(log, "Cannot get pwent for nosuchuser_e2e") {
