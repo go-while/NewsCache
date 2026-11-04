@@ -24,7 +24,7 @@ const char *NVActiveDB::recname(Record * r)
 {
 	size_t off = GroupInfo::rawnameoffset();
 
-	if (r->szdata <= off || r->szdata > sizeof(GroupInfo) ||
+	if (r->szdata <= off || r->szdata > GroupInfo::rawmaxsize() ||
 	    !memchr(r->datap() + off, '\0', r->szdata - off))
 		corrupt("bad record in the active database");
 	return r->datap() + off;
