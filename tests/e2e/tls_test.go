@@ -668,6 +668,46 @@ func TestSTARTTLSNoLoginBeforeTLS(t *testing.T) {
 	}
 }
 
+// TestSTARTTLSShortReplyNoPlainText: with Options starttls, a reply shorter
+// than a code to MODE READER (the first command, before STARTTLS; anyone in
+// the middle can send one) made issue() throw and left the half set-up
+// connection in place. The next command went out on it in plain text,
+// without STARTTLS or the login, and a 480 to that sent the login in plain
+// text. The connection must be dropped instead, and the next command
+// connect again. (The fault applies on each connection, so the new one
+// gets the short reply too: both commands fail, none in plain text.)
+func TestSTARTTLSShortReplyNoPlainText(t *testing.T) {
+	e := newEnv(t)
+	requireTLS(t, e.Bin)
+	e.addArticles("test.alpha", 1)
+	upstreamWith(t, e, fakeserver.Options{
+		StoreOpts: fakeserver.StoreOptions{User: "tester", Pass: "secret"},
+		Faults: fakeserver.Faults{
+			Override:      map[string][]string{"MODE": {"2"}},
+			OverrideTimes: map[string]int{"MODE": 1},
+		},
+	})
+	ca := newTestCA(t, e.Dir)
+	p := newTLSProxy(t, e.Upstream.Addr(), ca.serverCert(t, []string{"localhost"}, validFrom, validUntil), true, false)
+	e.ServerHost = "localhost"
+	e.ServerPort = p.port()
+	e.ServerOptions = "starttls"
+	e.ServerLines = "    TLSCAFile " + ca.file + "\n    User tester\n    Password secret"
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	c.Cmd("GROUP test.alpha")
+	plain, _, _ := p.state()
+	for _, l := range plain {
+		u := strings.ToUpper(l)
+		if strings.HasPrefix(u, "AUTHINFO") || strings.HasPrefix(u, "GROUP") {
+			t.Errorf("sent %q in plain text after a short reply to MODE READER", l)
+		}
+	}
+	if n := e.Upstream.Count("MODE"); n != 2 {
+		t.Errorf("MODE READER sent %d times, want 2: the second command must connect again", n)
+	}
+}
+
 // TestUpstreamQuit: at the end of a session NewsCache sends QUIT to the
 // upstream. Over TLS it was dropped: RServer::disconnect writes it into
 // the stream without a flush, and the TLS stream sent its close_notify
