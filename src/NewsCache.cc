@@ -2978,6 +2978,7 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 					val = n;
 				}
 			}
+			Newsgroup::scrub_header(val);
 			(*clt->co) << "221 " << argv[1] << " header follows\r\n"
 			    << argv[2] << " " << val << "\r\n.\r\n";
 			return 0;
@@ -3083,8 +3084,10 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 		try {
 			string fld =
 			    a.getfield(Newsgroup::headerfield(argv[1]).c_str(), 0);
-			if (Newsgroup::headermatch(fld, pat.c_str()))
+			if (Newsgroup::headermatch(fld, pat.c_str())) {
+				Newsgroup::scrub_header(fld);
 				(*clt->co) << argv[2] << " " << fld << "\r\n";
+			}
 		}
 		catch(const NoSuchFieldError & nsfe) {
 		}
@@ -3148,6 +3151,7 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 			catch(const NoSuchFieldError & nsfe) {
 			}
 		}
+		Newsgroup::scrub_header(val);
 		(*clt->co) << "225 Headers follow\r\n0 " << val << "\r\n.\r\n";
 		return 0;
 	}

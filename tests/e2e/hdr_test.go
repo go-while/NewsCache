@@ -292,6 +292,82 @@ func TestFoldedHeader(t *testing.T) {
 	}
 }
 
+// TestFoldedHeaderWhitespace: unfolding removes the line break only
+// (RFC 5322 2.2.3), and OVER and HDR then turn each TAB into a space
+// (RFC 3977 8.3.2, 8.5.2), so "Subject: foo " with the continuation line
+// "\tbar" reads "foo  bar", as the upstream's overview has it. NewsCache
+// made it "foo bar": the group's OVER line changed once the article was
+// in the spool, and HDR, XHDR and XPAT of the article disagreed with the
+// upstream; HDR by message-ID also sent a TAB of the header as it was.
+func TestFoldedHeaderWhitespace(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	const id = "<foldws@upstream.test>"
+	e.Store.AddArticle("test.alpha", fakeserver.Article{
+		Number:    2,
+		MessageID: id,
+		Headers: []string{
+			"From: poster\t<poster@upstream.test>",
+			"Subject: foo ",
+			"\tbar",
+			"Newsgroups: test.alpha",
+		},
+		Body: []string{"folded subject"},
+	})
+	c := e.session()
+	c.Cmd("GROUP test.alpha")
+	over := func() string {
+		t.Helper()
+		if code, line := c.Cmd("OVER 2"); code != 224 {
+			t.Fatalf("OVER 2: %q", line)
+		}
+		l := c.ReadDotLines()
+		if len(l) != 1 {
+			t.Fatalf("OVER 2: %q", l)
+		}
+		return l[0]
+	}
+	before := over()
+	if f := strings.Split(before, "\t"); len(f) < 3 || f[1] != "foo  bar" || f[2] != "poster <poster@upstream.test>" {
+		t.Fatalf("OVER 2 from the upstream: %q", before)
+	}
+	if code, line := c.Cmd("ARTICLE 2"); code != 220 {
+		t.Fatalf("ARTICLE 2: %q", line)
+	}
+	c.ReadDotLines()
+	// the record NewsCache builds from the spooled article
+	fields := func(l string) []string {
+		f := strings.Split(l, "\t")
+		if len(f) > 6 {
+			f = f[:6]
+		}
+		return f
+	}
+	if after := over(); strings.Join(fields(after), "\t") != strings.Join(fields(before), "\t") {
+		t.Errorf("OVER 2 after ARTICLE 2: %q, before %q", after, before)
+	}
+	for _, tc := range []struct{ cmd, want string }{
+		{"HDR subject 2", "2 foo  bar"},
+		{"HDR subject " + id, "0 foo  bar"},
+		{"XHDR subject " + id, id + " foo  bar"},
+		{"XHDR subject 2", "2 foo  bar"},
+		{"XPAT subject " + id + " foo*bar", id + " foo  bar"},
+		{"HDR from " + id, "0 poster <poster@upstream.test>"},
+		{"XHDR from " + id, id + " poster <poster@upstream.test>"},
+		{"XPAT from " + id + " poster*", id + " poster <poster@upstream.test>"},
+		{"HDR from 2", "2 poster <poster@upstream.test>"},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != 225 && code != 221 {
+			t.Errorf("%s: %q", tc.cmd, line)
+			continue
+		}
+		if got := hdrLines(c.ReadDotLines()); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.cmd, got, tc.want)
+		}
+	}
+}
+
 // XHDR and HDR Xref by number, answered from overview records: the
 // field name is stripped ("Xref: host g:1" gives "host g:1"; it gave
 // ": host g:1"). A record whose Xref field is empty and that ends with a

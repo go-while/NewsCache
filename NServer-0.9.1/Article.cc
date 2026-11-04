@@ -309,10 +309,16 @@ string Article::getfield(const char *ifld, int Full) const
 					  ERROR_LOCATION);
 
 	// multi-line header? Unfolding (RFC 5322 2.2.3) removes only the
-	// CRLF, so the white space that starts the continuation line stays;
-	// here it becomes one space. (It used to be dropped: "foo\r\n bar"
-	// read "foobar", and "a\r\n b" in Newsgroups became the group "ab".)
+	// CRLF: the white space around it stays as it is, so "foo \r\n bar"
+	// reads "foo  bar", as the news server's overview and HDR have it
+	// (RFC 3977 8.3.2 and 8.5.2; OVER and HDR then turn each TAB into a
+	// space). It used to become one space, so a group's overview changed
+	// once an article was cached; before that it was dropped, and "a\r\n
+	// b" in Newsgroups read as the group "ab". White space before the
+	// value starts is skipped, as on the first line, and a continuation
+	// line of white space only (which RFC 5322 forbids) adds nothing.
 	while (*p == ' ' || *p == '\t') {
+		const char *ws = p;
 		do {
 			p++;
 		} while (*p == ' ' || *p == '\t');
@@ -320,10 +326,10 @@ string Article::getfield(const char *ifld, int Full) const
 		while (*p && *p != '\r' && *p != '\n')
 			p++;
 		if (p > fld) {
-			if (!rfld.empty() && rfld[rfld.size() - 1] != ' '
-			    && rfld[rfld.size() - 1] != '\t')
-				rfld += ' ';
-			rfld.append(fld, p - fld);
+			if (rfld.empty())
+				rfld.append(fld, p - fld);
+			else
+				rfld.append(ws, p - ws);
 		}
 
 		if (*p == '\n')
