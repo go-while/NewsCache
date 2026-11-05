@@ -223,6 +223,61 @@ func TestPostSpooled(t *testing.T) {
 	}
 }
 
+// TestPostSpooledServerDown: an article whose news server is down stays
+// in the spool, and updatenews goes on with the others. The run used to
+// end at the first such article, and readdir returned it first every
+// time: while one server was down, articles for the others were never
+// posted. test.beta's server is unreachable; four articles for it and
+// four for test.alpha are spooled, in an order readdir decides.
+func TestPostSpooledServerDown(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline"
+	// deliberately closed; never bind a privileged port
+	e.ExtraServers = "  Server 127.0.0.1 1 {\n    Read test.beta\n    PostTo test.beta\n  }"
+	c := e.session()
+	for n := 0; n < 8; n++ {
+		group := "test.alpha"
+		if n%2 == 1 {
+			group = "test.beta"
+		}
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send(fmt.Sprintf("Newsgroups: %s\r\nFrom: client@newscache.test\r\n"+
+			"Subject: spooled %d\r\nMessage-ID: <spooled.down.%d@client.test>\r\n\r\nhello\r\n.\r\n",
+			group, n, n)); err != nil {
+			t.Fatal(err)
+		}
+		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+			t.Fatalf("POST %d (spooled): %q %v", n, line, err)
+		}
+	}
+	c.Cmd("QUIT")
+	if s := len(spooledIn(t, e, ".artSpool")); s != 8 {
+		t.Fatalf("%d spooled articles, want 8", s)
+	}
+	e.ServerOptions = ""
+	e.writeConf()
+	for run := 1; run <= 2; run++ {
+		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+			t.Fatalf("updatenews (run %d): %v\n%s", run, err, out)
+		}
+		s, b, p := len(spooledIn(t, e, ".artSpool")), len(spooledIn(t, e, ".badArticles")), len(e.Store.Posted())
+		if s != 4 || b != 0 || p != 4 {
+			t.Fatalf("run %d: %d spooled, %d bad, %d posted; want 4, 0, 4 (test.beta's kept, test.alpha's posted)", run, s, b, p)
+		}
+	}
+	for _, article := range e.Store.Posted() {
+		for _, header := range article.Headers {
+			if strings.HasPrefix(strings.ToLower(header), "newsgroups:") &&
+				!strings.Contains(header, "test.alpha") {
+				t.Errorf("posted to the server that is up: %q", header)
+			}
+		}
+	}
+}
+
 // TestPostSpooledBareCR: a spooled article with a CR outside CRLF in the
 // body, as an older version spooled it (POST now refuses one), isn't sent
 // as it is: a news server that ends a line at a lone CR would end the

@@ -211,7 +211,8 @@ Article *ArtSpooler::getSpooledArt(void)
 // The file stays until removeSpooledArt: getSpooledArt removed it before
 // the article was posted, so it was lost when updatenews was killed or
 // crashed in between.
-Article *ArtSpooler::nextSpooledArt(string & name)
+Article *ArtSpooler::nextSpooledArt(string & name,
+				    const set < string > *skip)
 {
 	VERB(slog.p(Logger::Debug) << "ArtSpooler::nextSpooledArt ()\n");
 	string an;
@@ -240,6 +241,8 @@ Article *ArtSpooler::nextSpooledArt(string & name)
 		}
 		if (strncmp("art_", d->d_name, 4) == 0) {
 			an = artSpool + "/" + d->d_name;
+			if (skip && skip->count(an))
+				continue;
 			is.open(an.c_str());
 			if (!is.is_open()) {
 				slog.p(Logger::Error) << "cannot open the spooled article "
