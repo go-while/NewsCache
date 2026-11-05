@@ -3756,7 +3756,13 @@ static bool lookup_client_name(const struct sockaddr_storage *sock,
 			continue;
 		if (r <= 0)
 			break;
-		// (the child writes at most size - 1 bytes)
+		// The child writes at most size - 1 bytes. (The check also
+		// shows GCC the bound: without it GCC 15 with
+		// _FORTIFY_SOURCE warned that read could overflow name.)
+		if (got >= size - 1) {
+			done = true;
+			break;
+		}
 		ssize_t n = read(p[0], name + got, size - 1 - got);
 		if (n < 0 && errno == EINTR)
 			continue;
