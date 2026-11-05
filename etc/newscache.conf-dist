@@ -380,6 +380,13 @@ ClientTimeout 600
 # This switch works only in standalone mode
 MaxConnections 16
 
+# The most sessions of one client host (an IPv4 address, or the /64 of an
+# IPv6 address), so that one host can't take all of MaxConnections; a
+# client over it gets "400 too many connections from your host". Clients
+# behind one NAT address share it. Standalone mode only; 0 (the default)
+# is no limit.
+# MaxConnectionsPerHost 4
+
 ################################################################
 ## Spool- and Log-Directory
 ################################################################
