@@ -73,6 +73,7 @@ void Config::init(void)
 	AuthFailureDelay = 1;
 	HistoryEnabled = 0;
 	MaxConnections = 32;
+	MaxConnectionsPerHost = 0;
 	MaxArticleSize = 1024 * 1024;
 	MaxPostSize = 1024 * 1024;
 
@@ -167,6 +168,8 @@ void Config::read(const char *fn, bool lookupHostname)
 			HANDLEINTARG(ClientTimeout, 0, 86400)
 			    else
 			HANDLEINTARG(MaxConnections, 1, 1000000)
+			    else
+			HANDLEINTARG(MaxConnectionsPerHost, 0, 1000000)
 			    else
 			HANDLEINTARG(NiceServer, -20, 20)
 			    else
@@ -345,6 +348,7 @@ void Config::printParameters (ostream *pOut)
 	*pOut << "AuthFailureDelay " << AuthFailureDelay << endl;
 	*pOut << "History " << (HistoryEnabled ? "on" : "off") << endl;
 	*pOut << "MaxConnections " << MaxConnections << endl;
+	*pOut << "MaxConnectionsPerHost " << MaxConnectionsPerHost << endl;
 	*pOut << "MaxArticleSize " << MaxArticleSize << endl;
 	*pOut << "MaxPostSize " << MaxPostSize << endl;
 	*pOut << "Timeouts " << ttl_list << " " << ttl_desc << endl;

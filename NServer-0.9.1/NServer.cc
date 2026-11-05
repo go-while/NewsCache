@@ -2370,6 +2370,11 @@ void CServer::postspooled(void)
 	Article *pA;
 	string name;
 	int s;
+	// Articles whose news server wasn't reached in this run: they stay,
+	// and the others are still posted. (The run used to end at the
+	// first: one news server down kept back the articles for all the
+	// others, as readdir returned that article first every time.)
+	set < string > kept;
 
 	// An article stays in .artSpool until it is posted or moved to
 	// .badArticles, so only one process may post at a time.
@@ -2379,20 +2384,19 @@ void CServer::postspooled(void)
 		return;
 	}
 	try {
-		for (pA = pSpool->nextSpooledArt(name); pA != NULL;
-		     pA = pSpool->nextSpooledArt(name)) {
+		for (pA = pSpool->nextSpooledArt(name, &kept); pA != NULL;
+		     pA = pSpool->nextSpooledArt(name, &kept)) {
 			try {
 				s = RServer::post(pA);
 				if (s == -1) {
-					// No news server reached (or offline):
-					// this article and the rest stay for
-					// the next run (they used to go to
-					// .badArticles, which nothing posts)
-					slog.p(Logger::Notice)
-					    << "news server not reached, spooled"
-					    " articles kept for the next run\n";
+					// A news server of the article not
+					// reached (or offline): it stays for
+					// the next run (such articles used to
+					// go to .badArticles, which nothing
+					// posts)
+					kept.insert(name);
 					delete pA;
-					break;
+					continue;
 				} else if (s == -2) {
 					slog.p(Logger::Error)
 					    << "CServer::postspooled():\
@@ -2423,6 +2427,10 @@ void CServer::postspooled(void)
 			delete pA;
 			pSpool->removeSpooledArt(name);
 		}
+		if (!kept.empty())
+			slog.p(Logger::Notice) << "news server not reached, "
+			    << kept.size() << " spooled articles kept for the"
+			    " next run\n";
 	}
 	catch(const SystemError &) {
 		slog.p(Logger::Error) << "CServer::postspooled():\

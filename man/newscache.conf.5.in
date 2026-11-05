@@ -46,7 +46,8 @@ and the articles retrieved by NewsCache, if a news reader client request it. The
 .SS General Configuration Options
 Numeric values are plain decimal numbers. A value that is no number, or
 is out of range, is a configuration error that names the file and line.
-The ranges: ClientTimeout 0 to 86400 seconds; MaxConnections 1 to
+The ranges: ClientTimeout 0 to 86400 seconds; MaxConnectionsPerHost 0
+to 1000000; MaxConnections 1 to
 1000000; NiceServer, NiceClient and NiceClean \-20 to 20; the two
 Timeouts 0 to 2147483647. The options of a Server entry have their
 ranges below, under ServerSpec Configuration Options.
@@ -163,6 +164,17 @@ A client that connects when the limit is reached gets "400 too many
 users". The log names the first client turned away, then counts the
 others, at most once a minute, and says when a session can be started
 again.
+.TP
+.I "MaxConnectionsPerHost number"
+The most sessions one client host may have at a time, so that one host
+can't take all of MaxConnections. A host is an IPv4 address, or the /64
+network of an IPv6 address (one host can use any address of its /64).
+A client over the limit gets "400 too many connections from your host"
+(on TLSListenTo it is disconnected without a reply, as at
+MaxConnections), and the log says so, at most once a minute with the
+number of the others. Clients behind one NAT address share the limit.
+Only in standalone mode; the default is 0, no limit, the range 0 to
+1000000.
 .TP
 .I "SpoolDirectory directory"
 The directory, where the cached newsgroups and articles should be stored. The default value is /var/cache/newscache.

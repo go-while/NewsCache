@@ -17,6 +17,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <set>
 #include <string>
 
 #include "Article.h"
@@ -69,13 +70,15 @@ class ArtSpooler {
 	 * Get one article from the spool without removing it (don't
 	 * forget delete); name is set to its file. Remove it with
 	 * removeSpooledArt once it is posted or stored elsewhere.
-	 * Files that can't be opened are logged and skipped; one that
+	 * Files that can't be opened are logged and skipped, and so are
+	 * the files named in skip (names as returned in name); one that
 	 * can't be read (too big for the memory) is moved to the bad
 	 * articles.
 	 * \return A pointer to the article or NULL.
 	 * \throw SystemError The spool directory can't be read.
 	 */
-	Article *nextSpooledArt(std::string & name);
+	Article *nextSpooledArt(std::string & name,
+				const std::set < std::string > *skip = NULL);
 
 	/**
 	 * Remove the spool file name from nextSpooledArt.
