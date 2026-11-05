@@ -66,6 +66,16 @@ Accepted for old command lines and ignored (with a log line): updatenews
 prefetches one newsgroup at a time. Older versions refused the option
 with the usage text, so updatenews did nothing.
 
+.SH EXIT STATUS
+0 when the run is done, 1 on an error, 2 when the configuration can't
+be read, and 3 when another updatenews prefetches already: only one
+prefetch (\-g or \-o) runs at a time, so that runs started by cron that
+overlap don't fetch the same groups twice. The lock is the file
+\&.updatenews.lock in the spool directory; it is held as long as the
+process runs and given back by the system when it ends. \-a alone
+doesn't take it: posting the queue and refreshing the active database
+have locks of their own.
+
 .SH PREFETCH FILE
 Each line of the PrefetchFile is one of:
 .TP

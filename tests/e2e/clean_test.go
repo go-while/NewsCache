@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -233,7 +234,8 @@ func TestNewscachecleanTryModeStats(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if !info.IsDir() {
+			// (not the lock file a run that removes takes)
+			if !info.IsDir() && info.Name() != ".newscacheclean.lock" {
 				rel, err := filepath.Rel(e.Spool, path)
 				if err != nil {
 					return err
@@ -730,5 +732,59 @@ func TestNewscachecleanUnlinkReplaced(t *testing.T) {
 	}
 	if string(b) != "stored again\r\n" {
 		t.Fatalf(".art7 holds %q, want the file stored again", b)
+	}
+}
+
+// holdLock takes the lock a run of newscacheclean or updatenews takes on
+// name (an fcntl write lock on the whole file), as a second run would
+// find it held; the returned func gives it back.
+func holdLock(t *testing.T, name string) func() {
+	t.Helper()
+	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lk := syscall.Flock_t{Type: syscall.F_WRLCK}
+	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk); err != nil {
+		f.Close()
+		t.Fatalf("lock %s: %v", name, err)
+	}
+	return func() { f.Close() }
+}
+
+// exitCode is the exit status of a finished command (-1 if it didn't exit).
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// TestNewscachecleanSingleInstance: two newscacheclean runs that overlap
+// (cron) both computed the purge from the same sizes and together removed
+// about twice what was needed. A second run finds the first one's lock
+// and exits with status 3.
+func TestNewscachecleanSingleInstance(t *testing.T) {
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.writeConf()
+	release := holdLock(t, filepath.Join(e.Spool, ".newscacheclean.lock"))
+	out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput()
+	if code := exitCode(err); code != 3 {
+		t.Errorf("newscacheclean while another runs: exit %d (%v), want 3\n%s", code, err, out)
+	}
+	if !strings.Contains(string(out), "another newscacheclean is running") {
+		t.Errorf("no message about the other run:\n%s", out)
+	}
+	release()
+	if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Errorf("newscacheclean alone: %v\n%s", err, out)
 	}
 }

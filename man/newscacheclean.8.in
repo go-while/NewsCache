@@ -44,6 +44,15 @@ Print the sorted purge table.
 Try, not really removing files. Together with \-p it shows what would
 be removed first.
 
+.SH EXIT STATUS
+0 when the run is done, 1 on an error (the spool directory, the lock
+file), 2 when the configuration can't be read, and 3 when another
+newscacheclean is running: only one runs at a time (\-t, which removes
+nothing, doesn't count), so that runs started by cron that overlap
+don't both purge. The lock is
+the file .newscacheclean.lock in the spool directory; it is held as
+long as the process runs and given back by the system when it ends.
+
 .SH FILES
 @SYSCONFDIR@/newscache.conf
 .br

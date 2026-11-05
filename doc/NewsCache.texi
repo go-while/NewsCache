@@ -444,7 +444,12 @@ area should be big enough to store the most frequently used newsgroups.
 NewsCache itself does not perform article replacement.  This is done by
 the the @code{NewsCacheClean} program which should be run every few
 hours by crond. @code{NewsCacheClean} removes newsgroups until the used
-diskspace is below @code{SpoolSize}.
+diskspace is below @code{SpoolSize}. Only one @command{newscacheclean}
+runs at a time (the lock file @file{.newscacheclean.lock} in the spool
+directory): a second one that cron starts while the first still runs
+exits with status 3. The same goes for prefetch runs of
+@command{updatenews} (@option{-g} or @option{-o}, the lock file
+@file{.updatenews.lock}).
 
 @emph{Before starting NewsCache, check that this directory exists and
 that NewsCache has read and write permissions. Additionally, this

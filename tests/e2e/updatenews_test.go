@@ -278,6 +278,44 @@ func TestPostSpooledServerDown(t *testing.T) {
 	}
 }
 
+// TestUpdatenewsSingleInstance: two prefetch runs (-g) that overlap
+// (cron) fetched the same groups twice, with twice the connections to
+// the news servers. A second one finds the first one's lock and exits
+// with status 3 before it connects. -a alone (post the spool, refresh
+// the active list) has locks of its own and still runs.
+func TestUpdatenewsSingleInstance(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 2)
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte("test.alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+	bin := updatenewsBin(t, e)
+	release := holdLock(t, filepath.Join(e.Spool, ".updatenews.lock"))
+	out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput()
+	if code := exitCode(err); code != 3 {
+		t.Errorf("updatenews -g while another prefetches: exit %d (%v), want 3\n%s", code, err, out)
+	}
+	if !strings.Contains(string(out), "another updatenews prefetches already") {
+		t.Errorf("no message about the other run:\n%s", out)
+	}
+	if n := e.Upstream.Accepted(); n != 0 {
+		t.Errorf("the second prefetch connected to the news server %d times", n)
+	}
+	if out, err := exec.Command(bin, "-c", e.Conf, "-a").CombinedOutput(); err != nil {
+		t.Errorf("updatenews -a while a prefetch runs: %v\n%s", err, out)
+	}
+	release()
+	if out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput(); err != nil {
+		t.Errorf("updatenews -g alone: %v\n%s", err, out)
+	}
+	if got := prefetched(e); len(got) == 0 {
+		t.Errorf("updatenews -g alone prefetched nothing")
+	}
+}
+
 // TestPostSpooledBareCR: a spooled article with a CR outside CRLF in the
 // body, as an older version spooled it (POST now refuses one), isn't sent
 // as it is: a news server that ends a line at a lone CR would end the
