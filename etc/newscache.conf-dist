@@ -248,9 +248,10 @@ AccessList {
 #   never expires at all)
 # ConnectBackoff:
 #   Don't try to reconnect for specified amount of seconds after failed
-#   connection attempt
+#   connection attempt (counted from its start; default 0)
 # ConnectTimeout:
-#   Timeout connects after specified amount of seconds
+#   Timeout connects after specified amount of seconds (default 30;
+#   0 = the system's limit, minutes for a server that doesn't answer)
 # ReadTimeout:
 #   Give up a connection when the server sends (or accepts) nothing for
 #   this many seconds (each read and write, not a whole reply; default
