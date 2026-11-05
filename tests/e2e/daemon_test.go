@@ -1610,14 +1610,14 @@ func TestSIGTERMNoReconnect(t *testing.T) {
 		command string // the client's command that reaches the news server
 		ready   func(*fakeserver.Server) bool
 	}{
-		{"no greeting", fakeserver.Options{NoGreeting: true}, "",
+		{"no greeting", fakeserver.Options{NoGreeting: true}, "    ConnectTimeout 0",
 			"GROUP test.alpha",
 			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
 		{"no greeting, ConnectTimeout", fakeserver.Options{NoGreeting: true}, "    ConnectTimeout 30",
 			"GROUP test.alpha",
 			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
 		{"reply held back", fakeserver.Options{Faults: fakeserver.Faults{
-			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "",
+			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "    ConnectTimeout 0",
 			"ARTICLE 1",
 			func(s *fakeserver.Server) bool { return s.Count("ARTICLE") >= 1 }},
 		{"reply held back, ConnectTimeout", fakeserver.Options{Faults: fakeserver.Faults{
@@ -1725,11 +1725,48 @@ func connecting(t *testing.T, port string) bool {
 	return false
 }
 
+// TestConnectTimeoutDefault: ConnectTimeout was 0 by default, which
+// leaves the connect to the system: a news server that doesn't answer
+// (its SYNs are dropped, here by a full listen queue) held each command
+// about two minutes per address, with no reply to the client. The
+// default is 30 seconds now: newscache -p shows it, and the client gets
+// its reply after that.
+func TestConnectTimeoutDefault(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerHost, e.ServerPort = fullListener(t)
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ConnectTimeout 30\n") {
+		t.Errorf("newscache -p doesn't show ConnectTimeout 30 for a server without the line:\n%s", out)
+	}
+	p, c := e.sessionProcess()
+	defer p.Stop()
+	start := time.Now()
+	if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the connect to the news server", func() bool { return connecting(t, e.ServerPort) })
+	// (not ReadStatus: the client's own deadline is shorter)
+	if err := c.Conn.SetReadDeadline(start.Add(65 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	line, err := c.R.ReadString('\n')
+	if err != nil {
+		t.Fatalf("no reply 65 s after GROUP while the news server doesn't answer the connect: %v", err)
+	}
+	t.Logf("reply %q after %s", strings.TrimSpace(line), time.Since(start).Round(time.Second))
+}
+
 // TestSIGTERMBlockedConnect: SIGTERM while the connect to the news server
-// waits for its answer. Without ConnectTimeout the interrupted connect
-// was started again and waited for the system's timeout (minutes).
+// waits for its answer. With ConnectTimeout 0 (the system's limit) the
+// interrupted connect was started again and waited for the system's
+// timeout (minutes).
 func TestSIGTERMBlockedConnect(t *testing.T) {
-	for _, lines := range []string{"", "    ConnectTimeout 30"} {
+	for _, lines := range []string{"    ConnectTimeout 0", "    ConnectTimeout 30"} {
 		t.Run(fmt.Sprintf("%q", strings.TrimSpace(lines)), func(t *testing.T) {
 			e := newEnv(t)
 			e.addArticles("test.alpha", 1)
@@ -1767,7 +1804,7 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 		call, lines string
 		answers     bool // the news server answers at once
 	}{
-		{"connect", "", false},
+		{"connect", "    ConnectTimeout 0", false},
 		{"connect", "    ConnectTimeout 30", false},
 		{"connect", "", true},
 		{"recv", "", false},

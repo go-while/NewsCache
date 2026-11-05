@@ -108,7 +108,10 @@ inline void MPListEntry::init(void)
 	retries = 3;
 
 	connectBackoff = 0;
-	connectTimeout = 0;
+	// 0 left it to the system: a news server that doesn't answer (its
+	// SYNs dropped) held each command about two minutes per address,
+	// with no reply to the client, and the next command waited again
+	connectTimeout = 30;
 	readTimeout = 300;
 	connectFailed = 0;
 
