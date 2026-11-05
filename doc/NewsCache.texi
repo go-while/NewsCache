@@ -318,7 +318,9 @@ connections can be specified using the @code{MaxConnections}
 command. Whenever a new client connects when this limit is reached, it
 will receive a @code{400 too many users} response and the connection
 will be closed afterwards (a client on @code{TLSListenTo} is
-disconnected without that reply, which would be plain text).
+disconnected without that reply, which would be plain text). The log
+names the first client turned away, then counts the others (at most a
+line a minute), and says when a session can be started again.
 
 @example
 MaxConnections 16

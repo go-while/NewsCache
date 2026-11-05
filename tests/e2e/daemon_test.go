@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -204,6 +205,66 @@ func TestMaxConnections(t *testing.T) {
 	}
 	if err := c3.ExpectNoPending(200 * time.Millisecond); err != nil {
 		t.Errorf("bytes after the 400 reply: %v", err)
+	}
+}
+
+// greetUntil dials addr until the greeting starts with want, for up to
+// timeout.
+func greetUntil(t *testing.T, addr, want string, timeout time.Duration) *client.Conn {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		c, err := client.TryDial(addr, time.Second)
+		if err == nil && strings.HasPrefix(c.Greeting, want) {
+			return c
+		}
+		if err == nil {
+			c.Close()
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no greeting %q from %s within %s (last: %v)", want, addr, timeout, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestMaxConnectionsLogged: a client turned away at MaxConnections was
+// not logged at all. The first refusal is logged with the address, the
+// others are counted (a flood doesn't fill the log) and the count is
+// logged when a session can be started again.
+func TestMaxConnectionsLogged(t *testing.T) {
+	e := newEnv(t)
+	e.MaxConnections = 1
+	p := e.standalone()
+	if mode, err := logMode(e.Bin); err != nil || mode != "file" {
+		t.Skip("binary built with syslog (configure --without-syslog to test logging)")
+	}
+	if runtime.GOOS == "linux" {
+		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
+	}
+	held := greetUntil(t, e.Listen, "200 ", 3*time.Second)
+	for i := 0; i < 3; i++ {
+		c := e.dialRaw()
+		if c.Greeting != "400 too many users" {
+			t.Fatalf("client %d greeting %q, want 400 too many users", i+2, c.Greeting)
+		}
+		c.Close()
+	}
+	log := e.waitLog("MaxConnections (1) reached, connection from 127.0.0.1 refused")
+	if n := strings.Count(log, "MaxConnections (1) reached"); n != 1 {
+		t.Errorf("%d log lines for the first refusal, want 1:\n%s", n, log)
+	}
+	held.Cmd("QUIT")
+	held.Close()
+	c := greetUntil(t, e.Listen, "200 ", 5*time.Second)
+	defer c.Close()
+	log = e.waitLog("below MaxConnections again, ")
+	m := regexp.MustCompile(`below MaxConnections again, ([0-9]+) more connections refused`).FindStringSubmatch(log)
+	if m == nil {
+		t.Fatalf("no count of the other refusals in the log:\n%s", log)
+	}
+	if n, _ := strconv.Atoi(m[1]); n < 2 {
+		t.Errorf("%d more connections refused in the log, want at least 2", n)
 	}
 }
 
