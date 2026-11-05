@@ -5,7 +5,9 @@
 // another one could resize the file or move it aside in the middle of the
 // outer shared section. Only the way up (shared to exclusive) gives the
 // lock up first: two processes that both upgrade would wait for each
-// other.
+// other. GNU Hurd's fcntl doesn't turn a write lock into a read lock (it
+// keeps the write lock): there the check that another process can read
+// is skipped.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -75,6 +77,25 @@ static bool other_can_lock(const string & fn, short type)
 	return WIFEXITED(st) && WEXITSTATUS(st) == 0;
 }
 
+// Whether this system's fcntl turns a write lock into a read lock, so
+// that another process can read-lock the file.
+static bool fcntl_downgrades(const string & dir)
+{
+	string fn = dir + "/probe";
+	int fd = open(fn.c_str(), O_RDWR | O_CREAT, 0600);
+	struct flock fl;
+	memset(&fl, 0, sizeof(fl));
+	fl.l_whence = SEEK_SET;
+	fl.l_type = F_WRLCK;
+	bool ok = fd >= 0 && fcntl(fd, F_SETLK, &fl) == 0;
+	fl.l_type = F_RDLCK;
+	ok = ok && fcntl(fd, F_SETLK, &fl) == 0 && other_can_lock(fn, F_RDLCK);
+	if (fd >= 0)
+		close(fd);
+	unlink(fn.c_str());
+	return ok;
+}
+
 int main(void)
 {
 	string dir;
@@ -84,6 +105,10 @@ int main(void)
 	NVArray a(fn.c_str());
 	a.setsize(0, 9);
 	a.set(1, "one", 4);
+	const bool downgrades = fcntl_downgrades(dir);
+#ifdef __linux__
+	CHECK(downgrades);
+#endif
 
 #ifdef RECORD_FCNTL
 	recording = true;
@@ -118,7 +143,11 @@ int main(void)
 	}
 	// still the outer shared lock, on the stack and on the file
 	CHECK(a.get_lock() == NVcontainer::ShrdLock);
-	CHECK(other_can_lock(fn, F_RDLCK));
+	if (downgrades)
+		CHECK(other_can_lock(fn, F_RDLCK));
+	else
+		cout << "cLockDowngrade: fcntl keeps the write lock here, "
+		    "the read by another process not checked\n";
 	CHECK(!other_can_lock(fn, F_WRLCK));
 	a.lock(NVcontainer::UnLock);
 	CHECK(a.get_lock() == NVcontainer::UnLock);

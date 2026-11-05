@@ -116,7 +116,9 @@ int nvflock(int fd, int cmnd, int block)
 	// exclusive lock into a shared one at once (the lock stack's way back
 	// to an outer shared lock), and an unlock in between let another
 	// process change the file (resize it, move it aside) in the middle of
-	// the outer shared section.
+	// the outer shared section. (GNU Hurd's fcntl keeps the exclusive
+	// lock when the shared one is asked for: there the outer section
+	// holds it until it ends, and other readers wait that long.)
 	if (ncmnd.l_type == F_WRLCK) {
 		struct flock ulck;
 		ulck.l_type = F_UNLCK;
