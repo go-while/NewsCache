@@ -2195,11 +2195,20 @@ func TestSessionSigchldDefault(t *testing.T) {
 		}
 		c := e.dial()
 		defer c.Close()
-		out, err := exec.Command("pgrep", "-P", strconv.Itoa(d.Pid())).Output()
-		if err != nil {
+		// The harness's readiness probe sent QUIT, but its session may
+		// not have exited yet on a busy machine: wait for this one only.
+		if _, err := exec.LookPath("pgrep"); err != nil {
 			t.Skipf("pgrep: %v", err)
 		}
-		kids := strings.Fields(string(out))
+		var kids []string
+		for deadline := time.Now().Add(5 * time.Second); ; {
+			out, _ := exec.Command("pgrep", "-P", strconv.Itoa(d.Pid())).Output()
+			kids = strings.Fields(string(out))
+			if len(kids) == 1 || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 		if len(kids) != 1 {
 			t.Fatalf("children of the master: %q, want one session", kids)
 		}
