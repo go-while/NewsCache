@@ -2316,3 +2316,54 @@ func TestSessionSigchldDefault(t *testing.T) {
 		}
 	})
 }
+
+// TestClientLookupTimeout: the lookup of the client's name ran in the
+// session before anything else, with no limit: a client whose reverse
+// zone doesn't answer kept a session (one of MaxConnections) without a
+// greeting for the resolver's timeouts. It is cut off after 10 seconds,
+// or ClientTimeout if that is shorter, and the client goes by its
+// address. The test build (NEWSCACHE_TEST_CLIENT_LOOKUP) has a resolver
+// that takes as long as a file says.
+func TestClientLookupTimeout(t *testing.T) {
+	if os.Getenv("NEWSCACHE_CLIENT_LOOKUP_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_CLIENT_LOOKUP build (NEWSCACHE_CLIENT_LOOKUP_TEST=1)")
+	}
+	e := newEnv(t)
+	e.ClientTimeout = 3
+	delay := filepath.Join(e.Dir, "lookup-delay")
+	t.Setenv("NEWSCACHE_TEST_CLIENT_LOOKUP_DELAY_FILE", delay)
+	p := e.standalone()
+	defer p.Stop()
+	if err := os.WriteFile(delay, []byte("60"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", e.Listen, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	r := bufio.NewReader(conn)
+	line, err := r.ReadString('\n')
+	if err != nil {
+		t.Fatalf("no greeting within 20 s while the name lookup hangs: %v", err)
+	}
+	if !strings.HasPrefix(line, "200 ") && !strings.HasPrefix(line, "201 ") {
+		t.Fatalf("greeting %q", line)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("greeting after %s, want the lookup cut off after ClientTimeout (3 s)", d)
+	}
+	if _, err := io.WriteString(conn, "QUIT\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := r.ReadString('\n'); err != nil || !strings.HasPrefix(line, "205") {
+		t.Fatalf("QUIT: %q %v", line, err)
+	}
+	if mode, err := logMode(e.Bin); err == nil && mode == "file" {
+		e.waitLog("127.0.0.1 name lookup took too long, the address is used")
+	}
+}
