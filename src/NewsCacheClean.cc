@@ -29,11 +29,14 @@
  */
 #include "config.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
+#include <sys/file.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -178,6 +181,65 @@ static void collect_statistics(struct cache_statistic *pS)
 }
 
 
+#ifdef NEWSCACHE_TEST_CLEAN_RACE
+// Compiled test fixture: waits once, after an .art file was found to be
+// the one scanned and before it is removed, so that a session can try
+// to store a new file under the name then (tests/e2e
+// TestNewscachecleanUnlinkReplaced).
+static void test_pause_before_unlink(const string & path)
+{
+	const char *ready = getenv("NEWSCACHE_TEST_CLEAN_UNLINK_READY_FD");
+	const char *go = getenv("NEWSCACHE_TEST_CLEAN_UNLINK_GO_FD");
+	const char *base = strrchr(path.c_str(), '/');
+	if (!ready || !go || !base || strncmp(base + 1, ".art", 4) != 0)
+		return;
+	char byte = 'x';
+	if (write(atoi(ready), &byte, 1) != 1 ||
+	    read(atoi(go), &byte, 1) != 1)
+		_exit(99);
+	unsetenv("NEWSCACHE_TEST_CLEAN_UNLINK_READY_FD");
+	unsetenv("NEWSCACHE_TEST_CLEAN_UNLINK_GO_FD");
+}
+#endif
+
+/*
+ * The lock a session holds while it puts a new file under the name path:
+ * NVNewsgroup::setarticle renames .art<n>.tmp over .art<n> with the
+ * group database's exclusive lock, NVcontainer::corrupt moves a database
+ * aside (.db over .db.bad) and starts a new one with an exclusive flock
+ * on its directory. Returns the descriptor to close, or -1 (no lock).
+ * Never both locks at once: corrupt() waits for the new database's lock
+ * while it holds the directory's.
+ */
+static int lock_for_unlink(const string & path)
+{
+	string::size_type sl = path.rfind('/');
+	if (sl == string::npos)
+		return -1;
+	string dir = path.substr(0, sl);
+	int fd, r;
+
+	if (path.compare(sl + 1, 4, ".art") == 0) {
+		fd = open((dir + "/.db").c_str(), O_RDWR | O_NOFOLLOW);
+		if (fd < 0)
+			return -1;
+		while ((r = nvflock(fd, NVcontainer::ExclLock,
+				    NVcontainer::Block)) != 0 && errno == EINTR)
+			;
+	} else {
+		fd = open(dir.c_str(), O_RDONLY);
+		if (fd < 0)
+			return -1;
+		while ((r = flock(fd, LOCK_EX)) != 0 && errno == EINTR)
+			;
+	}
+	if (r != 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
 void remove_elements(long long max_blocks, struct cache_statistic *pS)
 {
 	int isDb;
@@ -197,19 +259,31 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 			continue;
 		// The run may take long; meanwhile a session can store the
 		// article again (a new file under the name) or a group start a
-		// new database. That file wasn't scanned: it stays.
+		// new database. That file wasn't scanned: it stays. The check
+		// and the unlink are done under the session's lock: between
+		// the two, a new file renamed over the name was removed.
+		int lfd = -1, r;
 		if ((*begin)->known) {
 			struct stat now;
+			lfd = lock_for_unlink(path);
 			if (lstat(path.c_str(), &now) != 0 ||
 			    now.st_dev != (*begin)->dev ||
 			    now.st_ino != (*begin)->ino) {
+				if (lfd >= 0)
+					close(lfd);
 				slog.p(Logger::Debug) << path
 					<< " changed since the scan, kept\n";
 				_blocks -= (*begin)->blocks;
 				continue;
 			}
+#ifdef NEWSCACHE_TEST_CLEAN_RACE
+			test_pause_before_unlink(path);
+#endif
 		}
-		if (unlink((*begin)->Path.c_str()) == 0) {
+		r = unlink(path.c_str());
+		if (lfd >= 0)
+			close(lfd);
+		if (r == 0) {
 			_blocks -= (*begin)->blocks;
 			if (!isDb) {
 				if ((*begin)->atime != 0) {

@@ -3,8 +3,9 @@
 # The test build has SIGINT before the inetd session's input read,
 # and SIGTERM right before the connect to the news server or the read of
 # its reply (NEWSCACHE_TEST_SIGNAL_WINDOW), and newscacheclean waits after
-# reading a group's range (NEWSCACHE_TEST_CLEAN_RACE), and the lookup of
-# the client's name can be made slow (NEWSCACHE_TEST_CLIENT_LOOKUP).
+# reading a group's range and before it removes a checked file
+# (NEWSCACHE_TEST_CLEAN_RACE), and the lookup of the client's name can be
+# made slow (NEWSCACHE_TEST_CLIENT_LOOKUP).
 set -eu
 : "${GITHUB_WORKSPACE:?}"
 : "${RUNNER_TEMP:?}"
@@ -44,4 +45,4 @@ cd tests/e2e
 NEWSCACHE_BIN="$build/src/newscache" NEWSCACHE_INETD_SIGINT_WINDOW_TEST=1 \
 	NEWSCACHE_SIGNAL_WINDOW_TEST=1 NEWSCACHE_CLEAN_RACE_TEST=1 \
 	NEWSCACHE_CLIENT_LOOKUP_TEST=1 \
-	go test -count=1 -v -run '^(TestAdditionalSignalBehavior|TestInetdSIGINTBeforeRead|TestInetdSharedSocket|TestSIGTERMSignalWindow|TestNewscachecleanRange|TestClientLookupTimeout)$' ./...
+	go test -count=1 -v -run '^(TestAdditionalSignalBehavior|TestInetdSIGINTBeforeRead|TestInetdSharedSocket|TestSIGTERMSignalWindow|TestNewscachecleanRange|TestNewscachecleanUnlinkReplaced|TestClientLookupTimeout)$' ./...

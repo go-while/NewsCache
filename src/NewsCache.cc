@@ -4610,6 +4610,77 @@ static void restart_notice(const char *name, const string &running,
 		    << "): restart newscache for that\n";
 }
 
+// The numeric address of the client on fd, for the log ("unknown" if
+// there is none); an IPv4 client of the dual-stack socket as a.b.c.d.
+static string peer_address(int fd)
+{
+	struct sockaddr_storage ss;
+	socklen_t len = sizeof(ss);
+	char buf[INET6_ADDRSTRLEN];
+
+	if (getpeername(fd, (struct sockaddr *) &ss, &len) != 0)
+		return "unknown";
+	if (ss.ss_family == AF_INET6 &&
+	    IN6_IS_ADDR_V4MAPPED(&((struct sockaddr_in6 *) &ss)->sin6_addr)) {
+		if (!inet_ntop(AF_INET,
+			       &((struct sockaddr_in6 *) &ss)->sin6_addr.s6_addr[12],
+			       buf, sizeof(buf)))
+			return "unknown";
+		return buf;
+	}
+	if (getnameinfo((struct sockaddr *) &ss, len, buf, sizeof(buf),
+			NULL, 0, NI_NUMERICHOST) != 0)
+		return "unknown";
+	return buf;
+}
+
+/*
+ * Clients turned away at MaxConnections. Nothing was logged: an operator
+ * whose sessions were all taken (by a flood, or by idle clients that hold
+ * them) saw nothing. The first refusal of a run is logged with the
+ * client's address, then a count at most once a minute while it lasts,
+ * and the rest when a session is started again; a flood doesn't fill the
+ * log.
+ */
+static bool maxconn_reached = false;
+static unsigned long maxconn_refused = 0;	// not logged yet
+static time_t maxconn_logged = 0;
+
+static void log_maxconn_refused(int fd)
+{
+	const time_t now = time(NULL);
+
+	if (!maxconn_reached) {
+		maxconn_reached = true;
+		maxconn_refused = 0;
+		maxconn_logged = now;
+		slog.p(Logger::Notice) << "MaxConnections (" << Cfg.MaxConnections
+		    << ") reached, connection from " << peer_address(fd)
+		    << " refused\n";
+		return;
+	}
+	maxconn_refused++;
+	if (now - maxconn_logged >= 60) {
+		slog.p(Logger::Notice) << "MaxConnections (" << Cfg.MaxConnections
+		    << ") still reached, " << maxconn_refused
+		    << " more connections refused\n";
+		maxconn_refused = 0;
+		maxconn_logged = now;
+	}
+}
+
+static void log_maxconn_end(void)
+{
+	if (!maxconn_reached)
+		return;
+	maxconn_reached = false;
+	if (maxconn_refused)
+		slog.p(Logger::Notice) << "below MaxConnections again, "
+		    << maxconn_refused << " more connections refused\n";
+	else
+		slog.p(Logger::Notice) << "below MaxConnections again\n";
+}
+
 static void restart_notice(const char *name, int running, int configured)
 {
 	if (running != configured)
@@ -4724,6 +4795,13 @@ void nntpd()
 		do {
 			if (reReadConfig) {
 				reReadConfig = false;
+#ifndef WITH_SYSLOG
+				// after log rotation: the master and the
+				// sessions started from now on write to the
+				// new file (running sessions keep the old one
+				// until they end)
+				slog.reopen();
+#endif
 				// parse into a copy, so a broken file keeps
 				// the running configuration
 				try {
@@ -4868,6 +4946,8 @@ void nntpd()
 				    p(Logger::
 				      Error) << "fork failed: " <<
 				    strerror(errno) << "\n";
+			} else {
+				log_maxconn_refused(clt_fd);
 			}
 			// not on the TLS listener: there it would be
 			// plain text where the client expects a TLS record
@@ -4964,6 +5044,7 @@ void nntpd()
 			add_session(clt_pid);
 			nntp_connections = nntp_connections + 1;
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);
+			log_maxconn_end();
 
 			while ((close(clt_fd) < 0) && (errno == EINTR)) {
 			}
