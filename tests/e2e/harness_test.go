@@ -76,6 +76,10 @@ type env struct {
 	Extra          string // extra lines at the end of the config
 	AccessList     string // the whole AccessList block
 	afterPortCheck func() // test hook: run once between the port check and daemon start
+	// The test's variable with the address of its "TLSListenTo <addr>"
+	// line in Extra: when that port is taken before the daemon binds it,
+	// standalone picks another one and updates both.
+	TLSAddr *string
 }
 
 // newEnv creates the temp dir, the fake upstream (empty Store; add groups and
@@ -108,6 +112,37 @@ func newEnv(t *testing.T) *env {
 		}
 	})
 	return e
+}
+
+// retryTLSAddr: when the daemon couldn't bind the TLS listener at
+// *e.TLSAddr, it gives that line in Extra and the test's variable another
+// free port (never e.Listen's) and returns true.
+func (e *env) retryTLSAddr(output string) bool {
+	if e.TLSAddr == nil {
+		return false
+	}
+	old := "TLSListenTo " + *e.TLSAddr
+	if !strings.Contains(output, "can't listen on "+old+":") {
+		return false
+	}
+	addr := freeAddr(e.t)
+	for addr == e.Listen || addr == *e.TLSAddr {
+		addr = freeAddr(e.t)
+	}
+	lines := strings.Split(e.Extra, "\n")
+	found := false
+	for i, l := range lines {
+		if l == old {
+			lines[i] = "TLSListenTo " + addr
+			found = true
+		}
+	}
+	if !found {
+		return false
+	}
+	e.Extra = strings.Join(lines, "\n")
+	*e.TLSAddr = addr
+	return true
 }
 
 // freeAddr returns a 127.0.0.1 address with a port that was free a moment ago.
@@ -374,8 +409,9 @@ func quitSession(t *testing.T, p *proc.Process, c *client.Conn) {
 }
 
 // standalone starts newscache as a daemon in the foreground (-n) listening on
-// e.Listen. A port that was free when chosen can be taken before bind; retry
-// a failed bind only for the default loopback listener.
+// e.Listen. A port that was free when chosen can be taken before bind (by
+// another test run on the machine, too); retry a failed bind only for the
+// default loopback listener and for the TLS listener at *e.TLSAddr.
 func (e *env) standalone() *proc.Process {
 	e.t.Helper()
 	const attempts = 3
@@ -414,6 +450,9 @@ func (e *env) standalone() *proc.Process {
 					strings.Contains(output, "can't listen on ListenTo "+e.Listen+":")
 				if retry && attempt+1 < attempts {
 					e.Listen = freeAddr(e.t)
+					break
+				}
+				if attempt+1 < attempts && e.retryTLSAddr(output) {
 					break
 				}
 				e.t.Fatalf("daemon exited before %s was ready: %v\n%s", e.Listen, err, output)
