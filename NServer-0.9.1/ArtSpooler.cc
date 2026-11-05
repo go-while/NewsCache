@@ -228,35 +228,75 @@ Article *ArtSpooler::nextSpooledArt(string & name)
 		pLock->unlock();
 		throw SystemError("cannot open " + artSpool, e, ERROR_LOCATION);
 	}
-	for (d = readdir(dir); d != NULL; d = readdir(dir)) {
-		// A tmp_* file is left by a process that was killed or lost
-		// power while it stored an article. Every writer holds this
-		// lock, so none is being written now, and nothing else
-		// would ever remove it (newscacheclean skips .artSpool).
-		if (strncmp("tmp_", d->d_name, 4) == 0) {
-			an = artSpool + "/" + d->d_name;
-			unlink(an.c_str());
-			continue;
-		}
-		if (strncmp("art_", d->d_name, 4) == 0) {
-			an = artSpool + "/" + d->d_name;
-			is.open(an.c_str());
-			if (!is.is_open()) {
-				slog.p(Logger::Error) << "cannot open the spooled article "
-				    << an << ": " << strerror(errno) << "\n";
+	// An exception (bad_alloc) used to leave the lock held and the
+	// directory open until the process ended: every session that
+	// spooled a posting (spoolArt, storeBadArt) waited for it.
+	try {
+		for (d = readdir(dir); d != NULL; d = readdir(dir)) {
+			// A tmp_* file is left by a process that was killed or
+			// lost power while it stored an article. Every writer
+			// holds this lock, so none is being written now, and
+			// nothing else would ever remove it (newscacheclean
+			// skips .artSpool).
+			if (strncmp("tmp_", d->d_name, 4) == 0) {
+				an = artSpool + "/" + d->d_name;
+				unlink(an.c_str());
 				continue;
 			}
-			pa = new Article();
-			pa->read(is);
-			is.close();
-			name = an;
-			break;
+			if (strncmp("art_", d->d_name, 4) == 0) {
+				an = artSpool + "/" + d->d_name;
+				is.open(an.c_str());
+				if (!is.is_open()) {
+					slog.p(Logger::Error) <<
+					    "cannot open the spooled article " <<
+					    an << ": " << strerror(errno) << "\n";
+					continue;
+				}
+				pa = new Article();
+				try {
+					pa->read(is);
+				}
+				catch(...) {
+					// An article too big to load would
+					// stop every run here, before the
+					// others: it goes to .badArticles,
+					// as one the server refused.
+					delete pa;
+					pa = NULL;
+					is.close();
+					moveBadArt(an, d->d_name);
+					continue;
+				}
+				is.close();
+				name = an;
+				break;
+			}
 		}
+	}
+	catch(...) {
+		delete pa;
+		closedir(dir);
+		pLock->unlock();
+		throw;
 	}
 	closedir(dir);
 	pLock->unlock();
 
 	return pa;
+}
+
+// Called with the lock held; the file keeps its name.
+void ArtSpooler::moveBadArt(const string & name, const char *base)
+{
+	string bad = badArticles + "/" + base;
+
+	if (rename(name.c_str(), bad.c_str()) == 0)
+		slog.p(Logger::Error) << "cannot read the spooled article " <<
+		    name << ", moved to " << bad << "\n";
+	else
+		slog.p(Logger::Error) << "cannot read the spooled article " <<
+		    name << ", nor move it to " << badArticles << ": " <<
+		    strerror(errno) << "\n";
 }
 
 void ArtSpooler::removeSpooledArt(const string & name)

@@ -32,6 +32,7 @@ class Logger {
 
 #ifndef WITH_SYSLOG
 	int logfd;
+	std::string logname;	// for reopen
 #endif
 
 	int _priority;
@@ -86,6 +87,9 @@ class Logger {
 #else
 	Logger(const char *fn = NULL, int option = 0);
 	void open(const char *fn);
+	// Opens the file of open() again (moved away by log rotation); if
+	// that fails, the old one stays in use and gets an error line.
+	void reopen();
 #endif
 	~Logger();
 

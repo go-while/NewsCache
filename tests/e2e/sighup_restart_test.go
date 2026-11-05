@@ -293,3 +293,75 @@ func TestSIGHUPDefaultHostname(t *testing.T) {
 		t.Errorf("reload with a new Hostname: want %q in:\n%s", want, log)
 	}
 }
+
+// TestFileLogReopenOnSIGHUP: log rotation renames newscache.log and
+// sends SIGHUP. The daemon went on writing into the renamed file until
+// it ended (only copytruncate worked). It opens newscache.log again on
+// SIGHUP now: its own lines and those of sessions started afterwards go
+// to the new file; a session that runs across the signal keeps the old
+// one.
+func TestFileLogReopenOnSIGHUP(t *testing.T) {
+	e := newEnv(t)
+	p := e.standalone()
+	defer p.Stop()
+	if mode, err := logMode(e.Bin); err != nil || mode != "file" {
+		t.Skip("binary built with syslog (configure --without-syslog to test logging)")
+	}
+	path := filepath.Join(e.LogDir, "newscache.log")
+	old := path + ".1"
+	running := e.dial()
+	defer running.Close()
+	e.waitLog("connect")
+	if err := os.Rename(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	waitFile := func(name, marker string) string {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			b, err := os.ReadFile(name)
+			if err == nil && strings.Contains(string(b), marker) {
+				return string(b)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %q in %s (%v):\n%s", marker, name, err, b)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	waitFile(path, "reread "+e.Conf)
+	before, err := os.ReadFile(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := e.dial()
+	if code, line := c.Cmd("QUIT"); code != 205 {
+		t.Fatalf("QUIT: %q", line)
+	}
+	c.Close()
+	waitFile(path, " exit articles")
+	// the session that ran across the signal still writes to the old
+	// file (its descriptor), until it ends
+	running.Cmd("QUIT")
+	running.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		after, err := os.ReadFile(old)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(after), " exit articles") > strings.Count(string(before), " exit articles") {
+			if strings.Count(string(after), " connect") != strings.Count(string(before), " connect") {
+				t.Errorf("a session started after SIGHUP logged into the renamed file:\n%s", after[len(before):])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the session that ran across SIGHUP didn't log its end into the renamed file:\n%s", after)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
