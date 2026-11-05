@@ -1413,3 +1413,36 @@ func TestHelpSyntax(t *testing.T) {
 		t.Errorf("NEWGROUPS with a wildmat: %q, want 501", line)
 	}
 }
+
+// TestListEmptyThenNext: LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS
+// collect the list first and send it from the buffer. An empty list must
+// still end with "." and leave the session working (a stream given an
+// empty buffer sets failbit, and nothing more would be sent).
+func TestListEmptyThenNext(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+	c := e.dial()
+	for _, tc := range []struct {
+		cmd  string
+		code int
+		want int
+	}{
+		{"LIST ACTIVE nothing.*", 215, 0},
+		{"LIST ACTIVE.TIMES nothing.*", 215, 0},
+		{"NEWGROUPS 20991231 000000 GMT", 231, 0},
+		{"LIST ACTIVE test.alpha", 215, 1},
+		{"LIST ACTIVE.TIMES test.alpha", 215, 1},
+	} {
+		code, line := c.Cmd("%s", tc.cmd)
+		if code != tc.code {
+			t.Fatalf("%s: %q, want %d", tc.cmd, line, tc.code)
+		}
+		if lines := c.ReadDotLines(); len(lines) != tc.want {
+			t.Errorf("%s: %q, want %d lines", tc.cmd, lines, tc.want)
+		}
+		if code, line := c.Cmd("DATE"); code != 111 {
+			t.Fatalf("DATE after %s: %q", tc.cmd, line)
+		}
+	}
+}
