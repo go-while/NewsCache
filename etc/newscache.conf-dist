@@ -399,7 +399,9 @@ SpoolSize 3300000
 # switch to Username, so a directory only root can write is enough when
 # they start as root; started as Username, that user must be able to
 # write the files. Only a regular file with one link is used, not a
-# symbolic or hard link (except a symbolic link to stderr).
+# symbolic or hard link (except a symbolic link to stderr). On SIGHUP
+# the daemon opens newscache.log again, for log rotation (see
+# newscache.conf(5) for a logrotate example).
 LogDirectory /var/log/newscache
 
 # Log Style
