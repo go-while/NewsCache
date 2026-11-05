@@ -144,6 +144,16 @@ class Newsgroup {
 				over[i] = ' ';
 	}
 
+	// The header content of an HDR, XHDR or XPAT line (RFC 3977 8.5.2):
+	// each TAB becomes a space, as in the overview, and so does a CR,
+	// LF or NUL, which would end the line or cut it short.
+	static void scrub_header(std::string & v) {
+		for (std::string::size_type i = 0; i < v.length(); i++)
+			if (v[i] == '\t' || v[i] == '\r' || v[i] == '\n'
+			    || v[i] == '\0')
+				v[i] = ' ';
+	}
+
 	virtual const char *getover(artnum_t nbr) = 0;
 	virtual void setover(const std::string & over) = 0;
 	virtual void printover(std::ostream & os, artnum_t nbr) {
@@ -197,12 +207,12 @@ class Newsgroup {
 		if (fld) {
 			if (!headermatch(*fld, pat))
 				return;
-			if (fld->find_first_of(std::string("\r\0", 2)) ==
+			if (fld->find_first_of(std::string("\t\r\n\0", 4)) ==
 			    std::string::npos) {
 				os << i << " " << *fld << "\r\n";
 			} else {
 				std::string v(*fld);
-				scrub_over(v);
+				scrub_header(v);
 				os << i << " " << v << "\r\n";
 			}
 		} else if (!pat) {

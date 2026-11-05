@@ -10,6 +10,8 @@
 
 #include "Logger.h"
 #include "Article.h"
+#include "Newsgroup.h"
+#include "OverviewFmt.h"
 
 using namespace std;
 
@@ -140,7 +142,8 @@ int checkSizes(void)
 }
 
 // Folded header lines (RFC 5322 2.2.3): the CRLF goes, the white space
-// that starts the continuation line becomes one space.
+// around it stays as it is (only white space before the value starts is
+// skipped, and a line of white space only adds nothing).
 int checkUnfold(void)
 {
 	struct {
@@ -151,15 +154,19 @@ int checkUnfold(void)
 	} cases[] = {
 		{"Subject: foo\r\n bar\r\n", "subject:", 0, "foo bar"},
 		{"Subject: foo\n bar\n", "subject:", 0, "foo bar"},
-		{"Subject: foo\r\n\tbar\r\n", "subject:", 0, "foo bar"},
-		{"Subject: foo\r\n   \t bar\r\n", "subject:", 0, "foo bar"},
-		{"Subject: foo \r\n bar\r\n", "subject:", 0, "foo bar"},
+		{"Subject: foo\r\n\tbar\r\n", "subject:", 0, "foo\tbar"},
+		{"Subject: foo\r\n   \t bar\r\n", "subject:", 0, "foo   \t bar"},
+		{"Subject: foo \r\n bar\r\n", "subject:", 0, "foo  bar"},
+		{"Subject: a?= \r\n =?b\r\n", "subject:", 0, "a?=  =?b"},
 		{"Subject: foo\r\n bar\r\n baz\r\n", "subject:", 0, "foo bar baz"},
 		{"Subject:\r\n foo\r\n", "subject:", 0, "foo"},
+		{"Subject:  \r\n\t foo\r\n", "subject:", 0, "foo"},
 		{"Subject: foo\r\n bar\r\n", "subject:", 1, "Subject: foo bar"},
+		{"Subject: foo \r\n bar\r\n", "subject:", 1, "Subject: foo  bar"},
 		{"Subject:\r\n foo\r\n", "subject:", 1, "Subject: foo"},
 		// a continuation line of white space only adds nothing
 		{"Subject: foo\r\n \r\n", "subject:", 0, "foo"},
+		{"Subject: foo\r\n \r\n bar\r\n", "subject:", 0, "foo bar"},
 		{"Subject: foo\r\nFrom: x\r\n", "subject:", 0, "foo"},
 		// Newsgroups: a fold after the comma keeps the two names apart,
 		// a fold instead of a comma is white space in a name (which
@@ -178,6 +185,47 @@ int checkUnfold(void)
 			    << cases[i].full << ") of \"" << cases[i].text
 			    << "\" gives \"" << got << "\", want \""
 			    << cases[i].want << "\"\n";
+			e++;
+		}
+	}
+	return e ? -1 : 0;
+}
+
+// The overview record and the HDR line of a folded header are the news
+// server's (RFC 3977 8.3.2 and 8.5.2): the CRLF goes, each TAB becomes a
+// space, and the other white space stays.
+int checkFoldedOverHdr(void)
+{
+	string text = "Subject: a?= \r\n =?b\r\n\tc\r\n"
+	    "From: x\ty@b.c\r\nMessage-ID: <1@b.c>\r\n\r\nbody\r\n";
+	Article a(7, text.c_str(), text.length());
+	int e = 0;
+
+	OverviewFmt of;
+	string over;
+	of.convert(a, over);
+	string subj = of.getfield(over.c_str(), "Subject:", 0);
+	if (subj != "a?=  =?b c") {
+		cout << "checkFoldedOverHdr: overview Subject \"" << subj
+		    << "\", want \"a?=  =?b c\"\n";
+		e++;
+	}
+
+	struct {
+		const char *field;
+		const char *want;
+	} cases[] = {
+		{"subject:", "7 a?=  =?b c\r\n"},
+		{"from:", "7 x y@b.c\r\n"},
+	};
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		string fld = a.getfield(cases[i].field, 0);
+		ostringstream os;
+		Newsgroup::headerline(os, 7, &fld, Newsgroup::hdr_all);
+		if (os.str() != cases[i].want) {
+			cout << "checkFoldedOverHdr: HDR " << cases[i].field
+			    << " \"" << os.str() << "\", want \"" << cases[i].want
+			    << "\"\n";
 			e++;
 		}
 	}
@@ -255,6 +303,12 @@ int main(int argc, char *argv[])
 		ef++;
 	} else {
 		cout << "checkUnfold() succeeded\n";
+	}
+	if ((e = checkFoldedOverHdr()) < 0) {
+		cout << "checkFoldedOverHdr() failed with: " << e << endl;
+		ef++;
+	} else {
+		cout << "checkFoldedOverHdr() succeeded\n";
 	}
 	if ((e = checkWriteBody()) < 0) {
 		cout << "checkWriteBody() failed with: " << e << endl;
