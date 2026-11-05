@@ -57,6 +57,7 @@ class Config {
 	int AuthFailureDelay;	// seconds after each failed login, 0 or 1
 	int HistoryEnabled;	// History on: the message-ID history in the spool
 	int MaxConnections;
+	int MaxConnectionsPerHost;	// 0: no limit
 	long MaxArticleSize;	// bytes: largest article from a news server
 	long MaxPostSize;	// bytes: largest article a client may post
 	time_t ttl_list;
