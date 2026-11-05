@@ -476,6 +476,32 @@ mode.
 LogDirectory /lhome/newscache/log
 @end example
 
+@cindex log rotation
+On @code{SIGHUP} the @command{newscache} daemon opens
+@file{newscache.log} again (as @code{Username}, who must be able to
+open the file or create it in the directory): the daemon and the
+sessions started afterwards write to the new file, sessions that are
+running keep the old one until they end. @command{newscacheclean} and
+@command{updatenews} open their log at every start. So log rotation
+can rename the files, as logrotate does by default, and signal the
+daemon afterwards (copytruncate, which loses lines, isn't needed):
+
+@example
+/var/log/newscache/*.log @{
+        weekly
+        rotate 8
+        compress
+        delaycompress
+        create 0640 news news
+        postrotate
+                kill -HUP $(cat /run/newscache.pid) 2>/dev/null || true
+        endscript
+@}
+@end example
+
+Use the user and group of @code{Username} and @code{Groupname}, and the
+@code{PidFile} of your configuration.
+
 @cdindex LogStyle
 NewsCache supports several log styles. A host accessing NewsCache can be
 logged with its IP-address (@code{ip-address}), its (@code{hostname}),

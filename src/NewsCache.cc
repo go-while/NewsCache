@@ -4667,6 +4667,13 @@ void nntpd()
 		do {
 			if (reReadConfig) {
 				reReadConfig = false;
+#ifndef WITH_SYSLOG
+				// after log rotation: the master and the
+				// sessions started from now on write to the
+				// new file (running sessions keep the old one
+				// until they end)
+				slog.reopen();
+#endif
 				// parse into a copy, so a broken file keeps
 				// the running configuration
 				try {
