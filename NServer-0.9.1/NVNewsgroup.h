@@ -199,9 +199,8 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	virtual const char *getover(artnum_t nbr);
 	virtual void setover(const std::string & over);
 	virtual void printover(std::ostream & os, artnum_t nbr) {
-		NVArray::lock(NVcontainer::ShrdLock);
+		NVLock guard(*this, NVcontainer::ShrdLock);
 		sprintover(os, nbr);
-		NVArray::lock(NVcontainer::UnLock);
 	}
 	virtual artnum_t readoverdb(std::istream & is, ReplyBudget &budget,
 				    artnum_t first, artnum_t last);

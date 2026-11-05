@@ -9,9 +9,9 @@ LDADD=../libnserver.a @LDADD@ ../../NVClasses-0.9.1/libnvcontainer.a ../../md5li
 ## extra files needed for checking
 EXTRA_DIST=article5283.in article5283.over.in article9621.in article9621.over.in article9622.in article9622.over.in overviewfmt1.in overviewfmt2.in overviewdb.in TestTempDir.h
 
-check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir
+check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock
 
-TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir
+TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock
 
 cReplyBudget_SOURCES = cReplyBudget.cc
 
@@ -21,6 +21,7 @@ cObjLock_SOURCES = cObjLock.cc
 cLockDowngrade_SOURCES = cLockDowngrade.cc
 cArtSpooler_SOURCES = cArtSpooler.cc
 cGroupDir_SOURCES = cGroupDir.cc
+cPrintLock_SOURCES = cPrintLock.cc
 
 cArticle_SOURCES = cArticle.cc
 
