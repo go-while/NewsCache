@@ -3806,10 +3806,13 @@ void nnrpd(int fd, bool tls)
 				slog.p(Logger::Notice) << clt.client_addr
 				    << " name lookup took too long, the address is used\n";
 
-			if (clt.client_name[0] == '\0') {
-				strcpy(clt.client_name, clt.client_addr);
-			}
-			strcpy(nntp_posting_host, clt.client_name);
+			// (bounded copies: the name came through a pipe from
+			// the lookup process)
+			if (clt.client_name[0] == '\0')
+				snprintf(clt.client_name, sizeof(clt.client_name),
+					 "%s", clt.client_addr);
+			snprintf(nntp_posting_host, sizeof(nntp_posting_host),
+				 "%s", clt.client_name);
 
 			// add the client's name to its logging name (clt.client_logname),
 			// if names should be logged
