@@ -3533,6 +3533,174 @@ static int tls_handshake_timeout(void)
 	    ? Cfg.ClientTimeout : 30;
 }
 
+// The client's name (empty if it has none): the name of its address,
+// if that name has the address too; anyone can give his address any
+// name, an AccessList entry's host name too.
+static void verified_client_name(const struct sockaddr_storage *sock,
+				 socklen_t socklen, char *name, size_t size)
+{
+	if (getnameinfo((const struct sockaddr *) sock, socklen, name, size,
+			NULL, 0, 0) != 0) {
+		name[0] = '\0';
+		return;
+	}
+
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_flags = (sock->ss_family == AF_INET6) ? AI_V4MAPPED : 0;
+	hints.ai_family = sock->ss_family;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	struct addrinfo *res = NULL;
+	getaddrinfo(name, NULL, &hints, &res);
+
+	// have to verify the address we got from getnameinfo
+	bool found_addr = false;
+	struct addrinfo *addr = res;
+	while (addr != NULL) {
+		if (addr->ai_addr->sa_family == sock->ss_family) {
+			if (addr->ai_addr->sa_family == AF_INET) {
+				if (((const struct sockaddr_in *) addr->ai_addr)->sin_addr.s_addr ==
+				    ((const struct sockaddr_in *) sock)->sin_addr.s_addr) {
+					found_addr = true;
+					break;
+				}
+			} else if (addr->ai_addr->sa_family == AF_INET6) {
+				if (!memcmp(((const struct sockaddr_in6 *) addr->ai_addr)->sin6_addr.s6_addr,
+					    ((const struct sockaddr_in6 *) sock)->sin6_addr.s6_addr,
+					    16)) {
+					found_addr = true;
+					break;
+				}
+			}
+		}
+
+		addr = addr->ai_next;
+	}
+	if (res)
+		freeaddrinfo(res);
+
+	if (!found_addr)
+		name[0] = '\0';
+}
+
+// Seconds the lookup of the client's name may take: 10, or ClientTimeout
+// if that is shorter.
+static int client_lookup_timeout(void)
+{
+	return (Cfg.ClientTimeout > 0 && Cfg.ClientTimeout < 10)
+	    ? Cfg.ClientTimeout : 10;
+}
+
+#ifdef NEWSCACHE_TEST_CLIENT_LOOKUP
+// Compiled test fixture: a resolver that takes as many seconds as the
+// file NEWSCACHE_TEST_CLIENT_LOOKUP_DELAY_FILE says, once it is there
+// (tests/e2e TestClientLookupTimeout).
+static void test_client_lookup_delay(void)
+{
+	const char *fn = getenv("NEWSCACHE_TEST_CLIENT_LOOKUP_DELAY_FILE");
+	char buf[16];
+	int fd, n;
+
+	if (!fn || (fd = open(fn, O_RDONLY)) < 0)
+		return;
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (n > 0) {
+		buf[n] = '\0';
+		sleep(atoi(buf));
+	}
+}
+#endif
+
+/*
+ * verified_client_name in a child process, waited for at most
+ * client_lookup_timeout() seconds; false if it took longer (name is
+ * empty then). Without a pipe or a process it is done here. The lookups
+ * ran in the session before anything else (no timer, before the TLS
+ * handshake and the greeting), and nothing ends them: the resolver
+ * retries when a signal interrupts it. A client whose
+ * reverse zone doesn't answer (anyone with an address block can set one
+ * up) kept a session, one of MaxConnections, for the resolver's
+ * timeouts, a minute and more. libwrap gets the name from here and
+ * looks up nothing for the client itself.
+ */
+static bool lookup_client_name(const struct sockaddr_storage *sock,
+			       socklen_t socklen, char *name, size_t size)
+{
+	int p[2];
+	pid_t pid;
+	size_t got = 0;
+	bool done = false;
+
+	name[0] = '\0';
+	if (pipe(p) != 0) {
+		verified_client_name(sock, socklen, name, size);
+		return true;
+	}
+	pid = fork();
+	if (pid < 0) {
+		close(p[0]);
+		close(p[1]);
+		verified_client_name(sock, socklen, name, size);
+		return true;
+	}
+	if (pid == 0) {
+		close(p[0]);
+#ifdef NEWSCACHE_TEST_CLIENT_LOOKUP
+		test_client_lookup_delay();
+#endif
+		verified_client_name(sock, socklen, name, size);
+		size_t n = strlen(name), off = 0;
+		while (off < n) {
+			ssize_t w = write(p[1], name + off, n - off);
+			if (w < 0 && errno == EINTR)
+				continue;
+			if (w <= 0)
+				break;
+			off += w;
+		}
+		_exit(0);
+	}
+	close(p[1]);
+	const time_t end = time(NULL) + client_lookup_timeout();
+	for (;;) {
+		const time_t now = time(NULL);
+		if (now >= end || Xsignal != -1)
+			break;
+		struct pollfd pfd;
+		pfd.fd = p[0];
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		int r = poll(&pfd, 1, (int) (end - now) * 1000);
+		if (r < 0 && errno == EINTR)
+			continue;
+		if (r <= 0)
+			break;
+		// (the child writes at most size - 1 bytes)
+		ssize_t n = read(p[0], name + got, size - 1 - got);
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0)
+			break;
+		if (n == 0) {
+			done = true;
+			break;
+		}
+		got += n;
+	}
+	name[got] = '\0';
+	close(p[0]);
+	if (!done) {
+		kill(pid, SIGKILL);
+		name[0] = '\0';
+	}
+	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+		;
+	return done;
+}
+
 void nnrpd(int fd, bool tls)
 {
 	ClientData clt;
@@ -3623,60 +3791,20 @@ void nnrpd(int fd, bool tls)
 				clt.socklen = sizeof(in4);
 			}
 
-			// get the name of the client and store it in clt.client_name.
-			// if the client does not have a name, use the ip-address instead
-			// store it in nntp_posting_host as used by libnserver
-			if (getnameinfo((const struct sockaddr *) &clt.sock,
-					clt.socklen,
-					clt.client_name, sizeof(clt.client_name),
-					NULL, 0, 0) != 0)
-				clt.client_name[0] = '\0';
-
-			struct addrinfo hints;
-			memset(&hints, 0, sizeof(hints));
-			hints.ai_flags =
-			  (clt.sock.ss_family == AF_INET6) ? AI_V4MAPPED : 0;
-			hints.ai_family = clt.sock.ss_family;
-			hints.ai_socktype = SOCK_STREAM;
-			hints.ai_protocol = IPPROTO_TCP;
-
-			struct addrinfo *res = NULL;
-			getaddrinfo(clt.client_name, NULL, &hints, &res);
-
-			// have to verify the address we got from getnameinfo
-			bool found_addr = false;
-			struct addrinfo *addr = res;
-			while (addr != NULL) {
-				if (addr->ai_addr->sa_family == clt.sock.ss_family) {
-					if (addr->ai_addr->sa_family == AF_INET) {
-						if (((const struct sockaddr_in *) addr->ai_addr)->sin_addr.s_addr ==
-						    ((const struct sockaddr_in *) &clt.sock)->sin_addr.s_addr) {
-							found_addr = true;
-							break;
-						}
-					} else if (addr->ai_addr->sa_family == AF_INET6) {
-						if (!memcmp(((const struct sockaddr_in6 *) addr->ai_addr)->sin6_addr.s6_addr,
-							    ((const struct sockaddr_in6 *) &clt.sock)->sin6_addr.s6_addr,
-							    16)) {
-							found_addr = true;
-							break;
-						}
-					}
-				}
-
-				addr = addr->ai_next;
-			}
-			freeaddrinfo(res);
-
-			if (!found_addr) {
-				clt.client_name[0] = '\0';
-			}
-
 			clt.client_addr[0] = '\0';
 			getnameinfo((const struct sockaddr *) &clt.sock,
 				    clt.socklen,
 				    clt.client_addr, sizeof(clt.client_addr),
 				    NULL, 0, NI_NUMERICHOST);
+
+			// get the name of the client and store it in clt.client_name.
+			// if the client does not have a name, use the ip-address instead
+			// store it in nntp_posting_host as used by libnserver
+			if (!lookup_client_name(&clt.sock, clt.socklen,
+						clt.client_name,
+						sizeof(clt.client_name)))
+				slog.p(Logger::Notice) << clt.client_addr
+				    << " name lookup took too long, the address is used\n";
 
 			if (clt.client_name[0] == '\0') {
 				strcpy(clt.client_name, clt.client_addr);
