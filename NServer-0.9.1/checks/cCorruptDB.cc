@@ -769,9 +769,9 @@ static void longer_file_accounting(const string & dir)
 	unlink(fn.c_str());
 }
 
-// 7. Back to the caller's outer lock: the file grew while the inner one
-// was given up (fcntl unlocks before it relocks), and the outer remap
-// fails. The outer lock must not stay held with no mapping.
+// 7. Back to the caller's outer lock: the file grew under the inner one
+// (through a second object of this process), and the outer remap fails.
+// The outer lock must not stay held with no mapping.
 class PeekArray:public NVArray {
 public:
 	PeekArray(const char *fn):NVArray(fn) {}
