@@ -2405,15 +2405,23 @@ void CServer::postspooled(void)
 				    << "CServer::postspooled(): RServer::post\
 				throw InvalidArticleError; ID: "
 				    << logged_msgid(pA) << "\n";
-				pSpool->storeBadArt(*pA);
+				// (an exception from this handler isn't
+				// caught by the catch(...) below)
+				try {
+					pSpool->storeBadArt(*pA);
+				}
+				catch(...) {
+					delete pA;
+					throw;
+				}
 			}
 			catch(...) {
 				// the article stays in the spool
 				delete pA;
 				throw;
 			}
-			pSpool->removeSpooledArt(name);
 			delete pA;
+			pSpool->removeSpooledArt(name);
 		}
 	}
 	catch(const SystemError &) {

@@ -318,7 +318,9 @@ connections can be specified using the @code{MaxConnections}
 command. Whenever a new client connects when this limit is reached, it
 will receive a @code{400 too many users} response and the connection
 will be closed afterwards (a client on @code{TLSListenTo} is
-disconnected without that reply, which would be plain text).
+disconnected without that reply, which would be plain text). The log
+names the first client turned away, then counts the others (at most a
+line a minute), and says when a session can be started again.
 
 @example
 MaxConnections 16
@@ -489,6 +491,32 @@ mode.
 LogDirectory /lhome/newscache/log
 @end example
 
+@cindex log rotation
+On @code{SIGHUP} the @command{newscache} daemon opens
+@file{newscache.log} again (as @code{Username}, who must be able to
+open the file or create it in the directory): the daemon and the
+sessions started afterwards write to the new file, sessions that are
+running keep the old one until they end. @command{newscacheclean} and
+@command{updatenews} open their log at every start. So log rotation
+can rename the files, as logrotate does by default, and signal the
+daemon afterwards (copytruncate, which loses lines, isn't needed):
+
+@example
+/var/log/newscache/*.log @{
+        weekly
+        rotate 8
+        compress
+        delaycompress
+        create 0640 news news
+        postrotate
+                kill -HUP $(cat /run/newscache.pid) 2>/dev/null || true
+        endscript
+@}
+@end example
+
+Use the user and group of @code{Username} and @code{Groupname}, and the
+@code{PidFile} of your configuration.
+
 @cdindex LogStyle
 NewsCache supports several log styles. A host accessing NewsCache can be
 logged with its IP-address (@code{ip-address}), its (@code{hostname}),
@@ -622,8 +650,9 @@ that fails isn't retried. @code{Retries} is an option of a
 @item ConnectTimeout
 @cdindex ConnectTimeout
 Limit the timeout for connections to upstream servers, in seconds, in
-@command{newscache} and @command{updatenews}; 0 (the default) leaves it
-to the system, which can take minutes for a server that doesn't answer.
+@command{newscache} and @command{updatenews}; the default is 30. 0
+leaves it to the system, which can take minutes for a server that
+doesn't answer (the default up to 1.3.22).
 It applies to each address of the server's name in turn and covers only
 the TCP connection; the greeting falls under @code{ReadTimeout}.
 @item ReadTimeout
@@ -645,7 +674,9 @@ After a connection to the server has failed (refused, timed out, or
 failed while it was set up: greeting, STARTTLS, login), don't try again
 for this many seconds; a command that needs the server fails at once
 instead. Each session and each @command{updatenews} run keeps its own
-record. 0 (the default) tries every time.
+record. The time counts from the start of the failed attempt, so for a
+server that doesn't answer it has an effect only when it is longer
+than @code{ConnectTimeout}. 0 (the default) tries every time.
 @item LimitGroupSize
 @cdindex LimitGroupSize
 Limits the maximum size of a group: clients see only the newest
