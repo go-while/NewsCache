@@ -187,6 +187,13 @@ class NVcontainer {
 };
 
 /*
+ * The lock NVcontainer::lock takes on the file fd (command UnLock,
+ * ShrdLock or ExclLock; block Block or NoBlock), for a program that
+ * must exclude the writers of a database without mapping it.
+ */
+extern int nvflock(int fd, int cmnd, int block);
+
+/*
  * A lock of a container (ShrdLock or ExclLock) that is given back when
  * the guard goes out of scope, also when an exception leaves the block:
  * nvalloc throws when the disk is full, and a lock left on the stack kept

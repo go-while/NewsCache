@@ -591,6 +591,150 @@ func TestNewscachecleanRange(t *testing.T) {
 	}
 }
 
+// TestNewscachecleanUnlinkReplaced: newscacheclean checks that a file is
+// still the one it scanned, then removes it. A session that stores the
+// article again in between (NVNewsgroup::setarticle renames .art<n>.tmp
+// over .art<n> with the group database's exclusive lock) lost the new
+// file. The test build waits between the check and the unlink
+// (NEWSCACHE_TEST_CLEAN_RACE); the test stores a new file under the name
+// then, as setarticle does, and it must survive.
+func TestNewscachecleanUnlinkReplaced(t *testing.T) {
+	if os.Getenv("NEWSCACHE_CLEAN_RACE_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_CLEAN_RACE build (NEWSCACHE_CLEAN_RACE_TEST=1)")
+	}
+	const group = "test.clean-replaced"
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.Store.AddGroup(group, "test group "+group)
+	e.Store.AddArticle(group, groupArticle(group, 1, []string{"small body"}))
+	reader := e.session()
+	if code, line := reader.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := reader.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	reader.ReadDotLines()
+	reader.Cmd("QUIT")
+	dir := filepath.Join(e.Spool, "test", "clean-replaced")
+	// outside the group's range: the cleaner removes it whatever
+	// SpoolSize says
+	art := filepath.Join(dir, ".art7")
+	if err := os.WriteFile(art, []byte("left behind\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	readyR, readyW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goR, goW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	cmd := exec.Command(clean, "-c", e.Conf)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.ExtraFiles = []*os.File{readyW, goR}
+	cmd.Env = append(os.Environ(), "NEWSCACHE_TEST_CLEAN_UNLINK_READY_FD=3",
+		"NEWSCACHE_TEST_CLEAN_UNLINK_GO_FD=4")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	readyW.Close()
+	goR.Close()
+	defer goW.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	ready := make(chan error, 1)
+	go func() {
+		b := make([]byte, 1)
+		_, err := readyR.Read(b)
+		ready <- err
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatalf("newscacheclean did not reach its test pause: %v\n%s", err, out.String())
+		}
+	case err := <-done:
+		t.Fatalf("newscacheclean ended before its test pause: %v\n%s", err, out.String())
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("newscacheclean did not reach its test pause")
+	}
+
+	// store a new .art7 as setarticle does: under the database's
+	// exclusive lock, written under a temporary name and renamed
+	stored := make(chan error, 1)
+	go func() {
+		db, err := os.OpenFile(filepath.Join(dir, ".db"), os.O_RDWR, 0)
+		if err != nil {
+			stored <- err
+			return
+		}
+		defer db.Close()
+		lk := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0}
+		for {
+			err = syscall.FcntlFlock(db.Fd(), syscall.F_SETLKW, &lk)
+			if err != syscall.EINTR {
+				break
+			}
+		}
+		if err != nil {
+			stored <- err
+			return
+		}
+		tmp := art + ".tmp"
+		if err := os.WriteFile(tmp, []byte("stored again\r\n"), 0o644); err != nil {
+			stored <- err
+			return
+		}
+		stored <- os.Rename(tmp, art)
+	}()
+	// The cleaner holds the lock now and the store waits; without the
+	// lock the store is done at once (and the cleaner removes it).
+	select {
+	case err := <-stored:
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored <- nil
+	case <-time.After(2 * time.Second):
+	}
+
+	if _, err := goW.Write([]byte{'x'}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("newscacheclean: %v\n%s", err, out.String())
+		}
+	case <-time.After(30 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("newscacheclean did not finish")
+	}
+	select {
+	case err := <-stored:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the store did not get the database's lock after newscacheclean ended")
+	}
+	b, err := os.ReadFile(art)
+	if err != nil {
+		t.Fatalf("the file stored again while newscacheclean removed the old one: %v", err)
+	}
+	if string(b) != "stored again\r\n" {
+		t.Fatalf(".art7 holds %q, want the file stored again", b)
+	}
+}
+
 // holdLock takes the lock a run of newscacheclean or updatenews takes on
 // name (an fcntl write lock on the whole file), as a second run would
 // find it held; the returned func gives it back.
