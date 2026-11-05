@@ -903,16 +903,31 @@ func requirePamModule(t *testing.T, bin, module string) {
 // checks as pamService (Linux, a PAM build, module present). It needs write
 // access to /etc/pam.d: root, or (better, newscache never runs as root) a
 // test user given it, e.g. setfacl -m u:newscache:rwx /etc/pam.d.
+//
+// The file gets a name of its own (os.CreateTemp): the name was made from
+// t.TempDir(), whose last part is "001" in every test, so two test runs on
+// one machine at the same time wrote the same service, and one test got
+// the other's rules (TestPamRhost/127.0.0.1 got 481).
 func pamServiceText(t *testing.T, bin, module, text string) string {
 	t.Helper()
 	requirePamModule(t, bin, module)
-	name := "newscache-e2e-" + filepath.Base(t.TempDir())
-	path := filepath.Join("/etc/pam.d", name)
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Skipf("can't write %s (needs write access to /etc/pam.d): %v", path, err)
+	f, err := os.CreateTemp("/etc/pam.d", "newscache-e2e-")
+	if err != nil {
+		t.Skipf("can't write a file in /etc/pam.d (needs write access to it): %v", err)
 	}
+	path := f.Name()
 	t.Cleanup(func() { os.Remove(path) })
-	return name
+	_, err = f.WriteString(text)
+	if err == nil {
+		err = f.Chmod(0o644)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+	return filepath.Base(path)
 }
 
 // TestPamRhost: NewsCache gives PAM the client's address as PAM_RHOST, so
