@@ -324,6 +324,21 @@ disconnected without that reply, which would be plain text).
 MaxConnections 16
 @end example
 
+@cdindex MaxConnectionsPerHost
+@code{MaxConnectionsPerHost} limits the sessions of one client host, so
+that one host can't take all of @code{MaxConnections} (with idle
+connections, say). A host is an IPv4 address, or the /64 network of an
+IPv6 address, since one host can use any address of its /64. A client
+over the limit gets @code{400 too many connections from your host} (a
+client on @code{TLSListenTo} is disconnected without it), and the log
+says so, at most once a minute with the number of the others. Clients
+behind one NAT address share the limit. The default is 0, no limit
+(standalone mode only).
+
+@example
+MaxConnectionsPerHost 4
+@end example
+
 @cdindex Username
 @cdindex Groupname
 If you start NewsCache as standalone server with a port below 1024, you

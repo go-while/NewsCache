@@ -362,6 +362,9 @@ static void wake_master(void)
  * (they kept running until ClientTimeout). Only sigchld() changes a pid
  * to 0; the main flow touches the table with SIGCHLD blocked. */
 static vector < pid_t > sessions;
+// The client host of each session, for MaxConnectionsPerHost (see
+// client_host); only the main flow uses it.
+static vector < string > session_hosts;
 
 static void block_sigchld(sigset_t * old)
 {
@@ -384,15 +387,90 @@ static void block_fork_signals(sigset_t * old)
 	sigprocmask(SIG_BLOCK, &set, old);
 }
 
-static void add_session(pid_t pid)
+static void add_session(pid_t pid, const string & host)
 {
 	size_t i;
 	for (i = 0; i < sessions.size() && sessions[i] != 0; i++)
 		;
-	if (i < sessions.size())
+	if (i < sessions.size()) {
 		sessions[i] = pid;
-	else
+		session_hosts[i] = host;
+	} else {
 		sessions.push_back(pid);
+		session_hosts.push_back(host);
+	}
+}
+
+/*
+ * The host of the client on fd, as MaxConnectionsPerHost counts it: an
+ * IPv4 address (also of an IPv4 client of the dual-stack socket), or the
+ * /64 network of an IPv6 address, since one host can use any address of
+ * its /64 (as many hosts behind one IPv4 address share it). "" if there
+ * is no address; such a client isn't counted.
+ */
+static string client_host(int fd)
+{
+	struct sockaddr_storage ss;
+	socklen_t len = sizeof(ss);
+	char buf[INET6_ADDRSTRLEN];
+
+	if (getpeername(fd, (struct sockaddr *) &ss, &len) != 0)
+		return "";
+	if (ss.ss_family == AF_INET) {
+		if (!inet_ntop(AF_INET, &((struct sockaddr_in *) &ss)->sin_addr,
+			       buf, sizeof(buf)))
+			return "";
+		return buf;
+	}
+	if (ss.ss_family != AF_INET6)
+		return "";
+	struct in6_addr a = ((struct sockaddr_in6 *) &ss)->sin6_addr;
+	if (IN6_IS_ADDR_V4MAPPED(&a)) {
+		if (!inet_ntop(AF_INET, &a.s6_addr[12], buf, sizeof(buf)))
+			return "";
+		return buf;
+	}
+	memset(&a.s6_addr[8], 0, 8);
+	if (!inet_ntop(AF_INET6, &a, buf, sizeof(buf)))
+		return "";
+	return string(buf) + "/64";
+}
+
+// Running sessions of host; SIGCHLD blocked.
+static int host_sessions(const string & host)
+{
+	int n = 0;
+
+	for (size_t i = 0; i < sessions.size(); i++)
+		if (sessions[i] != 0 && session_hosts[i] == host)
+			n++;
+	return n;
+}
+
+// Clients turned away at MaxConnectionsPerHost: at most one log line a
+// minute, with the number of the others since the last one, so that a
+// host that floods doesn't fill the log.
+static void log_host_refused(const string & host)
+{
+	static time_t logged = 0;
+	static unsigned long refused = 0;	// not logged yet
+	const time_t now = time(NULL);
+
+	if (logged != 0 && now - logged < 60) {
+		refused++;
+		return;
+	}
+	if (refused)
+		slog.p(Logger::Notice) << "MaxConnectionsPerHost ("
+		    << Cfg.MaxConnectionsPerHost << ") reached, connection from "
+		    << host << " refused, " << refused
+		    << " more refused since the last line\n";
+	else
+		slog.p(Logger::Notice) << "MaxConnectionsPerHost ("
+		    << Cfg.MaxConnectionsPerHost << ") reached, connection from "
+		    << host << " refused\n";
+	logged = now;
+	refused = 0;
 }
 
 static void end_sessions(void)
@@ -4732,20 +4810,34 @@ void nntpd()
 		// session that ended at once would stay there for good
 		sigset_t old_mask;
 		block_fork_signals(&old_mask);
-		if (nntp_connections >= Cfg.MaxConnections
-		    || (clt_pid = fork()) < 0) {
+		// One host could take every session (idle connections until
+		// ClientTimeout, then the next ones): MaxConnectionsPerHost
+		string host;
+		bool host_full = false;
+		if (Cfg.MaxConnectionsPerHost > 0) {
+			host = client_host(clt_fd);
+			host_full = !host.empty() &&
+			    host_sessions(host) >= Cfg.MaxConnectionsPerHost;
+		}
+		const bool full = nntp_connections >= Cfg.MaxConnections;
+		if (full || host_full || (clt_pid = fork()) < 0) {
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);
 			if (clt_pid < 0) {
 				slog.
 				    p(Logger::
 				      Error) << "fork failed: " <<
 				    strerror(errno) << "\n";
+			} else if (!full) {
+				log_host_refused(host);
 			}
 			// not on the TLS listener: there it would be
 			// plain text where the client expects a TLS record
 			static const char too_many[] = "400 too many users\r\n";
-			if (!clt_tls &&
-			    write(clt_fd, too_many, sizeof(too_many) - 1) < 0) {
+			static const char too_many_host[] =
+			    "400 too many connections from your host\r\n";
+			const char *msg = !full && host_full ?
+			    too_many_host : too_many;
+			if (!clt_tls && write(clt_fd, msg, strlen(msg)) < 0) {
 				// refused anyway; nothing else to do
 			}
 			close(clt_fd);
@@ -4764,6 +4856,7 @@ void nntpd()
 				signal(SIGCHLD, SIG_DFL);
 				sigprocmask(SIG_SETMASK, &old_mask, NULL);
 				sessions.clear();
+				session_hosts.clear();
 				close(sock);
 				if (tls_sock >= 0)
 					close(tls_sock);
@@ -4833,7 +4926,7 @@ void nntpd()
 				exit(0);
 			}
 			//Parent
-			add_session(clt_pid);
+			add_session(clt_pid, host);
 			nntp_connections = nntp_connections + 1;
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
