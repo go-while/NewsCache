@@ -123,7 +123,19 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 		    (int) sizeof(fn))
 			throw NoSuchGroupError("spool path too long",
 					       ERROR_LOCATION);
-		NVArray::open(fn);
+		try {
+			NVArray::open(fn);
+		}
+		catch(const SystemError & e) {
+			// newscacheclean removes the database of a group,
+			// then its directory: that can happen right after
+			// mkpdir, and the client got "403" for the command.
+			// Once more is enough, its rmdir is done.
+			if (e._errno != ENOENT)
+				throw;
+			mkpdir(_SpoolDirectory, 0755);
+			NVArray::open(fn);
+		}
 	}
 
 #ifdef ENABLE_ASSERTIONS
