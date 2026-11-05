@@ -2367,3 +2367,64 @@ func TestClientLookupTimeout(t *testing.T) {
 		e.waitLog("127.0.0.1 name lookup took too long, the address is used")
 	}
 }
+
+// TestClientNameChecked: the name the client's reverse zone gives went
+// into X-NNTP-Posting-Host as it was. musl's getnameinfo passes CR and
+// LF through, and whoever has an address block runs its reverse zone:
+// "\r\n.\r\n" in the name ended a posted article on the news server's
+// connection, and the rest was read as commands. A name with a byte a
+// host name doesn't have is dropped, and the client goes by its address.
+// The test build (NEWSCACHE_TEST_CLIENT_LOOKUP) takes the name from a
+// file.
+func TestClientNameChecked(t *testing.T) {
+	if os.Getenv("NEWSCACHE_CLIENT_LOOKUP_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_CLIENT_LOOKUP build (NEWSCACHE_CLIENT_LOOKUP_TEST=1)")
+	}
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	nameFile := filepath.Join(e.Dir, "lookup-name")
+	t.Setenv("NEWSCACHE_TEST_CLIENT_LOOKUP_NAME_FILE", nameFile)
+	p := e.standalone()
+	defer p.Stop()
+	for i, tc := range []struct{ name, host string }{
+		{"good-host_1.example", "good-host_1.example"},
+		{"evil\r\n.\r\nQUIT", "127.0.0.1"},
+		{"evil.example\r\nX-Forged: 1", "127.0.0.1"},
+		{"a b.example", "127.0.0.1"},
+		{"h\xc3\xa4st.example", "127.0.0.1"},
+	} {
+		if err := os.WriteFile(nameFile, []byte(tc.name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before := len(e.Upstream.Articles())
+		c := e.dial()
+		c.Strict = false
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("%q: POST: %q", tc.name, line)
+		}
+		c.Send(fmt.Sprintf("From: a@b.test\r\nSubject: s\r\n"+
+			"Message-ID: <name.%d@client.test>\r\nNewsgroups: test.alpha\r\n"+
+			"\r\nbody\r\n.\r\n", i))
+		if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+			t.Fatalf("%q: POST: %d %q %v", tc.name, code, line, err)
+		}
+		c.TryCmd("QUIT")
+		posted := e.Upstream.Articles()
+		if len(posted) != before+1 {
+			t.Fatalf("%q: %d articles reached the upstream, want 1", tc.name, len(posted)-before)
+		}
+		var hosts []string
+		for _, l := range posted[len(posted)-1] {
+			if l == "" {
+				break
+			}
+			if strings.HasPrefix(strings.ToLower(l), "x-nntp-posting-host:") ||
+				strings.HasPrefix(l, "X-Forged") || strings.HasPrefix(l, "QUIT") {
+				hosts = append(hosts, l)
+			}
+		}
+		if want := "X-NNTP-Posting-Host: " + tc.host; len(hosts) != 1 || hosts[0] != want {
+			t.Errorf("%q: headers upstream %q, want %q", tc.name, hosts, want)
+		}
+	}
+}

@@ -142,6 +142,20 @@ bool valid_msgid_5536(const char *id)
 	return true;
 }
 
+bool valid_host_name(const char *name)
+{
+	if (!name || !*name)
+		return false;
+	for (const char *p = name; *p; ++p) {
+		unsigned char c = (unsigned char) *p;
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		      (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+		      c == '_'))
+			return false;
+	}
+	return true;
+}
+
 bool split_newsgroups(const std::string & ngs,
 		      std::vector < std::string > &groups)
 {
