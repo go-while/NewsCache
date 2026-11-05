@@ -557,6 +557,7 @@ int main(int argc, char **argv)
 				    "prefetches already (" << fn << "), exiting\n";
 				cerr << cmnd << ": another updatenews prefetches "
 				    "already (" << fn << ")\n";
+				delete runlock;
 				return 3;
 			}
 		}
@@ -565,6 +566,7 @@ int main(int argc, char **argv)
 			    << strerror(e._errno) << "\n";
 			cerr << cmnd << ": cannot lock " << fn << ": "
 			    << strerror(e._errno) << "\n";
+			delete runlock;
 			return 1;
 		}
 	}
@@ -578,11 +580,13 @@ int main(int argc, char **argv)
 	catch(const Error & e) {
 		slog.p(Logger::Error) << "updatenews: " << e._errtext << "\n";
 		cerr << cmnd << ": " << e._errtext << "\n";
+		delete runlock;
 		return 1;
 	}
 	catch(...) {
 		slog.p(Logger::Error) << "updatenews: unexpected exception\n";
 		cerr << cmnd << ": unexpected exception\n";
+		delete runlock;
 		return 1;
 	}
 	delete runlock;
