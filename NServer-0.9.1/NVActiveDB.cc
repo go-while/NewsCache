@@ -132,7 +132,8 @@ int NVActiveDB::get(const char *group, GroupInfo * gi)
 {
 	VERB(slog.
 	     p(Logger::Debug) << "NVActiveDB::get(" << group << ",&gi)\n");
-	lock(ShrdLock);
+	// (a guard: a damaged chain throws)
+	NVLock guard(*this, NVcontainer::ShrdLock);
 	Record *head = o2r(hashtab[hash(group)]);
 	Record *r = head;
 	unsigned long steps = 0;
@@ -160,7 +161,7 @@ int NVActiveDB::get(const char *group, GroupInfo * gi)
 		if (r == head)
 			r = NULL;
 	}
-	lock(UnLock);
+	guard.release();
 
 	if (!r)
 		return -1;
@@ -171,7 +172,8 @@ int NVActiveDB::hasgroup(const char *group)
 {
 	VERB(slog.
 	     p(Logger::Info) << "NVActiveDB::hasgroup(" << group << ")\n");
-	lock(ShrdLock);
+	// (a guard: a damaged chain throws)
+	NVLock guard(*this, NVcontainer::ShrdLock);
 	Record *head = o2r(hashtab[hash(group)]);
 	Record *r = head;
 	unsigned long steps = 0;
@@ -198,7 +200,7 @@ int NVActiveDB::hasgroup(const char *group)
 		if (r == head)
 			r = NULL;
 	}
-	lock(UnLock);
+	guard.release();
 
 	if (!r)
 		return 0;

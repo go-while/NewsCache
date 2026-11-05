@@ -130,9 +130,10 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 */
 	void add(GroupInfo & gi);
 	void set(GroupInfo & gi, int flags = 0) {
-		lock(ExclLock);
+		// (a guard: nvalloc throws when the disk is full, and the
+		// exclusive lock stayed until the session ended)
+		NVLock guard(*this, NVcontainer::ExclLock);
 		sset(gi, flags);
-		lock(UnLock);
 	}
 
 	/**

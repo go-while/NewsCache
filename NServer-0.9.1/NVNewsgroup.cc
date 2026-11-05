@@ -866,7 +866,9 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 	static string over;
 
 	over = "";
-	NVArray::lock(NVcontainer::ShrdLock);
+	// (a guard: bad_alloc from the copies below kept the shared lock
+	// until the session ended, and every writer of the group waited)
+	NVLock guard(*this, NVcontainer::ShrdLock);
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
 		NVArray::sget(nbr, &data, &szdata);
@@ -906,7 +908,7 @@ const char *NVNewsgroup::getover(artnum_t nbr)
 			}
 		}
 	}
-	NVArray::lock(NVcontainer::UnLock);
+	guard.release();
 	return over.c_str();
 }
 
@@ -1056,14 +1058,15 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 	for (;;) {
 		artnum_t e, i, last = 0;
 
-		lock(NVcontainer::ShrdLock);
+		// (a guard: bad_alloc from the buffer kept the shared lock
+		// until the session ended, and every writer of the group
+		// waited)
+		NVLock guard(*this, NVcontainer::ShrdLock);
 		if (f < arrfst)
 			f = arrfst;
 		e = arrlst < l ? arrlst : l;
-		if (f > e) {
-			lock(NVcontainer::UnLock);
+		if (f > e)
 			break;
-		}
 		for (i = f; i <= l && i <= e; i++) {
 			sprintover(buf, i);
 			last = i;
@@ -1071,7 +1074,7 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 			    || buf.tellp() >= PRINT_CHUNK_BYTES)
 				break;
 		}
-		lock(NVcontainer::UnLock);
+		guard.release();
 		flush_chunk(os, buf, out);
 		if (!os.good() || last >= e)
 			break;
@@ -1097,15 +1100,13 @@ void NVNewsgroup::printheaderdb(ostream & os,
 	for (;;) {
 		unsigned long e, last = 0;
 
-		NVArray::lock(NVcontainer::ShrdLock);
+		NVLock guard(*this, NVcontainer::ShrdLock);	// (as above)
 		NVArray::getsize(&gf, &gl);
 		if (f < gf)
 			f = gf;
 		e = l > gl ? gl : (unsigned long) l;
-		if (f > e) {
-			NVArray::lock(NVcontainer::UnLock);
+		if (f > e)
 			break;
-		}
 		for (i = (unsigned long) f; i <= e; i++) {
 			NVArray::sget(i, &data, &szdata);
 			if (data && (*data == article || *data == bigarticle
@@ -1158,7 +1159,7 @@ void NVNewsgroup::printheaderdb(ostream & os,
 			    || buf.tellp() >= PRINT_CHUNK_BYTES)
 				break;
 		}
-		NVArray::lock(NVcontainer::UnLock);
+		guard.release();
 		flush_chunk(os, buf, out);
 		if (!os.good() || last >= e)
 			break;
@@ -1181,14 +1182,12 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 	for (;;) {
 		artnum_t e, i;
 
-		lock(NVcontainer::ShrdLock);
+		NVLock guard(*this, NVcontainer::ShrdLock);	// (as above)
 		if (f < arrfst)
 			f = arrfst;
 		e = l < arrlst ? l : arrlst;
-		if (f > e) {
-			lock(NVcontainer::UnLock);
+		if (f > e)
 			break;
-		}
 		for (i = f; i <= e; i++) {
 			if (shas_element(i))
 				buf << i << "\r\n";
@@ -1196,7 +1195,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 			    || buf.tellp() >= PRINT_CHUNK_BYTES)
 				break;
 		}
-		lock(NVcontainer::UnLock);
+		guard.release();
 		flush_chunk(os, buf, out);
 		if (!os.good() || i >= e)
 			break;
