@@ -49,7 +49,9 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 * update_only is specified, it is regarded as error, if gi.name()
 	 * does not already exist. Otherwise, it is added to the active
 	 * database. With keep_flag, an existing record keeps its posting
-	 * flag, and gi gets it.
+	 * flag, and gi gets it. With keep_newer, an existing record whose
+	 * numbers were asked for later than gi's (see ActiveDB::keep_newer)
+	 * keeps them, and gi gets them.
 	 * \param gi Description of the newsgroup.
 	 * \param flags See description above.
 	 */
@@ -62,8 +64,10 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	// "." line). A caller holds no lock here: the news server is not
 	// waited for under the database's lock.
 	bool collect(std::istream & is, const char *filter, std::string & lines);
-	// Applies the lines collect() gathered, under the exclusive lock.
-	void apply(const std::string & lines, int flags, unsigned int limit);
+	// Applies the lines collect() gathered, under the exclusive lock, as
+	// numbers asked for at since (see ActiveDB::keep_newer).
+	void apply(const std::string & lines, int flags, unsigned int limit,
+		   nvtime_t since);
 
 	// The group name in record r of a hash chain, checked: the record
 	// comes from the file, and the name must end within it.
@@ -149,13 +153,16 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	/**
 	 * Read active database records and store those matching the filter
 	 * expression in the active database. A nonzero limit keeps only the
-	 * newest article numbers in each stored range.
+	 * newest article numbers in each stored range. A group's record
+	 * that holds numbers asked for after since (a GROUP reply stored
+	 * while the list was read) keeps them.
 	 * \param limit Maximum range size, or 0 for no limit.
+	 * \param since When the list was asked for, 0 for now.
 	 * \throw System System Function Errors
 	 * \throw ResponseErr Response Error
 	 */
 	void read(std::istream & is, const char *filter, int flags = 0,
-		  unsigned int limit = 0);
+		  unsigned int limit = 0, nvtime_t since = 0);
 	void write(std::ostream & os, nvtime_t ctime = 0, int mode =
 		   m_active, const char *filter = NULL);
 

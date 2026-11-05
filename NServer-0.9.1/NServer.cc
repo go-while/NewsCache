@@ -860,6 +860,8 @@ void RServer::selectgroup(const char *name, int force)
 
 	setserver(mpe);
 	snprintf(buf, sizeof(buf), "group %s\r\n", name);
+	// (the numbers are stored as of this time, see keep_newer below)
+	nvtime_t asked = nvtime(NULL);
 	resp = issue(buf, NULL);
 
 	p = resp.c_str();
@@ -906,9 +908,13 @@ void RServer::selectgroup(const char *name, int force)
 		// active list gave it (a group not in the list gets 'y'). The
 		// record is read and written under one lock: reading it first
 		// with get() put back a stale flag over a list refresh, and
-		// the flag was set to 'y' anyway.
+		// the flag was set to 'y' anyway. Numbers another session
+		// asked for later (and stored first) stay, and are the ones
+		// returned: the last number doesn't go back.
 		_CurrentGroup.set(name, fst, lst, nbr);
-		_ActiveDB->set(_CurrentGroup, ActiveDB::keep_flag);
+		_CurrentGroup.setmtime(asked);
+		_ActiveDB->set(_CurrentGroup,
+			       ActiveDB::keep_flag | ActiveDB::keep_newer);
 	}
 }
 
@@ -982,6 +988,7 @@ ActiveDB *RServer::active(bool)
 							cgroup += c;
 						cmd = "list active " + cgroup +
 						    "\r\n";
+						nvtime_t asked = nvtime(NULL);
 						issue(cmd.c_str(), "215");
 						// read active database and filter unwanted groups
 						try {
@@ -992,7 +999,8 @@ ActiveDB *RServer::active(bool)
 								 makeFilter(i,
 									    cgroup.c_str()).c_str(),
 								 flags,
-								 _CurrentServer->limitgroupsize);
+								 _CurrentServer->limitgroupsize,
+								 asked);
 							reply.finish();
 							any_complete = true;
 						}
@@ -1025,6 +1033,7 @@ ActiveDB *RServer::active(bool)
 			    (_CurrentServer->
 			     nntpflags & MPListEntry::
 			     F_LIST_ACTIVE_WILDMAT)) {
+				nvtime_t asked = nvtime(NULL);
 				issue("list active\r\n", "215");
 				try {
 					ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
@@ -1032,7 +1041,8 @@ ActiveDB *RServer::active(bool)
 							_ServerList->makeFilter(i,
 										"*").c_str(),
 							flags,
-							_CurrentServer->limitgroupsize);
+							_CurrentServer->limitgroupsize,
+							asked);
 					reply.finish();
 					any_complete = true;
 				}
@@ -2182,8 +2192,11 @@ GroupInfo *CServer::groupinfo(const char *name)
 	if (mpe->flags & MPListEntry::F_OFFLINE)
 		return LServer::groupinfo(name);
 
+	// (a time still to come is stale too: the clock was put back)
+	nvtime_t now = nvtime(NULL);
 	if ((errc = _NVActiveDB->get(name, &agroup)) < 0 ||
-	    agroup.mtime() + mpe->groupTimeout < nvtime(NULL)) {
+	    agroup.mtime() > now ||
+	    agroup.mtime() + mpe->groupTimeout < now) {
 		VERB(slog.p(Logger::Debug) << "CServer::groupinfo " 
 				<< "groupinfo timed out\n");
 		// If the news server fails, use the cached values. Without

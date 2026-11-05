@@ -193,6 +193,72 @@ int main()
 			CHECK(db.get("de.test.new", &gi) == 0 && gi.flags() == 'y');
 		}
 
+		// Numbers asked for later stay (keep_newer): a list read
+		// while another session stored a newer GROUP reply keeps that
+		// reply's numbers, and takes only its flag; an older GROUP
+		// reply gets the stored numbers. In the same second the higher
+		// last number stays.
+		{
+			// times in the past: one still to come is replaced
+			const nvtime_t t = nvtime(NULL) - 1000;
+			GroupInfo g;
+			g.set("de.test", 1, 150, 150, 'y');
+			g.setmtime(t + 10);
+			db.set(g);
+			std::istringstream older("de.test 100 1 m\r\n.\r\n");
+			db.read(older, "*", ActiveDB::F_DEFER_MTIME, 0,
+				t + 5);
+			CHECK(db.get("de.test", &gi) == 0);
+			CHECK(gi.last() == 150 && gi.mtime() == t + 10);
+			CHECK(gi.flags() == 'm');
+
+			g.set("de.test", 1, 120, 120);
+			g.setmtime(t + 8);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(g.last() == 150 && g.mtime() == t + 10);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
+
+			g.set("de.test", 1, 140, 140);
+			g.setmtime(t + 10);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 150);
+			g.set("de.test", 1, 160, 160);
+			g.setmtime(t + 10);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 160);
+
+			// A newer reply is stored, also a lower last number (the
+			// news server renumbered).
+			g.set("de.test", 1, 90, 90);
+			g.setmtime(t + 20);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 90);
+			CHECK(gi.flags() == 'm' && gi.ctime() == 1200000000);
+			std::istringstream newer("de.test 80 1 y\r\n.\r\n");
+			db.read(newer, "*", ActiveDB::F_DEFER_MTIME, 0,
+				t + 30);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 80);
+			CHECK(gi.mtime() == t + 30);
+
+			// A time still to come (the clock was put back) holds
+			// nothing: an older list and an older GROUP reply, both
+			// of now, replace it.
+			g.set("de.test", 1, 500, 500);
+			g.setmtime(nvtime(NULL) + 86400);
+			db.set(g);
+			std::istringstream now_list("de.test 200 1 y\r\n.\r\n");
+			db.read(now_list, "*", ActiveDB::F_DEFER_MTIME, 0, 0);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 200);
+			CHECK(gi.mtime() <= nvtime(NULL));
+			g.set("de.test", 1, 500, 500);
+			g.setmtime(nvtime(NULL) + 86400);
+			db.set(g);
+			g.set("de.test", 1, 210, 210);
+			db.set(g, ActiveDB::keep_flag | ActiveDB::keep_newer);
+			CHECK(g.last() == 210);
+			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 210);
+		}
+
 		// A cut-off reply must not advance the previous timestamp.
 		std::istringstream incomplete("de.test 20 10 y\r\n");
 		bool cut = false;
