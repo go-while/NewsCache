@@ -1201,7 +1201,7 @@ Other changes:
   for, so there the shared section that follows an exclusive one holds
   the exclusive lock until it ends. (The e2e tests need Go, which the
   Hurd lacks.)
-* The end-to-end tests use nntp-testkit 0.10.0 (still Go 1.26 or later).
+* The end-to-end tests use nntp-testkit 0.11.0 (still Go 1.26 or later).
 * TestSpoolDiskFullDaemon no longer fails on a busy machine (its client
   sat idle past ClientTimeout while the other client worked).
 * TestSessionSigchldDefault no longer fails on a busy machine: the
