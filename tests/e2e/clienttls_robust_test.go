@@ -93,7 +93,9 @@ func newRobustTLSFixture(t *testing.T) *robustTLSFixture {
 		addr = freeAddr(t)
 	}
 	robustTLSConfig(e, addr, files, "")
-	return &robustTLSFixture{e: e, ca: ca, files: files, addr: addr}
+	f := &robustTLSFixture{e: e, ca: ca, files: files, addr: addr}
+	e.TLSAddr = &f.addr
+	return f
 }
 
 func robustTLSClientConfig(ca *testCA, insecure bool) *tls.Config {

@@ -120,7 +120,9 @@ func newClientTLSFixture(t *testing.T) *clientTLSFixture {
 		addr = freeAddr(t)
 	}
 	addClientTLSConfig(e, addr, files, "")
-	return &clientTLSFixture{e: e, ca: ca, files: files, addr: addr}
+	f := &clientTLSFixture{e: e, ca: ca, files: files, addr: addr}
+	e.TLSAddr = &f.addr
+	return f
 }
 
 func clientTLSConfig(ca *testCA, config *tls.Config) *tls.Config {
@@ -619,5 +621,30 @@ func TestClientTLSListenerOnTheSamePort(t *testing.T) {
 		<-done
 		t.Fatalf("newscache kept running with TLSListenTo = ListenTo %s; stderr: %q",
 			e.Listen, stderr.String())
+	}
+}
+
+// TestClientTLSRetriesStolenAddress: the TLS listener's port can be taken
+// before NewsCache binds it, too (another test run on the machine took
+// it once): standalone picks another port for it and retries, as for
+// the plain listener.
+func TestClientTLSRetriesStolenAddress(t *testing.T) {
+	f := newClientTLSFixture(t)
+	busy := f.addr
+	occupied, err := net.Listen("tcp", busy)
+	if err != nil {
+		t.Fatalf("occupy the TLS port: %v", err)
+	}
+	t.Cleanup(func() { _ = occupied.Close() })
+	f.e.standalone()
+	if f.addr == busy {
+		t.Fatalf("TLS listener kept the occupied address %s", busy)
+	}
+	if !strings.Contains(f.e.Extra, "TLSListenTo "+f.addr+"\n") {
+		t.Fatalf("config doesn't name the new TLS address %s:\n%s", f.addr, f.e.Extra)
+	}
+	c, _ := clientTLSSession(t, f.addr, f.ca)
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE over TLS after the retry: %q", line)
 	}
 }
