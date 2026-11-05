@@ -97,7 +97,13 @@ SIGTERM to all its session processes and ends. SIGPIPE is ignored.
 This  signal instruct NewsCache to reread its configuration file
 .I @SYSCONFDIR@/newscache.conf
 \&. With TLSListenTo it loads TLSCertFile and TLSKeyFile again, as
-Username; listening addresses change only with a restart.
+Username; listening addresses change only with a restart. Built with
+\-\-without\-syslog, the daemon also opens its log file
+(LogDirectory/newscache.log) again, for log rotation: the daemon and the
+sessions started afterwards write to the new file, sessions that are
+running keep writing to the old one until they end. See LogDirectory in
+.BR newscache.conf (5)
+for an example.
 
 .SH NOTES
 Running NewsCache in

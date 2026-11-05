@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -204,6 +205,66 @@ func TestMaxConnections(t *testing.T) {
 	}
 	if err := c3.ExpectNoPending(200 * time.Millisecond); err != nil {
 		t.Errorf("bytes after the 400 reply: %v", err)
+	}
+}
+
+// greetUntil dials addr until the greeting starts with want, for up to
+// timeout.
+func greetUntil(t *testing.T, addr, want string, timeout time.Duration) *client.Conn {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		c, err := client.TryDial(addr, time.Second)
+		if err == nil && strings.HasPrefix(c.Greeting, want) {
+			return c
+		}
+		if err == nil {
+			c.Close()
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no greeting %q from %s within %s (last: %v)", want, addr, timeout, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestMaxConnectionsLogged: a client turned away at MaxConnections was
+// not logged at all. The first refusal is logged with the address, the
+// others are counted (a flood doesn't fill the log) and the count is
+// logged when a session can be started again.
+func TestMaxConnectionsLogged(t *testing.T) {
+	e := newEnv(t)
+	e.MaxConnections = 1
+	p := e.standalone()
+	if mode, err := logMode(e.Bin); err != nil || mode != "file" {
+		t.Skip("binary built with syslog (configure --without-syslog to test logging)")
+	}
+	if runtime.GOOS == "linux" {
+		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
+	}
+	held := greetUntil(t, e.Listen, "200 ", 3*time.Second)
+	for i := 0; i < 3; i++ {
+		c := e.dialRaw()
+		if c.Greeting != "400 too many users" {
+			t.Fatalf("client %d greeting %q, want 400 too many users", i+2, c.Greeting)
+		}
+		c.Close()
+	}
+	log := e.waitLog("MaxConnections (1) reached, connection from 127.0.0.1 refused")
+	if n := strings.Count(log, "MaxConnections (1) reached"); n != 1 {
+		t.Errorf("%d log lines for the first refusal, want 1:\n%s", n, log)
+	}
+	held.Cmd("QUIT")
+	held.Close()
+	c := greetUntil(t, e.Listen, "200 ", 5*time.Second)
+	defer c.Close()
+	log = e.waitLog("below MaxConnections again, ")
+	m := regexp.MustCompile(`below MaxConnections again, ([0-9]+) more connections refused`).FindStringSubmatch(log)
+	if m == nil {
+		t.Fatalf("no count of the other refusals in the log:\n%s", log)
+	}
+	if n, _ := strconv.Atoi(m[1]); n < 2 {
+		t.Errorf("%d more connections refused in the log, want at least 2", n)
 	}
 }
 
@@ -1610,14 +1671,14 @@ func TestSIGTERMNoReconnect(t *testing.T) {
 		command string // the client's command that reaches the news server
 		ready   func(*fakeserver.Server) bool
 	}{
-		{"no greeting", fakeserver.Options{NoGreeting: true}, "",
+		{"no greeting", fakeserver.Options{NoGreeting: true}, "    ConnectTimeout 0",
 			"GROUP test.alpha",
 			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
 		{"no greeting, ConnectTimeout", fakeserver.Options{NoGreeting: true}, "    ConnectTimeout 30",
 			"GROUP test.alpha",
 			func(s *fakeserver.Server) bool { return s.Accepted() >= 1 }},
 		{"reply held back", fakeserver.Options{Faults: fakeserver.Faults{
-			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "",
+			Delay: map[string]time.Duration{"ARTICLE": time.Minute}}}, "    ConnectTimeout 0",
 			"ARTICLE 1",
 			func(s *fakeserver.Server) bool { return s.Count("ARTICLE") >= 1 }},
 		{"reply held back, ConnectTimeout", fakeserver.Options{Faults: fakeserver.Faults{
@@ -1725,11 +1786,48 @@ func connecting(t *testing.T, port string) bool {
 	return false
 }
 
+// TestConnectTimeoutDefault: ConnectTimeout was 0 by default, which
+// leaves the connect to the system: a news server that doesn't answer
+// (its SYNs are dropped, here by a full listen queue) held each command
+// about two minutes per address, with no reply to the client. The
+// default is 30 seconds now: newscache -p shows it, and the client gets
+// its reply after that.
+func TestConnectTimeoutDefault(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerHost, e.ServerPort = fullListener(t)
+	e.writeConf()
+	out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscache -p: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ConnectTimeout 30\n") {
+		t.Errorf("newscache -p doesn't show ConnectTimeout 30 for a server without the line:\n%s", out)
+	}
+	p, c := e.sessionProcess()
+	defer p.Stop()
+	start := time.Now()
+	if err := c.Send("GROUP test.alpha\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the connect to the news server", func() bool { return connecting(t, e.ServerPort) })
+	// (not ReadStatus: the client's own deadline is shorter)
+	if err := c.Conn.SetReadDeadline(start.Add(65 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	line, err := c.R.ReadString('\n')
+	if err != nil {
+		t.Fatalf("no reply 65 s after GROUP while the news server doesn't answer the connect: %v", err)
+	}
+	t.Logf("reply %q after %s", strings.TrimSpace(line), time.Since(start).Round(time.Second))
+}
+
 // TestSIGTERMBlockedConnect: SIGTERM while the connect to the news server
-// waits for its answer. Without ConnectTimeout the interrupted connect
-// was started again and waited for the system's timeout (minutes).
+// waits for its answer. With ConnectTimeout 0 (the system's limit) the
+// interrupted connect was started again and waited for the system's
+// timeout (minutes).
 func TestSIGTERMBlockedConnect(t *testing.T) {
-	for _, lines := range []string{"", "    ConnectTimeout 30"} {
+	for _, lines := range []string{"    ConnectTimeout 0", "    ConnectTimeout 30"} {
 		t.Run(fmt.Sprintf("%q", strings.TrimSpace(lines)), func(t *testing.T) {
 			e := newEnv(t)
 			e.addArticles("test.alpha", 1)
@@ -1767,7 +1865,7 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 		call, lines string
 		answers     bool // the news server answers at once
 	}{
-		{"connect", "", false},
+		{"connect", "    ConnectTimeout 0", false},
 		{"connect", "    ConnectTimeout 30", false},
 		{"connect", "", true},
 		{"recv", "", false},

@@ -71,7 +71,9 @@ class ArtSpooler {
 	 * forget delete); name is set to its file. Remove it with
 	 * removeSpooledArt once it is posted or stored elsewhere.
 	 * Files that can't be opened are logged and skipped, and so are
-	 * the files named in skip (names as returned in name).
+	 * the files named in skip (names as returned in name); one that
+	 * can't be read (too big for the memory) is moved to the bad
+	 * articles.
 	 * \return A pointer to the article or NULL.
 	 * \throw SystemError The spool directory can't be read.
 	 */
@@ -120,6 +122,12 @@ class ArtSpooler {
 	 * return 0 success, 1 duplicated
 	 */
 	int storeArticle(const std::string & path, Article & a);
+
+	/**
+	 * Move the spool file name (base: its name in the directory) to
+	 * the bad articles; a failure is logged.
+	 */
+	void moveBadArt(const std::string & name, const char *base);
 
   private:
 	std::string spoolDir;

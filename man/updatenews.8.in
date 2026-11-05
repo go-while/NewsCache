@@ -17,7 +17,8 @@ The outgoing queue is the directory .artSpool in the spool. An article
 stays there until a news server takes it; an article whose news server
 can't be reached is kept for the next run, and the others are posted.
 Articles the
-news servers refuse are moved to .badArticles, for the administrator.
+news servers refuse, and any updatenews can't read (too big for the
+memory), are moved to .badArticles, for the administrator.
 Only one updatenews at a time posts the queue.
 .PP
 updatenews always talks to the news servers: it ignores the offline and

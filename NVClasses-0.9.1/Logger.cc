@@ -168,38 +168,79 @@ Logger::~Logger()
  * means stderr. A new log file gets mode 0640: it names clients, users
  * and groups. An existing file keeps its mode.
  */
-void Logger::open(const char *fn)
+static int open_log(const char *fn, const char **err)
 {
 	struct stat st, est;
-	const char *err = NULL;
+	int fd;
 
-	if (!fn)
-		return;
-	close();
-	logfd = ::open(fn, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW |
-		       O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0640);
-	if (logfd < 0) {
+	*err = NULL;
+	fd = ::open(fn, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW |
+		    O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0640);
+	if (fd < 0) {
 		// ELOOP for a symlink, but EMLINK on FreeBSD
 		int e = errno;
 		if (lstat(fn, &st) == 0 && S_ISLNK(st.st_mode)) {
 			if (stat(fn, &st) == 0 && fstat(STDERR_FILENO, &est) == 0 &&
 			    st.st_dev == est.st_dev && st.st_ino == est.st_ino) {
-				logfd = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 3);
-				if (logfd >= 0)
-					return;
-				err = strerror(errno);
+				fd = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 3);
+				if (fd >= 0)
+					return fd;
+				*err = strerror(errno);
 			} else
-				err = "a symbolic link (only one to stderr is used)";
+				*err = "a symbolic link (only one to stderr is used)";
 		} else
-			err = strerror(e);
-	} else if (fstat(logfd, &st) < 0)
-		err = strerror(errno);
+			*err = strerror(e);
+	} else if (fstat(fd, &st) < 0)
+		*err = strerror(errno);
 	else if (!S_ISREG(st.st_mode) || st.st_nlink != 1)
-		err = "not a regular file with one link, left alone";
-	if (err) {
-		cerr << "cannot open log file " << fn << ": " << err << "\n";
-		close();
+		*err = "not a regular file with one link, left alone";
+	if (*err && fd >= 0) {
+		::close(fd);
+		fd = -1;
 	}
+	return fd;
+}
+
+void Logger::open(const char *fn)
+{
+	const char *err;
+
+	if (!fn)
+		return;
+	close();
+	logname = fn;
+	logfd = open_log(fn, &err);
+	if (err)
+		cerr << "cannot open log file " << fn << ": " << err << "\n";
+}
+
+/*
+ * Log rotation renames the file (logrotate's default, "create"): the
+ * process went on writing into the renamed one until it ended, so only
+ * copytruncate worked, and lost lines. newscache calls this on SIGHUP.
+ * As open(): the same checks, so the new file must be a regular file
+ * with one link; the user the process runs as by then must be able to
+ * open it, or create it in the directory.
+ */
+void Logger::reopen()
+{
+	const char *err;
+	int fd;
+
+	if (logname.empty())
+		return;
+	fd = open_log(logname.c_str(), &err);
+	if (fd < 0) {
+		string line("cannot reopen log file ");
+		line += logname;
+		line += ": ";
+		line += err ? err : "unknown error";
+		line += ", still writing to the old one\n";
+		p(Error) << line;
+		return;
+	}
+	close();
+	logfd = fd;
 }
 
 void Logger::close()
