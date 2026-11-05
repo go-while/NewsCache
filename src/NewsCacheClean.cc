@@ -58,6 +58,7 @@
 #include "Logger.h"
 #include "NServer.h"
 #include "History.h"
+#include "ObjLock.h"
 
 using namespace std;
 
@@ -703,6 +704,30 @@ int main(int argc, char **argv)
 	}
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
+	// One run at a time: runs that overlap (cron) computed the purge
+	// from the same sizes, and together removed about twice what was
+	// needed. The lock goes with the process. (Not with -t, which
+	// removes nothing and leaves the spool as it is.)
+	string lockname = string(Cfg.SpoolDirectory) + "/.newscacheclean.lock";
+	ObjLock *runlock = NULL;
+	try {
+		if (!try_flag)
+			runlock = new ObjLock(lockname);
+		if (runlock && runlock->lockExNoBlk() != ObjLock::locked) {
+			slog.p(Logger::Notice) << "another newscacheclean is "
+			    "running (" << lockname << "), exiting\n";
+			cerr << cmnd << ": another newscacheclean is running ("
+			    << lockname << ")\n";
+			exit(3);
+		}
+	}
+	catch(const SystemError & e) {
+		slog.p(Logger::Error) << "cannot lock " << lockname << ": "
+		    << strerror(e._errno) << "\n";
+		cerr << cmnd << ": cannot lock " << lockname << ": "
+		    << strerror(e._errno) << "\n";
+		exit(1);
+	}
 	if (Cfg.HistoryEnabled)
 		History::setspooldir(Cfg.SpoolDirectory);
 	clean(".");
@@ -740,6 +765,7 @@ int main(int argc, char **argv)
 	for (begin=pvector.begin(), end=pvector.end(); begin != end; begin++)
 		delete *begin;
 	pvector.clear();
+	delete runlock;
 	return 0;
 }
 

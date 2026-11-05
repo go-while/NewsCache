@@ -905,7 +905,8 @@ func TestSpoolSizeLarge(t *testing.T) {
 	}
 	spoolFiles := func(dir string) (names []string) {
 		filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
-			if err == nil && !fi.IsDir() {
+			// (not newscacheclean's own lock file, made by its run)
+			if err == nil && !fi.IsDir() && fi.Name() != ".newscacheclean.lock" {
 				names = append(names, strings.TrimPrefix(p, dir))
 			}
 			return nil

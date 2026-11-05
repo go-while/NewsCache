@@ -41,6 +41,7 @@
 #include "NServer.h"
 #include "History.h"
 #include "Logger.h"
+#include "ObjLock.h"
 #include "setugid.h"
 #include "wildmat.h"
 
@@ -541,6 +542,32 @@ int main(int argc, char **argv)
 	// news server
 	if (getuid() == CONF_UIDROOT)
 		setugid(Cfg.Username, Cfg.Groupname);
+	// One prefetch at a time: runs that overlap (cron) fetched the same
+	// groups twice, with twice the connections to the news servers. The
+	// lock goes with the process. Posting the spool and refreshing the
+	// active list (-a alone) have locks of their own, and a second -a
+	// asks for one more refresh, as it should.
+	ObjLock *runlock = NULL;
+	if (opt_flags & (F_PREFETCH_GROUP | F_PREFETCH_OVER)) {
+		string fn = string(Cfg.SpoolDirectory) + "/.updatenews.lock";
+		try {
+			runlock = new ObjLock(fn);
+			if (runlock->lockExNoBlk() != ObjLock::locked) {
+				slog.p(Logger::Notice) << "another updatenews "
+				    "prefetches already (" << fn << "), exiting\n";
+				cerr << cmnd << ": another updatenews prefetches "
+				    "already (" << fn << ")\n";
+				return 3;
+			}
+		}
+		catch(const SystemError & e) {
+			slog.p(Logger::Error) << "cannot lock " << fn << ": "
+			    << strerror(e._errno) << "\n";
+			cerr << cmnd << ": cannot lock " << fn << ": "
+			    << strerror(e._errno) << "\n";
+			return 1;
+		}
+	}
 	if (Cfg.HistoryEnabled)
 		History::setspooldir(Cfg.SpoolDirectory);
 	// log an error (spool not writable, ...) and exit 1, instead of
@@ -558,6 +585,7 @@ int main(int argc, char **argv)
 		cerr << cmnd << ": unexpected exception\n";
 		return 1;
 	}
+	delete runlock;
 	return 0;
 }
 
