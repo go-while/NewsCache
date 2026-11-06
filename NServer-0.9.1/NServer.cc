@@ -1663,9 +1663,22 @@ int RServer::post(Article * article)
 		// first: a second one stayed next to ours.
 		while (article->has_field("X-NNTP-Posting-Host:"))
 			article->setfield("X-NNTP-Posting-Host:", "");
-		snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
-			 nntp_posting_host);
-		article->setfield("X-NNTP-Posting-Host:", buf);
+		// The header line is sent as it is: a CR or LF in the host
+		// would end it, or the article ("\r\n.\r\n"), and the news
+		// server would read the rest as commands. NewsCache checks the
+		// name the client's reverse zone gives; this is the second
+		// line of defence.
+		bool clean = true;
+		for (const char *h = nntp_posting_host; *h; ++h)
+			if ((unsigned char) *h <= ' ' || (unsigned char) *h >= 127)
+				clean = false;
+		if (clean) {
+			snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
+				 nntp_posting_host);
+			article->setfield("X-NNTP-Posting-Host:", buf);
+		} else
+			slog.p(Logger::Error) << "X-NNTP-Posting-Host left out: "
+			    "the client's host has a space or control character\n";
 	}
 
 	if ((mpe =

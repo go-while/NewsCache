@@ -3622,6 +3622,15 @@ static void verified_client_name(const struct sockaddr_storage *sock,
 		name[0] = '\0';
 		return;
 	}
+	// The reverse zone belongs to whoever has the address block, and
+	// musl's getnameinfo returns its name as it is, CR and LF too. The
+	// name goes into X-NNTP-Posting-Host and the log: "\r\n.\r\n"
+	// in it ended a posted article on the news server's connection,
+	// and the rest was read as commands.
+	if (!valid_host_name(name)) {
+		name[0] = '\0';
+		return;
+	}
 
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
@@ -3690,6 +3699,23 @@ static void test_client_lookup_delay(void)
 		sleep(atoi(buf));
 	}
 }
+
+// And the name the lookup gives, if the file
+// NEWSCACHE_TEST_CLIENT_LOOKUP_NAME_FILE is there: its bytes as they
+// are, as a reverse zone may give them (tests/e2e TestClientNameChecked).
+static bool test_client_lookup_name(char *name, size_t size)
+{
+	const char *fn = getenv("NEWSCACHE_TEST_CLIENT_LOOKUP_NAME_FILE");
+	int fd;
+	ssize_t n;
+
+	if (!fn || (fd = open(fn, O_RDONLY)) < 0)
+		return false;
+	n = read(fd, name, size - 1);
+	close(fd);
+	name[n > 0 ? n : 0] = '\0';
+	return true;
+}
 #endif
 
 /*
@@ -3728,6 +3754,7 @@ static bool lookup_client_name(const struct sockaddr_storage *sock,
 		close(p[0]);
 #ifdef NEWSCACHE_TEST_CLIENT_LOOKUP
 		test_client_lookup_delay();
+		if (!test_client_lookup_name(name, size))
 #endif
 		verified_client_name(sock, socklen, name, size);
 		size_t n = strlen(name), off = 0;
@@ -3780,6 +3807,9 @@ static bool lookup_client_name(const struct sockaddr_storage *sock,
 		kill(pid, SIGKILL);
 		name[0] = '\0';
 	}
+	// (checked here again: this is what the session uses)
+	if (name[0] && !valid_host_name(name))
+		name[0] = '\0';
 	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
 		;
 	return done;
