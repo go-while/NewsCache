@@ -87,6 +87,9 @@ const char * const ConfigurationOptions[] = {
 #ifdef HAVE_GNUTLS
 	"--with-gnutls",
 #endif
+#ifdef HAVE_ZLIB
+	"--with-zlib",
+#endif
 	NULL
 };
 
@@ -144,6 +147,7 @@ using std::istream;
 using std::ofstream;
 using std::ostream;
 using std::ostringstream;
+using std::stringstream;
 using std::map;
 using std::set;
 using std::string;
@@ -2236,6 +2240,22 @@ template < class Fn > static void collect_active(ActiveDB * active, Fn fn)
 	for_each(active->begin(), active->end(), fn);
 }
 
+/*
+ * Sends what collect_active wrote to lines, from the stream's own
+ * buffer. lines.str() made a copy of the whole list while the buffer
+ * was still there: twice the list's size per session, for any client
+ * that may list (a few hundred MiB each for a list of two million
+ * groups). lines is a stringstream: an ostringstream's buffer is opened
+ * for output only and can't be read from. A stream given a buffer that
+ * yields nothing sets failbit, which would end the session's output, so
+ * an empty list sends nothing.
+ */
+static void send_collected(ostream & os, stringstream & lines)
+{
+	if (lines.tellp() > 0)
+		os << lines.rdbuf();
+}
+
 /* List [active|newsgroups|overview.fmt]
  * List the specified data
  */
@@ -2309,13 +2329,14 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				filter.setWildmat(argv[2]);
 			// collected under the lock, sent after it (see
 			// collect_active)
-			ostringstream lines;
+			stringstream lines;
 			collect_active(active, active_filter_group <
 				       print_list_active > (lines, filter));
 			(*clt->
 			 co) <<
-		      "215 List of newsgroups (Group High Low Flags) follows\r\n"
-			    << lines.str() << ".\r\n";
+		      "215 List of newsgroups (Group High Low Flags) follows\r\n";
+			send_collected(*clt->co, lines);
+			(*clt->co) << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "active.times") == 0) {
 			ActiveDB *active;
@@ -2323,12 +2344,13 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			NewsgroupFilter filter(clt->access_entry->list);
 			if (argc == 3)
 				filter.setWildmat(argv[2]);
-			ostringstream lines;
+			stringstream lines;
 			collect_active(active, active_filter_group <
 				       print_list_active_times > (lines,
 								  filter));
-			(*clt->co) << "215 information follows\r\n"
-			    << lines.str() << ".\r\n";
+			(*clt->co) << "215 information follows\r\n";
+			send_collected(*clt->co, lines);
+			(*clt->co) << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "newsgroups") == 0) {
 			// LIST NEWSGROUPS [wildmat] (RFC 3977 7.6.6): only the
@@ -2684,12 +2706,13 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	ActiveDB *active = clt->srvr->active();
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
-	ostringstream lines;
+	stringstream lines;
 	collect_active(active, active_filter_group_time <
 		       print_list_active > (lines,
 					    clt->access_entry->list, lt));
-	(*clt->co) << "231 list of new groups follows\r\n"
-	    << lines.str() << ".\r\n";
+	(*clt->co) << "231 list of new groups follows\r\n";
+	send_collected(*clt->co, lines);
+	(*clt->co) << ".\r\n";
 	return 0;
 }
 
@@ -3622,6 +3645,15 @@ static void verified_client_name(const struct sockaddr_storage *sock,
 		name[0] = '\0';
 		return;
 	}
+	// The reverse zone belongs to whoever has the address block, and
+	// musl's getnameinfo returns its name as it is, CR and LF too. The
+	// name goes into X-NNTP-Posting-Host and the log: "\r\n.\r\n"
+	// in it ended a posted article on the news server's connection,
+	// and the rest was read as commands.
+	if (!valid_host_name(name)) {
+		name[0] = '\0';
+		return;
+	}
 
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
@@ -3690,6 +3722,23 @@ static void test_client_lookup_delay(void)
 		sleep(atoi(buf));
 	}
 }
+
+// And the name the lookup gives, if the file
+// NEWSCACHE_TEST_CLIENT_LOOKUP_NAME_FILE is there: its bytes as they
+// are, as a reverse zone may give them (tests/e2e TestClientNameChecked).
+static bool test_client_lookup_name(char *name, size_t size)
+{
+	const char *fn = getenv("NEWSCACHE_TEST_CLIENT_LOOKUP_NAME_FILE");
+	int fd;
+	ssize_t n;
+
+	if (!fn || (fd = open(fn, O_RDONLY)) < 0)
+		return false;
+	n = read(fd, name, size - 1);
+	close(fd);
+	name[n > 0 ? n : 0] = '\0';
+	return true;
+}
 #endif
 
 /*
@@ -3728,6 +3777,7 @@ static bool lookup_client_name(const struct sockaddr_storage *sock,
 		close(p[0]);
 #ifdef NEWSCACHE_TEST_CLIENT_LOOKUP
 		test_client_lookup_delay();
+		if (!test_client_lookup_name(name, size))
 #endif
 		verified_client_name(sock, socklen, name, size);
 		size_t n = strlen(name), off = 0;
@@ -3780,6 +3830,9 @@ static bool lookup_client_name(const struct sockaddr_storage *sock,
 		kill(pid, SIGKILL);
 		name[0] = '\0';
 	}
+	// (checked here again: this is what the session uses)
+	if (name[0] && !valid_host_name(name))
+		name[0] = '\0';
 	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
 		;
 	return done;

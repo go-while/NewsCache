@@ -269,6 +269,7 @@ class RServer:virtual public NServer {
 	* multi-line reply unread (it would be read as the next reply).
 	*/
 	void reply_unread();
+	void log_compress_error();
 
 	/**
 	* Throws a SystemError when the program stops (SIGTERM, SIGINT):

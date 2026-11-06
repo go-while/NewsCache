@@ -128,6 +128,8 @@ fi,
 )
 
 AC_ARG_WITH(gnutls, [  --with-gnutls           require GnuTLS support [default=auto]])
+AC_ARG_WITH(zlib, [  --with-zlib             require zlib, for COMPRESS DEFLATE to news servers
+                          [default=auto]])
 
 AC_DEFINE(PACKAGE_NEWSCACHECLEAN, ["NewsCacheClean"], [newscacheclean package])
 AC_DEFINE(PACKAGE_UPDATENEWS, ["updatenews"], [updatenews package])
@@ -407,6 +409,28 @@ then
 	    fi
 	fi
 fi
+
+dnl **** Check for zlib (COMPRESS DEFLATE, RFC 8054) ****
+have_zlib=no
+if test "x$with_zlib" != "xno"
+then
+    AC_CHECK_LIB(z, inflateInit2_, [
+		AC_CHECK_HEADERS(zlib.h, [
+			AC_DEFINE(HAVE_ZLIB,, Build with zlib (COMPRESS DEFLATE))
+			LIBS="$LIBS -lz"
+			have_zlib=yes
+		])
+	],,)
+	if test "x$have_zlib" != "xyes"; then
+	    if test "x$with_zlib" = "xyes"; then
+		AC_MSG_ERROR([--with-zlib requires the zlib library and headers])
+	    else
+		AC_MSG_WARN([zlib library or headers not found; building without COMPRESS support])
+	    fi
+	fi
+fi
+dnl cDeflatebuf runs only with zlib (without, it would only skip)
+AM_CONDITIONAL([HAVE_ZLIB], [test "x$have_zlib" = xyes])
 
 dnl ****************************************************************
 dnl Generate output files

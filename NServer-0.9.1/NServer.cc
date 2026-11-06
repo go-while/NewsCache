@@ -500,6 +500,43 @@ void RServer::connect()
 			_CurrentServer->nntpflags &= ~MPListEntry::F_POST;
 		}
 
+		// COMPRESS DEFLATE (RFC 8054) last of the set-up commands
+		// that change the session: no STARTTLS, AUTHINFO or MODE
+		// READER may follow it. A server that refuses it, or doesn't
+		// know it, is used without compression.
+		if (_CurrentServer->flags & MPListEntry::F_COMPRESS) {
+#if defined(HAVE_ZLIB)
+			// (the algorithm's name is case-sensitive: RFC 8054 5.3)
+			resp = issue("COMPRESS DEFLATE\r\n", NULL);
+			RSERVER_CONNECT_CHECK_CONNECTION
+			    ("Cannot read data from %s:%s");
+			if (NNTP_ISCODE(resp.c_str(), "206")) {
+				if (!_pServerStream->start_compress()) {
+					// the server compresses from here
+					// on: the connection can't be used
+					delete _pServerStream;
+					_pServerStream = NULL;
+					throw SystemError("RServer::connect: "
+					    "cannot start compression", -1,
+					    ERROR_LOCATION);
+				}
+				slog.p(Logger::Info) << "compression active with "
+				    << _CurrentServer->hostname << "\n";
+			} else {
+				slog.p(Logger::Notice) << "news server "
+				    << _CurrentServer->hostname << ":"
+				    << _CurrentServer->servicename
+				    << " refused COMPRESS DEFLATE: " << resp
+				    << "; not compressing\n";
+			}
+#else
+			slog.p(Logger::Warning) << _CurrentServer->hostname
+			    << ":" << _CurrentServer->servicename
+			    << ": Options compress needs a build with zlib; "
+			       "not compressing\n";
+#endif
+		}
+
 		if (_CurrentServer->
 		    nntpflags & MPListEntry::F_LIST_OVERVIEW_FMT) {
 			// (no expected code: issue() threw on any other reply,
@@ -575,6 +612,19 @@ void RServer::disconnect()
 	}
 }
 
+// Invalid compressed data from the server ends the input as if the
+// connection had been closed (RFC 8054 2.2.2): this says why.
+void RServer::log_compress_error()
+{
+	const char *err;
+
+	if (_pServerStream && _CurrentServer &&
+	    (err = _pServerStream->compress_error()) != NULL)
+		slog.p(Logger::Error) << "news server "
+		    << _CurrentServer->hostname << ": compressed data: "
+		    << err << "\n";
+}
+
 /*
  * An exception left the rest of a multi-line reply (an article, an
  * overview, the active list) unread, e.g. a CorruptDBError of the spool
@@ -583,6 +633,7 @@ void RServer::disconnect()
  */
 void RServer::reply_unread()
 {
+	log_compress_error();
 	if (_CurrentServer)
 		slog.p(Logger::Warning) << "error while reading a reply of "
 		    << "news server " << _CurrentServer->hostname
@@ -736,8 +787,10 @@ string RServer::issue(const char *command, const char *expresp)
 		// 400/503 to MODE READER or LIST OVERVIEW.FMT reconnected, which
 		// sent them again, recursing until the stack overflowed (with a
 		// new upstream connection each time).
-		if (!_pServerStream->good())
+		if (!_pServerStream->good()) {
 			stop_check();
+			log_compress_error();
+		}
 		if (_connecting) {
 			if (!_pServerStream->good())
 				slog.p(Logger::Warning) << "RServer::issue: no "
@@ -772,8 +825,14 @@ string RServer::issue(const char *command, const char *expresp)
 			slog.p(Logger::Notice) << "news server "
 			    << _CurrentServer->hostname
 			    << " asks for the login again\n";
-			authenticate();
-			continue;
+			if (!_pServerStream->compressing()) {
+				authenticate();
+				continue;
+			}
+			// No AUTHINFO after COMPRESS (RFC 8054 2.2.2): a
+			// new connection logs in before it compresses.
+			slog.p(Logger::Notice) << "no login on a compressed "
+			    "connection: reconnecting\n";
 		} else {
 			break;
 		}
@@ -1663,9 +1722,22 @@ int RServer::post(Article * article)
 		// first: a second one stayed next to ours.
 		while (article->has_field("X-NNTP-Posting-Host:"))
 			article->setfield("X-NNTP-Posting-Host:", "");
-		snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
-			 nntp_posting_host);
-		article->setfield("X-NNTP-Posting-Host:", buf);
+		// The header line is sent as it is: a CR or LF in the host
+		// would end it, or the article ("\r\n.\r\n"), and the news
+		// server would read the rest as commands. NewsCache checks the
+		// name the client's reverse zone gives; this is the second
+		// line of defence.
+		bool clean = true;
+		for (const char *h = nntp_posting_host; *h; ++h)
+			if ((unsigned char) *h <= ' ' || (unsigned char) *h >= 127)
+				clean = false;
+		if (clean) {
+			snprintf(buf, sizeof(buf), "X-NNTP-Posting-Host: %s\r\n",
+				 nntp_posting_host);
+			article->setfield("X-NNTP-Posting-Host:", buf);
+		} else
+			slog.p(Logger::Error) << "X-NNTP-Posting-Host left out: "
+			    "the client's host has a space or control character\n";
 	}
 
 	if ((mpe =

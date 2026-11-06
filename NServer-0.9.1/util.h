@@ -25,6 +25,11 @@ extern bool valid_msgid(const char *id);
 /* The stricter RFC 5536 Message-ID header form, at most 250 octets. */
 extern bool valid_msgid_5536(const char *id);
 
+/* A host name as DNS names hosts: not empty, only ASCII letters, digits,
+ * dots, hyphens and underscores (some reverse zones use those). A name a
+ * reverse zone gives may hold any byte, CR and LF too. */
+extern bool valid_host_name(const char *name);
+
 /**
  * \author Thomas Gschwind
  * Checks whether a newsgroup matches a given list of patterns. 

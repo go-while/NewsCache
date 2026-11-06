@@ -105,9 +105,24 @@ static int race(const string & path, int procs)
 	return failed;
 }
 
+static void check_host_names()
+{
+	const char *valid[] = {"a", "host.example", "Host-1.Example.",
+		"dsl_42.isp.example", "127.0.0.1"};
+	const char *invalid[] = {"", "evil\r\n.\r\nQUIT", "a b.example",
+		"a\tb", "x\001.example", "h\303\244st.example", "::1",
+		"fe80::1%eth0", "a/b", "a@b"};
+	CHECK(!valid_host_name(NULL));
+	for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i)
+		CHECK(valid_host_name(valid[i]));
+	for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
+		CHECK(!valid_host_name(invalid[i]));
+}
+
 int main()
 {
 	check_msgids();
+	check_host_names();
 	char tmpl[] = "/tmp/cUtil.XXXXXX";
 	if (!mkdtemp(tmpl)) {
 		perror("mkdtemp");

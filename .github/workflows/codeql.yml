@@ -51,7 +51,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev
+            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev zlib1g-dev
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

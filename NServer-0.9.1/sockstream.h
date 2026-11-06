@@ -12,6 +12,8 @@
 #include <iostream>
 #include <string>
 
+class deflatebuf;
+
 
 class sockstream
   : public std::iostream
@@ -78,6 +80,8 @@ class sockstream
   };
 
   sslstreambuf *_ssl;
+  // COMPRESS DEFLATE (RFC 8054) on top of _ssl or _buf, once started
+  deflatebuf *_z;
   bool _tls_verify;
   std::string _tls_cafile;
 
@@ -234,10 +238,10 @@ class sockstream
 		    static_cast<std::streambuf *>(new sslstreambuf(_buf, server)) :
 		    static_cast<std::streambuf *>(&_buf)),
       _ssl(ssl ? static_cast<sslstreambuf *>(rdbuf()) : NULL),
-      _tls_verify(true)
+      _z(NULL), _tls_verify(true)
 #else
     : std::iostream(static_cast<std::streambuf *>(&_buf)),
-      _ssl(NULL), _tls_verify(true)
+      _ssl(NULL), _z(NULL), _tls_verify(true)
 #endif
   {
     (void) server;
@@ -246,18 +250,12 @@ class sockstream
 
   inline sockstream(const char *name, const char *service,
                     const struct sockaddr *from = NULL, socklen_t fromlen = 0)
-    : std::iostream(&_buf), _ssl(NULL), _tls_verify(true)
+    : std::iostream(&_buf), _ssl(NULL), _z(NULL), _tls_verify(true)
   {
     _buf.connect(name, service, from, fromlen);
   }
 
-  inline ~sockstream()
-  {
-    if (_ssl)
-    {
-      delete _ssl;
-    }
-  }
+  ~sockstream();
 
   inline bool connected() const
   {
@@ -301,26 +299,25 @@ class sockstream
     clear();
   }
 
-  inline void disconnect()
-  {
-    if (_ssl)
-    {
-      _ssl->disconnect();
-    }
-
-    _buf.disconnect();
-    clear(std::ios::badbit);
-  }
+  void disconnect();
 
   // A partially consumed reply cannot be reused. Do not flush or send a
   // protocol/TLS shutdown to an unresponsive peer while discarding it.
-  inline void abort()
-  {
-    if (_ssl)
-      _ssl->abandon();
-    _buf.abort();
-    clear(std::ios::badbit);
-  }
+  void abort();
+
+  // Puts the compression layer of COMPRESS DEFLATE (RFC 8054) on the
+  // connection, right after the server's 206: from here everything
+  // written is compressed and everything read is inflated. False when
+  // it can't be started (built without zlib, no memory, or already
+  // started); the server then compresses and the connection is of no
+  // further use.
+  bool start_compress();
+
+  inline bool compressing() const
+  { return _z != NULL; }
+
+  // Why the compressed input ended early (invalid data), or NULL.
+  const char *compress_error() const;
 
   // Scoped by a caller while consuming a multiline upstream reply.
   inline bool begin_reply(unsigned int seconds)

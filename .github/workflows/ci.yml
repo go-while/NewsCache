@@ -80,7 +80,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev
+            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev zlib1g-dev
 
       - name: Configure
         env:
@@ -198,7 +198,7 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf -y -q install gcc-c++ make autoconf automake libtool \
-            gnutls-devel pam-devel libxcrypt-devel texinfo \
+            gnutls-devel pam-devel libxcrypt-devel zlib-devel texinfo \
             redhat-rpm-config golang shadow-utils util-linux acl
 
       - name: Checkout
@@ -262,7 +262,7 @@ jobs:
         include:
           - name: Alpine 3.24 (musl)
             image: docker.io/library/alpine:3.24
-            setup: apk add -q build-base autoconf automake texinfo gnutls-dev linux-pam-dev go bash
+            setup: apk add -q build-base autoconf automake texinfo gnutls-dev linux-pam-dev zlib-dev go bash
             configure: --with-pam
           # Go from trixie-backports: trixie has Go 1.24, and the e2e tests
           # need what tests/e2e/go.mod says (1.26).
@@ -274,7 +274,7 @@ jobs:
               apt-get update -qq &&
               DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends
               build-essential autoconf automake texinfo libgnutls28-dev libpam0g-dev
-              ca-certificates &&
+              zlib1g-dev ca-certificates &&
               DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends
               -t trixie-backports golang-go
             configure: --with-pam
