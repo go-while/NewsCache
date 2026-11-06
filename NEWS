@@ -1,4 +1,21 @@
-Unreleased:
+Release 1.3.23:
+Billy G. - 2026-11-05
+
+Upgrading:
+* The spool holds the cached articles, the overview data and the posts
+  waiting to be sent, and NewsCache creates its files there readable
+  by others under the usual umask 022. Give the spool directory mode
+  0750, owned by `Username` and `Groupname`, as the Debian package
+  does: `chmod 0750 /var/cache/newscache`. The manual, newscache.conf(5),
+  the sample configuration and FEDORA.md now say so.
+* With `--without-syslog`, a new log file is created with mode 0640
+  instead of 0644, so other local users can't read client addresses and
+  user names in it. An existing log file keeps its mode: `chmod 0640` it.
+* Numeric options take a plain number in a range now, and an AccessList
+  prefix must be valid: "MaxConnections ten", "ClientTimeout 20m",
+  "SpoolSize 10G" or "Client 192.168.1.0/", which were misread, are
+  configuration errors with the file and line (see Bug fixes). Check the
+  file with `newscache -p` before restarting.
 
 Behaviour changes:
 * A failed login (AUTHINFO PASS) waits at most 1 second before the 481,
@@ -7,10 +24,11 @@ Behaviour changes:
   30 and 45 s by default, up to 3 hours with 3600), which only kept the
   session's process and memory busy. AuthFailureDelay now defaults to 1;
   larger values are accepted but count as 1, 0 still answers at once.
-* PAM logins: NewsCache now gives PAM the client's address (PAM_RHOST),
-  so host-based PAM rules (pam_access, pam_succeed_if rhost, ...) apply.
-  They saw no host before: a service that allows only some hosts refused
-  every login, and one that denies some hosts didn't. Check such rules
+* PAM logins: NewsCache now gives PAM the client's address (PAM_RHOST), so
+  host-based PAM rules (pam_access, pam_succeed_if rhost, ...) apply. They
+  saw no host before: a service that allows only some hosts refused every
+  login, and one that denies some hosts didn't. In inetd mode, and when
+  the client's address can't be read, PAM gets no host. Check such rules
   before upgrading. configure --with-pam= (an empty service name) is now
   an error.
 * After a failed AUTHINFO PASS (481), the pending USER is invalidated. A
@@ -50,6 +68,73 @@ Behaviour changes:
   off, whatever its value). The default is unchanged. Note:
   without md5auto every stored hash is checked as MD5, so crypt() hashes
   in an auth file stop working.
+* After SIGHUP, new sessions continue to use the startup NiceServer value;
+  changing it now requires a restart instead of partly applying it.
+* Message-IDs from clients are checked before NewsCache consults the spool
+  or forwards a command or post upstream: those in commands must meet RFC
+  3977's opaque-string rules and be at most 250 octets; posted Message-ID
+  headers must also meet RFC 5536's stricter syntax. Invalid IDs are
+  rejected; upstream articles with longer IDs can still be read by article
+  number.
+* LIST OVERVIEW.FMT names the byte and line counts `:bytes` and `:lines`, the
+  form RFC 3977 8.4.2 prefers, instead of the older `Bytes:` and `Lines:`
+  (which the RFC still allows for compatibility). The OVER fields themselves
+  are unchanged.
+* When an internal error (for example a damaged spool database) interrupts
+  a multi-line reply that has already begun (XOVER, LISTGROUP, LIST, ...),
+  NewsCache now closes the connection instead of ending the list with "."
+  as if it were complete, the same as for an upstream failure in the middle
+  of a list. Before anything is sent, the client still gets a 403.
+* ConnectTimeout defaults to 30 seconds. It was 0, which leaves the
+  connect to the system: a news server that doesn't answer (a firewall
+  that drops the packets, a dead route) held each command that needed
+  it about two minutes per address of the server, with no reply to the
+  client, and the next command waited again. ConnectTimeout 0 keeps the
+  old behaviour. ConnectBackoff stays 0; the manual now says that its
+  time counts from the start of the failed attempt.
+* Only one newscacheclean runs at a time, and only one updatenews that
+  prefetches (-g or -o): a second run, as cron starts one when the first
+  takes long, exits with status 3 and a message. Two newscacheclean runs
+  that overlapped both computed the purge from the same sizes and together
+  removed about twice what was needed; two prefetch runs fetched the same
+  groups twice. The locks are the files .newscacheclean.lock and
+  .updatenews.lock in the spool directory, held while the process runs.
+  newscacheclean -t (try only) and updatenews -a alone don't take the
+  lock.
+* MODE READER and the greeting follow the client's rights (RFC 3977, RFC
+  4643). MODE READER got "480 Authentication required" where the access
+  entry allows only the login ("allow authentication"), and where a login
+  is required ("Authentication unix" without fields) so did CAPABILITIES,
+  although newsreaders send both before AUTHINFO (and must not send MODE
+  READER after the login), so a newsreader couldn't learn from
+  CAPABILITIES that it may log in; unknown commands got 480 there instead
+  of 500. The greeting and MODE READER answered 200 (posting allowed) to
+  every client; both now answer 201 (posting prohibited) when the client
+  may not post at that moment: read-only entries, entries that allow only
+  the login, and before a login that is required or that would add the
+  post right. Such clients get 201 instead of 200 in the greeting; after
+  the login, CAPABILITIES says whether POST is available.
+* A failed login (a wrong password, an unknown user, a stored hash that
+  can't be checked, a refusal by PAM, a user name or password longer
+  than 511 characters) is now answered with 481 instead of 502, as RFC
+  4643 says. 502 means that AUTHINFO isn't available at all; it stays
+  the answer to AUTHINFO after a successful login and where the entry
+  has no Authentication. A script that looks for 502 after a failed
+  login must look for 481.
+* POST answered with codes RFC 3977 doesn't allow after the article has
+  been sent, where only 240 and 441 are: "480 authentication required"
+  for a group outside PostTo while a login could add it, "440 posting
+  not allowed", and "449 operation failed" (for example, when a post
+  for an offline news server couldn't be spooled). All three are 441
+  now; the first says "authentication required" in its text. A client
+  that waited for 480 there to offer a login will show the 441 instead.
+* newscacheclean used NiceServer for its priority instead of NiceClean,
+  which had no effect. It uses NiceClean now (default 3), as
+  newscache.conf(5) says; check the value if you set NiceServer.
+* A changed `Hostname` takes effect only on a restart; it applied to the
+  sessions started after a reload. A reload no longer looks up the host
+  name (a DNS lookup that could stall the daemon), so the default name is
+  looked up once, at startup, and only when the file sets no `Hostname`.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
@@ -59,7 +144,45 @@ New options:
   (default 1048576). A larger one is refused: the client gets 403,
   nothing is stored and the connection to that server is closed.
 * MaxPostSize: the largest article (bytes) a client may post (default
-  1048576); a larger one gets 441.
+  1048576, 1 MB). A larger article is refused with 441 and the session
+  goes on. There was no limit: a client could send an endless article (or
+  line) until the session ran out of memory.
+* TLS for clients (implicit TLS, RFC 8143; through GnuTLS). TLSListenTo
+  opens a second listening socket (same form as ListenTo, default port
+  563) next to the plain one, with TLSCertFile (PEM chain), TLSKeyFile
+  and optionally TLSPriority (a GnuTLS priority string; a warning when it
+  allows TLS 1.0 or 1.1). The certificate and key are loaded before
+  newscache switches to Username, checked by newscache -p, and loaded
+  again on SIGHUP (the old ones stay if that fails). The handshake must be
+  done within ClientTimeout, at most 30 seconds also with ClientTimeout 0.
+  newscache -t is inetd mode with TLS on the passed socket. An AccessList
+  entry with "AuthRequiresTLS yes" answers AUTHINFO on a plain connection
+  with 483 and lists AUTHINFO without USER in CAPABILITIES (RFC 4643).
+  STARTTLS for clients is not offered. newscache -o lists --with-gnutls.
+* `--enable-sysv-init` installs an optional Linux and GNU/Hurd init.d
+  script, disabled by default; `--with-initdir` selects its installation
+  directory. It also works where the daemon's directory is a symbolic link
+  (/usr/sbin -> bin on Fedora and Arch).
+* MaxConnectionsPerHost n (standalone mode): the most sessions one client
+  host may have at a time, so that one host can't hold all of
+  MaxConnections with idle connections. A host is an IPv4 address, or
+  the /64 network of an IPv6 address. A client over the limit gets "400
+  too many connections from your host" (on TLSListenTo it is
+  disconnected without a reply), and the log says so, at most once a
+  minute with a count. The default is 0, no limit, so clients behind one
+  NAT address are not affected unless it is set.
+* Server option "Options compress": COMPRESS DEFLATE (RFC 8054) to the
+  news server. After STARTTLS, the login and MODE READER, NewsCache
+  asks the server to compress the connection; from its 206 on,
+  everything is compressed both ways, so articles, overview data and
+  the active list come in a fraction of their size. A server that
+  refuses it, or doesn't know COMPRESS, is used without compression
+  (a notice is logged); invalid compressed data closes the connection.
+  The login is never compressed: when the server asks for it again
+  (480), NewsCache opens a new connection. It needs zlib: configure
+  finds it (--with-zlib requires it, --without-zlib leaves it out), and
+  "newscache -o" lists --with-zlib. zlib's development files are a new
+  optional build dependency (zlib1g-dev, zlib-devel).
 
 Bug fixes:
 * LimitGroupSize was not applied to LIST ACTIVE entries. Until a GROUP reply
@@ -67,9 +190,11 @@ Bug fixes:
   the full range and updatenews -g could prefetch it. Active-list entries now
   get the same newest-N cut as GROUP replies.
 * Authentication file: and pam+file: now warn at server start, and after a
-  successful SIGHUP reload, when an auth file is writable by group or world
-  or is a symbolic link. The warning includes the path and never blocks login;
-  duplicate paths are reported once per configuration read.
+  successful SIGHUP reload, when an auth file is writable by group or
+  world (for a symbolic link: its target), and once when the file or the
+  link target cannot be inspected. The warning includes the path and never
+  blocks login; each configured path is reported once per configuration
+  read.
 * Malformed commands starting with "auth" could expose their arguments in
   the log, including passwords. The log now keeps only the command word for
   these commands, and the reused request buffer is cleared before each read.
@@ -80,16 +205,10 @@ Bug fixes:
 * When a configuration file could not be opened, newscache,
   newscacheclean, updatenews and cConfig reported "unexpected EOF". They
   now name the file and show the system error.
-* newscacheclean -s -t now reports the database and article counts and sizes
-  found in the spool while leaving purge counters at zero; try mode used to
-  skip statistics collection and print zeros for every field.
-* MODE READER got "480 Authentication required" where the access entry
-  allows only the login ("allow authentication"), although newsreaders
-  send it before AUTHINFO and must not send it after the login (RFC
-  4643). It also answered 200 (posting allowed) to every client; it now
-  answers 201 (posting prohibited) when the client may not post at that
-  moment: read-only entries, and before a login that adds the post
-  right (RFC 3977).
+* newscacheclean -s now reports the number of cached group directories in
+  DirCnt (always 0 before), and with -t the database and article counts
+  and sizes found in the spool, leaving the purge counters at zero; try
+  mode skipped the statistics and printed zeros for every field.
 * Two sessions that started at the same time on a new spool could fail:
   the second one couldn't create the spool directories (EEXIST) and
   ended before its greeting.
@@ -124,17 +243,25 @@ Bug fixes:
   couldn't take it: logging its Message-ID failed, the run aborted, and
   the article was neither posted nor kept in .badArticles. An article
   whose posting fails with an unexpected error now stays in the spool.
-* Posts kept for later (news server offline or unreachable) were moved
-  to the spool's .badArticles directory, and never sent, when updatenews
-  ran while the news server still couldn't be reached. They now stay in
-  .artSpool until the server takes them; only articles the server
-  refuses go to .badArticles. A spooled article is also no longer lost
-  when updatenews is stopped while posting it.
+* Posts kept for later (news server offline or unreachable) were moved to
+  the spool's .badArticles directory, and never sent, when updatenews ran
+  while the news server still couldn't be reached. They now stay in
+  .artSpool until the server takes them, and the run goes on with the
+  other articles; the log says how many were kept. Only articles the
+  server refuses go to .badArticles. A spooled article is also no longer
+  lost when updatenews is stopped while posting it.
 * An upstream server could send an endless line or article, and the
-  session read it until it ran out of memory. Articles are now limited
-  by MaxArticleSize, and lines outside articles (status lines, overview
+  session read it until it ran out of memory. Articles are now limited by
+  MaxArticleSize, and lines outside articles (status lines, overview
   records, the active list, LISTGROUP) to 16 KiB; more is an error, and
-  the connection to the server is closed.
+  the connection to the server is closed. A news server that sent an
+  article, or the LIST OVERVIEW.FMT reply read when NewsCache connects,
+  one byte at a time with pauses just under ReadTimeout could hold the
+  session (and the locks it held) for hours. The article now has a limit
+  for the whole reply, two minutes plus MaxArticleSize at 4 KB/s (6
+  minutes for the default 1 MiB), and the overview format 30 seconds, 1000
+  lines and 1 MiB; NewsCache then closes the connection and answers the
+  client with 403.
 * With very few free file descriptors (ulimit -n 5 on Linux, 6 on FreeBSD),
   or a spool where the lock file can't be created, a session aborted
   before the greeting instead of answering 400: the lock class threw a
@@ -154,9 +281,6 @@ Bug fixes:
   neither posted nor prefetched anything. The option is now accepted
   and ignored: groups are prefetched one at a time. --lock-groups, as
   the usage text spells it, works too.
-* newscacheclean used NiceServer for its priority instead of NiceClean,
-  which had no effect. It uses NiceClean now (default 3), as
-  newscache.conf(5) says; check the value if you set NiceServer.
 * XDEBUG: "xdebug dump" with an unknown argument got no reply, so the
   client waited for ever; it now gets 501. The replies of "xdebug dump"
   and "xdebug help" begin with the code 100 instead of "xxx" or no code
@@ -189,18 +313,6 @@ Bug fixes:
   kept the first user's rights under the second user's name. It now gets
   502, as RFC 4643 says. A client whose entry has no Authentication gets
   502 at once too (it got 381, then 502 after the failure delay).
-* A failed login (a wrong password, an unknown user, a stored hash that
-  can't be checked, a refusal by PAM, a user name or password longer
-  than 511 characters) is now answered with 481 instead of 502, as RFC
-  4643 says. 502 means that AUTHINFO isn't available at all; it stays
-  the answer to AUTHINFO after a successful login and where the entry
-  has no Authentication. Behaviour change: a script that looks for 502
-  after a failed login must look for 481.
-* Where a login is required ("Authentication unix" without fields),
-  CAPABILITIES and MODE READER got "480 Authentication required" instead
-  of their answer, so a newsreader couldn't learn from CAPABILITIES that
-  it may log in (RFC 3977, RFC 4643); unknown commands got 480 instead
-  of 500.
 * Auth-file lines longer than 1023 bytes (a long List) were split
   silently: the line lost its later fields, such as the flags, and the
   rest was read as a line of its own, whose start was taken for a user
@@ -251,9 +363,6 @@ Bug fixes:
   files named like history shards) and replaced a file named .db, and a
   link loop made it count the spool many times over and purge articles
   for nothing. It now skips symlinks.
-* POST takes articles of up to 1 MB. There was no limit: a client could
-  send an endless article (or line) until the session ran out of memory.
-  A larger article is refused with 441 and the session goes on.
 * In standalone mode a client got no reply when its session couldn't
   open the spool (missing or not writable): the "400 ... service not
   available" stayed in the buffer, because the session exited without
@@ -320,11 +429,13 @@ Bug fixes:
   silently overwrote another one; the file is now moved aside as
   damaged instead.
 * When a spool file grew and couldn't be mapped into memory again (an
-  address space limit, ulimit -v or LimitAS=), the session kept the
-  file's lock for good, so every other session that needed that group,
-  the active list or the history hung, and its next access to the file
-  crashed it. The lock is now given back and the file mapped again at
-  the next access.
+  address space limit, ulimit -v or LimitAS=), the session kept the file's
+  lock for good, so every other session that needed that group, the active
+  list or the history hung, and its next access to the file crashed it.
+  The locks are now given back (also the outer ones when the file grew
+  while a nested lock was given up), a write under its own lock reports an
+  error instead of crashing, and the file is mapped again at the next
+  access.
 * A signal (SIGTERM, SIGHUP, the client timeout's alarm) that came while
   a session waited to upgrade its lock on a spool file left the session
   without the lock it already had, so it went on reading the file
@@ -385,15 +496,18 @@ Bug fixes:
   locked for everyone. With ReadTimeout the connection is given up and
   opened again, also over TLS (where the wait was without limit even
   when closing the connection).
-* A header folded over several lines was read with the line breaks and
-  the white space that starts each continuation line removed: "Subject:
-  foo" followed by " bar" read "foobar" in HDR, XHDR and XPAT (by
-  message-ID, and by number once the article was in the spool), where
-  the overview from the news server says "foo bar". Unfolding now keeps
-  one space in place of the fold, as RFC 5322 says. For a Newsgroups
-  header this means a fold after the comma still separates two names,
-  and a fold instead of a comma is white space in a name, which is
-  refused, not a third group made of the two names joined.
+* A header folded over several lines was read with the line breaks and the
+  white space that starts each continuation line removed: "Subject: foo"
+  followed by " bar" read "foobar" in HDR, XHDR and XPAT (by message-ID,
+  and by number once the article was in the spool), where the overview
+  from the news server says "foo bar". Unfolding now removes only the line
+  break and keeps the white space around it (RFC 5322 2.2.3), as the news
+  server's overview has it, so a group's OVER line no longer changes once
+  the article is in the spool. HDR, XHDR and XPAT also turn a TAB in a
+  header into a space, as OVER does (RFC 3977 8.5.2). For a Newsgroups
+  header this means a fold after the comma still separates two names, and
+  a fold instead of a comma is white space in a name, which is refused,
+  not a third group made of the two names joined.
 * The PostTo check and the posting read a Newsgroups header differently.
   The check split it on commas and matched each name against the PostTo
   list, but the matcher stopped at white space, so "Newsgroups: a b" was
@@ -408,7 +522,7 @@ Bug fixes:
   such an article gives no Read right by message-ID either.
 * AUTHINFO: the password hashes are compared in constant time, so the
   answer's timing no longer tells how many leading characters of a guess
-  matched. A stored hash that crypt() can't use is refused with 502 and
+  matched. A stored hash that crypt() can't use is refused with 481 and
   an error in the log, also on libxcrypt and musl, where crypt() returns
   the failure token "*0" instead of NULL (a stored "*0" matched it for
   any password). Built with --without-md5 but with MD5 autodetection, a
@@ -466,12 +580,16 @@ Bug fixes:
 * ./autogen stops with an error when autoreconf fails (autoconf, automake
   or libtool missing). It used to say "Next run ./configure" anyway, and
   the build failed one step later because there was no configure script.
-* An article with a NUL byte, or a CR without LF in a header, from the
-  upstream server (or posted through NewsCache) could not be read
-  ("423 no such article number") or, once stored, made NewsCache take
-  the group's spool database for damaged at every read: it was moved to
-  .db.bad and all cached articles of the group were fetched again. Such
-  bytes now become a space; RFC 5536 allows neither.
+* An article with a NUL byte, or a CR outside CRLF, from the news server
+  could not be read ("423 no such article number") when the CR was in a
+  header, or, once stored, made NewsCache take the group's spool database
+  for damaged at every read: it was moved to .db.bad and all cached
+  articles of the group were fetched again. A lone CR in the body, or
+  inside an overview record, went to clients in ARTICLE, BODY, OVER, XOVER
+  and XHDR, and a reader that ends a line at a CR saw the reply end early
+  and status lines chosen by the news server. Such bytes now become a
+  space (RFC 5536 allows neither), when the article or record is read from
+  the news server and when one that an older version stored is sent.
 * XHDR Xref and HDR Xref killed the session (an uncaught exception,
   SIGABRT) when an overview record from the upstream server had an empty
   Xref field followed by a tab. They also answered ": host group:n"
@@ -517,13 +635,6 @@ Bug fixes:
   characters: the length was checked first. The sequence is now checked
   first. AUTHINFO with an unknown subcommand and a long argument now
   gets 501 (syntax) instead of 481.
-* The greeting was "200" (posting allowed) for every client. It now
-  follows the same rule as MODE READER: "201 ..., posting prohibited"
-  when the client may not post at that moment, as RFC 3977 says:
-  read-only entries, entries that allow only the login, and before a
-  login that is required or that would add the post right. Behaviour
-  change: such clients get 201 instead of 200 in the greeting; after
-  the login, CAPABILITIES says whether POST is available.
 * Where a login is required ("Authentication unix" without fields),
   CAPABILITIES listed READER, HDR, OVER, LIST and POST before the
   login, although all of them got "480 Authentication required" then.
@@ -542,13 +653,6 @@ Bug fixes:
 * DATE would answer "500 gmtime failed" if the system couldn't convert
   the time; 500 means "unknown command". It is "403 gmtime failed" now
   (RFC 3977: internal fault). This doesn't happen in practice.
-* POST answered with codes RFC 3977 doesn't allow after the article has
-  been sent, where only 240 and 441 are: "480 authentication required"
-  for a group outside PostTo while a login could add it, "440 posting
-  not allowed", and "449 operation failed" (for example, when a post
-  for an offline news server couldn't be spooled). All three are 441
-  now; the first says "authentication required" in its text. A client
-  that waited for 480 there to offer a login will show the 441 instead.
 * GROUP and LISTGROUP answered "411 no such news group" also when the
   news server couldn't be reached or answered GROUP with an error, for a
   group the spool didn't know yet: the group looked as if it didn't
@@ -569,19 +673,483 @@ Bug fixes:
   "411 no such news group". RFC 3977 asks for 412 when the selected
   group is invalid, and keeps 411 for a group named in the command; the
   reply is now "412 current group no longer exists".
+* TLS connections to upstream servers: a read or write interrupted by
+  SIGTERM or the alarm was retried, so a session waiting for an upstream
+  TLS server ended only when the server answered; now it ends at once,
+  as with a plain connection.
+* ListenTo (and TLSListenTo) with an IPv6 address such as [::1] failed on
+  a host without a global IPv6 address, a container for example:
+  getaddrinfo was asked for AI_ADDRCONFIG, which ignores loopback
+  addresses. The listen address is numeric and is now used as given.
+* The listening sockets queued at most 4 connections that weren't
+  accepted yet; a burst of clients overflowed that, and FreeBSD reset
+  the extra connections. The queue now holds 128 (MaxConnections still
+  limits the sessions).
+* newscache didn't check whether listen() worked on its listening
+  sockets. On Linux two sockets can bind the same address and port, so
+  with TLSListenTo on the port of ListenTo (or of another program) only
+  listen() failed, and the daemon ran without that listener: TLS clients
+  reached the plain listener. It now exits with "can't listen on
+  TLSListenTo ...".
+* When header logging is enabled, failures to open `.headerlog` are now
+  logged instead of silently dropping the header.
+* configure --with-gnutls now fails when the GnuTLS library or headers
+  are missing, instead of silently building without TLS. With no explicit
+  option GnuTLS remains optional, and a missing dependency is warned about.
+* A termination or reload signal arriving just before the daemon entered
+  poll could leave it waiting until another client connected. Signals now
+  wake the idle daemon immediately.
+* The default configuration path expands `${prefix}` in a custom
+  `--sysconfdir` (it stayed literal, so a `--sysconfdir='${prefix}/conf'`
+  build looked for a file under a directory named `${prefix}`). Shell
+  syntax such as `$(...)` in `--prefix` or `--sysconfdir` stays literal
+  and is not run.
+* When a listener cannot bind, the final error on stderr and in the log
+  now includes the system error, such as "Address already in use".
+* SIGHUP reports each changed restart-only setting against the running
+  startup configuration, including whether ListenTo was specified. Notices
+  repeat until restart or until the configured setting is reverted.
+* OVER answers 423 when the requested article range is empty, including a
+  reversed range, instead of sending an empty 224 response (RFC 3977).
+* OVER by message-ID now answers 503, because this optional form is not
+  supported, whether or not a newsgroup is selected (RFC 3977).
+* Generated Message-IDs no longer exceed the 250-octet limit with a long
+  Hostname: when necessary, the host part is the hostname's MD5 in lowercase
+  hexadecimal, while the time, process and counter components are retained.
+* Reject overlong database paths before copying them into the fixed-size
+  container filename buffer, without disturbing an already-open database.
+* A configuration path that is a directory is now reported as "cannot open
+  configuration file <path>: Is a directory" instead of "unexpected EOF".
+* A login with an unknown user (or a locked line) in `Authentication file`
+  or `Authentication unix` is no longer answered faster than one with a
+  wrong password. A dummy hash check takes the same time, so the time of
+  the reply no longer tells which user names exist.
+* updatenews now retains group-number information for up to 60 seconds during
+  prefetch, avoiding redundant upstream GROUP commands within a prefetch.
+* Upstream TLS handshakes now have a whole-handshake deadline based on
+  ReadTimeout, or ConnectTimeout when ReadTimeout is zero (60 seconds when
+  both are zero), and stop promptly on termination signals. STARTTLS retains
+  the configured timeout after upgrading.
+* CAPABILITIES now advertises LIST EXTENSIONS, which the client already
+  implements.
+* NEWGROUPS now rejects arguments beyond its optional GMT token, reports the
+  correct syntax, and uses the RFC 3977 231 reply text without a timestamp.
+* updatenews now logs an error with the reason (for example "No such file or
+  directory" or "Permission denied") and exits nonzero when a configured
+  PrefetchFile cannot be opened or is a directory or a FIFO (a directory was
+  read as empty, a FIFO blocked the run). An empty PrefetchFile, or
+  /dev/null, still means no groups to prefetch.
+* NewsCache now warns in its log, at startup and after a reload, when a
+  PAM service named by `PAMServicename` for `Authentication pam` or
+  `pam+file` has no configuration in `/etc/pam.d` or `/etc/pam.conf`. PAM
+  then silently uses its `other` service. The warning is advisory; logins
+  are unchanged.
+* NEWGROUPS rejects invalid calendar and clock values instead of allowing
+  the C library to normalize them. Documented that NEWGROUPS and LIST
+  ACTIVE.TIMES use the local first-seen time, not upstream creation times.
+* Free the last selected group and the server object when a client session
+  ends, and the purge list in `newscacheclean`, so that a leak-checking
+  (LeakSanitizer) run of the test suite reports nothing.
+* Bound upstream active lists, overview replies and LISTGROUP replies so a
+  broken server cannot keep consuming resources or holding locks
+  indefinitely: an active list may have at most 2,000,000 lines and 256
+  MiB and take at most 5 minutes, an overview or LISTGROUP reply as many
+  lines as the requested range and at most 2 minutes. Incomplete replies
+  are not marked fresh, and their upstream connections are closed rather
+  than reused. An incomplete combined active list is retried after at most
+  60 seconds, rather than on every request. Interrupted overview and
+  LISTGROUP replies are reported as failures rather than as a successful
+  empty or incomplete range.
+* Filter Xref headers in one pass so a large crosspost list from an upstream
+  server cannot hold the group lock for quadratic time.
+* A client that stops reading its replies now ends its session after one
+  ClientTimeout. Output left in the send buffer after the failed send was
+  sent again by every later flush, each waiting for the timeout once more,
+  so such a session lasted several ClientTimeouts (seen with TLS on
+  EL9).
+* A client's LISTGROUP goes to the news server in steps, each with its
+  own reply limits: 10000 numbers at a time in a dense group, larger
+  steps (up to 100000000 numbers) across gaps; it fails when no number
+  reached the client for 5 minutes. It used to be one request
+  for the whole range, or the whole group, so a list of millions of
+  numbers could run into the reply deadline, and a provider that
+  answers 503 to large ranges made NewsCache fetch overview records
+  instead.
+* Posts forwarded to multiple upstream servers now get missing Date and
+  Injection-Date headers before forwarding, so each injector receives the
+  same dates along with the shared Message-ID.
+* An inetd session (newscache -i) that gets SIGINT or SIGTERM between two
+  commands ends at once with "400 ... service discontinued"; it waited for
+  the client's next line. Reads inside a command, such as the article of a
+  POST, now also give up after ClientTimeout plus 10 seconds in inetd
+  mode, as they do in the daemon; a stalled POST kept the session forever.
+* Bytes of 0x80 and above in client commands, newsgroup names and the
+  configuration file are passed to the C character class functions as
+  unsigned char. As plain (signed) char they were negative values,
+  undefined for those functions, and read outside the table on C
+  libraries that index it directly.
+* POST refuses an article with a NUL or a CR outside CRLF (441), as
+  RFC 5536 requires. It was forwarded as it came: against a news server
+  that ends a line at a lone CR, the article ended early and the rest
+  ran as commands on NewsCache's own connection to that server. A
+  spooled article with such a CR, from an older version, is posted
+  with the CR replaced by a space.
+* Control bytes in a log line (ESC, a CR, DEL and the other bytes below
+  0x20) are now written as "?". Client input went into the log as it
+  came, in commands, user names, group names and host names from DNS, so
+  a client could make a line look like something else on a terminal or
+  split it for a log parser. The same applies to the article headers that
+  configure --enable-headerlog writes to .headerlog, except tabs and the
+  line ends.
+* An article over 15 kB is stored in a file of its own. NewsCache wrote
+  it in place: a crash or power cut could leave the file cut off, and
+  NewsCache then served it without its last partial line and without a
+  word; a write that failed (a full disk) removed the copy that was
+  there. Now the file is written under a temporary name (.art<n>.tmp),
+  flushed to the disk (fsync) and renamed, and the directory is flushed
+  too, before the article counts as stored: the file is either whole or
+  the old one. A cut-off file from an older version, whose last line has
+  no line end or that has no empty line after the header, is fetched
+  again from the news server and written anew. If the news server
+  doesn't have the article any more, the stored copy is served as it is
+  and the log says so; the file is kept (one cut before its Message-ID
+  header can't be served and is removed, as before). (A file cut right
+  after a line end in the body can't be told from a whole one.) Complete
+  files with LF line ends (as older versions or an admin may have
+  written them) are served as before. newscacheclean counts a .tmp file
+  that a crash left behind as an article file and removes it by its age.
+* A session or updatenews stopped with SIGTERM or SIGINT (updatenews also
+  with SIGHUP, SIGUSR1 or SIGUSR2) while it waited for the news server
+  opened new connections to it before it ended: the connect was retried
+  (Retries times, a second apart), a command was sent again after a
+  reconnect, and updatenews tried the next server and fetched the active
+  list. With a ConnectTimeout (it is 30 by default now), the reconnect
+  even cleared the signal's mark, so the session carried on until the next
+  command or ReadTimeout; with ConnectTimeout 0, an interrupted connect to
+  a news server that didn't answer was started again and waited for the
+  system's timeout (minutes). Now nothing is retried and no reconnect is
+  made after the signal (a connect that began at that very moment is
+  closed before a command is sent on it), and a wait for the news server
+  ends within about a second: a signal that came just before a wait began
+  (after the check for it) is caught by an alarm every second until the
+  process ends. The reply "service discontinued" gets two seconds, and a
+  TLS send isn't started again once the signal is seen. The log says
+  "given up: shutting down" or "not read to its end: shutting down"
+  instead of blaming the news server, and an empty line for a greeting
+  that never came is no longer logged.
+* Opening a group's database waits for its lock and then checks the
+  file. A signal that interrupted the wait (SIGTERM, or SIGHUP for
+  updatenews) let the checks run without the lock: they could see
+  another process half way through a change and call a sound database
+  corrupt, which moved it aside and started an empty one. Now the wait
+  goes on after a signal, and a lock that can't be taken is an error.
+  The same holds for the directory lock taken before a corrupt database
+  is moved aside.
+* The lock of the post spool (.artSpool) gave up when a signal
+  interrupted the wait for it: after SIGTERM, a post that the news
+  server didn't take could fail to reach the spool, and the client got
+  an error. Now the wait goes on; the lock is held only while one file
+  is stored or removed.
+* A client that asked for a long XOVER, XHDR or LISTGROUP reply and stopped
+  reading held the group's shared lock until its send timed out
+  (ClientTimeout), and every session that had to store an article or an
+  overview record for that group waited that long - 600 seconds with the
+  sample configuration. The records are now formatted under a short lock and
+  written with the lock released: at most 64 records or 64 KB for XOVER and
+  XHDR, and at most 4096 numbers or 64 KB for LISTGROUP.
+* Fetching an article from the news server held the group's shared lock for
+  the whole fetch (bounded by ReadTimeout, 300 seconds by default), so every
+  session that needed to store an article or an overview record for that group
+  waited for the news server. The article is now fetched with the lock
+  released and stored afterwards; an article that another session stored, or a
+  group that was resized, meanwhile is handled when the article is stored.
+* A daemon session (not one started by inetd) stopped with SIGTERM or
+  SIGINT while a command ran, for example while it waited for the news
+  server, sent neither that command's reply nor "400 ... service
+  discontinued": the signal made the send fail, and the log said "can't
+  be written to, session ended". A client whose post had gone to the
+  spool got no 240 and could post it again. Now the reply and the 400 go
+  out, with two seconds for both.
+* A client's LIST ACTIVE (or GROUP, when it needs the group's entry) that
+  found the active list stale held the list's exclusive lock while NewsCache
+  fetched the list from the news servers, so every other session's GROUP
+  waited for the news server - up to the whole-reply limit of 5 minutes per
+  server. The list is now fetched without the database's lock and stored
+  afterwards: a fetch that fails midway (reply limit, deadline) leaves the
+  stored list as it was, while a reply cut off in the middle still stores the
+  lines that were read, as before. A second lock in the spool
+  (.active.refresh) makes sure only one session fetches the list at a time: a
+  session that finds another one fetching serves the list it has, and only a
+  session with no list at all (first start, a damaged .active64) or
+  updatenews -a waits for the fetch to finish. Meanwhile a group that is new
+  on the news server is unknown (411) until that fetch is done. A session or
+  updatenews stopped with SIGTERM or SIGINT while it waits for another
+  one's fetch ends at once; it waited for that fetch to finish. A session
+  stopped in the middle of its own fetch no longer marks the news servers
+  as failed, which made the other sessions serve the old (or an empty)
+  list for up to a minute.
+* A client's XOVER, OVER, XHDR or HDR on a range of a group that
+  NewsCache hadn't synchronized yet (or not within GroupTimeout) held the
+  group's exclusive lock while it asked the news server for the group's
+  numbers, the article list and the overview records. Every other session
+  that read that group, even an article already in the spool, waited for
+  the news server: up to 2 minutes per 10000 article numbers, longer with
+  a server that sends slowly. The news server is now asked without the
+  lock, and the records are stored afterwards under a short one. A new
+  lock file in the spool (.fetch.lock, no data in it) still lets only one
+  session fetch a range at a time: a second session that wants the same
+  range waits for the first one and serves what it stored, instead of
+  asking the news server again.
+* updatenews -g held the group's lock while it asked the news server for
+  the article list and each article, so clients reading the group waited
+  for it (with -l, for the whole prefetch of each 10000 numbers). It now
+  locks the group only while it stores or removes an article. With -l a
+  range is still reserved for the prefetch while it runs: sessions that
+  need its overview wait for the prefetch instead of fetching it too, but
+  sessions reading what the spool holds no longer wait.
+* A stored article that can't be read is removed from the cache, so that
+  it is fetched again. When another session had just stored a good copy of
+  that article, the good copy could be removed instead (and was fetched
+  again on the next request). Now only the unreadable copy is removed.
+* The first fetch of the active list (the list of groups) on a new spool,
+  from several news servers or with several Read patterns, no longer gives
+  other sessions a partial list while it runs: they wait for it. If NewsCache
+  was stopped during that first fetch, the next session fetches the list
+  again; before, the part already fetched was served as complete until the
+  list timed out (Timeouts).
+* When newscacheclean prunes history for a group whose spool database is
+  gone, it no longer removes a location that another session has updated or
+  whose group has since been recreated. Losing that location made a
+  message-ID lookup go to the news server instead of finding the cached
+  article (the article was still in the spool; only the lookup by
+  message-ID missed it).
+* When a group has an article under a new number, removing an old spool
+  record or a stale history location no longer removes the new number from
+  history. The cached article remains findable by message-ID instead of
+  requiring a fetch from the news server.
+* Reading an older cached copy of an article no longer replaces the history
+  location of another copy in the same group. This keeps the surviving copy
+  findable by message-ID when the older one is removed from the spool.
+* A GROUP that gets a group's numbers from the news server no longer sets
+  the group's posting flag in the active list to "y". A moderated ("m") or
+  read-only ("n") group was listed as open for posting by LIST ACTIVE and
+  NEWGROUPS until the active list was fetched again.
+* The flag that NewsCache's and updatenews' signal handlers set to end a
+  wait (alarmed) is now volatile, as C and C++ require for a variable a
+  signal handler writes. A compiler was free to keep the old value in a
+  register, and a loop could miss a timeout or SIGTERM.
+* On systems where a lock held by another process makes fcntl report
+  EACCES (POSIX allows it), updatenews no longer stops posting the spooled
+  articles with an error when another process is posting them; it says
+  that another process posts them, as on Linux and the BSDs.
+* updatenews -g no longer marks a chunk of a group's overview as up to date
+  for numbers it didn't fetch: in a group of more than 10 million numbers,
+  the ones just below the prefetched part (in the same chunk of 10000), and
+  numbers another session's range had already moved past while the
+  prefetch ran. Clients asking for those numbers got nothing from the spool
+  instead of the news server's overview.
+* newscacheclean no longer removes a big article's file that a session
+  stored while the cleaner was reading the group's directory: it took the
+  file for one outside the group's range and removed it at the end of the
+  run, even when the spool was below SpoolSize. Nor does it remove a file
+  that was replaced under the same name since the scan (an article stored
+  again, a group database started anew after a damaged one was moved
+  aside): the check and the unlink are done under the lock the session
+  takes for that change.
+* When a group's article range changes during an overview fetch, NewsCache
+  no longer marks an out-of-range fetch as synchronized. If the index later
+  grows down into a partly covered chunk, its synchronization mark is cleared
+  so missing overview records are fetched instead of treated as fresh.
+* With "Options starttls", a reply shorter than a status code to MODE
+  READER, STARTTLS or LIST OVERVIEW.FMT (which anyone in the middle can
+  send), or a refused login, left the half set-up connection to the news
+  server open. The next command went out on it in plain text, without
+  STARTTLS or the login, and a 480 to that command made NewsCache send
+  User and Password in plain text. Such a connection is now closed, and
+  the next command connects again.
+* An article with bare LF line ends, written as its body only, started
+  with an extra empty line and ended with a stray NUL byte. The body is
+  now written as it is.
+* On FreeBSD and macOS a news server with BindFrom could not be reached
+  ("Unable to bind to outgoing address"): bind() was given the size of
+  a whole sockaddr_storage as the address length. It now gets the
+  length of the address (IPv4 or IPv6).
+* HELP showed a wildmat argument for NEWGROUPS, which the command
+  rejects with 501, and a time argument for LIST ACTIVE.TIMES, which
+  takes a wildmat. HELP and the 501 syntax reply now show what the
+  commands accept; AUTHINFO, MODE and XDEBUG are listed completely.
+* LIST NEWSGROUPS left out the last description when the .newsgroups
+  file did not end with a newline. It is now listed.
+* In a Server block of the configuration, a PostTo line before the Read
+  line was overwritten by Read. PostTo now stays as given; without it,
+  it still defaults to Read. The manual says so.
+* A temporary error while reading a group's record (no free file
+  descriptor, a lock timeout) made the lookup of an article by
+  Message-ID forget where it was stored. The location now stays in the
+  history unless its record is really gone or holds another article.
+* The wildmat of LIST ACTIVE, LIST ACTIVE.TIMES and LIST NEWSGROUPS is
+  now a list as in RFC 3977 section 4.2: comma separated patterns, each
+  optionally led by "!", the last one that matches deciding. A list such
+  as "comp.*,alt.*" or "comp.*,!comp.os.*" used to list nothing, and
+  LIST ACTIVE.TIMES read its argument as an access rule list, so
+  "LIST ACTIVE.TIMES *.test" listed every group the client may list.
+* A client that posted two articles without a Message-ID in one session,
+  to more than one server, within the same second could lose the second:
+  both got the same generated Message-ID (the counter in it was always
+  1), so the second was taken for a duplicate and dropped, while the
+  client got 240. The counter now counts.
+* A client that sent the article after POST slowly enough to never hit
+  the per-read timeout (a byte every few seconds) could hold a session,
+  and with enough of them all of MaxConnections, for ever. The whole
+  article must now arrive within ClientTimeout after the 340 reply;
+  otherwise the client gets "400 ... service timed out!" and the
+  connection is closed.
+* A client whose PostTo allowed only some groups could add a second
+  Newsgroups header with another group: only the first was checked, and
+  both went to the news server. A POST with a repeated Newsgroups, From,
+  Subject, Date, Path or other header that RFC 5536 allows once is now
+  refused with 441 "more than one ... header" and logged.
+* When accept() failed because the daemon had run out of file
+  descriptors or memory (EMFILE, ENFILE, ENOBUFS, ENOMEM), it retried at
+  once, without pause: it used a whole CPU and logged "accept failed"
+  for every try. It now logs the failure once, waits a second between
+  tries (a signal still acts at once) and logs again after an accept
+  that worked.
+* Started without -n, newscache forked and its parent exited with status
+  0 at once. If the daemon then could not listen (port in use) or drop
+  its privileges, it said so only on a standard error already pointed
+  at /dev/null: the start command reported success and no daemon ran.
+  The parent now waits until the daemon listens; if the daemon ends
+  before that, it exits with status 1 and the daemon's message is shown
+  on the terminal.
+* A C++ standard exception (std::bad_alloc, std::length_error ...) in a
+  command ended the session without a reply, and in inetd mode (-i, -t)
+  ended the process with SIGABRT and a core dump. The client now gets
+  "403 internal error" like for NewsCache's own errors and the session
+  goes on; the exception is logged. Outside a command the session ends
+  with a log message.
+* On a TLS connection to a news server, silence lasted twice as long as
+  ReadTimeout before NewsCache gave up on the reply. Now it is one
+  ReadTimeout, as on a plain connection.
+* A session inherited the master's SIGCHLD handler, which reaps any child
+  with waitpid. A helper process started by a PAM module during login
+  could lose its exit status to it. Sessions, and the inetd mode, now
+  leave SIGCHLD at its default.
+* After a power cut or a crash, an article that a client had POSTed
+  while the news server was unreachable ("240 Article posted") could be
+  an empty file in the outgoing spool, and updatenews moved it to
+  .badArticles: the post was lost. The article is now written to disk
+  (and the directory synced) before the client gets the 240. A
+  temporary file left in the outgoing spool by a crash is now removed
+  by updatenews.
+* One failure to open a history shard (too many open files, no space
+  left while the file was created) switched the history off for that
+  shard until the session ended: ARTICLE <message-id> went to the news
+  server and the stored locations went stale. The shard is now tried
+  again after a few seconds.
+* An Article object that had not read or been given a text yet pointed
+  at uninitialised memory when asked for its text. No code path did
+  that, but a failed read (out of memory) could leave the same
+  dangling pointer. The text pointer is now set in every constructor
+  and when a read fails.
+* After a process was killed while it grew a database file, the next
+  growth left part of the new space unusable (up to 64 KB, more for
+  large indexes). The free space is now counted from the size the
+  header records.
+* When a damaged database was moved aside and the new one could not be
+  started because memory ran out, the lock on the spool directory
+  stayed held until the process ended, and other processes that had to
+  move a damaged database aside waited for it. The lock is released
+  and the database is started again at the next use.
+* A damaged record in the active database that was a few bytes longer
+  than a group entry (554 to 560 bytes) was not recognised as damage:
+  GROUP and the other commands for that group failed with an error
+  until the file was removed by hand. The file is now moved aside and
+  rebuilt, as for any other damaged record.
+* updatenews kept the database of a group open when its prefetch failed
+  with an unexpected error, one file descriptor and one mapping per group,
+  until the run ended. A long run over many failing groups could run out
+  of file descriptors. The group is now released.
+* A group's last article number could go back: a GROUP reply stored after
+  a newer one from another session put the older numbers back, and so
+  could an active list that was still being read (it is now fetched
+  without the database's lock, see above). For up to GroupTimeout, GROUP
+  then showed the old last number, and the overview records and articles
+  above it that had been cached were thrown away. A group's numbers now
+  carry the time they were asked for, and older numbers no longer replace
+  newer ones (in the same second, the higher last number stays). The
+  list's posting flag is still taken over.
+* Going back from an exclusive lock on a spool database to the shared
+  lock held around it (as when a session removes an unreadable article
+  while it reads a group) gave the lock up for a moment, and another
+  process could change or resize the file in the middle of the shared
+  section. The exclusive lock is now turned into the shared one at once;
+  only taking an exclusive lock still gives the shared lock up first.
+* A client could get "403" for a command that opened a group at the
+  moment newscacheclean removed that group's directory (after its
+  database): the session had made sure the directory was there, and
+  then found it gone when it created the database. The session now
+  makes the directory again and creates the database.
+* A spooled article that updatenews could not read (one too big for the
+  memory) ended the posting run with the lock of the outgoing spool
+  still held: until updatenews ended, every session that spooled a POST
+  while the news server was down waited, and the article, read first,
+  stopped every later run as well. It is now moved to .badArticles, with
+  a line in the log, and the next spooled article is posted.
+* When a session ran out of memory while it sent overview data, header
+  lines or article numbers of a group (OVER, HDR, LISTGROUP), or while
+  it changed the active database and the disk was full, it kept the
+  group's (or the active database's) lock until it ended, and every
+  other session that had to change it waited. The lock is now given
+  back in every case.
+* The lookup of a client's host name ran before the greeting, with no
+  time limit: a client whose reverse DNS zone doesn't answer kept a
+  session, one of MaxConnections, for the resolver's timeouts (a minute
+  and more). The lookup now takes at most 10 seconds (or ClientTimeout,
+  if that is shorter); after that the client goes by its address, and
+  the log says so.
+* A client turned away at MaxConnections ("400 too many users") was not
+  logged, so a server whose sessions were all taken (by a flood, or by
+  idle clients) showed nothing. The log now names the first client
+  turned away, counts the others at most once a minute while the limit
+  is reached, and says when a session can be started again.
+* Built with --without-syslog, the daemon wrote into its log file until
+  it ended: after log rotation renamed newscache.log, it and every new
+  session went on writing into the renamed file, so only copytruncate
+  (which loses lines) worked. On SIGHUP the daemon now opens
+  newscache.log again; sessions started afterwards write to the new
+  file, running ones to the old one until they end. newscache.conf(5)
+  and the manual have a logrotate example.
+* The client's name, which its reverse zone gives (whoever has the
+  address block runs that zone), went into X-NNTP-Posting-Host and the
+  log as it was. musl's getnameinfo returns CR and LF too, so on musl
+  systems (Alpine) a name with "\r\n.\r\n" ended a posted article on
+  the news server's connection, and the rest was read as commands.
+  A name with anything but letters, digits, dots, hyphens and
+  underscores is now dropped, and the client goes by its address;
+  X-NNTP-Posting-Host is also left out when the host has a space or a
+  control character.
+* LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS collected the list in a
+  buffer under the lock and then made a copy of all of it to send it,
+  for any client that may list. It is now sent from the buffer itself:
+  for a list of 3 million groups (190 MiB) a session's peak memory
+  goes from about 370 to 260 MiB.
 
 Documentation:
 * SECURITY.md: how to report a vulnerability privately (GitHub Security
-  Advisories), which versions get security fixes, and the scope.
-* Outdated text: the xdebug session in newscache.conf(5) is a current
-  one (201 greeting with the installed version, the entry's file: login,
-  PAMServicename); the
-  server Read entry there had a stray fragment and pointed to RFC 2980;
-  newscache.conf(5) and newscache.conf-dist said the second Timeouts
-  value controls fetching the newsgroup descriptions, which NewsCache
-  doesn't do (LIST NEWSGROUPS reads .newsgroups in the spool, made by
-  hand); newscache.conf-dist called the cached option "not yet
-  implemented" and didn't say that NiceClient has no effect.
+  Advisories, also through the GitHub API with gh api, for scripts and AI
+  agents), which versions get security fixes, the scope, and how
+  maintainers and collaborators (and their AI agents) coordinate embargoed
+  findings, which is not a reporting channel.
+* Outdated text: the xdebug session in newscache.conf(5) is a current one
+  (201 greeting with the installed version, the entry's file: login,
+  PAMServicename); the server Read entry there had a stray fragment and
+  pointed to RFC 2980; newscache.conf(5) and newscache.conf-dist said the
+  second Timeouts value controls fetching the newsgroup descriptions,
+  which NewsCache doesn't do (LIST NEWSGROUPS reads .newsgroups in the
+  spool, made by hand); newscache.conf-dist called the cached option "not
+  yet implemented" and didn't say that NiceClient has no effect (it is
+  kept for compatibility, and commented out in the sample now).
 * The manual said that NewsCache uses the most specific AccessList entry
   that matches a client. It uses the first one, in the order of the
   file, as newscache.conf-dist says: put narrower entries before broader
@@ -607,17 +1175,42 @@ Documentation:
   in a second NewsServerList inside the first one. It now has "allow
   read post" and one NewsServerList.
 * The man pages and the manual were compared with the code. Retries and
-  ReadTimeout are options of a Server entry, not general ones (at the
-  top level they are an error); ConnectTimeout, ConnectBackoff,
+  ReadTimeout are options of a Server entry, not general ones (at the top
+  level they are an error); ConnectTimeout, ConnectBackoff,
   LimitGroupSize, User, Password and dontgenmsgid have entries of their
   own in newscache.conf(5), and Hostname too. Its first example had
-  options in a Server entry that the parser refuses. Only
-  "Authentication unix" without fields requires a login; "allow
-  authentication" only lets a client connect so that it can log in.
-  Where no login can add a right, a command that needs it gets "500
-  What?". newscache(8) lacked -n in its synopsis, updatenews(8) the
+  options in a Server entry that the parser refuses. Only "Authentication
+  unix" without fields requires a login; "allow authentication" only lets
+  a client connect so that it can log in. Where no login can add a right,
+  a command that needs it gets "502 access denied" (POST "440 posting not
+  permitted"). newscache(8) lacked -n in its synopsis, updatenews(8) the
   option -c, newscacheclean(8) -t and -v, and newscache.conf(5) named
   ConfigVersion 3 instead of 5.
+* Explain that `PAMServicename` must name an installed service, a missing
+  service may fall back to the system's `other` policy depending on PAM
+  configuration, values are not quoted, and the `pam_unix` log hint may
+  not apply to failures from other modules.
+* Clarify supported auth-file password formats, including the weak raw-MD5
+  format and platform-dependent `crypt(3)` hashes.
+* The manual's example "Options cached,semioffline" didn't parse (the
+  options are separated by blanks): it reads "Options cached semioffline".
+  The manual shows the package version (it said 0.99.13), describes
+  newscacheclean's per-article expiry instead of a plan for it, no longer
+  describes the removed configure flag --enable-notcached, and names the
+  source directories as they are. newscache(8) shows the sentence on
+  TLSCertFile and TLSKeyFile after SIGHUP, which troff swallowed.
+  newscache.conf(5) gives the defaults of LogStyle, ListenTo and Admin,
+  says that the configuration is read again on SIGHUP, that an empty
+  password field or one starting with * or ! locks the user, and how to
+  switch off a Commands entry; updatenews(8) says that updatenews ignores
+  offline and semioffline and uses a GroupTimeout of 60 seconds.
+* README, FEDORA.md, debian/README.Debian and the sample configuration
+  now match the code: ReadTimeout and Retries are listed, dontgenmsgid is
+  in the sample file, the commands allowed before a login are complete,
+  and the Fedora package versions are current.
+* The notes in doc/ on PAM, core dumps, stunnel and corrupt databases are
+  rewritten for the current parser, the systemd packages, built-in client
+  TLS and the connection close after a part-sent reply.
 
 Other changes:
 * CI: the macOS jobs (build and test, checkout on a case-insensitive
@@ -629,10 +1222,30 @@ Other changes:
 * NewsCache builds on Debian GNU/Hurd: configure defines MAXPATHLEN
   (4096) and MAXHOSTNAMELEN (256) where the system has none, and the
   unit check cCorruptDB skips its file-limit case where RLIMIT_NOFILE
-  isn't enforced. (The e2e tests need Go, which the Hurd lacks.)
-* The end-to-end tests use nntp-testkit 0.7.0 (still Go 1.26 or later).
+  isn't enforced. cLockDowngrade skips its check that another process
+  can read: Hurd's fcntl keeps a write lock when a read lock is asked
+  for, so there the shared section that follows an exclusive one holds
+  the exclusive lock until it ends. (The e2e tests need Go, which the
+  Hurd lacks.)
+* The end-to-end tests use nntp-testkit 0.11.0 (still Go 1.26 or later).
 * TestSpoolDiskFullDaemon no longer fails on a busy machine (its client
   sat idle past ClientTimeout while the other client worked).
+* TestSessionSigchldDefault no longer fails on a busy machine: the
+  session of the harness's readiness probe could still be running when
+  it counted the daemon's children.
+* The PAM and client TLS end-to-end tests no longer fail when two test
+  runs share a machine: each PAM service they write to /etc/pam.d has a
+  name of its own (it was newscache-e2e-001 in every test, so one run
+  read the other's rules), and a TLS listener port taken before
+  newscache bound it is replaced by another one, as the tests already
+  did for the plain listener.
+* GCC 15 with _FORTIFY_SOURCE (Fedora 43's rpm flags) no longer warns
+  that the client name lookup's read could overflow its buffer: the
+  loop's bound is explicit now.
+* make check runs the Go end-to-end tests with a limit of 60 minutes
+  (E2E_TIMEOUT sets another). It had go test's default of 10 minutes,
+  and the suite takes 8 to 9 minutes on a machine with one core: make
+  check failed there with "test timed out after 10m0s".
 
 Release 1.3.22:
 Billy G. - 2026-10-23
