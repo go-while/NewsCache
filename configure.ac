@@ -429,6 +429,8 @@ then
 	    fi
 	fi
 fi
+dnl cDeflatebuf runs only with zlib (without, it would only skip)
+AM_CONDITIONAL([HAVE_ZLIB], [test "x$have_zlib" = xyes])
 
 dnl ****************************************************************
 dnl Generate output files
