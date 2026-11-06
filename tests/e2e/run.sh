@@ -59,7 +59,12 @@ case ${ASAN_OPTIONS-} in
 	esac
 	;;
 esac
-"$GO" test -v -count=1 ./...
+# go test ends a run after 10 minutes unless told otherwise, and the
+# suite takes 8 to 9 minutes on a machine with one core: make check
+# failed there with "test timed out after 10m0s" in whatever test was
+# running. The tests have deadlines of their own; this only stops a run
+# that hangs. E2E_TIMEOUT sets another limit (a go test -timeout value).
+"$GO" test -v -count=1 -timeout "${E2E_TIMEOUT:-60m}" ./...
 rc=$?
 if [ -n "${asan_dir-}" ] && [ -n "$(ls "$asan_dir")" ]; then
 	echo "e2e: the sanitizer reported errors (leaks) in processes started by the tests:"
