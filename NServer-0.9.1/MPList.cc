@@ -105,6 +105,9 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	if (flags & F_TLS_NOVERIFY) {
 		*pOut << " noverify";
 	}
+	if (flags & F_COMPRESS) {
+		*pOut << " compress";
+	}
 	*pOut << std::endl;
 	if (~nntpflags) {
 		*pOut << "\t\tCommands";
@@ -279,6 +282,9 @@ void MPList::readServer(Lexer & lex, const char *host, const char *port)
 				} else if(a1=="noverify") {
 					cur.flags |=
 					    MPListEntry::F_TLS_NOVERIFY;
+				} else if(a1=="compress") {
+					cur.flags |=
+					    MPListEntry::F_COMPRESS;
 				} else {
 					break;
 				}

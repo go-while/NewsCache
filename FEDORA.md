@@ -24,7 +24,7 @@ longer needed.
 
 ```sh
 sudo dnf install gcc-c++ make autoconf automake libtool \
-    gnutls-devel pam-devel libxcrypt-devel texinfo \
+    gnutls-devel pam-devel libxcrypt-devel zlib-devel texinfo \
     redhat-rpm-config golang
 ```
 

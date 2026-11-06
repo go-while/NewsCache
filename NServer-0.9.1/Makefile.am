@@ -15,6 +15,8 @@ libnserver_a_SOURCES =		ActiveDB.cc\
 	ArtSpooler.h\
 	CNewsgroup.cc\
 	CNewsgroup.h\
+	deflatebuf.cc\
+	deflatebuf.h\
 	GroupInfo.cc\
 	GroupInfo.h\
 	History.cc\

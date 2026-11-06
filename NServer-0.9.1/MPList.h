@@ -26,7 +26,8 @@ struct MPListEntry {
 		F_DONTGENMSGID = 0x10,
 		F_SSL = 0x20,
 		F_STARTTLS = 0x40,
-		F_TLS_NOVERIFY = 0x80	// don't verify the TLS certificate
+		F_TLS_NOVERIFY = 0x80,	// don't verify the TLS certificate
+		F_COMPRESS = 0x100	// COMPRESS DEFLATE (RFC 8054)
 	};
 	// nntp commands supported by the server
 	enum {

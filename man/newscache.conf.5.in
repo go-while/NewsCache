@@ -495,7 +495,7 @@ limit; the range is 0 to 4294967295. Large groups don't need it.
 The login (AUTHINFO USER and PASS) for this server, if it needs one.
 NewsCache logs in right after it has connected (after STARTTLS with
 starttls), and again when the server asks for it with 480 in the middle
-of a session.
+of a session (on a new connection with compress).
 .B newscache \-p
 and xdebug don't show the password; they print the comment
 .I "# Password set, not shown"
@@ -546,6 +546,7 @@ Specifies a list of options that should be turned on or off. The default flags a
 	\fIssl\fR
 	\fIstarttls\fR
 	\fInoverify\fR
+	\fIcompress\fR
 	\fIdontgenmsgid\fR
 .fi
 .RS
@@ -569,6 +570,10 @@ Use TLS from the start of the connection, usually on port 563 (nntps).
 Connect in plain text and switch to TLS with the STARTTLS command, usually on port 119. If the server refuses STARTTLS or the TLS handshake fails, NewsCache gives up the connection; it never continues in plain text.
 .IP "noverify"
 With ssl or starttls: don't verify the server's certificate. The connection is encrypted, but anyone in the middle can impersonate the server. NewsCache logs a warning for every such connection. Only for servers with a self-signed certificate; prefer TLSCAFile.
+.IP "compress"
+COMPRESS DEFLATE (RFC 8054). After STARTTLS, the login and MODE READER, NewsCache asks the server to compress the connection; from its 206 on, everything is compressed both ways: articles, overview data and the active list come in a fraction of their size. A server that refuses it (or doesn't know COMPRESS) is used without compression, and a notice is logged. Needs a build with zlib
+.RB ( "newscache \-o"
+lists \-\-with\-zlib). The login is never compressed (RFC 8054 2.2.2): when the server asks for it again with 480, NewsCache opens a new connection, which logs in and compresses again. With ssl or starttls, the size of compressed data can tell anyone watching the connection something about it (RFC 8054 7).
 .IP "dontgenmsgid"
 NewsCache gives a posted article without a Message-ID header one of its
 own (see Hostname). With dontgenmsgid, an article that goes only to

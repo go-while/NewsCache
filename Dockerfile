@@ -13,7 +13,7 @@
 FROM docker.io/library/ubuntu:24.04 AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential autoconf automake texinfo libgnutls28-dev \
+      build-essential autoconf automake texinfo libgnutls28-dev zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
@@ -29,7 +29,7 @@ FROM docker.io/library/ubuntu:24.04
 # netbase: /etc/services, for "ListenTo DEFAULT" and service names like nntp.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      libgnutls30t64 ca-certificates netbase \
+      libgnutls30t64 zlib1g ca-certificates netbase \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /
 COPY docker/newscache.conf /etc/newscache.conf
