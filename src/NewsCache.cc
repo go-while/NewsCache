@@ -144,6 +144,7 @@ using std::istream;
 using std::ofstream;
 using std::ostream;
 using std::ostringstream;
+using std::stringstream;
 using std::map;
 using std::set;
 using std::string;
@@ -2236,6 +2237,22 @@ template < class Fn > static void collect_active(ActiveDB * active, Fn fn)
 	for_each(active->begin(), active->end(), fn);
 }
 
+/*
+ * Sends what collect_active wrote to lines, from the stream's own
+ * buffer. lines.str() made a copy of the whole list while the buffer
+ * was still there: twice the list's size per session, for any client
+ * that may list (a few hundred MiB each for a list of two million
+ * groups). lines is a stringstream: an ostringstream's buffer is opened
+ * for output only and can't be read from. A stream given a buffer that
+ * yields nothing sets failbit, which would end the session's output, so
+ * an empty list sends nothing.
+ */
+static void send_collected(ostream & os, stringstream & lines)
+{
+	if (lines.tellp() > 0)
+		os << lines.rdbuf();
+}
+
 /* List [active|newsgroups|overview.fmt]
  * List the specified data
  */
@@ -2309,13 +2326,14 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 				filter.setWildmat(argv[2]);
 			// collected under the lock, sent after it (see
 			// collect_active)
-			ostringstream lines;
+			stringstream lines;
 			collect_active(active, active_filter_group <
 				       print_list_active > (lines, filter));
 			(*clt->
 			 co) <<
-		      "215 List of newsgroups (Group High Low Flags) follows\r\n"
-			    << lines.str() << ".\r\n";
+		      "215 List of newsgroups (Group High Low Flags) follows\r\n";
+			send_collected(*clt->co, lines);
+			(*clt->co) << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "active.times") == 0) {
 			ActiveDB *active;
@@ -2323,12 +2341,13 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 			NewsgroupFilter filter(clt->access_entry->list);
 			if (argc == 3)
 				filter.setWildmat(argv[2]);
-			ostringstream lines;
+			stringstream lines;
 			collect_active(active, active_filter_group <
 				       print_list_active_times > (lines,
 								  filter));
-			(*clt->co) << "215 information follows\r\n"
-			    << lines.str() << ".\r\n";
+			(*clt->co) << "215 information follows\r\n";
+			send_collected(*clt->co, lines);
+			(*clt->co) << ".\r\n";
 			return 0;
 		} else if (strcasecmp(argv[1], "newsgroups") == 0) {
 			// LIST NEWSGROUPS [wildmat] (RFC 3977 7.6.6): only the
@@ -2684,12 +2703,13 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	ActiveDB *active = clt->srvr->active();
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
-	ostringstream lines;
+	stringstream lines;
 	collect_active(active, active_filter_group_time <
 		       print_list_active > (lines,
 					    clt->access_entry->list, lt));
-	(*clt->co) << "231 list of new groups follows\r\n"
-	    << lines.str() << ".\r\n";
+	(*clt->co) << "231 list of new groups follows\r\n";
+	send_collected(*clt->co, lines);
+	(*clt->co) << ".\r\n";
 	return 0;
 }
 
