@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <sstream>
@@ -239,8 +240,53 @@ static void check_invalid()
 	CHECK(r2.error() != NULL);
 }
 
+/*
+ * A server that sends empty stored blocks for ever (00 00 00 ff ff:
+ * valid DEFLATE that inflates to nothing). The reader waited for
+ * output for ever, and the session with it; it ends the input once
+ * deflatebuf::max_idle bytes came without output.
+ */
+class emptyblocks : public streambuf {
+	char _g[4000];		// 800 blocks
+	size_t _given;
+  public:
+	emptyblocks() : _given(0) {
+		for (size_t i = 0; i < sizeof(_g); i += 5)
+			memcpy(_g + i, "\x00\x00\x00\xff\xff", 5);
+		setg(_g, _g, _g);
+	}
+	size_t given() const {
+		return _given;
+	}
+  protected:
+	virtual int underflow() {
+		if (gptr() < egptr())
+			return traits_type::to_int_type(*gptr());
+		_given += sizeof(_g);
+		setg(_g, _g, _g + sizeof(_g));
+		return traits_type::to_int_type(*gptr());
+	}
+	virtual streamsize showmanyc() {
+		return sizeof(_g);
+	}
+};
+
+static void check_empty_blocks()
+{
+	emptyblocks endless;
+	deflatebuf r(&endless);
+	istream is(&r);
+	string line;
+	CHECK(!getline(is, line));
+	CHECK(r.error() != NULL);
+	CHECK(endless.given() < 1024 * 1024);
+}
+
 int main()
 {
+	// (a reader that never returns fails the test instead of hanging it)
+	alarm(60);
+	check_empty_blocks();
 	check_round_trip();
 	check_flush_and_buffered();
 	check_destructor_and_abandon();

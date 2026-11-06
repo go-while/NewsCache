@@ -428,6 +428,58 @@ func TestUpstreamCompressCorrupt(t *testing.T) {
 	}
 }
 
+// TestUpstreamCompressEmptyBlocks: a server that sends empty DEFLATE
+// blocks for ever after the 206 (valid data that inflates to nothing)
+// held the session: the inflater waited for output, and a single-line
+// reply has no deadline beyond each read's timeout. The input ends
+// once 64 KiB came without output, as for invalid data.
+func TestUpstreamCompressEmptyBlocks(t *testing.T) {
+	e := newEnv(t)
+	requireZlib(t, e.Bin)
+	e.Upstream = fakeserver.New(t, fakeserver.Options{
+		Handler: func(c *fakeserver.Conn) {
+			for {
+				line, err := c.ReadLine()
+				if err != nil {
+					return
+				}
+				switch line {
+				case "mode reader":
+					c.WriteLines("200 ready")
+				case "COMPRESS DEFLATE":
+					c.WriteLines("206 Compression active")
+					block := bytes.Repeat([]byte{0, 0, 0, 0xff, 0xff}, 1000)
+					for {
+						if _, err := c.Raw().Write(block); err != nil {
+							return
+						}
+					}
+				}
+			}
+		},
+	})
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "compress"
+	start := time.Now()
+	p, c := e.sessionProcess()
+	if err := c.Conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	code, line, err := c.TryCmd("GROUP test.alpha")
+	if err != nil {
+		t.Fatalf("GROUP: no reply within 30 s while the server sends empty blocks: %v", err)
+	}
+	if code == 211 || code < 400 {
+		t.Fatalf("GROUP: %q, want an error", line)
+	}
+	t.Logf("GROUP: %q after %s", line, time.Since(start).Round(time.Millisecond))
+	c.TryCmd("QUIT")
+	p.Wait()
+	if mode, err := logMode(e.Bin); err == nil && mode == "file" {
+		e.waitLog("compressed data: compressed data without content")
+	}
+}
+
 // TestUpstreamCompressTLS: compression under TLS (compressed first, then
 // encrypted), with ssl and with STARTTLS (which comes before COMPRESS).
 func TestUpstreamCompressTLS(t *testing.T) {

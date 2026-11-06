@@ -7,7 +7,7 @@
 
 deflatebuf::deflatebuf(std::streambuf * lower)
 :  _lower(lower), _out_ok(false), _in_ok(false), _pending(false),
-_abandoned(false), _error(NULL)
+_idle(0), _abandoned(false), _error(NULL)
 {
 	memset(&_out, 0, sizeof(_out));
 	memset(&_in, 0, sizeof(_in));
@@ -126,6 +126,7 @@ int deflatebuf::inflate_some(bool wait)
 				return 0;
 			_in.next_in = (Bytef *) _ibuf;
 			_in.avail_in = (uInt) n;
+			_idle += n;
 		}
 		_in.next_out = (Bytef *) _gbuf;
 		_in.avail_out = sizeof(_gbuf);
@@ -145,10 +146,19 @@ int deflatebuf::inflate_some(bool wait)
 			return -1;
 		}
 		if (got > 0) {
+			_idle = 0;
 			setg(_gbuf, _gbuf, _gbuf + got);
 			return got;
 		}
-		// (no output: all of the input went into inflate's state)
+		// No output: all of the input went into inflate's state. A
+		// real server's data inflates to something long before
+		// max_idle; endless empty blocks would keep this loop (and
+		// the session) going for ever.
+		if (_idle > max_idle) {
+			_error = "compressed data without content";
+			setg(_gbuf, _gbuf, _gbuf);
+			return -1;
+		}
 	}
 }
 

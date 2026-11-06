@@ -21,12 +21,19 @@ class deflatebuf : public std::streambuf {
 	z_stream _out, _in;
 	bool _out_ok, _in_ok;
 	bool _pending;		// deflated since the last flush
+	size_t _idle;		// compressed bytes taken in since the
+				// last inflated output
 	bool _abandoned;
 	const char *_error;
 	char _pbuf[4096];
 	char _gbuf[8192];
 	char _ibuf[4096];	// compressed input, not inflated yet
 	char _obuf[8192];	// deflate's output
+
+	// Compressed input that may come without any output, at most: a
+	// stream of empty blocks (5 bytes each, valid DEFLATE) inflates
+	// to nothing, and the reader would wait for a line for ever.
+	static const size_t max_idle = 64 * 1024;
 
 	bool deflate_out(int flush);
 	int inflate_some(bool wait);
