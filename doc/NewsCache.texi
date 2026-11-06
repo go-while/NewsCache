@@ -707,6 +707,13 @@ of newsgroups; @code{ssl}---use (plain) SSL encrypted connection;
 @code{starttls}---use STARTTLS encrypted connection;
 @code{noverify}---with @code{ssl} or @code{starttls}, don't verify the
 server's certificate (logged as a warning);
+@code{compress}---COMPRESS DEFLATE (RFC 8054): after STARTTLS, the
+login and MODE READER, NewsCache asks the server to compress the
+connection both ways; a server that refuses it is used without
+compression. It needs a build with zlib. With TLS, the size of
+compressed data can tell anyone watching something about it (RFC 8054
+7); the login is never compressed, and when the server asks for it again
+NewsCache opens a new connection instead;
 @code{not-setpostflag}, @code{setpostflag}; @code{not-cached},
 @code{cached}; @code{dontgenmsgid}---don't give an article posted only
 to this server a Message-ID when it has none (NewsCache makes one

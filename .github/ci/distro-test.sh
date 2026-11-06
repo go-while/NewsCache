@@ -14,19 +14,19 @@ if command -v dnf >/dev/null; then
 	# texinfo is in CRB on EL 9/10
 	crb=
 	dnf -q repolist --all 2>/dev/null | grep -q '^crb ' && crb=--enablerepo=crb
-	dnf -y -q $crb install gcc-c++ make gnutls-devel pam-devel libxcrypt-devel \
+	dnf -y -q $crb install gcc-c++ make gnutls-devel pam-devel libxcrypt-devel zlib-devel \
 		texinfo tar gzip diffutils findutils shadow-utils util-linux procps-ng
 elif command -v apt-get >/dev/null; then
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get -qq update
 	apt-get -y -qq install --no-install-recommends build-essential texinfo \
-		libgnutls28-dev libpam0g-dev libcrypt-dev ca-certificates procps
+		libgnutls28-dev libpam0g-dev libcrypt-dev zlib1g-dev ca-certificates procps
 elif command -v zypper >/dev/null; then
 	zypper -n -q install gcc-c++ make texinfo libgnutls-devel pam-devel \
-		libxcrypt-devel tar gzip shadow util-linux procps
+		libxcrypt-devel zlib-devel tar gzip shadow util-linux procps
 elif command -v pacman >/dev/null; then
 	# Arch: no partial upgrades, so update the image first
-	pacman -Syu --noconfirm --needed base-devel texinfo gnutls pam procps-ng >/dev/null
+	pacman -Syu --noconfirm --needed base-devel texinfo gnutls pam zlib procps-ng >/dev/null
 else
 	echo "no known package manager" >&2
 	exit 1

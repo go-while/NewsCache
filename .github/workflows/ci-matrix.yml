@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev
+            autoconf automake libtool texinfo libgnutls28-dev libpam0g-dev zlib1g-dev
 
       - name: make dist
         run: |

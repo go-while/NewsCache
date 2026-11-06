@@ -104,6 +104,9 @@ Added in this repository (1.3.23):
   `TLSKeyFile` and optionally `TLSPriority`; `newscache -t` for inetd. An
   `AccessList` entry with `AuthRequiresTLS yes` refuses AUTHINFO on plain
   connections (483). STARTTLS for clients is not offered.
+- COMPRESS DEFLATE (RFC 8054) to news servers with `Options compress`
+  (needs zlib): after the login the connection is compressed both ways, and
+  a server that refuses it is used without.
 
 ## Building
 
@@ -111,7 +114,8 @@ NewsCache uses GNU autoconf/automake.
 
 ```sh
 sudo apt install build-essential autoconf automake texinfo \
-                 libgnutls28-dev libpam0g-dev      # GnuTLS and PAM are optional
+                 libgnutls28-dev libpam0g-dev \
+                 zlib1g-dev              # GnuTLS, PAM and zlib are optional
 ./autogen
 ./configure          # ./configure --help lists all options
 make

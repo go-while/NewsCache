@@ -269,6 +269,12 @@ AccessList {
 #                in plain text
 #   noverify ... with ssl/starttls, don't verify the server's certificate
 #                (logged as a warning); only for self-signed certificates
+#   compress ... COMPRESS DEFLATE (RFC 8054) after the login: the
+#                connection is compressed both ways (articles, overview,
+#                the active list); a server that refuses it is used without.
+#                Needs a build with zlib. With TLS, compression can let
+#                anyone watching guess at the data from its size; the login
+#                is never compressed
 #   dontgenmsgid ... a posted article without a Message-ID that goes only
 #                to this server is passed on without one, and the server
 #                makes it (otherwise NewsCache makes one, see Hostname)

@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include "Debug.h"
+#include "deflatebuf.h"
 #include "sockstream.h"
 
 #if defined(HAVE_GNUTLS)
@@ -440,8 +441,93 @@ void sockstream::sockstreambuf::setnodelay(bool fl)
   }
 }
 
+sockstream::~sockstream()
+{
+#if defined(HAVE_ZLIB)
+  // (first: it flushes into the layer below)
+  delete _z;
+#endif
+  if (_ssl)
+  {
+    delete _ssl;
+  }
+}
+
+void sockstream::disconnect()
+{
+#if defined(HAVE_ZLIB)
+  if (_z)
+  {
+    _z->pubsync();
+    rdbuf(_ssl ? static_cast<std::streambuf *>(_ssl)
+	  : static_cast<std::streambuf *>(&_buf));
+    delete _z;
+    _z = NULL;
+  }
+#endif
+  if (_ssl)
+  {
+    _ssl->disconnect();
+  }
+
+  _buf.disconnect();
+  clear(std::ios::badbit);
+}
+
+void sockstream::abort()
+{
+#if defined(HAVE_ZLIB)
+  if (_z)
+    _z->abandon();
+#endif
+  if (_ssl)
+    _ssl->abandon();
+  _buf.abort();
+  clear(std::ios::badbit);
+}
+
+bool sockstream::start_compress()
+{
+#if defined(HAVE_ZLIB)
+  if (_z)
+    return false;
+  deflatebuf * const z = new deflatebuf(rdbuf());
+  if (!z->ok())
+  {
+    delete z;
+    return false;
+  }
+  _z = z;
+  const std::ios::iostate state = rdstate();
+  rdbuf(_z);			// (which clears the state)
+  clear(state);
+  return true;
+#else
+  return false;
+#endif
+}
+
+const char *sockstream::compress_error() const
+{
+#if defined(HAVE_ZLIB)
+  return _z ? _z->error() : NULL;
+#else
+  return NULL;
+#endif
+}
+
 bool sockstream::input_pending()
 {
+#if defined(HAVE_ZLIB)
+  // what was received but not inflated yet counts: after a whole
+  // reply the rest of the server's flush may still be there
+  if (_z)
+  {
+    if (_z->input_buffered())
+      return true;
+  }
+  else
+#endif
   if (rdbuf()->in_avail() > 0)
     return true;
   if (_buf.fd() < 0)
@@ -1043,7 +1129,8 @@ bool sockstream::load_server_tls(const std::string &certfile,
 
 sockstream *sockstream::starttls(const char *hostname, unsigned int connect_timeout)
 {
-  if (!_ssl && _buf.connected())
+  // (never after COMPRESS: RFC 8054 2.2.2)
+  if (!_ssl && !_z && _buf.connected())
   {
     sockstream * const ssl_stream = new sockstream(true);
     ssl_stream->set_tls(_tls_verify, _tls_cafile);

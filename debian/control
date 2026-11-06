@@ -8,6 +8,7 @@ Build-Depends: autoconf,
                libcrypt-dev,
                libgnutls28-dev,
                libpam0g-dev,
+               zlib1g-dev,
                texinfo,
 Standards-Version: 4.7.2
 Rules-Requires-Root: no

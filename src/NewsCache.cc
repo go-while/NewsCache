@@ -87,6 +87,9 @@ const char * const ConfigurationOptions[] = {
 #ifdef HAVE_GNUTLS
 	"--with-gnutls",
 #endif
+#ifdef HAVE_ZLIB
+	"--with-zlib",
+#endif
 	NULL
 };
 
