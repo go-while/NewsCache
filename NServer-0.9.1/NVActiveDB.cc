@@ -318,7 +318,7 @@ void NVActiveDB::read(istream & is, const char *filter, int flags,
 				  ERROR_LOCATION);
 	if (!(flags & F_DEFER_MTIME)) {
 		time(&now);
-		setmtime(now);
+		setmtime(now, 1);
 	}
 }
 

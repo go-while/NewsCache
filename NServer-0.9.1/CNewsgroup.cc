@@ -241,7 +241,11 @@ bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
 	GroupLock guard(*this, NVcontainer::ShrdLock);
 
 	getsync(c, &e);
-	return e.time && e.time + _TTLGroup >= now && e.through >= l;
+	// (a time still to come is stale: the clock was put back; now is
+	// from before the wait for the fetch lock, and the session that had
+	// it stamped the chunk later, so the clock is read again for that)
+	return e.time && e.time <= nvtime(NULL) && e.time + _TTLGroup >= now &&
+	    e.through >= l;
 }
 
 /*
@@ -256,7 +260,8 @@ bool CNewsgroup::chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf)
 	GroupLock guard(*this, NVcontainer::ShrdLock);
 
 	getsync(cf.c, &e);
-	cf.full = !(e.time && e.time + _TTLGroup >= cf.now);
+	cf.full = !(e.time && e.time <= nvtime(NULL) &&
+		    e.time + _TTLGroup >= cf.now);
 	if (arrfst > arrlst || f > arrlst || l < arrfst)
 		return false;
 	cf.top = chunk_end(f);

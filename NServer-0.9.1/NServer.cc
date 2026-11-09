@@ -1158,8 +1158,10 @@ ActiveDB *RServer::active(bool)
 	// incomplete one is stamped by CServer::active with the retry time
 	// (stamping it here too could, after a signal between the two checks,
 	// turn an unfinished first fill's marker into INVALIDATED).
+	// (forced: a stamp still to come, from before the clock was put
+	// back, must not stay)
 	if (!_active_incomplete && any_complete && !sockstream::stopping())
-		_ActiveDB->setmtime(nvtime(NULL));
+		_ActiveDB->setmtime(nvtime(NULL), 1);
 	return _ActiveDB;
 }
 

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -447,4 +448,75 @@ func TestActiveListKeepsNewerGroupNumbers(t *testing.T) {
 		t.Errorf("C's XOVER sent %d OVER upstream, want 0 (B cached the records)", n-fetched)
 	}
 	c.Cmd("QUIT")
+}
+
+// TestActiveStampFromFuture: the active list's time stamp lies in the
+// future after the clock was put back (a VM whose clock was ahead until NTP
+// corrected it). The list counted as fresh until the clock got there, and a
+// refresh couldn't lower the stamp: new groups stayed invisible for as long
+// as the clock had been ahead. A stamp still to come is stale now, and the
+// refresh replaces it. (#328 did this for single groups.)
+func TestActiveStampFromFuture(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.Extra = "Timeouts 3600 3600"
+	listActive := func() []string {
+		t.Helper()
+		p, c := e.sessionProcess()
+		if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE: %q", line)
+		}
+		lines := c.ReadDotLines()
+		quitSession(t, p, c)
+		return lines
+	}
+	requests := func() int {
+		n := 0
+		for _, l := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToLower(l), "list active") {
+				n++
+			}
+		}
+		return n
+	}
+	listActive()
+	first := requests()
+	if first == 0 {
+		t.Fatal("the news server was not asked for the active list")
+	}
+
+	// NVcontainer's header: hlen, version (4 bytes each), size, mtime (8
+	// bytes each, host order).
+	path := filepath.Join(e.Spool, ".active64")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 48 || binary.LittleEndian.Uint32(b[0:4]) != 48 {
+		t.Skipf("%s: not the 48-byte little-endian header this test knows", path)
+	}
+	now := uint64(time.Now().Unix())
+	if stamp := binary.LittleEndian.Uint64(b[16:24]); stamp+60 < now || stamp > now+60 {
+		t.Skipf("%s: stamp %d is not near now (%d): unknown layout", path, stamp, now)
+	}
+	binary.LittleEndian.PutUint64(b[16:24], now+86400)
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e.Store.AddGroup("test.new", "a group added after the first list")
+	lines := listActive()
+	if got := requests(); got == first {
+		t.Fatalf("active list stamped a day ahead was served without asking the news server")
+	}
+	if !containsPrefix(lines, "test.new ") {
+		t.Errorf("LIST ACTIVE after the refresh: no test.new: %q", lines)
+	}
+	b, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamp := binary.LittleEndian.Uint64(b[16:24]); stamp > uint64(time.Now().Unix()) {
+		t.Errorf("the refresh left the stamp in the future: %d", stamp)
+	}
 }
