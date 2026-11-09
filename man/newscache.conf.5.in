@@ -573,7 +573,7 @@ With ssl or starttls: don't verify the server's certificate. The connection is e
 .IP "compress"
 COMPRESS DEFLATE (RFC 8054). After STARTTLS, the login and MODE READER, NewsCache asks the server to compress the connection; from its 206 on, everything is compressed both ways: articles, overview data and the active list come in a fraction of their size. A server that refuses it (or doesn't know COMPRESS) is used without compression, and a notice is logged. Needs a build with zlib
 .RB ( "newscache \-o"
-lists \-\-with\-zlib). The login is never compressed (RFC 8054 2.2.2): when the server asks for it again with 480, NewsCache opens a new connection, which logs in and compresses again. With ssl or starttls, the size of compressed data can tell anyone watching the connection something about it (RFC 8054 7).
+lists \-\-with\-zlib). The login is never compressed (RFC 8054 2.2.2): when the server asks for it again with 480, NewsCache opens a new connection, which logs in and compresses again. With ssl or starttls, the size of compressed data can tell anyone watching the connection something about it (RFC 8054 7). Compressed data that inflates to nothing (empty blocks) for ReadTimeout seconds, or 5 minutes with ReadTimeout 0, ends the connection, as invalid compressed data does.
 .IP "dontgenmsgid"
 NewsCache gives a posted article without a Message-ID header one of its
 own (see Hostname). With dontgenmsgid, an article that goes only to

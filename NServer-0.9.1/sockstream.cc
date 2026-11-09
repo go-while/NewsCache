@@ -491,7 +491,8 @@ bool sockstream::start_compress()
 #if defined(HAVE_ZLIB)
   if (_z)
     return false;
-  deflatebuf * const z = new deflatebuf(rdbuf());
+  // (input without content for the connection's read timeout ends it)
+  deflatebuf * const z = new deflatebuf(rdbuf(), _buf.io_timeout());
   if (!z->ok())
   {
     delete z;

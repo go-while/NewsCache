@@ -1,13 +1,15 @@
 #include <string.h>
+#include <time.h>
 
 #include "config.h"
 #include "deflatebuf.h"
 
 #if defined(HAVE_ZLIB)
 
-deflatebuf::deflatebuf(std::streambuf * lower)
+deflatebuf::deflatebuf(std::streambuf * lower, unsigned int idle_limit)
 :  _lower(lower), _out_ok(false), _in_ok(false), _pending(false),
-_idle(0), _abandoned(false), _error(NULL)
+_idle_limit(idle_limit ? idle_limit : DEFAULT_IDLE_LIMIT),
+_abandoned(false), _error(NULL)
 {
 	memset(&_out, 0, sizeof(_out));
 	memset(&_in, 0, sizeof(_in));
@@ -106,6 +108,9 @@ int deflatebuf::inflate_some(bool wait)
 {
 	if (_error)
 		return -1;
+	// when this read began to get input without output
+	bool idle = false;
+	struct timespec idle_since = { 0, 0 };
 	for (;;) {
 		if (_in.avail_in == 0) {
 			std::streamsize n = _lower->in_avail();
@@ -126,7 +131,6 @@ int deflatebuf::inflate_some(bool wait)
 				return 0;
 			_in.next_in = (Bytef *) _ibuf;
 			_in.avail_in = (uInt) n;
-			_idle += n;
 		}
 		_in.next_out = (Bytef *) _gbuf;
 		_in.avail_out = sizeof(_gbuf);
@@ -146,15 +150,21 @@ int deflatebuf::inflate_some(bool wait)
 			return -1;
 		}
 		if (got > 0) {
-			_idle = 0;
 			setg(_gbuf, _gbuf, _gbuf + got);
 			return got;
 		}
-		// No output: all of the input went into inflate's state. A
-		// real server's data inflates to something long before
-		// max_idle; endless empty blocks would keep this loop (and
-		// the session) going for ever.
-		if (_idle > max_idle) {
+		// No output: all of the input went into inflate's state.
+		// Endless empty blocks would keep this loop (and the session)
+		// going for ever; a server that sends nothing else for
+		// _idle_limit seconds is treated like one that sends nothing.
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		if (!idle) {
+			idle = true;
+			idle_since = now;
+		} else if ((now.tv_sec - idle_since.tv_sec) * 1000 +
+			   (now.tv_nsec - idle_since.tv_nsec) / 1000000 >=
+			   (long long) _idle_limit * 1000) {
 			_error = "compressed data without content";
 			setg(_gbuf, _gbuf, _gbuf);
 			return -1;
