@@ -554,31 +554,60 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 			b = l;
 		if (!freshen(a, b, &refreshed)) {
 			// not stored (disk full): from the news server
-			RNewsgroup *p = pass();
-			switch (what) {
-			case print_over:
-				p->printoverdb(os, a, b);
-				break;
-			case print_header:
-				p->printheaderdb(os, header, a, b, pat);
-				break;
-			case print_list:
-				p->printlistgroup(os, a, b);
-				break;
+			print_passed(os, what, header, a, b, pat);
+		} else {
+			// The index can move up meanwhile (another session's
+			// cover(), at MAX_INDEX_SPAN or starting over above):
+			// the numbers below it then come from the news server
+			// too. They were left out, and the list still ended
+			// with "." as if complete.
+			artnum_t from = a, gap_last = 0;
+			while (os.good()) {
+				artnum_t miss = 0;
+				switch (what) {
+				case print_over:
+					miss = printoverdb_stored(os, from, b,
+								  &gap_last);
+					break;
+				case print_header:
+					miss = printheaderdb_stored(os, header,
+								    from, b, pat,
+								    &gap_last);
+					break;
+				case print_list:
+					miss = printlistgroup_stored(os, from, b,
+								     &gap_last);
+					break;
+				}
+				if (!miss)
+					break;
+				print_passed(os, what, header, miss, gap_last,
+					     pat);
+				if (gap_last >= b)
+					break;
+				from = gap_last + 1;
 			}
-		} else switch (what) {
-		case print_over:
-			NVNewsgroup::printoverdb(os, a, b);
-			break;
-		case print_header:
-			NVNewsgroup::printheaderdb(os, header, a, b, pat);
-			break;
-		case print_list:
-			NVNewsgroup::printlistgroup(os, a, b);
-			break;
 		}
 		if (b >= l || !os.good())
 			break;
+	}
+}
+
+// [f,l] from the news server, without keeping it.
+void CNewsgroup::print_passed(ostream & os, int what, const char *header,
+			      artnum_t f, artnum_t l, const char *pat)
+{
+	RNewsgroup *p = pass();
+	switch (what) {
+	case print_over:
+		p->printoverdb(os, f, l);
+		break;
+	case print_header:
+		p->printheaderdb(os, header, f, l, pat);
+		break;
+	case print_list:
+		p->printlistgroup(os, f, l);
+		break;
 	}
 }
 

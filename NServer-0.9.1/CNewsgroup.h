@@ -69,6 +69,8 @@ class CNewsgroup:public NVNewsgroup {
 	enum { print_over, print_header, print_list };
 	void print(std::ostream & os, int what, const char *header,
 		   artnum_t f, artnum_t l, const char *pat = NULL);
+	void print_passed(std::ostream & os, int what, const char *header,
+			  artnum_t f, artnum_t l, const char *pat);
 
   public:
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
