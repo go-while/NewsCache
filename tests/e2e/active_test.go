@@ -448,3 +448,44 @@ func TestActiveListKeepsNewerGroupNumbers(t *testing.T) {
 	}
 	c.Cmd("QUIT")
 }
+
+// TestActiveListOtherServersGroups: NewsCache asks each server for "LIST
+// ACTIVE <pattern>" per pattern of its Read. The filter for that reply
+// started with "*" and compared the other servers' patterns with the
+// requested one in a way that lost its place after a partial match: with
+// one server for "dk.*,de.alt.binaries.*" and one for "de.*", the reply to
+// "LIST ACTIVE de.*" (which rightly has de.alt.binaries.x) put
+// de.alt.binaries.x into the active list with the second server's numbers,
+// although the group is routed to the first.
+func TestActiveListOtherServersGroups(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("dk.test", "on the first server")
+	e.ServerLines = "    Read dk.*,de.alt.binaries.*"
+	st := fakeserver.NewStore()
+	st.AddGroup("de.test", "on the second server")
+	st.AddGroup("de.alt.binaries.x", "not routed to the second server")
+	second := fakeserver.New(t, fakeserver.Options{Store: st})
+	e.ExtraServers = serverBlock(second, "de.*")
+	c := e.session()
+	if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	lines := c.ReadDotLines()
+	for _, g := range []string{"dk.test ", "de.test "} {
+		if !containsPrefix(lines, g) {
+			t.Errorf("LIST ACTIVE: no %s: %q", strings.TrimSpace(g), lines)
+		}
+	}
+	if containsPrefix(lines, "de.alt.binaries.x ") {
+		t.Errorf("LIST ACTIVE has de.alt.binaries.x from the server it isn't routed to: %q", lines)
+	}
+	asked := false
+	for _, l := range second.Lines() {
+		if strings.EqualFold(l, "list active de.*") {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Fatalf("second server not asked for LIST ACTIVE de.*: %q", second.Lines())
+	}
+}

@@ -1055,8 +1055,7 @@ ActiveDB *RServer::active(bool)
 							_ActiveDB->
 							    read(*_pServerStream,
 								 _ServerList->
-								 makeFilter(i,
-									    cgroup.c_str()).c_str(),
+								 makeFilter(i).c_str(),
 								 flags,
 								 _CurrentServer->limitgroupsize,
 								 asked);
@@ -1097,8 +1096,7 @@ ActiveDB *RServer::active(bool)
 				try {
 					ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 					_ActiveDB->read(*_pServerStream,
-							_ServerList->makeFilter(i,
-										"*").c_str(),
+							_ServerList->makeFilter(i).c_str(),
 							flags,
 							_CurrentServer->limitgroupsize,
 							asked);
