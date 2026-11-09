@@ -788,3 +788,66 @@ func TestNewscachecleanSingleInstance(t *testing.T) {
 		t.Errorf("newscacheclean alone: %v\n%s", err, out)
 	}
 }
+
+// TestNewscachecleanArtWithoutDB: .art files in a group directory without a
+// .db (removed while a session still had it open and stored an article, or
+// moved aside as corrupt on a full disk) can't be reached by any session.
+// newscacheclean neither counted nor removed them, so they stayed outside
+// SpoolSize until a session opened the group again. They go first now;
+// a file whose name isn't an article number still goes by its age, and a
+// group with its database keeps its articles.
+func TestNewscachecleanArtWithoutDB(t *testing.T) {
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	c.Cmd("QUIT")
+	kept := filepath.Join(e.Spool, "test", "alpha", ".db")
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("test.alpha has no database: %v", err)
+	}
+
+	dir := filepath.Join(e.Spool, "test", "orphan")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gone := []string{".art1", ".art2", ".art3.tmp"}
+	for _, n := range append(gone, ".artnotes") {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("left behind\r\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	for _, n := range gone {
+		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+			t.Errorf("%s in a directory without a database was kept", n)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".artnotes")); err != nil {
+		t.Errorf(".artnotes (no article number, new) was removed: %v", err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("test.alpha's database was removed: %v", err)
+	}
+	c = e.session()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after the clean: %q", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1 after the clean: %q", line)
+	}
+	c.ReadDotLines()
+}

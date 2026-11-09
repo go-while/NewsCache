@@ -557,7 +557,7 @@ void clean(const char *cpath)
 				// look until this run, removed first
 				pvector.push_back (new Entry(buf, 0, s));
 				_blocks += s.st_blocks;
-			} else if (S_ISREG(s.st_mode) && dbatime != 0 &&
+			} else if (S_ISREG(s.st_mode) &&
 			    strncmp(f->d_name, ".art", 4) == 0) {
 				ArtFile a;
 				a.path = buf;
@@ -585,8 +585,17 @@ void clean(const char *cpath)
 	int have_db = ng != NULL;
 	delete ng;
 	delete fmt;
-	if (dbatime == 0)
-		return;
+	// .art files in a directory without a database (it was removed while
+	// a session still had it open and stored an article, or moved aside
+	// as corrupt on a full disk) can't be reached: they go first. They
+	// weren't counted or removed at all, and stayed until a session
+	// opened the group again. Unless a session has started a database
+	// since the scan began: its new files are left for the next run.
+	if (dbatime == 0 && !arts.empty()) {
+		if (snprintf(buf, sizeof(buf), "%s/.db", cpath) <
+		    (int) sizeof(buf) && lstat(buf, &s) == 0)
+			return;
+	}
 #ifdef NEWSCACHE_TEST_CLEAN_RACE
 	if (have_db)
 		test_pause_after_range();
@@ -597,7 +606,7 @@ void clean(const char *cpath)
 		const char *name = strrchr(arts[k].path.c_str(), '/') + 1;
 		const struct stat &st = arts[k].st;
 		time_t at = MAX(st.st_atime, st.st_mtime);
-		if (dbatime <= at)
+		if (dbatime != 0 && dbatime <= at)
 			at = dbatime;
 		// .art<n>.tmp: a file NewsCache was writing when
 		// it crashed (see NVNewsgroup::setarticle); it
