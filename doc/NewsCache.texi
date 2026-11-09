@@ -611,7 +611,12 @@ configuration options. The per-server configuration options are:
 indicates which newsgroups should be read from the news server. Its
 argument is  a comma separated list of newsgroup names. Each newsgroup
 name may have the @code{*} at its end indicating any sequence of
-characters. 
+characters, and a @code{!} at its start, which leaves out the groups the
+name matches. These are not wildmat patterns: a @code{*} anywhere
+matches the rest of the group name from there on (@code{*.answers}
+matches every group), and @code{?} and @code{[...]} are taken literally.
+A group is read from the server whose @code{Read} has the longest
+matching name (see the example in the section Local Newsgroups below).
 @item PostTo
 @cdindex PostTo
 indicates which articles should be posted to the news server. Its
