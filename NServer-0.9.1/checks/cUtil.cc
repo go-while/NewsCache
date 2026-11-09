@@ -119,10 +119,31 @@ static void check_host_names()
 		CHECK(!valid_host_name(invalid[i]));
 }
 
+// Group names that would share a spool directory with another group are
+// refused; the others map dots to slashes.
+static void check_group_names()
+{
+	const char *valid[] = {"a", "a.b", "comp.lang.c++", "de.alt.r-ue",
+		"x_y.z", "a.b1.c"};
+	const char *invalid[] = {"", ".", "a.", ".a", "a..b", "a/b", "/a",
+		"a.b/", "a.b.", ".a.b", "a...b"};
+	for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+		CHECK(spool_group_name(valid[i]));
+		CHECK(group2dir(valid[i]) != NULL);
+	}
+	for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+		CHECK(!spool_group_name(invalid[i]));
+		CHECK(group2dir(invalid[i]) == NULL);
+	}
+	const char *d = group2dir("comp.lang.c");
+	CHECK(d && strcmp(d, "comp/lang/c") == 0);
+}
+
 int main()
 {
 	check_msgids();
 	check_host_names();
+	check_group_names();
 	char tmpl[] = "/tmp/cUtil.XXXXXX";
 	if (!mkdtemp(tmpl)) {
 		perror("mkdtemp");

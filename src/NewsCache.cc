@@ -1400,6 +1400,11 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 	// before the strcpy below.
 	if (strlen(group) >= sizeof(clt->groupname))
 		return NULL;
+	// A name with "/" or an empty component (a.b., a..b) isn't a
+	// newsgroup name (RFC 5536 3.1.4); in the spool it was another
+	// group's directory, and it got past an exact "!a.b" in a list.
+	if (!spool_group_name(group))
+		return NULL;
 
 	// NULL (411) only for a group that doesn't exist or that no news
 	// server carries. Any other error (the news server can't be reached
