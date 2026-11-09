@@ -1112,6 +1112,103 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 	}
 }
 
+// TestUpstreamReconnectGroupRefused: after a broken connection, connect()
+// selects the client's group again. That GROUP was sent after connect()'s
+// guard (#94) was off, so a 400 or a close at it made issue() reconnect
+// from inside connect(), whose GROUP reconnected again: thousands of
+// upstream connections, then a stack overflow (SIGSEGV), and the client
+// got no reply. Now the failed GROUP fails that connection attempt, the
+// command gets an error reply after at most Retries attempts, and the
+// session goes on. A 411 there (the group is gone) keeps the new
+// connection and doesn't count as a failed connect: with ConnectBackoff,
+// the next command for another group still reaches the server.
+func TestUpstreamReconnectGroupRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply string // "" = close the connection at GROUP
+	}{
+		{"close", ""},
+		{"400", "400 Service temporarily unavailable"},
+		{"411", "411 No such group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerLines = "    Retries 2"
+			if tc.reply == "411 No such group" {
+				// (with a backoff, the nested connect() of the old
+				// code stopped at once: only the 411 case uses it)
+				e.ServerLines += "\n    ConnectBackoff 60"
+			}
+			e.Upstream = fakeserver.New(t, fakeserver.Options{Handler: func(c *fakeserver.Conn) {
+				for {
+					line, err := c.ReadLine()
+					if err != nil {
+						return
+					}
+					fields := strings.Fields(strings.ToUpper(line))
+					if len(fields) == 0 {
+						return
+					}
+					var out []string
+					switch fields[0] {
+					case "MODE":
+						out = []string{"200 reader ready"}
+					case "LIST":
+						if len(fields) > 1 && fields[1] == "OVERVIEW.FMT" {
+							out = []string{"215 format", "Subject:", "From:", "Date:",
+								"Message-ID:", "References:", "Bytes:", "Lines:", "Xref:full", "."}
+						} else {
+							out = []string{"215 list", "test.alpha 10 1 y", "test.beta 10 1 y", "."}
+						}
+					case "GROUP":
+						switch {
+						case len(fields) > 1 && fields[1] == "TEST.BETA":
+							out = []string{"211 10 1 10 test.beta"}
+						case c.ID() == 1:
+							out = []string{"211 10 1 10 test.alpha"}
+						case tc.reply != "":
+							out = []string{tc.reply}
+						default:
+							return
+						}
+					case "QUIT":
+						_ = c.WriteLines("205 bye")
+						return
+					default:
+						// ARTICLE etc.: the first connection breaks
+						if c.ID() == 1 {
+							return
+						}
+						out = []string{"412 No newsgroup selected"}
+					}
+					if c.WriteLines(out...) != nil {
+						return
+					}
+				}
+			}})
+			c := e.session()
+			c.Deadline = 30 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP: %q, want 211", line)
+			}
+			if code, line := c.Cmd("ARTICLE 1"); code < 400 {
+				t.Fatalf("ARTICLE with the news server failing: %q, want an error reply", line)
+			}
+			if code, line := c.Cmd("DATE"); code != 111 {
+				t.Fatalf("DATE after the failed ARTICLE: %q, want 111", line)
+			}
+			if n := e.Upstream.Accepted(); n > 6 {
+				t.Errorf("%d upstream connections, want a few at most (Retries 2)", n)
+			}
+			if tc.reply == "411 No such group" {
+				if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+					t.Errorf("GROUP test.beta after the 411: %q, want 211 (no backoff)", line)
+				}
+			}
+		})
+	}
+}
+
 // TestPostPostingHost: a daemon (not inetd) puts the client's host in
 // X-NNTP-Posting-Host with Article::setfield, which replaced only the
 // first such header (a forged second one stayed), took the next header
