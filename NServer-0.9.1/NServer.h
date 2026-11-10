@@ -606,9 +606,12 @@ class CServer
 	int active_valid()
 	{
 		unsigned long tm;
-		 _NVActiveDB->getmtime(&tm);
-		 return tm > ActiveDB::INVALIDATED &&
-		     (tm + _TTLActive) > nvtime(NULL);
+		_NVActiveDB->getmtime(&tm);
+		// (a time still to come is stale too: the clock was put
+		// back, and the list stayed "fresh" until it got there)
+		const nvtime_t now = nvtime(NULL);
+		return tm > ActiveDB::INVALIDATED && tm <= now &&
+		    (tm + _TTLActive) > now;
 	}
 
 	int desc_valid()
