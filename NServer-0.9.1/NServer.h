@@ -256,6 +256,11 @@ class RServer:virtual public NServer {
 	*/
 	void authenticate();
 
+	// One LISTGROUP gname a-b for printlistgroup and probelisted.
+	uint64_t liststep(const char *gname, artnum_t a, artnum_t b,
+			  std::ostream * os, artnum_t * first, artnum_t * last,
+			  uint64_t limit, bool *cut);
+
 	/**
 	* Reads an article's text after a 220 reply.
 	* \throw SystemError If the server closed the connection before the
@@ -483,6 +488,19 @@ class RServer:virtual public NServer {
 	*/
 	void printlistgroup(const char *gname, std::ostream & os,
 			    artnum_t f, artnum_t l, artnum_t *next);
+
+	/**
+	* Sets *at to the lowest number in [f,l] the news server lists for
+	* gname (with down the highest), 0 if none: LISTGROUP in growing
+	* steps, for a walk over a long stretch of empty numbers. false if
+	* it can't tell (no LISTGROUP, LISTGROUP refused, a step ran into
+	* its reply limits); *at is then the first number, in the walk's
+	* direction, not known to be empty.
+	* \throw UpstreamReplyError When guard ends the walk (check_walk).
+	* \throw SystemError If the connection to the news server fails.
+	*/
+	bool probelisted(const char *gname, artnum_t f, artnum_t l, bool down,
+			 const WalkGuard & guard, artnum_t * at);
 
 	/**
 	* Return the overviewdatabase of the newsgroup >ng<.  This function

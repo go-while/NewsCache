@@ -2117,6 +2117,14 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 	const char *o;
 	string aid;
 	OverviewFmt *ofmt = clt->srvr->overviewfmt();
+	// One number after the other; after WALK_EMPTY_CHUNKS chunks of
+	// them without a record, the news server is asked where the next
+	// (or previous) article is (Newsgroup::probe), as XOVER does. Until
+	// the client's connection is reset, or for LISTGROUP_IDLE_SECONDS
+	// at most (then 403).
+	WalkGuard guard;
+	artnum_t stepped = 0, at;	// numbers since the start or the last probe
+	bool probing = true;
 	clt->grp->getsize(&f, &l);
 	switch (argv[0][0]) {
 	case 'l':
@@ -2128,6 +2136,19 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 				return -1;
 			}
 			i--;
+			if (++stepped % OVERVIEW_CHUNK == 0)
+				check_walk(guard, clt->groupname, i);
+			if (probing && stepped >= WALK_EMPTY_CHUNKS * OVERVIEW_CHUNK) {
+				// (one by one from at if it can't tell)
+				probing = clt->grp->probe(f, i, true, guard, &at);
+				stepped = 0;
+				if (probing && at == 0) {
+					(*clt->co) << "422 No previous to retrieve\r\n";
+					return -1;
+				}
+				if (at)
+					i = at;
+			}
 			o = clt->grp->getover(i);
 			// (NULL from a not-cached group: no record)
 			if (o && o[0]) {
@@ -2144,6 +2165,18 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 				return -1;
 			}
 			++i;
+			if (++stepped % OVERVIEW_CHUNK == 0)
+				check_walk(guard, clt->groupname, i);
+			if (probing && stepped >= WALK_EMPTY_CHUNKS * OVERVIEW_CHUNK) {
+				probing = clt->grp->probe(i, l, false, guard, &at);
+				stepped = 0;
+				if (probing && at == 0) {
+					(*clt->co) << "421 No next to retrieve\r\n";
+					return -1;
+				}
+				if (at)
+					i = at;
+			}
 			o = clt->grp->getover(i);
 			// (NULL from a not-cached group: no record)
 			if (o && o[0]) {
@@ -4024,6 +4057,8 @@ void nnrpd(int fd, bool tls)
 	// longer than ClientTimeout, so that the wait for a command still
 	// ends with the alarm and its "400 ... timed out" reply.
 	set_client_timeouts(fd, stdio_client ? STDOUT_FILENO : fd);
+	// (walks over empty article numbers check it, see WalkGuard)
+	client_output_fd() = stdio_client ? STDOUT_FILENO : fd;
 	if (clt.tls) {
 		// a TLS read gives up when no data came within the receive
 		// timeout; a write 1 s after send() timed out (SO_SNDTIMEO,
