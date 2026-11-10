@@ -7,6 +7,8 @@ Bug fixes:
   one server reading "dk.*,de.alt.binaries.*" and another "de.*", the
   second server's numbers and posting flag for de.alt.binaries.* replaced
   the first's, GROUP and LIST ACTIVE showed them, and the cached records
-  above a lower last number were dropped at each refresh. The reply is now
-  filtered like a plain LIST ACTIVE: only the groups routed to that server
-  are kept.
+  above a lower last number were dropped at each refresh. Also, a group
+  that another server's Read excludes ("!de.sub.special.*") could be
+  missing from the active list, and a group that two servers read with
+  the same pattern came with the second server's numbers. Each server's
+  reply now keeps only the groups that GROUP takes from that server.

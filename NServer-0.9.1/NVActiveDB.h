@@ -63,7 +63,7 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	// ACTIVE_REPLY_SECONDS). Returns true when the reply was complete (the
 	// "." line). A caller holds no lock here: the news server is not
 	// waited for under the database's lock.
-	bool collect(std::istream & is, const char *filter, std::string & lines);
+	bool collect(std::istream & is, const ActiveFilter *filter, std::string & lines);
 	// Applies the lines collect() gathered, under the exclusive lock, as
 	// numbers asked for at since (see ActiveDB::keep_newer).
 	void apply(const std::string & lines, int flags, unsigned int limit,
@@ -162,7 +162,7 @@ class NVActiveDB:public ActiveDB, protected NVHash {
 	 * \throw System System Function Errors
 	 * \throw ResponseErr Response Error
 	 */
-	void read(std::istream & is, const char *filter, int flags = 0,
+	void read(std::istream & is, const ActiveFilter *filter, int flags = 0,
 		  unsigned int limit = 0, nvtime_t since = 0);
 	void write(std::ostream & os, nvtime_t ctime = 0, int mode =
 		   m_active, const char *filter = NULL);

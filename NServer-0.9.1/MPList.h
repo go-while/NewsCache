@@ -84,7 +84,11 @@ class MPList {
   public:
 	MPList() {};
 //   void addserver(const char *ns,const char *p,const char *g) {//     if(e_used==e_alloc) myrealloc(e_used+1);//     entries[e_used].init(ns,p);//     if(g) {//       strcpy(entries[e_used].read,g);//       strcpy(entries[e_used].postTo,g);//     }//     e_used++;//   }
-	std::string makeFilter(unsigned int servernbr) const;
+	// the index of the entry whose Read matches group best (the longest
+	// match; the first entry on a tie), -1 for none: the entry server()
+	// picks, also a NoServer entry. group may be followed by a space and
+	// more, as in an active list line.
+	int route(const char *group) const;
 	MPListEntry *server(const char *group);
 	MPListEntry *postserver(const char *group);
 	void init(void);
@@ -117,41 +121,6 @@ inline void MPListEntry::init(void)
 
 	flags = F_SETPOSTFLAG | F_CACHED;
 	nntpflags = 0xffffffff;
-}
-
-/*
- * The filter for the active list of server servernbr: its own Read
- * patterns, then each pattern of the other servers negated, so that a
- * group is kept only when it is routed to this server (matchgroup: the
- * longest match wins, as in server()). The same filter serves the replies
- * to "LIST ACTIVE <one Read pattern>": a filter made from that pattern
- * started with "*" and compared the other servers' patterns with it in a
- * way that lost its place after a partial match, so groups of another
- * server came in with this server's numbers.
- */
-inline std::string MPList::makeFilter(unsigned int servernbr) const
-{
-	std::string filter = entries[servernbr].read;
-
-	for (unsigned int i = 0; i < entries.size(); i++) {
-		if (i == servernbr)
-			continue;
-		std::string::const_iterator p = entries[i].read.begin();
-		const std::string::const_iterator end = entries[i].read.end();
-		std::string::const_iterator q;
-		for (;;) {
-			q = p;
-			while (p != end && *p != ',')
-				++p;
-			filter += ",!";
-			filter.append(q, p);
-			if (p == end)
-				break;
-			++p;
-		}
-	}
-
-	return filter;
 }
 
 inline void MPList::init(void)

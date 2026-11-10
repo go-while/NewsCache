@@ -207,7 +207,7 @@ int NVActiveDB::hasgroup(const char *group)
 	return 1;
 }
 
-bool NVActiveDB::collect(istream & is, const char *filter, string & lines)
+bool NVActiveDB::collect(istream & is, const ActiveFilter *filter, string & lines)
 {
 	ReplyBudget budget(ACTIVE_REPLY_ROWS, ACTIVE_REPLY_BYTES, ACTIVE_REPLY_SECONDS);
 	string line;
@@ -234,7 +234,7 @@ bool NVActiveDB::collect(istream & is, const char *filter, string & lines)
 		}
 		if (!budget.add(wire_bytes))
 			throw ReplyLimitError(budget);
-		if (!filter || matchgroup(filter, line.c_str()) > 0) {
+		if (!filter || filter->keep(line.c_str())) {
 			lines += line;
 			lines += '\n';
 		}
@@ -288,7 +288,7 @@ void NVActiveDB::apply(const string & lines, int flags, unsigned int limit,
 	}
 }
 
-void NVActiveDB::read(istream & is, const char *filter, int flags,
+void NVActiveDB::read(istream & is, const ActiveFilter *filter, int flags,
 		      unsigned int limit, nvtime_t since)
 {
 	VERB(slog.

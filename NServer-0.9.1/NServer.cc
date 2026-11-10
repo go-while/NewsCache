@@ -993,6 +993,25 @@ void RServer::setserverlist(MPList * serverlist)
 	_ServerList = serverlist;
 }
 
+/*
+ * The active list lines of the groups routed to server servernbr, as
+ * GROUP is (MPList::server): the replies to "LIST ACTIVE" and to "LIST
+ * ACTIVE <one Read pattern>" hold groups routed elsewhere. (A pattern
+ * filter made from the Read patterns lost the place after a partial
+ * match, read an excluded pattern of another server as a literal "!",
+ * and couldn't give a group read by two servers alike to the first.)
+ */
+class RoutedFilter:public ActiveFilter {
+	const MPList & _list;
+	int _servernbr;
+  public:
+	RoutedFilter(const MPList & list, unsigned int servernbr)
+	:_list(list), _servernbr((int) servernbr) {}
+	bool keep(const char *line) const {
+		return _list.route(line) == _servernbr;
+	}
+};
+
 ActiveDB *RServer::active(bool)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
@@ -1014,6 +1033,7 @@ ActiveDB *RServer::active(bool)
 	for (i = 0; i < _ServerList->entries.size(); i++) {
 		if (!_ServerList->entries[i].hostname[0])
 			continue;
+		RoutedFilter routed(*_ServerList, i);
 		// Connect to ith news server
 		try {
 			setserver(&(_ServerList->entries[i]));
@@ -1054,8 +1074,7 @@ ActiveDB *RServer::active(bool)
 							ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 							_ActiveDB->
 							    read(*_pServerStream,
-								 _ServerList->
-								 makeFilter(i).c_str(),
+								 &routed,
 								 flags,
 								 _CurrentServer->limitgroupsize,
 								 asked);
@@ -1096,7 +1115,7 @@ ActiveDB *RServer::active(bool)
 				try {
 					ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 					_ActiveDB->read(*_pServerStream,
-							_ServerList->makeFilter(i).c_str(),
+							&routed,
 							flags,
 							_CurrentServer->limitgroupsize,
 							asked);

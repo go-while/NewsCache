@@ -11,6 +11,16 @@
 
 #include "VirtualIterator.h"
 
+/*
+ * Which lines of an active list ActiveDB::read keeps.
+ */
+class ActiveFilter {
+  public:
+	virtual ~ActiveFilter() {}
+	// line: "group last first flags"
+	virtual bool keep(const char *line) const = 0;
+};
+
 class ActiveDB {
   protected:
 	ActiveDB();
@@ -61,8 +71,9 @@ class ActiveDB {
 	virtual int get(const char *group, GroupInfo * gi) = 0;
 	virtual int hasgroup(const char *group) = 0;
 
-	// since: when the list was asked for (0: now), see keep_newer
-	virtual void read(std::istream & is, const char *filter,
+	// since: when the list was asked for (0: now), see keep_newer;
+	// filter NULL keeps every line
+	virtual void read(std::istream & is, const ActiveFilter *filter,
 			  int flags = 0, unsigned int limit = 0,
 			  nvtime_t since = 0) = 0;
 	virtual void write(std::ostream & os, nvtime_t ctime =
