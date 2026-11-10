@@ -268,14 +268,18 @@ static int unlink_unlocked_art(const string & path, dev_t dev, ino_t ino)
 		return errno == ENOENT ? 1 : -1;
 	if (lstat(tmp, &now) == 0 && now.st_dev == dev && now.st_ino == ino)
 		return unlink(tmp) == 0 ? 0 : -1;
-	// a new file: back under its name (link() doesn't replace a newer)
-	if (link(tmp, path.c_str()) != 0 && errno != EEXIST) {
+	// A new file: back under its name. link() doesn't replace one stored
+	// meanwhile; where there are no hard links, rename() does, but that
+	// one is a copy of the same article (stored for the same database),
+	// as this one is: no session stores the old orphan's.
+	if (link(tmp, path.c_str()) == 0 || errno == EEXIST) {
+		unlink(tmp);
+		return 1;
+	}
+	if (rename(tmp, path.c_str()) != 0)
 		slog.p(Logger::Error) << "cannot put " << path
 			<< " back: " << strerror(errno) << ", left as " << tmp
 			<< "\n";
-		return 1;
-	}
-	unlink(tmp);
 	return 1;
 }
 
