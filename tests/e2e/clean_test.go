@@ -851,3 +851,96 @@ func TestNewscachecleanArtWithoutDB(t *testing.T) {
 	}
 	c.ReadDotLines()
 }
+
+// TestNewscachecleanOrphanReplaced: an .art file in a directory without a
+// .db has no database lock to hold while newscacheclean checks that it is
+// still the file it scanned and removes it. A session that starts the
+// database and stores the article again between the two lost the new
+// file. The test build waits just before the removal
+// (NEWSCACHE_TEST_CLEAN_RACE); the session stores the article then, and
+// its file must survive. (Found by nc-oc-gpt61t in the review of the
+// change that made newscacheclean remove such files.)
+func TestNewscachecleanOrphanReplaced(t *testing.T) {
+	if os.Getenv("NEWSCACHE_CLEAN_RACE_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_CLEAN_RACE build (NEWSCACHE_CLEAN_RACE_TEST=1)")
+	}
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	const group = "test.orphan-race"
+	e.Store.AddGroup(group, "orphan race")
+	e.Store.AddArticle(group, groupArticle(group, 1, bigBody()))
+	e.writeConf()
+	dir := filepath.Join(e.Spool, "test", "orphan-race")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	art := filepath.Join(dir, ".art1")
+	if err := os.WriteFile(art, []byte("old orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readyR, readyW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goR, goW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { readyR.Close(); readyW.Close(); goR.Close(); goW.Close() })
+	var out strings.Builder
+	cmd := exec.Command(clean, "-c", e.Conf)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.ExtraFiles = []*os.File{readyW, goR}
+	cmd.Env = append(os.Environ(), "NEWSCACHE_TEST_CLEAN_UNLINK_READY_FD=3", "NEWSCACHE_TEST_CLEAN_UNLINK_GO_FD=4")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	readyW.Close()
+	goR.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	ready := make(chan error, 1)
+	go func() { var b [1]byte; _, err := readyR.Read(b[:]); ready <- err }()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatalf("newscacheclean didn't stop before removing %s: %v; %s", art, err, out.String())
+		}
+	case err := <-done:
+		t.Fatalf("newscacheclean ended without stopping before removing %s: %v; %s", art, err, out.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("newscacheclean didn't stop before the removal")
+	}
+	c := e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("ARTICLE 1: %q", line)
+	}
+	c.ReadDotLines()
+	if b, err := os.ReadFile(art); err != nil || string(b) == "old orphan" {
+		t.Fatalf("the article wasn't stored again under %s: %v", art, err)
+	}
+	if _, err := goW.Write([]byte{'x'}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("newscacheclean: %v; %s", err, out.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("newscacheclean didn't finish")
+	}
+	if b, err := os.ReadFile(art); err != nil || string(b) == "old orphan" {
+		t.Errorf("the newly stored %s was removed: %v", art, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".art1.clean*")); len(left) != 0 {
+		t.Errorf("newscacheclean left %v", left)
+	}
+}

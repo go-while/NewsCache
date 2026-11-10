@@ -5,4 +5,5 @@ Bug fixes:
   corrupt on a full disk). No session can reach them, but they stayed
   outside SpoolSize until a session opened the group again. They are
   removed first now, unless a session has started a new database in the
-  directory meanwhile.
+  directory meanwhile; a file a session stores there while one is being
+  removed is kept.

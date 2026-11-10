@@ -241,6 +241,44 @@ static int lock_for_unlink(const string & path)
 	return fd;
 }
 
+/*
+ * Removes the .art file path of a directory without a database (or
+ * whose database lock couldn't be had) if it is still the file that was
+ * scanned (dev, ino). There is no lock to hold: a session that starts a
+ * database there may store a new file under the name at any moment, and
+ * a check followed by unlink() could remove that one. So the file is
+ * renamed first, to a name no session uses, and checked there; a file
+ * that turns out to be a new one goes back under its name, unless a
+ * newer one has been stored there meanwhile. (.art<n>.clean<pid>: a
+ * copy left by a crash goes by its age in the next run, see clean().)
+ * Returns 0 when removed, 1 when the file changed since the scan (kept),
+ * -1 on error.
+ */
+static int unlink_unlocked_art(const string & path, dev_t dev, ino_t ino)
+{
+	char tmp[MAXPATHLEN];
+	struct stat now;
+	int n;
+
+	n = snprintf(tmp, sizeof(tmp), "%s.clean%ld", path.c_str(),
+		     (long) getpid());
+	if (n < 0 || n >= (int) sizeof(tmp))
+		return -1;
+	if (rename(path.c_str(), tmp) != 0)
+		return errno == ENOENT ? 1 : -1;
+	if (lstat(tmp, &now) == 0 && now.st_dev == dev && now.st_ino == ino)
+		return unlink(tmp) == 0 ? 0 : -1;
+	// a new file: back under its name (link() doesn't replace a newer)
+	if (link(tmp, path.c_str()) != 0 && errno != EEXIST) {
+		slog.p(Logger::Error) << "cannot put " << path
+			<< " back: " << strerror(errno) << ", left as " << tmp
+			<< "\n";
+		return 1;
+	}
+	unlink(tmp);
+	return 1;
+}
+
 void remove_elements(long long max_blocks, struct cache_statistic *pS)
 {
 	int isDb;
@@ -263,10 +301,27 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 		// new database. That file wasn't scanned: it stays. The check
 		// and the unlink are done under the session's lock: between
 		// the two, a new file renamed over the name was removed.
-		int lfd = -1, r;
-		if ((*begin)->known) {
-			struct stat now;
+		// Without a lock to take (no database): unlink_unlocked_art.
+		int lfd = -1, r = 0;
+		bool removed = false;
+		string::size_type sl = path.rfind('/');
+		if ((*begin)->known)
 			lfd = lock_for_unlink(path);
+		if ((*begin)->known && lfd < 0 && !isDb &&
+		    sl != string::npos && path.compare(sl + 1, 4, ".art") == 0) {
+#ifdef NEWSCACHE_TEST_CLEAN_RACE
+			test_pause_before_unlink(path);
+#endif
+			r = unlink_unlocked_art(path, (*begin)->dev, (*begin)->ino);
+			if (r > 0) {
+				slog.p(Logger::Debug) << path
+					<< " changed since the scan, kept\n";
+				_blocks -= (*begin)->blocks;
+				continue;
+			}
+			removed = true;
+		} else if ((*begin)->known) {
+			struct stat now;
 			if (lstat(path.c_str(), &now) != 0 ||
 			    now.st_dev != (*begin)->dev ||
 			    now.st_ino != (*begin)->ino) {
@@ -281,7 +336,8 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 			test_pause_before_unlink(path);
 #endif
 		}
-		r = unlink(path.c_str());
+		if (!removed)
+			r = unlink(path.c_str());
 		if (lfd >= 0)
 			close(lfd);
 		if (r == 0) {
@@ -609,10 +665,13 @@ void clean(const char *cpath)
 		if (dbatime != 0 && dbatime <= at)
 			at = dbatime;
 		// .art<n>.tmp: a file NewsCache was writing when
-		// it crashed (see NVNewsgroup::setarticle); it
-		// goes by its age, as an article file does
+		// it crashed (see NVNewsgroup::setarticle), and
+		// .art<n>.clean<pid> one newscacheclean was
+		// removing (unlink_unlocked_art); it goes by its
+		// age, as an article file does
 		if (!parse_artnum(name + 4, &nr, &end) ||
-		    (*end && strcmp(end, ".tmp") != 0)) {
+		    (*end && strcmp(end, ".tmp") != 0 &&
+		     strncmp(end, ".clean", 6) != 0)) {
 			slog.p(Logger::Error) << "error "
 				<< "parsing " << name << "\n";
 		} else if (!have_db || nr < firstnr || nr > lastnr) {
