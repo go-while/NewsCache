@@ -9,9 +9,9 @@ LDADD=../libnserver.a @LDADD@ ../../NVClasses-0.9.1/libnvcontainer.a ../../md5li
 ## extra files needed for checking
 EXTRA_DIST=article5283.in article5283.over.in article9621.in article9621.over.in article9622.in article9622.over.in overviewfmt1.in overviewfmt2.in overviewdb.in TestTempDir.h
 
-check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock cDeflatebuf
+check_PROGRAMS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cHistoryNoMem cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock cDeflatebuf
 
-TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock
+TESTS=cArticle cNSError cOverviewFmt cNewsgroupFilter cNewsgroupList cActiveDB cHistory cHistoryNoMem cChunk cCorruptDB cLogger cUtil cMD5 cReplyBudget cOverviewStored cArticleStored cObjLock cLockDowngrade cArtSpooler cGroupDir cPrintLock
 
 ## cDeflatebuf needs zlib (configure --with-zlib, found by default)
 if HAVE_ZLIB
@@ -42,6 +42,8 @@ cNewsgroupList_SOURCES = cNewsgroupList.cc
 cActiveDB_SOURCES = cActiveDB.cc
 
 cHistory_SOURCES = cHistory.cc
+
+cHistoryNoMem_SOURCES = cHistoryNoMem.cc
 
 cChunk_SOURCES = cChunk.cc
 
