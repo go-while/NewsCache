@@ -564,13 +564,13 @@ func TestActiveListOtherServersGroups(t *testing.T) {
 
 // TestActiveListRouting: the active list keeps each group from the server
 // GROUP goes to (the longest Read match, the first server on a tie).
-// - An exclusion in another server's Read: the second server reads
-//   de.sub.* but not de.sub.special.*, so de.sub.special.x goes to the
-//   first (de.*). A filter that negated the other servers' patterns made
-//   "!!de.sub.special.*" of it, which matched nothing, and the group was
-//   missing from the list.
-// - Two servers with the same Read: the group goes to the first, and so
-//   do its numbers, not the second server's.
+//   - An exclusion in another server's Read: the second server reads
+//     de.sub.* but not de.sub.special.*, so de.sub.special.x goes to the
+//     first (de.*). A filter that negated the other servers' patterns made
+//     "!!de.sub.special.*" of it, which matched nothing, and the group was
+//     missing from the list.
+//   - Two servers with the same Read: the group goes to the first, and so
+//     do its numbers, not the second server's.
 func TestActiveListRouting(t *testing.T) {
 	t.Run("exclusion in another server's Read", func(t *testing.T) {
 		e := newEnv(t)
