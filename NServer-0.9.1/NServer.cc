@@ -588,12 +588,39 @@ void RServer::connect()
 			_OverviewFormat->readxoin(standardOverviewFmt);
 		}
 
+		// The current group is selected again as part of the set-up,
+		// with both guards still on. Selected after the guards were
+		// released, a 400 or a closed connection at this GROUP made
+		// issue() reconnect from inside connect(), whose GROUP
+		// reconnected again, nested without limit until the stack
+		// overflowed. Now such a GROUP fails this connect() like a
+		// failed connection (the stream goes): the caller's issue()
+		// tries again, up to Retries times.
+		if (_CurrentGroup.name()[0] != '\0') {
+			try {
+				selectgroup(_CurrentGroup.name(), 1);
+			}
+			catch(NoSuchGroupError &) {
+				// the group is gone; the connection is fine
+				_CurrentGroup.init();
+				half_open.release();
+				connecting.release();
+				_CurrentServer->connectFailed = 0;
+				throw;
+			}
+			catch(ResponseError & re) {
+				slog.p(Logger::Warning) << "news server "
+				    << _CurrentServer->hostname
+				    << ": GROUP failed after reconnecting: "
+				    << re._got << "\n";
+				throw SystemError("RServer::connect: GROUP failed "
+						  "after reconnecting", -1,
+						  ERROR_LOCATION);
+			}
+		}
 		// set up: from here a 480 may be answered with a new login
 		half_open.release();
 		connecting.release();
-		if (_CurrentGroup.name()[0] != '\0') {
-			selectgroup(_CurrentGroup.name(), 1);
-		}
 		_CurrentServer->connectFailed = 0;
 		return;
 	}
