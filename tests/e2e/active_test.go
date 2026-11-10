@@ -520,3 +520,95 @@ func TestActiveStampFromFuture(t *testing.T) {
 		t.Errorf("the refresh left the stamp in the future: %d", stamp)
 	}
 }
+
+// TestActiveListOtherServersGroups: NewsCache asks each server for "LIST
+// ACTIVE <pattern>" per pattern of its Read. The filter for that reply
+// started with "*" and compared the other servers' patterns with the
+// requested one in a way that lost its place after a partial match: with
+// one server for "dk.*,de.alt.binaries.*" and one for "de.*", the reply to
+// "LIST ACTIVE de.*" (which rightly has de.alt.binaries.x) put
+// de.alt.binaries.x into the active list with the second server's numbers,
+// although the group is routed to the first.
+func TestActiveListOtherServersGroups(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("dk.test", "on the first server")
+	e.ServerLines = "    Read dk.*,de.alt.binaries.*"
+	st := fakeserver.NewStore()
+	st.AddGroup("de.test", "on the second server")
+	st.AddGroup("de.alt.binaries.x", "not routed to the second server")
+	second := fakeserver.New(t, fakeserver.Options{Store: st})
+	e.ExtraServers = serverBlock(second, "de.*")
+	c := e.session()
+	if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	lines := c.ReadDotLines()
+	for _, g := range []string{"dk.test ", "de.test "} {
+		if !containsPrefix(lines, g) {
+			t.Errorf("LIST ACTIVE: no %s: %q", strings.TrimSpace(g), lines)
+		}
+	}
+	if containsPrefix(lines, "de.alt.binaries.x ") {
+		t.Errorf("LIST ACTIVE has de.alt.binaries.x from the server it isn't routed to: %q", lines)
+	}
+	asked := false
+	for _, l := range second.Lines() {
+		if strings.EqualFold(l, "list active de.*") {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Fatalf("second server not asked for LIST ACTIVE de.*: %q", second.Lines())
+	}
+}
+
+// TestActiveListRouting: the active list keeps each group from the server
+// GROUP goes to (the longest Read match, the first server on a tie).
+//   - An exclusion in another server's Read: the second server reads
+//     de.sub.* but not de.sub.special.*, so de.sub.special.x goes to the
+//     first (de.*). A filter that negated the other servers' patterns made
+//     "!!de.sub.special.*" of it, which matched nothing, and the group was
+//     missing from the list.
+//   - Two servers with the same Read: the group goes to the first, and so
+//     do its numbers, not the second server's.
+func TestActiveListRouting(t *testing.T) {
+	t.Run("exclusion in another server's Read", func(t *testing.T) {
+		e := newEnv(t)
+		e.ServerLines = "    Read de.*"
+		e.Store.AddGroup("de.sub.special.x", "routed to the first server")
+		st := fakeserver.NewStore()
+		st.AddGroup("de.sub.special.x", "excluded from the second server")
+		st.AddGroup("de.sub.y", "routed to the second server")
+		second := fakeserver.New(t, fakeserver.Options{Store: st})
+		e.ExtraServers = serverBlock(second, "de.sub.*,!de.sub.special.*")
+		c := e.session()
+		if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE: %q", line)
+		}
+		lines := c.ReadDotLines()
+		for _, g := range []string{"de.sub.special.x ", "de.sub.y "} {
+			if !containsPrefix(lines, g) {
+				t.Errorf("LIST ACTIVE: no %s: %q", strings.TrimSpace(g), lines)
+			}
+		}
+	})
+	t.Run("same Read on two servers", func(t *testing.T) {
+		e := newEnv(t)
+		e.addArticles("test.tie", 1)
+		e.ServerLines = "    Read test.*"
+		st := fakeserver.NewStore()
+		st.AddGroup("test.tie", "the same group on the second server")
+		st.AddArticle("test.tie", groupArticle("test.tie", 1, []string{"body"}))
+		st.AddArticle("test.tie", groupArticle("test.tie", 2, []string{"body"}))
+		second := fakeserver.New(t, fakeserver.Options{Store: st})
+		e.ExtraServers = serverBlock(second, "test.*")
+		c := e.session()
+		if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE: %q", line)
+		}
+		lines := c.ReadDotLines()
+		if !containsPrefix(lines, "test.tie 1 1 ") {
+			t.Errorf("LIST ACTIVE: test.tie not with the first server's numbers: %q", lines)
+		}
+	})
+}

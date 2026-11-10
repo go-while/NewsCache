@@ -84,8 +84,11 @@ class MPList {
   public:
 	MPList() {};
 //   void addserver(const char *ns,const char *p,const char *g) {//     if(e_used==e_alloc) myrealloc(e_used+1);//     entries[e_used].init(ns,p);//     if(g) {//       strcpy(entries[e_used].read,g);//       strcpy(entries[e_used].postTo,g);//     }//     e_used++;//   }
-	std::string makeFilter(unsigned int servernbr,
-						   const char *listarg) const;
+	// the index of the entry whose Read matches group best (the longest
+	// match; the first entry on a tie), -1 for none: the entry server()
+	// picks, also a NoServer entry. group may be followed by a space and
+	// more, as in an active list line.
+	int route(const char *group) const;
 	MPListEntry *server(const char *group);
 	MPListEntry *postserver(const char *group);
 	void init(void);
@@ -118,81 +121,6 @@ inline void MPListEntry::init(void)
 
 	flags = F_SETPOSTFLAG | F_CACHED;
 	nntpflags = 0xffffffff;
-}
-
-inline std::string MPList::makeFilter(unsigned int servernbr, const char *listarg) const
-{
-	std::string filter;
-
-	if (strcmp(listarg, "*") == 0) {
-		filter = entries[servernbr].read;
-		for (unsigned int i = 0; i < entries.size(); i++) {
-			if (i != servernbr) {
-				std::string::const_iterator p = entries[i].read.begin();
-				const std::string::const_iterator end = entries[i].read.end();
-				std::string::const_iterator q;
-				for (;;) {
-					q = p;
-					char c;
-					while (p != end && (c = *p) != ',')
-						++p;
-					filter += ",!";
-					filter.append(q, p);
-					if (p == end)
-						break;
-					++p;
-				}
-			}
-		}
-	} else {
-		unsigned int i;
-		filter = "*";
-		if (servernbr == 0)
-			i = 1;
-		else
-			i = 0;
-		const char *listp = listarg;
-		char c = '\0';
-		std::string::const_iterator p, q;
-		std::string::const_iterator end;
-		while (i < entries.size()) {
-			if (!c) {
-				q = p = entries[i].read.begin();
-				end = entries[i].read.end();
-			}
-			while ((c = *listp) && p != end && c == *p) {
-				listp++;
-				++p;
-			}
-			if (*listp == '*') {
-				// p is matched by listarg
-				ASSERT(if (p != end && *p == '*') {
-				       slog.
-				       p(Logger::
-					 Error) <<
-				       "Same newsgroup expression configured for two different servers!\n";}
-				);
-				filter += ",!";
-				while (p != end && (c = *p) != ',')
-					++p;
-				filter.append(q, p);
-			} else {
-				// p is not matched by listarg
-				while (p != end && (c = *p) != ',')
-					++p;
-			}
-			if (p == end) {
-				c = '\0';
-				i++;
-				if (servernbr == i)
-					i++;
-			} else {
-				q = ++p;
-			}
-		}
-	}
-
-	return filter;
 }
 
 inline void MPList::init(void)
