@@ -1446,3 +1446,40 @@ func TestListEmptyThenNext(t *testing.T) {
 		}
 	}
 }
+
+// TestGroupNameSpoolAlias: group names with "/" or an empty component
+// (test/alias, test.alias., .test.alias, test..alias) all had the spool
+// directory of test.alias: a news server that answered GROUP for such a
+// name put its records and articles into test.alias's database, which
+// other readers then got, and a name like test.alias. got past an exact
+// "!test.alias" in a list. They aren't newsgroup names (RFC 5536 3.1.4):
+// GROUP gets 411 now, and test.alias keeps its own article.
+func TestGroupNameSpoolAlias(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alias", "the real group")
+	e.Store.AddArticle("test.alias", groupArticle("test.alias", 1, []string{"the real article"}))
+	for _, g := range []string{"test/alias", "test.alias.", ".test.alias", "test..alias"} {
+		e.Store.AddGroup(g, "an alias")
+		e.Store.AddArticle(g, groupArticle(g, 1, []string{"from the alias " + g}))
+	}
+	c := e.session()
+	for _, g := range []string{"test/alias", "test.alias.", ".test.alias", "test..alias"} {
+		if code, line := c.Cmd("GROUP %s", g); code != 411 {
+			t.Errorf("GROUP %s: %q, want 411", g, line)
+			if code == 211 {
+				if code, _ := c.Cmd("ARTICLE 1"); code == 220 {
+					c.ReadDotLines()
+				}
+			}
+		}
+	}
+	if code, line := c.Cmd("GROUP test.alias"); code != 211 {
+		t.Fatalf("GROUP test.alias: %q, want 211", line)
+	}
+	if code, line := c.Cmd("BODY 1"); code != 222 {
+		t.Fatalf("BODY 1: %q, want 222", line)
+	}
+	if body := strings.Join(c.ReadDotLines(), "\n"); !strings.Contains(body, "the real article") {
+		t.Errorf("test.alias article 1: %q, want its own body", body)
+	}
+}

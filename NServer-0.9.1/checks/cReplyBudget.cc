@@ -70,6 +70,33 @@ static void partial_line_deadline()
 	CHECK(waitpid(child, &status, 0) == child);
 }
 
+// A client that reset its connection, or closed its end of the pipe, is
+// gone; one that only closed its sending side may still read the reply.
+static void client_connection_gone()
+{
+	int fd[2], p[2];
+
+	CHECK(client_output_fd() == -1 && !client_gone());
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd) != 0 || pipe(p) != 0) {
+		CHECK(false);
+		return;
+	}
+	client_output_fd() = fd[0];
+	CHECK(!client_gone());
+	shutdown(fd[1], SHUT_WR);
+	CHECK(!client_gone());
+	client_output_fd() = p[1];
+	CHECK(!client_gone());
+	close(p[0]);
+#if defined(__linux__)
+	CHECK(client_gone());
+#endif
+	client_output_fd() = -1;
+	close(p[1]);
+	close(fd[0]);
+	close(fd[1]);
+}
+
 int main()
 {
 #if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
@@ -126,5 +153,6 @@ int main()
 	nlreadline(partial, line, 0, NNTP_MAXLINE, &wire);
 	CHECK(line == "abc" && wire == 3 && partial.eof());
 	partial_line_deadline();
+	client_connection_gone();
 	return failures ? 1 : 0;
 }

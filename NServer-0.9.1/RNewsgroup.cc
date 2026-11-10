@@ -68,10 +68,58 @@ const char *RNewsgroup::getover(artnum_t nbr)
 	return NULL;
 }
 
-void RNewsgroup::printoverdb(std::ostream & os, artnum_t f, artnum_t l)
+void check_walk(const WalkGuard & guard, const char *group, artnum_t at)
 {
-	artnum_t a;
+	const char *why = guard.stop();
 
+	if (!why)
+		return;
+	if (client_gone())
+		slog.p(Logger::Notice) << group << ": " << why
+		    << ", giving up at " << at << "\n";
+	else
+		slog.p(Logger::Error) << group << ": no article found for "
+		    << LISTGROUP_IDLE_SECONDS << " s, giving up at " << at << "\n";
+	throw UpstreamReplyError(std::string(group) + ": " + why);
+}
+
+bool probe_upstream(RServer * srvr, const char *group, artnum_t f, artnum_t l,
+		    bool down, const WalkGuard & guard, artnum_t * at)
+{
+	try {
+		return srvr->probelisted(group, f, l, down, guard, at);
+	}
+	catch(const UpstreamReplyError &) {
+		throw;	// (check_walk, logged)
+	}
+	catch(const Error & e) {
+		slog.p(Logger::Error) << "listgroup " << group << " " << f << "-"
+		    << l << " failed: " << e._errtext << "\n";
+		throw UpstreamReplyError("listgroup " + std::string(group) + ": " +
+					 e._errtext);
+	}
+}
+
+/*
+ * Prints the overview records, a header's lines or the numbers of [f,l],
+ * one chunk after the other as the news server sends them. After
+ * WALK_EMPTY_CHUNKS chunks in a row without a record it asks the news
+ * server where the next articles are (probe), instead of fetching chunk
+ * after chunk through millions of empty numbers. It gives up when the
+ * client's connection was reset or nothing was found for too long
+ * (WalkGuard).
+ */
+void RNewsgroup::walk(std::ostream & os, int what, const char *header,
+		      artnum_t f, artnum_t l, const char *pat)
+{
+	std::string xheader, fld;
+	WalkGuard guard;
+	artnum_t a, n;
+	unsigned int empty = 0;	// chunks in a row without a record
+	bool found, probing = true;
+
+	if (what == walk_header)
+		xheader = headerfield(header);
 	if (f < _first)
 		f = _first;
 	if (f == 0)
@@ -79,61 +127,69 @@ void RNewsgroup::printoverdb(std::ostream & os, artnum_t f, artnum_t l)
 	if (l > _last)
 		l = _last;
 	for (a = f; a <= l && os.good();) {
+		check_walk(guard, name(), a);
+		found = false;
 		if (load(a)) {
 			iterator i = _OverviewDB.lower_bound(a), end =
 			    _OverviewDB.end();
-			for (; i != end && i->first <= l; ++i)
-				os << i->second << "\r\n";
+			for (; i != end && i->first <= l; ++i) {
+				found = true;
+				switch (what) {
+				case walk_over:
+					os << i->second << "\r\n";
+					break;
+				case walk_header:
+					try {
+						fld = _OverviewFormat->
+						    getfield(i->second.c_str(),
+							     xheader.c_str(), 0);
+					}
+					catch(NoSuchFieldError & nsfe) {
+						headerline(os, i->first, NULL, pat);
+						break;
+					}
+					headerline(os, i->first, &fld, pat);
+					break;
+				case walk_list:
+					os << i->first << "\r\n";
+					break;
+				}
+			}
 		}
-		// next chunk ("a = _cl + 1" ends at l == ARTNUM_MAX too)
 		// next chunk; 0 after the last one (the addition used to
 		// wrap around to a small number near ARTNUM_MAX)
-		a = next_chunk(a);
+		n = next_chunk(a);
+		if (n == 0 || n > l)
+			break;
+		if (found) {
+			guard.progress();
+			empty = 0;
+		}
+		if (found || ++empty < WALK_EMPTY_CHUNKS || !probing) {
+			a = n;
+			continue;
+		}
+		// (chunk by chunk from a if it can't tell)
+		probing = probe(n, l, false, guard, &a);
 		if (a == 0)
 			break;
 	}
+}
+
+void RNewsgroup::printoverdb(std::ostream & os, artnum_t f, artnum_t l)
+{
+	walk(os, walk_over, NULL, f, l);
 }
 
 void RNewsgroup::printheaderdb(std::ostream & os, const char *header,
 			       artnum_t f, artnum_t l, const char *pat)
 {
-	std::string xheader = headerfield(header), fld;
-	artnum_t a;
-
-	if (f < _first)
-		f = _first;
-	if (f == 0)
-		f = 1;	// no article 0: load(0) fails, its chunk was skipped
-	if (l > _last)
-		l = _last;
-	for (a = f; a <= l && os.good();) {
-		if (load(a)) {
-			iterator i = _OverviewDB.lower_bound(a), end =
-			    _OverviewDB.end();
-			for (; i != end && i->first <= l; ++i) {
-				try {
-					fld = _OverviewFormat->
-					    getfield(i->second.c_str(),
-						     xheader.c_str(), 0);
-				}
-				catch(NoSuchFieldError & nsfe) {
-					headerline(os, i->first, NULL, pat);
-					continue;
-				}
-				headerline(os, i->first, &fld, pat);
-			}
-		}
-		// next chunk; 0 after the last one (the addition used to
-		// wrap around to a small number near ARTNUM_MAX)
-		a = next_chunk(a);
-		if (a == 0)
-			break;
-	}
+	walk(os, walk_header, header, f, l, pat);
 }
 
 void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 {
-	artnum_t a, next;
+	artnum_t next;
 
 	if (f < _first)
 		f = _first;
@@ -161,19 +217,7 @@ void RNewsgroup::printlistgroup(std::ostream & os, artnum_t f, artnum_t l)
 					 ": " + e._errtext);
 	}
 	// the numbers below next were listed already
-	for (a = next; a <= l && os.good();) {
-		if (load(a)) {
-			iterator i = _OverviewDB.lower_bound(a), end =
-			    _OverviewDB.end();
-			for (; i != end && i->first <= l; ++i)
-				os << i->first << "\r\n";
-		}
-		// next chunk; 0 after the last one (the addition used to
-		// wrap around to a small number near ARTNUM_MAX)
-		a = next_chunk(a);
-		if (a == 0)
-			break;
-	}
+	walk(os, walk_list, NULL, next, l);
 }
 
 /*

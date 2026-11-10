@@ -107,6 +107,12 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	: Newsgroup(fmt, name), NVArray(), _gfirst(1), _glast(0), _ghave(0)
 	{
 		char fn[MAXPATHLEN];
+		if (!spool_group_name(name)) {
+			slog.p(Logger::Notice) << "group name " << name
+				<< " can't be a spool directory: no such group\n";
+			throw NoSuchGroupError("group name not usable",
+					       ERROR_LOCATION);
+		}
 		const char *dir = group2dir(name);
 		// Leave room for "/.art" and the longest article number, so
 		// that every file name below the directory fits.
@@ -205,13 +211,37 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	virtual artnum_t readoverdb(std::istream & is, ReplyBudget &budget,
 				    artnum_t first, artnum_t last);
 	virtual void printoverdb(std::ostream & os, artnum_t f =
-				 0, artnum_t l = ARTNUM_MAX);
+				 0, artnum_t l = ARTNUM_MAX) {
+		printoverdb_stored(os, f, l, NULL);
+	}
 	virtual void printheaderdb(std::ostream & os, const char *header,
 				   artnum_t f = 0, artnum_t l =
-				   ARTNUM_MAX, const char *pat = NULL);
+				   ARTNUM_MAX, const char *pat = NULL) {
+		printheaderdb_stored(os, header, f, l, pat, NULL);
+	}
 
 	virtual void printlistgroup(std::ostream & os, artnum_t f =
-				    0, artnum_t l = ARTNUM_MAX);
+				    0, artnum_t l = ARTNUM_MAX) {
+		printlistgroup_stored(os, f, l, NULL);
+	}
+
+  protected:
+	/*
+	 * The three above. Numbers of [f,l] below the index are skipped
+	 * (what the spool has, from the index's first number on), unless
+	 * gap_last is given: then printing stops at the first such number
+	 * and returns it, with *gap_last the last one below the index (at
+	 * most l), so that the caller can get them elsewhere and go on
+	 * after it. The index can move up while the records are printed
+	 * chunk by chunk (another session's cover()). 0: [f,l] is done.
+	 */
+	artnum_t printoverdb_stored(std::ostream & os, artnum_t f, artnum_t l,
+				    artnum_t * gap_last);
+	artnum_t printheaderdb_stored(std::ostream & os, const char *header,
+				      artnum_t f, artnum_t l, const char *pat,
+				      artnum_t * gap_last);
+	artnum_t printlistgroup_stored(std::ostream & os, artnum_t f,
+				       artnum_t l, artnum_t * gap_last);
 };
 
 

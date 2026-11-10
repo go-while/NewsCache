@@ -471,3 +471,81 @@ func TestOverviewWindowRenumberedBelow(t *testing.T) {
 	}
 	c.Cmd("QUIT")
 }
+
+// TestOverIndexMovedDuringReply: one session's XOVER prints its range
+// chunk by chunk; when another session's request moves the index up
+// meanwhile (here: articles far above, so the index starts over there),
+// the numbers that fell below it were left out, and the list still ended
+// with "." as if complete. They come from the news server now. The news
+// server answers OVER/XOVER after a second, so that the second session
+// moves the index while the first one waits for its first chunk.
+func TestOverIndexMovedDuringReply(t *testing.T) {
+	const g = "test.index-moved"
+	e := newEnv(t)
+	e.Store.AddGenerated(g, "10^6 articles", fakeserver.Generator{Low: 1, High: 1_000_000})
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Delay: map[string]time.Duration{"OVER": time.Second, "XOVER": time.Second},
+	}})
+	a, b := e.session(), e.session()
+	a.Deadline, b.Deadline = 60*time.Second, 60*time.Second
+	for _, c := range []*client.Conn{a, b} {
+		if code, line := c.Cmd("GROUP %s", g); code != 211 {
+			t.Fatalf("GROUP: %q", line)
+		}
+	}
+	done := make(chan []int64, 1)
+	go func() {
+		code, line, err := a.TryCmd("XOVER 1-30000")
+		if err != nil || code != 224 {
+			t.Errorf("XOVER 1-30000: %q %v", line, err)
+			done <- nil
+			return
+		}
+		lines, err := a.TryReadDotLines()
+		if err != nil {
+			t.Errorf("XOVER 1-30000: %v", err)
+		}
+		var nums []int64
+		for _, l := range lines {
+			n, _ := strconv.ParseInt(strings.SplitN(l, "\t", 2)[0], 10, 64)
+			nums = append(nums, n)
+		}
+		done <- nums
+	}()
+	// the first session waits for its first chunk now
+	deadline := time.Now().Add(20 * time.Second)
+	for !upstreamAsked(e, " 1-") {
+		if time.Now().After(deadline) {
+			t.Fatal("the news server never got the first chunk's request")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := xover(t, b, 900_000, 900_009); len(got) != 10 {
+		t.Errorf("XOVER 900000-900009: %d records, want 10", len(got))
+	}
+	nums := <-done
+	if len(nums) != 30000 || nums[0] != 1 || nums[len(nums)-1] != 30000 {
+		first, last := int64(0), int64(0)
+		if len(nums) > 0 {
+			first, last = nums[0], nums[len(nums)-1]
+		}
+		t.Fatalf("XOVER 1-30000 while the index moved: %d records (%d..%d), want 30000", len(nums), first, last)
+	}
+	for i, n := range nums {
+		if n != int64(i+1) {
+			t.Fatalf("XOVER 1-30000: record %d is %d, want %d", i, n, i+1)
+		}
+	}
+}
+
+// upstreamAsked: whether the news server got an OVER or XOVER whose range
+// contains part ("OVER 1-9999" for " 1-").
+func upstreamAsked(e *env, part string) bool {
+	for _, l := range e.Upstream.Lines() {
+		u := strings.ToUpper(l)
+		if (strings.HasPrefix(u, "OVER ") || strings.HasPrefix(u, "XOVER ")) && strings.Contains(u, part) {
+			return true
+		}
+	}
+	return false
+}

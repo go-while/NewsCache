@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -502,6 +503,17 @@ void History::remove(const char *msgid, const char *group, artnum_t nbr)
 	queue_op(false, msgid, group, nbr);
 }
 
+// (logging can fail too when memory has run out)
+static void log_dropped(const char *why)
+{
+	try {
+		slog.p(Logger::Error) << "history: updates dropped: " << why
+		    << "\n";
+	}
+	catch(...) {
+	}
+}
+
 void History::begin(void)
 {
 	batch_depth++;
@@ -511,7 +523,23 @@ void History::commit(void)
 {
 	if (batch_depth > 0 && --batch_depth > 0)
 		return;
-	flush();
+	// Never throws: HistoryBatch's destructor calls it, also while an
+	// exception unwinds the stack, and an exception leaving a destructor
+	// ends the process (std::terminate, SIGABRT). Corrupt and Error are
+	// handled per shard in apply_all; what is left here (std::bad_alloc
+	// when memory runs out) drops the rest of the batch. The history is
+	// an index: a lost update costs a lookup, not an article.
+	try {
+		flush();
+	}
+	catch(const std::exception & e) {
+		batch.clear();
+		log_dropped(e.what());
+	}
+	catch(...) {
+		batch.clear();
+		log_dropped("unknown exception");
+	}
 }
 
 namespace {

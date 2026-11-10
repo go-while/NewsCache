@@ -432,10 +432,12 @@ func TestUpstreamCompressCorrupt(t *testing.T) {
 // blocks for ever after the 206 (valid data that inflates to nothing)
 // held the session: the inflater waited for output, and a single-line
 // reply has no deadline beyond each read's timeout. The input ends
-// once 64 KiB came without output, as for invalid data.
+// once input came without output for ReadTimeout (2 s here), as for
+// invalid data.
 func TestUpstreamCompressEmptyBlocks(t *testing.T) {
 	e := newEnv(t)
 	requireZlib(t, e.Bin)
+	e.ServerLines = "    ReadTimeout 2"
 	e.Upstream = fakeserver.New(t, fakeserver.Options{
 		Handler: func(c *fakeserver.Conn) {
 			for {
@@ -477,6 +479,56 @@ func TestUpstreamCompressEmptyBlocks(t *testing.T) {
 	p.Wait()
 	if mode, err := logMode(e.Bin); err == nil && mode == "file" {
 		e.waitLog("compressed data: compressed data without content")
+	}
+}
+
+// TestUpstreamCompressLongEmptyRun: 100000 bytes of empty DEFLATE blocks
+// right after the 206, then the server compresses its replies as usual.
+// That is valid (zlib sends empty blocks for repeated sync flushes), but
+// the input ended after 64 KiB without output, and the client got 403
+// for a server that works. The limit is a time now.
+func TestUpstreamCompressLongEmptyRun(t *testing.T) {
+	e := newEnv(t)
+	requireZlib(t, e.Bin)
+	e.Upstream = fakeserver.New(t, fakeserver.Options{
+		Handler: func(c *fakeserver.Conn) {
+			for {
+				line, err := c.ReadLine()
+				if err != nil {
+					return
+				}
+				switch strings.ToLower(line) {
+				case "mode reader":
+					c.WriteLines("200 ready")
+				case "compress deflate":
+					c.WriteLines("206 Compression active")
+					raw := c.Raw()
+					block := bytes.Repeat([]byte{0, 0, 0, 0xff, 0xff}, 20000)
+					if _, err := raw.Write(block); err != nil {
+						return
+					}
+					if c.StartCompress() != nil {
+						return
+					}
+				case "list overview.fmt":
+					c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:",
+						"References:", "Bytes:", "Lines:", "Xref:full", ".")
+				case "group test.alpha":
+					c.WriteLines("211 1 1 1 test.alpha")
+				case "quit":
+					c.WriteLines("205 bye")
+					return
+				default:
+					c.WriteLines("500 unsupported")
+				}
+			}
+		},
+	})
+	e.ServerOptions = "compress"
+	c := e.session()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP after a long run of empty blocks: %q, want 211", line)
 	}
 }
 

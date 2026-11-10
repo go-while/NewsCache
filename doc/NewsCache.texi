@@ -757,6 +757,21 @@ a time in a dense group, larger steps (up to 100000000 numbers) across
 gaps without articles. A @code{LISTGROUP} that has passed no number to
 the client for 5 minutes fails.
 
+@code{XOVER}, @code{OVER}, @code{XHDR}, @code{XPAT} and @code{HDR} fetch
+the records below the index 10000 numbers at a time as well, and
+@code{NEXT} and @code{LAST} look at one number after the other. After
+160000 numbers in a row without an article they ask the news server
+where the next (or previous) article is, with @code{LISTGROUP} in
+growing steps as above: a gap of 10000000000 empty numbers takes about
+120 requests instead of a million. These commands give up when they
+have found no article for 5 minutes. A connection the client reset (or,
+in inetd mode, a pipe it closed) ends them at once; a client that only
+closed its sending side may still read the reply, so for it the 5
+minutes apply. The client gets @samp{403}; if part of a list has been
+sent, the connection is closed instead. Without @code{LISTGROUP} (or
+when the news server refuses it) the steps go one by one, within the
+same limit.
+
 While NewsCache fetches the overview records of a range of 10000
 article numbers from the news server (for XOVER, OVER, XHDR, HDR or
 updatenews), the group isn't locked: other sessions read what the spool

@@ -62,6 +62,11 @@ static inline artnum_t chunk_last(artnum_t a)
 	return n ? n - 1 : ARTNUM_MAX;
 }
 
+// Ends a walk over the numbers of group at at when guard says so (see
+// WalkGuard): logs why and throws UpstreamReplyError, so the client gets
+// 403, or the connection closes after part of a list. (In RNewsgroup.cc)
+void check_walk(const WalkGuard & guard, const char *group, artnum_t at);
+
 // Changes an overview record from the news server (in our format) before
 // it is stored: CServer::overviewdb drops the Xref entries of groups that
 // other servers serve, as it does in articles.
@@ -156,6 +161,16 @@ class Newsgroup {
 
 	virtual const char *getover(artnum_t nbr) = 0;
 	virtual void setover(const std::string & over) = 0;
+	// Where a walk through numbers without articles goes on: the lowest
+	// listed number in [f,l] (down: the highest), 0 if none, from the
+	// news server (RServer::probelisted). false: can't tell, *at is the
+	// first number not known to be empty; so here (no news server).
+	virtual bool probe(artnum_t f, artnum_t l, bool down,
+			   const WalkGuard & guard, artnum_t * at) {
+		(void) guard;
+		*at = down ? l : f;
+		return false;
+	}
 	virtual void printover(std::ostream & os, artnum_t nbr) {
 		const char *o = getover(nbr);
 		if (o)
