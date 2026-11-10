@@ -269,10 +269,19 @@ static int unlink_unlocked_art(const string & path, dev_t dev, ino_t ino)
 	if (lstat(tmp, &now) == 0 && now.st_dev == dev && now.st_ino == ino)
 		return unlink(tmp) == 0 ? 0 : -1;
 	// A new file: back under its name. link() doesn't replace one stored
-	// meanwhile; where there are no hard links, rename() does, but that
-	// one is a copy of the same article (stored for the same database),
-	// as this one is: no session stores the old orphan's.
+	// meanwhile. Where there are no hard links, rename() does: for an
+	// .art<n> that is a complete copy of the same article (stored for
+	// the same database), as this one is. An .art<n>.tmp may still be
+	// written, and another one under the name could then be replaced
+	// by an incomplete file that its session renames to .art<n>: it is
+	// dropped instead (its session's store fails, the article is
+	// fetched again).
 	if (link(tmp, path.c_str()) == 0 || errno == EEXIST) {
+		unlink(tmp);
+		return 1;
+	}
+	if (path.size() >= 4 &&
+	    path.compare(path.size() - 4, 4, ".tmp") == 0) {
 		unlink(tmp);
 		return 1;
 	}
