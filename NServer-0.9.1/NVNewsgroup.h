@@ -107,6 +107,12 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	: Newsgroup(fmt, name), NVArray(), _gfirst(1), _glast(0), _ghave(0)
 	{
 		char fn[MAXPATHLEN];
+		if (!spool_group_name(name)) {
+			slog.p(Logger::Notice) << "group name " << name
+				<< " can't be a spool directory: no such group\n";
+			throw NoSuchGroupError("group name not usable",
+					       ERROR_LOCATION);
+		}
 		const char *dir = group2dir(name);
 		// Leave room for "/.art" and the longest article number, so
 		// that every file name below the directory fits.

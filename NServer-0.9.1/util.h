@@ -5,8 +5,14 @@
 #include <vector>
 
 extern int mkpdir(const char *dirname, int mode);
+/* Whether a group name can have a directory in the spool: not empty, no
+ * "/" and no empty component (no leading, trailing or double dot), as
+ * RFC 5536 3.1.4 asks of a newsgroup name. Other names would share a
+ * directory with another group: a.b, a/b, a..b, .a.b and a.b. were all
+ * a/b. */
+extern bool spool_group_name(const char *name);
 /* The spool directory of a group (dots become slashes), in a static
- * buffer; NULL if the name doesn't fit. */
+ * buffer; NULL if the name doesn't fit or isn't a spool_group_name. */
 extern const char *group2dir(const char *name);
 
 /* The group names in the body of a Newsgroups header: separated by

@@ -57,11 +57,24 @@ int mkpdir(const char *dirname, int mode)
 	return 0;
 }
 
+bool spool_group_name(const char *name)
+{
+	if (*name == '\0' || *name == '.')
+		return false;
+	for (const char *p = name; *p; p++) {
+		if (*p == '/')
+			return false;
+		if (*p == '.' && (p[1] == '.' || p[1] == '\0'))
+			return false;
+	}
+	return true;
+}
+
 const char *group2dir(const char *name)
 {
 	static char buf[MAXPATHLEN];
 
-	if (strlen(name) >= sizeof(buf)) {
+	if (strlen(name) >= sizeof(buf) || !spool_group_name(name)) {
 		return NULL;
 	}
 	char *p = buf;
