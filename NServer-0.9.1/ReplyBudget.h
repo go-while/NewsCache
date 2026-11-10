@@ -5,6 +5,8 @@
 #include <limits.h>
 #include <time.h>
 #include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <sstream>
 #include "Error.h"
 
@@ -120,6 +122,8 @@ inline int &client_output_fd()
 inline bool client_gone()
 {
 	struct pollfd p;
+	int err = 0;
+	socklen_t len = sizeof(err);
 
 	p.fd = client_output_fd();
 	if (p.fd < 0)
@@ -129,7 +133,12 @@ inline bool client_gone()
 	// there)
 	p.events = POLLOUT;
 	p.revents = 0;
-	return poll(&p, 1, 0) > 0 && (p.revents & (POLLERR | POLLHUP | POLLNVAL));
+	if (poll(&p, 1, 0) > 0 && (p.revents & (POLLERR | POLLHUP | POLLNVAL)))
+		return true;
+	// illumos reports a socket's error, such as a reset, only as POLLIN
+	// and POLLOUT. (For a pipe getsockopt fails.)
+	return getsockopt(p.fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 &&
+		err != 0;
 }
 
 /*
