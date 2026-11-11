@@ -31,7 +31,7 @@ func TestMaxConnectionsPerHost(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
 	}
-	clients, err := maxConnectionsClients(e.Listen, 3*time.Second)
+	clients, err := maxConnectionsClients(e.Listen, "400 too many connections from your host", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
