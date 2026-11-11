@@ -1078,19 +1078,14 @@ func testClientStalledReader(t *testing.T, command string) {
 		t.Fatal(err)
 	}
 	haveLog := mode != "syslog"
-	// /proc/<pid>/task/<pid>/children (Linux 3.5+); a restricted /proc
-	// in a container may lack it
-	self := strconv.Itoa(os.Getpid())
-	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
-	haveProc := runtime.GOOS == "linux" && procErr == nil
-	if !haveLog && !haveProc {
-		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
+	// A's session end is seen in the daemon's children: /proc, or pgrep -P
+	// without /proc (FreeBSD, macOS)
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep) to see the session end")
 	}
 	p := e.standalone()
-	if haveProc {
-		// standalone()'s readiness check is a session of its own
-		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
-	}
+	// standalone()'s readiness check is a session of its own
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
 
 	// Fill the cache first, so that A's reply below comes from the spool
 	// and its socket fills at once: the time to the session's end must not
@@ -1108,9 +1103,7 @@ func testClientStalledReader(t *testing.T, command string) {
 		t.Fatalf("warming %s returned %d records, want 40000", command, n)
 	}
 	w.Cmd("QUIT")
-	if haveProc {
-		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
-	}
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
 
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {
@@ -1126,14 +1119,11 @@ func testClientStalledReader(t *testing.T, command string) {
 		t.Fatalf("A: GROUP: %q %v", l, err)
 	}
 	// The daemon's only child is A's session.
-	var aPid string
-	if haveProc {
-		kids := linuxProcChildren(t, p.Pid())
-		if len(kids) != 1 {
-			t.Fatalf("daemon children before the stall = %v, want A's session", kids)
-		}
-		aPid = kids[0]
+	kids := linuxProcChildren(t, p.Pid())
+	if len(kids) != 1 {
+		t.Fatalf("daemon children before the stall = %v, want A's session", kids)
 	}
+	aPid := kids[0]
 	stallStart := time.Now()
 	// When A's session ends, seen from the request: checked at the end,
 	// after B, which a busy machine slows down.
@@ -1142,23 +1132,20 @@ func testClientStalledReader(t *testing.T, command string) {
 	sessionEnd := make(chan time.Duration, 1)
 	stop := make(chan struct{})
 	defer close(stop)
-	if haveProc {
-		children := filepath.Join("/proc", strconv.Itoa(p.Pid()), "task", strconv.Itoa(p.Pid()), "children")
-		go func() {
-			for {
-				b, err := os.ReadFile(children)
-				if err == nil && !slices.Contains(strings.Fields(string(b)), aPid) {
-					sessionEnd <- time.Since(stallStart)
-					return
-				}
-				select {
-				case <-stop:
-					return
-				case <-time.After(20 * time.Millisecond):
-				}
+	go func() {
+		for {
+			kids, ok := daemonChildren(p.Pid())
+			if ok && !slices.Contains(kids, aPid) {
+				sessionEnd <- time.Since(stallStart)
+				return
 			}
-		}()
-	}
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}()
 	io.WriteString(a, command+" 1-40000\r\n")
 	// A reads the status line and a little, then nothing more
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
@@ -1184,17 +1171,17 @@ func testClientStalledReader(t *testing.T, command string) {
 	// that left its data in the buffer made the next flush wait for the
 	// timeout again: 6.0 s here (763126c). The bound is 1.5 ClientTimeouts.
 	endBound := time.Duration(e.ClientTimeout) * 1500 * time.Millisecond
-	if haveProc {
-		select {
-		case d := <-sessionEnd:
-			t.Logf("the stalled session ended %v after the request", d.Round(time.Millisecond))
-			if d > endBound {
-				t.Errorf("stalled reader's session %s ended %v after the request, want within %v", aPid, d.Round(time.Millisecond), endBound)
-			}
-		case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
-			t.Errorf("stalled reader's session %s still running %v after the request, want it gone within %v", aPid, time.Since(stallStart).Round(time.Millisecond), endBound)
+	select {
+	case d := <-sessionEnd:
+		t.Logf("the stalled session ended %v after the request", d.Round(time.Millisecond))
+		if d > endBound {
+			t.Errorf("stalled reader's session %s ended %v after the request, want within %v", aPid, d.Round(time.Millisecond), endBound)
 		}
+	case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
+		t.Errorf("stalled reader's session %s still running %v after the request, want it gone within %v", aPid, time.Since(stallStart).Round(time.Millisecond), endBound)
 	}
+	// With a log file: the session ended because the send failed. (Not
+	// the time of its end: that line comes at the first failed write.)
 	if !haveLog {
 		return
 	}
