@@ -148,7 +148,11 @@ func TestReaderQuitWhileConnecting(t *testing.T) {
 // The harness readiness connection may still occupy a slot after StartTCP
 // returns. Keep the first accepted client while retrying only a temporary
 // 400 for the second; never retry the actual over-limit third connection.
-func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, error) {
+// maxConnectionsClients opens the two allowed clients. While the
+// harness's readiness session still ends it counts, and the second client
+// may get the limit's refusal: busy is that refusal, the only greeting
+// retried.
+func maxConnectionsClients(addr, busy string, timeout time.Duration) ([]*client.Conn, error) {
 	deadline := time.Now().Add(timeout)
 	var clients []*client.Conn
 	fail := func(err error) ([]*client.Conn, error) {
@@ -175,7 +179,9 @@ func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, 
 		}
 		greeting := c.Greeting
 		c.Close()
-		if greeting != "400 too many users" {
+		// a session that is still ending (the harness's readiness probe,
+		// whose process is only waited for on Linux) still counts
+		if greeting != busy {
 			return fail(fmt.Errorf("client %d unexpected greeting %q", len(clients)+1, greeting))
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -190,7 +196,7 @@ func TestMaxConnections(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
 	}
-	clients, err := maxConnectionsClients(e.Listen, 3*time.Second)
+	clients, err := maxConnectionsClients(e.Listen, "400 too many users", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +313,7 @@ func TestMaxConnectionsReadiness(t *testing.T) {
 				}
 			}()
 			started := time.Now()
-			clients, err := maxConnectionsClients(ln.Addr().String(), 250*time.Millisecond)
+			clients, err := maxConnectionsClients(ln.Addr().String(), "400 too many users", 250*time.Millisecond)
 			for _, c := range clients {
 				c.Close()
 			}
