@@ -175,7 +175,11 @@ func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, 
 		}
 		greeting := c.Greeting
 		c.Close()
-		if greeting != "400 too many users" {
+		// a session that is still ending (the harness's readiness probe,
+		// whose process is only waited for on Linux) still counts, for
+		// MaxConnections and for MaxConnectionsPerHost alike
+		if greeting != "400 too many users" &&
+			greeting != "400 too many connections from your host" {
 			return fail(fmt.Errorf("client %d unexpected greeting %q", len(clients)+1, greeting))
 		}
 		time.Sleep(20 * time.Millisecond)
