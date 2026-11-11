@@ -69,6 +69,16 @@ main at d89b2e4 (rows #327, #328 and #330 to #340; no threads, and the
 signal handling, fork set-up and session counting were found correct); a
 check of a
 NewsCache caching 300 groups from three INN 2.7 servers found #326.
+On 2026-11-09 an Opus review went through the release branch at ba7ef87
+(C-01 to C-09: 3 medium, 6 low), and an external GLM review found one
+more (G-01 below, not the test review's G-01); rows #353 to #362. Each
+was fixed by one pull request with a test that fails without the fix,
+except C-09 (a man page); since nc-oc-ds4.1f-free was out of credits,
+nc-gpt-sol and nc-oc-gpt61t verified them and cross-checked each
+other's findings. Those reviews found three more problems in the first
+versions of #353 and #355, fixed in the same pull requests (in their
+rows). #363 only gave a test more time (a TLS test that failed under
+`-race` on a busy one-core host); it has no row.
 Test review items that only added a test or removed duplicate or slow test
 code, without a defect behind them, have no row: M-08 (#221), L-01 to L-03
 (#233), L-10 (#238), G-01 (#239), G-02 (#251), G-03 (#243, #247, #249,
@@ -408,6 +418,16 @@ table.
 | Manuals: the texinfo example `Options cached,semioffline` didn't parse (options are separated by blanks); newscache(8) lost the TLSCertFile/TLSKeyFile-on-SIGHUP sentence to a troff control line; the texinfo version was 0.99.13 (now from configure); outdated FAQ text, a removed configure flag, defaults and reload behaviour in newscache.conf(5). README, FEDORA.md, `doc/*.txt` (PAM examples that didn't parse, core dumps, stunnel, damaged databases) and the sample config matched the code only in part | 0 | full review 2026-11-04 | #297, #298 |
 | Checked, not a defect: one overview line from the news server longer than 16384 bytes fails that OVER/XOVER chunk (403, connection closed), as `TestUpstreamOverviewLongLine` asserts on purpose: the reader stays bounded against an endless line; skipping the record would need a bounded discard reader. LIST EXTENSIONS is answered (CAPABILITIES lists it on purpose); LISTGROUP without an argument resets the current article (RFC 3977 6.1.2.2); XPAT's patterns stay one wildmat joined by spaces (INN's Glom) | 2 | full review 2026-11-04 | — |
 | Checked, not a defect: in the full pre-release run on main 5551b89, `TestActiveListGrowsDuringList` hung 47 minutes on CentOS Stream 9 (container 107) and the whole e2e run was OOM-killed on openSUSE 15.6 (112). Both containers had 300 to 570 MB of journal in `/run` (tmpfs) from the tests' syslog output, counted against their 1 GB; with journald capped at 64 MB the test passes 3 of 3 times on 107 and both builds pass on 112. The session that doesn't read its list was blocked in the pipe write without a lock (checked on one pinned CPU); the fake upstream didn't answer the second session at all | 15 | full review 2026-11-04 | — |
+| After a broken connection to a news server, the GROUP that selects the client's group again was sent outside the set-up guard of the connection: a server that closed the connection (or answered 400) at it made NewsCache reconnect from inside the reconnect without limit, thousands of connections, then a stack overflow without a reply (C-01; #94 had guarded MODE READER and LIST OVERVIEW.FMT only). A failed GROUP ends that attempt, the client gets an error after at most Retries attempts | 7 | Opus review 2026-11-09 | #358 |
+| XOVER, OVER, XHDR, XPAT and HDR across a long stretch of empty article numbers asked for one range of 10000 after the other, NEXT and LAST one number after the other (10^10 numbers: a million requests), and the walk went on after the client had left (C-02). After 160000 empty numbers they ask where the next article is with LISTGROUP in growing steps (about 120 requests for 10^10); a reset connection (or closed pipe) ends the walk at once, otherwise it gives up after 5 minutes without an article (403, or the connection closed after part of a list). On illumos `poll()` reports a reset socket only as readable/writable, so SO_ERROR is checked too | 2, 10 | Opus review 2026-11-09 | #362 |
+| With several news servers, the filter for "LIST ACTIVE <Read pattern>" let other servers' groups into the active list with that server's numbers and posting flag: its comparison lost its place after a partial match (C-03). The first fix built one pattern filter for both paths; the review of it found that another server's exclusion (`!de.sub.special.*`) became `!!...` and hid the group, and that no pattern filter can give a group read by two servers with the same pattern to the first (wrong on main too). Each server's list keeps only the groups `MPList::server()` routes to it (`MPList::route`, shared with server()) | 6, 10 | Opus review 2026-11-09; nc-oc-gpt61t, confirmed by nc-gpt-sol | #353 |
+| Group names with a "/" or an empty component (`a/b`, `a.b.`, `.a.b`, `a..b`) had the spool directory of `a.b`: a news server's answer for such a name went into `a.b`'s database and to its readers, and the name got past an exact `!a.b` (C-04). GROUP and LISTGROUP answer 411, the spool refuses them | 9 | Opus review 2026-11-09 | #354 |
+| A multi-chunk XOVER, OVER, XHDR, HDR or LISTGROUP left out records without an error when another session moved the group's index up meanwhile: the chunks below it printed nothing and the list ended with "." (C-05). Those numbers come from the news server | 9 | Opus review 2026-11-09 | #359 |
+| newscacheclean neither counted nor removed `.art` files in a group directory without `.db`; they stayed outside SpoolSize until a session opened the group again (C-06). They go first now. The review of the first version found that with no database lock to hold, a session that started the database and stored the article between the cleaner's check and its unlink lost the new file: the file is renamed to `.art<n>.clean<pid>` first and checked there, a new one goes back with `link()` (or, without hard links, `rename()` for a complete `.art<n>`; a moved `.art<n>.tmp` is dropped) | 11 | Opus review 2026-11-09; nc-oc-gpt61t, a Claude review | #355 |
+| `~HistoryBatch` could throw (`bad_alloc` while applying the message-ID history updates): the exception left a destructor and the session ended with SIGABRT instead of an error reply (C-07). The updates are dropped with a log message | 9 | Opus review 2026-11-09 | #356 |
+| An active-list stamp in the future (the clock was put back) kept the list fresh until the clock got there, and a refresh couldn't lower it: new groups stayed invisible (C-08; #328 fixed this per group). A stamp still to come is stale, also the overview's per-chunk stamps | 9 | Opus review 2026-11-09 | #360 |
+| newscache.conf(5) called a server's Read "wildmat patterns": routing takes names that may end in `*` and start with `!`, the longest match wins, a `*` anywhere matches the rest and `?` and `[...]` are literal (C-09). Man page and manual say so | 0, 6 | Opus review 2026-11-09 | #357 |
+| With `Options compress`, a valid reply was discarded (403) when more than 64 KiB of compressed data that inflates to nothing (empty deflate blocks) came before it (G-01). The limit is a time now: ReadTimeout without any content | 7 | GLM review | #361 |
 
 ## Open points
 
@@ -417,7 +437,7 @@ UBSan (`-fsanitize=undefined`, which no CI lane uses) reports "invalid vptr ... 
 
 ## CodeQL dismissals
 
-16 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22, #27 on 2026-10-28, #29 and #30 on 2026-10-29). They were
+17 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22, #27 on 2026-10-28, #29 and #30 on 2026-10-29, #38 on 2026-11-11). They were
 rechecked against main on 2026-10-22, after the review fixes; each still
 holds:
 
@@ -428,6 +448,7 @@ holds:
 | #29, #30 | `cpp/path-injection` | `NVClasses-0.9.1/NVcontainer.cc` | The source is the test-only helper `cHistory --lookup <spooldir>`; in the product the same `open()` gets the spool path from the config (`MAXSPOOLDIRLEN`). The `strcpy` overflow it pointed at is fixed in #194. Same class as #3-#8 |
 | #11 | `cpp/unbounded-write` | `NVClasses-0.9.1/Logger.cc` (`Logger::append`) | The buffer is resized to at least `buflen + strlen(s) + 1` before the `strcat`, and is an empty string from the constructors on |
 | #14, #15 | `cpp/potential-system-data-exposure` | `src/setugid.cc` | Only the configured user's uid or group's gid, on stderr, when switching to it fails at startup. No longer reported since setugid was rewritten (initgroups) |
+| #38 | `cpp/toctou-race-condition` | `src/NewsCacheClean.cc` (`unlink_unlocked_art`, #355) | `lstat` then `unlink` of newscacheclean's own `.art<n>.clean<pid>` name, which it has just renamed the file to, in the spool that only the newscache user can write; nothing else creates that name. Dismissed by go-while |
 
 A new dismissal gets a line here.
 
