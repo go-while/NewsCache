@@ -124,10 +124,22 @@ static void short_send_ends_write()
 			close(l);
 		return;
 	}
+	// (on a failure no accept(): it would wait for good)
 	int c = socket(AF_INET, SOCK_STREAM, 0);
-	CHECK(c >= 0 && connect(c, (struct sockaddr *) &sa, sizeof(sa)) == 0);
+	if (c < 0 || connect(c, (struct sockaddr *) &sa, sizeof(sa)) != 0) {
+		CHECK(!"connect to the loopback listener");
+		if (c >= 0)
+			close(c);
+		close(l);
+		return;
+	}
 	int a = accept(l, NULL, NULL);
-	CHECK(a >= 0);
+	if (a < 0) {
+		CHECK(!"accept");
+		close(c);
+		close(l);
+		return;
+	}
 	{
 		sockstream stream;
 		stream.attach(c);
@@ -148,8 +160,7 @@ static void short_send_ends_write()
 		CHECK(elapsed < 1.5);
 		stream.abort();
 	}
-	if (a >= 0)
-		close(a);
+	close(a);
 	close(l);
 }
 
