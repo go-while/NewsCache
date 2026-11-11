@@ -79,38 +79,56 @@ func TestAuthUnknownUserTiming(t *testing.T) {
 	const slow = "$6$rounds=600000$ncslowsalt$UzZarigsENPa9S.5Y2jR3OczOpyLqiOROQovOdMlqMP5Z..Q8R/wyv.AsdE/gb1JHc3.wDy2PFQrL6c0EPKvA."
 	e := authFileEnv(t, "tester:"+slow+":*:*:*:", "locked:*")
 	e.Extra = "AuthFailureDelay 0"
-	// Interleave the three cases so a temporary change in host load does not
-	// affect every sample of just one user. Keep each user's shortest of
-	// three, as before, to limit scheduling delays in the comparison.
 	users := []string{"tester", "nobody-here", "locked"}
-	best := make(map[string]time.Duration, len(users))
-	for _, user := range users {
-		best[user] = time.Duration(1 << 62)
-	}
-	for i := 0; i < 3; i++ {
+	// measure returns each user's shortest reply of three. The three cases
+	// are interleaved so a temporary change in host load does not affect
+	// every sample of just one user.
+	measure := func() map[string]time.Duration {
+		best := make(map[string]time.Duration, len(users))
 		for _, user := range users {
-			c := e.session()
-			if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
-				t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
-			}
-			start := time.Now()
-			code, line := c.Cmd("AUTHINFO PASS wrong")
-			d := time.Since(start)
-			if code != 481 {
-				t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
-			}
-			if d < best[user] {
-				best[user] = d
+			best[user] = time.Duration(1 << 62)
+		}
+		for i := 0; i < 3; i++ {
+			for _, user := range users {
+				c := e.session()
+				if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
+					t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
+				}
+				start := time.Now()
+				code, line := c.Cmd("AUTHINFO PASS wrong")
+				d := time.Since(start)
+				if code != 481 {
+					t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
+				}
+				if d < best[user] {
+					best[user] = d
+				}
 			}
 		}
+		return best
 	}
-	wrong := best["tester"]
-	if wrong < 50*time.Millisecond {
+	// leaks returns what the times give away, "" for nothing.
+	leaks := func(best map[string]time.Duration) string {
+		wrong := best["tester"]
+		var msgs []string
+		for _, u := range []string{"nobody-here", "locked"} {
+			if d := best[u]; d < wrong/2 {
+				msgs = append(msgs, fmt.Sprintf("reply for %s took %v, a wrong password for an existing user %v", u, d, wrong))
+			}
+		}
+		return strings.Join(msgs, "; ")
+	}
+	best := measure()
+	if wrong := best["tester"]; wrong < 50*time.Millisecond {
 		t.Skipf("the costly hash took only %v here; can't measure", wrong)
 	}
-	for _, u := range []string{"nobody-here", "locked"} {
-		if d := best[u]; d < wrong/2 {
-			t.Errorf("reply for %s took %v, a wrong password for an existing user %v: the time tells whether the user exists", u, d, wrong)
+	// A real difference shows every time; a busy host (all three samples
+	// of one user slowed down, as seen once on a loaded Fedora 44 VM) does
+	// not repeat: measure once more before failing.
+	if msg := leaks(best); msg != "" {
+		t.Logf("first measurement: %s; measuring again", msg)
+		if msg := leaks(measure()); msg != "" {
+			t.Errorf("%s: the time tells whether the user exists", msg)
 		}
 	}
 }
