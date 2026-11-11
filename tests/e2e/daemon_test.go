@@ -1683,7 +1683,14 @@ func TestSigchldStress(t *testing.T) {
 	for {
 		c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
 		if err == nil {
-			c.SetDeadline(time.Now().Add(10 * time.Second))
+			// After the logged reread the daemon must just answer; in
+			// a syslog build every read ends with the bound itself, so
+			// a 200 that comes later fails instead of passing.
+			deadline := time.Now().Add(10 * time.Second)
+			if !haveLog {
+				deadline = hup.Add(rereadBound)
+			}
+			c.SetDeadline(deadline)
 			greeting, gerr = bufio.NewReader(c).ReadString('\n')
 			c.Close()
 		} else {
