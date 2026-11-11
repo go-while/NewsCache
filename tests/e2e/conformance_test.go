@@ -38,6 +38,32 @@ func TestProtocolConformance(t *testing.T) {
 			t.Errorf("unexpected skipped reader check %s: %s", result.Name, result.Detail)
 		}
 	})
+	t.Run("implicit TLS", func(t *testing.T) {
+		// TLSListenTo (RFC 8143): the reader checks over TLS from the
+		// first byte, and tls-capabilities (no STARTTLS listed there)
+		f := newClientTLSFixture(t) // with two articles in test.alpha
+		f.e.Store.AddGroup("test.empty", "empty group")
+		f.e.standalone()
+		report := checkConformance(t, conformance.Options{
+			Addr: f.addr, TLS: clientTLSConfig(f.ca, nil), PostGroup: "test.alpha",
+			Deadline: 10 * time.Second, Workers: 2, StrictOverviewFmt: true,
+		})
+		if pass, _, _ := report.Counts(); pass < 25 {
+			t.Errorf("reader conformance over TLS ran only %d passing checks, want at least 25", pass)
+		}
+		ran := false
+		for _, result := range report.Results {
+			if result.Name == "tls-capabilities" {
+				ran = result.Status == conformance.Pass
+			}
+			if result.Status == conformance.Skip && !conformanceSkipAllowed(result, report.Capabilities) {
+				t.Errorf("unexpected skipped check over TLS %s: %s", result.Name, result.Detail)
+			}
+		}
+		if !ran {
+			t.Errorf("tls-capabilities didn't pass over TLS")
+		}
+	})
 	t.Run("authentication", func(t *testing.T) {
 		// The helper normally configures an inetd client; the conformance
 		// checker connects to the standalone daemon over loopback instead.
@@ -78,12 +104,18 @@ func conformanceSkipAllowed(result conformance.Result, capabilities []string) bo
 	if strings.HasPrefix(result.Name, "authinfo-") && result.Detail == "no Options.User" {
 		return true
 	}
-	capability, ok := strings.CutSuffix(result.Detail, " not advertised")
-	if !ok {
-		return false
+	// the "implicit TLS" fixture runs it over TLS
+	if result.Name == "tls-capabilities" && strings.HasPrefix(result.Detail, "no Options.TLS") {
+		return true
 	}
+	// STARTTLS is for plain connections
+	if strings.HasPrefix(result.Name, "starttls") && strings.Contains(result.Detail, "TLS from the first byte") {
+		return true
+	}
+	capability := result.Missing
 	switch capability {
-	case "STREAMING", "IHAVE", "STARTTLS", "COMPRESS", "OVER MSGID":
+	// NEWNEWS isn't implemented (REVIEW.md)
+	case "STREAMING", "IHAVE", "STARTTLS", "COMPRESS", "OVER MSGID", "NEWNEWS":
 	default:
 		return false
 	}
@@ -107,24 +139,29 @@ func conformanceSkipAllowed(result conformance.Result, capabilities []string) bo
 
 func TestConformanceSkipPolicy(t *testing.T) {
 	for _, tc := range []struct {
-		name, detail string
-		caps         []string
-		allowed      bool
+		name, detail, missing string
+		caps                  []string
+		allowed               bool
 	}{
-		{"authinfo-480", "no Options.User", nil, true},
-		{"greeting", "no Options.User", nil, false},
-		{"stream", "STREAMING not advertised", nil, true},
-		{"tls", "STARTTLS not advertised", nil, true},
-		{"compress", "COMPRESS not advertised", nil, true},
-		{"msgid", "OVER MSGID not advertised", []string{"OVER"}, true},
-		{"msgid", "OVER MSGID not advertised", []string{"OVER MSGID"}, false},
-		{"stream", "STREAMING not advertised", []string{"STREAMING"}, false},
-		{"other", "OTHER not advertised", nil, false},
-		{"stream", "temporarily unavailable", nil, false},
+		{"authinfo-480", "no Options.User", "", nil, true},
+		{"greeting", "no Options.User", "", nil, false},
+		{"stream", "STREAMING not advertised", "STREAMING", nil, true},
+		{"tls", "STARTTLS not advertised", "STARTTLS", nil, true},
+		{"compress", "COMPRESS not advertised", "COMPRESS", nil, true},
+		{"newnews", "NEWNEWS not advertised", "NEWNEWS", nil, true},
+		{"msgid", "OVER MSGID not advertised", "OVER MSGID", []string{"OVER"}, true},
+		{"msgid", "OVER MSGID not advertised", "OVER MSGID", []string{"OVER MSGID"}, false},
+		{"stream", "STREAMING not advertised", "STREAMING", []string{"STREAMING"}, false},
+		{"other", "OTHER not advertised", "OTHER", nil, false},
+		{"stream", "temporarily unavailable", "", nil, false},
+		{"stream", "STREAMING not advertised", "", nil, false},
+		{"tls-capabilities", "no Options.TLS: the connection is plain", "", nil, true},
+		{"starttls-twice", "the connection is TLS from the first byte (Options.TLS): STARTTLS is for plain connections", "", nil, true},
+		{"greeting", "the connection is TLS from the first byte", "", nil, false},
 	} {
-		result := conformance.Result{Name: tc.name, Detail: tc.detail, Status: conformance.Skip}
+		result := conformance.Result{Name: tc.name, Detail: tc.detail, Missing: tc.missing, Status: conformance.Skip}
 		if got := conformanceSkipAllowed(result, tc.caps); got != tc.allowed {
-			t.Errorf("skip %q (%q), capabilities %q: got %v, want %v", tc.name, tc.detail, tc.caps, got, tc.allowed)
+			t.Errorf("skip %q (%q, missing %q), capabilities %q: got %v, want %v", tc.name, tc.detail, tc.missing, tc.caps, got, tc.allowed)
 		}
 	}
 }
