@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -410,21 +411,25 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	stallStart := time.Now()
 	// When the session ends, seen from the start: the check further down
 	// comes after the second client, which a busy machine slows down.
+	// (It reads the children itself: t.Fatal must not run outside the
+	// test's goroutine, and it stops when the test ends.)
 	sessionEnd := make(chan time.Duration, 1)
+	stop := make(chan struct{})
+	defer close(stop)
 	if haveProc {
+		children := filepath.Join("/proc", strconv.Itoa(p.Pid()), "task", strconv.Itoa(p.Pid()), "children")
 		go func() {
 			for {
-				gone := true
-				for _, k := range linuxProcChildren(t, p.Pid()) {
-					if k == firstPid {
-						gone = false
-					}
-				}
-				if gone {
+				b, err := os.ReadFile(children)
+				if err == nil && !slices.Contains(strings.Fields(string(b)), firstPid) {
 					sessionEnd <- time.Since(stallStart)
 					return
 				}
-				time.Sleep(20 * time.Millisecond)
+				select {
+				case <-stop:
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
 			}
 		}()
 	}
