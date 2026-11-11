@@ -26,7 +26,7 @@ MPListEntry *MPList::postserver(const char *group)
 	return NULL;
 }
 
-MPListEntry *MPList::server(const char *group)
+int MPList::route(const char *group) const
 {
 	unsigned int i;
 	// bm=Best Match
@@ -39,6 +39,13 @@ MPListEntry *MPList::server(const char *group)
 			bmlen = clen;
 		}
 	}
+	return bm;
+}
+
+MPListEntry *MPList::server(const char *group)
+{
+	int bm = route(group);
+
 	if (bm >= 0 && entries[bm].hostname[0] != '\0')
 		return &(entries[bm]);
 	return NULL;

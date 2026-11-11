@@ -25,6 +25,11 @@
 #include "NServer.h"
 #include "sockstream.h"
 
+// Newsgroup::probe from the news server: RServer::probelisted, its
+// failures as UpstreamReplyError (logged).
+bool probe_upstream(RServer * srvr, const char *group, artnum_t f, artnum_t l,
+		    bool down, const WalkGuard & guard, artnum_t * at);
+
 /**
  * \class RNewsgroup
  * \author Thomas Gschwind
@@ -45,6 +50,10 @@ class RNewsgroup:public Newsgroup {
 	RServer *_RemoteServer;
 
 	int load(artnum_t nbr);
+
+	enum { walk_over, walk_header, walk_list };
+	void walk(std::ostream & os, int what, const char *header,
+		  artnum_t f, artnum_t l, const char *pat = NULL);
 
   public:
 	RNewsgroup():Newsgroup(NULL, NULL)
@@ -110,6 +119,11 @@ class RNewsgroup:public Newsgroup {
 	}
 
 	virtual const char *getover(artnum_t nbr);
+
+	virtual bool probe(artnum_t f, artnum_t l, bool down,
+			   const WalkGuard & guard, artnum_t * at) {
+		return probe_upstream(_RemoteServer, name(), f, l, down, guard, at);
+	}
 
 	virtual void setover(const std::string & over) {
 		artnum_t i = leading_artnum(over.c_str());

@@ -66,9 +66,13 @@ class CNewsgroup:public NVNewsgroup {
 	RNewsgroup *pass(void);
 	virtual Article *retrievearticle(artnum_t nbr);
 
+	bool hasrecords(artnum_t f, artnum_t l);
+
 	enum { print_over, print_header, print_list };
 	void print(std::ostream & os, int what, const char *header,
 		   artnum_t f, artnum_t l, const char *pat = NULL);
+	void print_passed(std::ostream & os, int what, const char *header,
+			  artnum_t f, artnum_t l, const char *pat);
 
   public:
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
@@ -90,6 +94,8 @@ class CNewsgroup:public NVNewsgroup {
 
 	virtual Article *getarticle(artnum_t nbr);
 	virtual const char *getover(artnum_t nbr);
+	virtual bool probe(artnum_t f, artnum_t l, bool down,
+			   const WalkGuard & guard, artnum_t * at);
 
 	virtual void printheaderdb(std::ostream & os,
 				   const char *header,

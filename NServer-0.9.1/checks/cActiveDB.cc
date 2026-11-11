@@ -206,7 +206,7 @@ int main()
 			g.setmtime(t + 10);
 			db.set(g);
 			std::istringstream older("de.test 100 1 m\r\n.\r\n");
-			db.read(older, "*", ActiveDB::F_DEFER_MTIME, 0,
+			db.read(older, NULL, ActiveDB::F_DEFER_MTIME, 0,
 				t + 5);
 			CHECK(db.get("de.test", &gi) == 0);
 			CHECK(gi.last() == 150 && gi.mtime() == t + 10);
@@ -235,7 +235,7 @@ int main()
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 90);
 			CHECK(gi.flags() == 'm' && gi.ctime() == 1200000000);
 			std::istringstream newer("de.test 80 1 y\r\n.\r\n");
-			db.read(newer, "*", ActiveDB::F_DEFER_MTIME, 0,
+			db.read(newer, NULL, ActiveDB::F_DEFER_MTIME, 0,
 				t + 30);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 80);
 			CHECK(gi.mtime() == t + 30);
@@ -247,7 +247,7 @@ int main()
 			g.setmtime(nvtime(NULL) + 86400);
 			db.set(g);
 			std::istringstream now_list("de.test 200 1 y\r\n.\r\n");
-			db.read(now_list, "*", ActiveDB::F_DEFER_MTIME, 0, 0);
+			db.read(now_list, NULL, ActiveDB::F_DEFER_MTIME, 0, 0);
 			CHECK(db.get("de.test", &gi) == 0 && gi.last() == 200);
 			CHECK(gi.mtime() <= nvtime(NULL));
 			g.set("de.test", 1, 500, 500);
@@ -263,7 +263,7 @@ int main()
 		std::istringstream incomplete("de.test 20 10 y\r\n");
 		bool cut = false;
 		try {
-			db.read(incomplete, "*", 0, 0);
+			db.read(incomplete, NULL, 0, 0);
 		} catch (const SystemError &) {
 			cut = true;
 		}
@@ -271,7 +271,7 @@ int main()
 		db.getmtime(&mtime);
 		CHECK(mtime == 1234567890);
 		std::istringstream complete("de.test 20 10 y\r\n.\r\n");
-		db.read(complete, "*", 0, 0);
+		db.read(complete, NULL, 0, 0);
 		db.getmtime(&mtime);
 		CHECK(mtime != 0);
 	}

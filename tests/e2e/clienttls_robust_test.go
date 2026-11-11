@@ -412,9 +412,12 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	// flush waited for the timeout again: about three ClientTimeouts.
 	// Needs no log file: the session process is gone from the daemon's
 	// children (the daemon reaps it).
-	// +5 s leaves headroom on a loaded host; the old behaviour took
-	// about 18 s here.
-	endBound := time.Duration(f.e.ClientTimeout+5) * time.Second
+	// The bound also covers the upstream fetches before the reply fills
+	// the socket, which on a loaded one-core host with -race took up to
+	// 11.2 s in all (9 s when idle). Two ClientTimeouts plus 2 s (14 s)
+	// leave headroom for that and stay clear of the old behaviour, about
+	// three ClientTimeouts (18 s).
+	endBound := time.Duration(2*f.e.ClientTimeout+2) * time.Second
 	if haveProc {
 		for {
 			gone := true

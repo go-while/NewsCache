@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <limits.h>
 #include <time.h>
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <sstream>
 #include "Error.h"
 
@@ -72,7 +75,8 @@ static const uint64_t RANGE_REPLY_SLACK = 16;
 // for hours, nor keep one going whose client left unnoticed (nothing is
 // written that could fail). Walking the empty part of a real sparse
 // group (up to 10^11 numbers, about 1000 steps) takes about 100 s at a
-// round trip of 100 ms.
+// round trip of 100 ms. The other walks over article numbers have the
+// same limit (WalkGuard).
 #if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
 static const uint64_t LISTGROUP_STEP_ROWS = 10;
 static const unsigned int LISTGROUP_IDLE_SECONDS = 4;
@@ -98,6 +102,88 @@ inline uint64_t next_listgroup_step(uint64_t step, uint64_t rows)
 		step = LISTGROUP_MAX_STEP;
 	return step;
 }
+
+/*
+ * The client's connection, as the file descriptor its replies go to:
+ * nnrpd sets it for its session, -1 elsewhere. A walk over article
+ * numbers that finds nothing writes nothing to the client, so a client
+ * that left would go unnoticed until the walk ends.
+ */
+inline int &client_output_fd()
+{
+	static int fd = -1;
+	return fd;
+}
+
+// Whether the client's connection is known to be gone: reset by the
+// client (it closed it with replies still coming) or, for a pipe, closed.
+// A client that only closed its sending side may still read the reply:
+// that is not taken as gone.
+inline bool client_gone()
+{
+	struct pollfd p;
+	int err = 0;
+	socklen_t len = sizeof(err);
+
+	p.fd = client_output_fd();
+	if (p.fd < 0)
+		return false;
+	// (POLLOUT, not 0: macOS reports nothing for a descriptor polled
+	// for no event; POLLIN would report a client's half-close as POLLHUP
+	// there)
+	p.events = POLLOUT;
+	p.revents = 0;
+	if (poll(&p, 1, 0) > 0 && (p.revents & (POLLERR | POLLHUP | POLLNVAL)))
+		return true;
+	// illumos reports a socket's error, such as a reset, only as POLLIN
+	// and POLLOUT. (For a pipe getsockopt fails.)
+	return getsockopt(p.fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 &&
+		err != 0;
+}
+
+/*
+ * The limit of a walk over article numbers that asks the news server
+ * as it goes (XOVER, OVER, XHDR, XPAT, HDR, NEXT, LAST, LISTGROUP): it
+ * ends at once when the client's connection was reset (or its pipe
+ * closed, see client_gone), otherwise when it has found nothing for
+ * LISTGROUP_IDLE_SECONDS. A walk that keeps finding articles takes as
+ * long as it needs; one through a stretch of millions of empty numbers,
+ * from a news server that answers slowly, or for a client that left,
+ * doesn't hold the session for hours. (The walks also step over such a
+ * stretch, see WALK_EMPTY_CHUNKS.)
+ */
+class WalkGuard {
+	struct timespec _progress;
+public:
+	WalkGuard() { progress(); }
+	// it found something
+	void progress() {
+		if (clock_gettime(CLOCK_MONOTONIC, &_progress) != 0)
+			_progress.tv_sec = _progress.tv_nsec = 0;
+	}
+	bool idle() const {
+		struct timespec now;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+			return true;
+		return now.tv_sec - _progress.tv_sec >= (time_t) LISTGROUP_IDLE_SECONDS;
+	}
+	// NULL to go on, else why the walk ends
+	const char *stop() const {
+		if (client_gone())
+			return "the client's connection was reset";
+		if (idle())
+			return "nothing found for too long";
+		return NULL;
+	}
+};
+
+// A walk of the overview records from the news server goes one chunk
+// (OVERVIEW_CHUNK numbers) at a time, NEXT and LAST one number at a
+// time. After this many chunks (of numbers) in a row without a record
+// they ask where the next articles are, in LISTGROUP steps as above,
+// starting at 16 chunks (RServer::probelisted): a gap of 10^10 numbers
+// costs about 120 requests, not 10^6. Shorter gaps cost what they did.
+static const unsigned int WALK_EMPTY_CHUNKS = 16;
 
 inline uint64_t range_reply_rows(uint64_t first, uint64_t last)
 {

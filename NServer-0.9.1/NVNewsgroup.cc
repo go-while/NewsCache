@@ -1041,7 +1041,8 @@ static void flush_chunk(ostream & os, stringstream & buf, string & out)
 	buf.clear();
 }
 
-void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
+artnum_t NVNewsgroup::printoverdb_stored(ostream & os, artnum_t f,
+					 artnum_t l, artnum_t * gap_last)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::printoverdb(os,"
 	     << f << "," << l << ")\n");
@@ -1062,8 +1063,13 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 		// until the session ended, and every writer of the group
 		// waited)
 		NVLock guard(*this, NVcontainer::ShrdLock);
-		if (f < arrfst)
+		if (f < arrfst) {
+			if (gap_last && f <= l) {
+				*gap_last = arrfst - 1 < l ? arrfst - 1 : l;
+				return f;
+			}
 			f = arrfst;
+		}
 		e = arrlst < l ? arrlst : l;
 		if (f > e)
 			break;
@@ -1080,11 +1086,14 @@ void NVNewsgroup::printoverdb(ostream & os, artnum_t f, artnum_t l)
 			break;
 		f = last + 1;
 	}
+	return 0;
 }
 
-void NVNewsgroup::printheaderdb(ostream & os,
-				const char *header,
-				artnum_t f, artnum_t l, const char *pat)
+artnum_t NVNewsgroup::printheaderdb_stored(ostream & os,
+					   const char *header,
+					   artnum_t f, artnum_t l,
+					   const char *pat,
+					   artnum_t * gap_last)
 {
 	char *data;
 	string fld, xheader = headerfield(header);
@@ -1102,8 +1111,13 @@ void NVNewsgroup::printheaderdb(ostream & os,
 
 		NVLock guard(*this, NVcontainer::ShrdLock);	// (as above)
 		NVArray::getsize(&gf, &gl);
-		if (f < gf)
+		if (f < gf) {
+			if (gap_last && f <= l) {
+				*gap_last = gf - 1 < l ? gf - 1 : l;
+				return f;
+			}
 			f = gf;
+		}
 		e = l > gl ? gl : (unsigned long) l;
 		if (f > e)
 			break;
@@ -1165,9 +1179,11 @@ void NVNewsgroup::printheaderdb(ostream & os,
 			break;
 		f = last + 1;
 	}
+	return 0;
 }
 
-void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
+artnum_t NVNewsgroup::printlistgroup_stored(ostream & os, artnum_t f,
+					    artnum_t l, artnum_t * gap_last)
 {
 	VERB(slog.
 	     p(Logger::Debug) << "NVNewsgroup::printlistgroup(&os," << f
@@ -1183,8 +1199,13 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 		artnum_t e, i;
 
 		NVLock guard(*this, NVcontainer::ShrdLock);	// (as above)
-		if (f < arrfst)
+		if (f < arrfst) {
+			if (gap_last && f <= l) {
+				*gap_last = arrfst - 1 < l ? arrfst - 1 : l;
+				return f;
+			}
 			f = arrfst;
+		}
 		e = l < arrlst ? l : arrlst;
 		if (f > e)
 			break;
@@ -1201,6 +1222,7 @@ void NVNewsgroup::printlistgroup(ostream & os, artnum_t f, artnum_t l)
 			break;
 		f = i + 1;
 	}
+	return 0;
 }
 
 /*

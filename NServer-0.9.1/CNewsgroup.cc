@@ -241,7 +241,11 @@ bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
 	GroupLock guard(*this, NVcontainer::ShrdLock);
 
 	getsync(c, &e);
-	return e.time && e.time + _TTLGroup >= now && e.through >= l;
+	// (a time still to come is stale: the clock was put back; now is
+	// from before the wait for the fetch lock, and the session that had
+	// it stamped the chunk later, so the clock is read again for that)
+	return e.time && e.time <= nvtime(NULL) && e.time + _TTLGroup >= now &&
+	    e.through >= l;
 }
 
 /*
@@ -256,7 +260,8 @@ bool CNewsgroup::chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf)
 	GroupLock guard(*this, NVcontainer::ShrdLock);
 
 	getsync(cf.c, &e);
-	cf.full = !(e.time && e.time + _TTLGroup >= cf.now);
+	cf.full = !(e.time && e.time <= nvtime(NULL) &&
+		    e.time + _TTLGroup >= cf.now);
 	if (arrfst > arrlst || f > arrlst || l < arrfst)
 		return false;
 	cf.top = chunk_end(f);
@@ -517,10 +522,79 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 	return true;
 }
 
+namespace {
+/*
+ * Counts what goes to os while it lives (for print's WalkGuard: a chunk
+ * that wrote anything to the client is progress, also when it came from
+ * the news server without going into the index). It puts a counting
+ * buffer in front of os's own, so every writer of os is counted.
+ */
+class OutputCount:public std::streambuf {
+	std::ostream & _os;
+	std::streambuf *_dst;
+	unsigned long long _count;
+  protected:
+	virtual int overflow(int c) {
+		if (c == EOF)
+			return traits_type::not_eof(c);
+		if (_dst->sputc((char) c) == EOF)
+			return EOF;
+		_count++;
+		return c;
+	}
+	virtual std::streamsize xsputn(const char *p, std::streamsize n) {
+		std::streamsize w = _dst->sputn(p, n);
+		if (w > 0)
+			_count += w;
+		return w;
+	}
+	virtual int sync() {
+		return _dst->pubsync();
+	}
+  public:
+	explicit OutputCount(std::ostream & os)
+	: _os(os), _dst(os.rdbuf()), _count(0) {
+		std::ios::iostate st = os.rdstate();
+		os.rdbuf(this);	// (clears the state)
+		os.clear(st);
+	}
+	~OutputCount() {
+		std::ios::iostate st = _os.rdstate();
+		_os.rdbuf(_dst);
+		_os.clear(st);
+	}
+	unsigned long long count() const {
+		return _count;
+	}
+};
+}
+
+// Whether the index has a record in [f,l] (for print's WalkGuard).
+bool CNewsgroup::hasrecords(artnum_t f, artnum_t l)
+{
+	GroupLock guard(*this, NVcontainer::ShrdLock);
+
+	if (f < arrfst)
+		f = arrfst;
+	if (l > arrlst)
+		l = arrlst;
+	for (; f <= l; f++) {
+		if (NVArray::shas_element(f))
+			return true;
+		if (f == l)
+			break;
+	}
+	return false;
+}
+
 /*
  * Prints the overview records (or a header, or the numbers) of [f,l]:
  * the part the index covers chunk by chunk, each one synchronized just
  * before it is printed, and the part below it from the news server.
+ * Gives up when the client's connection is reset or nothing was found
+ * for too long (WalkGuard), as the part from the news server does: a
+ * chunk that wrote anything to the client, or has records in the index
+ * (XPAT's may all fail to match), is progress.
  */
 void CNewsgroup::print(ostream & os, int what, const char *header,
 		       artnum_t f, artnum_t l, const char *pat)
@@ -548,37 +622,75 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 		if (!cl)
 			return;
 	}
+	// (from here: the part from the news server has its own)
+	WalkGuard guard;
+	OutputCount out(os);
+	unsigned long long seen = 0;
 	for (a = cl;; a = b + 1) {
+		check_walk(guard, name(), a);
 		b = chunk_end(a);
 		if (b > l)
 			b = l;
 		if (!freshen(a, b, &refreshed)) {
 			// not stored (disk full): from the news server
-			RNewsgroup *p = pass();
-			switch (what) {
-			case print_over:
-				p->printoverdb(os, a, b);
-				break;
-			case print_header:
-				p->printheaderdb(os, header, a, b, pat);
-				break;
-			case print_list:
-				p->printlistgroup(os, a, b);
-				break;
+			print_passed(os, what, header, a, b, pat);
+		} else {
+			// The index can move up meanwhile (another session's
+			// cover(), at MAX_INDEX_SPAN or starting over above):
+			// the numbers below it then come from the news server
+			// too. They were left out, and the list still ended
+			// with "." as if complete.
+			artnum_t from = a, gap_last = 0;
+			while (os.good()) {
+				artnum_t miss = 0;
+				switch (what) {
+				case print_over:
+					miss = printoverdb_stored(os, from, b,
+								  &gap_last);
+					break;
+				case print_header:
+					miss = printheaderdb_stored(os, header,
+								    from, b, pat,
+								    &gap_last);
+					break;
+				case print_list:
+					miss = printlistgroup_stored(os, from, b,
+								     &gap_last);
+					break;
+				}
+				if (!miss)
+					break;
+				print_passed(os, what, header, miss, gap_last,
+					     pat);
+				if (gap_last >= b)
+					break;
+				from = gap_last + 1;
 			}
-		} else switch (what) {
-		case print_over:
-			NVNewsgroup::printoverdb(os, a, b);
-			break;
-		case print_header:
-			NVNewsgroup::printheaderdb(os, header, a, b, pat);
-			break;
-		case print_list:
-			NVNewsgroup::printlistgroup(os, a, b);
-			break;
 		}
 		if (b >= l || !os.good())
 			break;
+		if (out.count() != seen || hasrecords(a, b)) {
+			seen = out.count();
+			guard.progress();
+		}
+	}
+}
+
+// [f,l] from the news server, without keeping it.
+void CNewsgroup::print_passed(ostream & os, int what, const char *header,
+			      artnum_t f, artnum_t l, const char *pat)
+{
+	RNewsgroup *p = pass();
+	switch (what) {
+	case print_over:
+		p->printoverdb(os, f, l);
+		break;
+	case print_header:
+		p->printheaderdb(os, header, f, l, pat);
+		break;
+	case print_list:
+		p->printlistgroup(os, f, l);
+		break;
 	}
 }
 
@@ -618,13 +730,29 @@ const char *CNewsgroup::getover(artnum_t nbr)
 	int refreshed = 0;
 	const char *o;
 
+	artnum_t gf, gl, r;
+
 	if (!clamp(&f, &l))
 		return "";
-	if (cover_safe(nbr, nbr) && freshen(nbr, nbr, &refreshed))
+	// The index covers the rest of nbr's chunk, so it is fetched once:
+	// covering only nbr made NEXT, number after number above the
+	// index, ask the news server for each number.
+	getsize(&gf, &gl);
+	l = chunk_last(nbr);
+	if (l > gl)
+		l = gl;
+	r = cover_safe(nbr, l);
+	if (r && r <= nbr && freshen(nbr, nbr, &refreshed))
 		return NVNewsgroup::getover(nbr);
 	o = pass()->getover(nbr);
 	over = o ? o : "";
 	return over.c_str();
+}
+
+bool CNewsgroup::probe(artnum_t f, artnum_t l, bool down,
+		       const WalkGuard & guard, artnum_t * at)
+{
+	return probe_upstream(_RServer, name(), f, l, down, guard, at);
 }
 
 Article *CNewsgroup::getarticle(artnum_t nbr)

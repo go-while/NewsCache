@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <iostream>
@@ -244,7 +245,7 @@ static void check_invalid()
  * A server that sends empty stored blocks for ever (00 00 00 ff ff:
  * valid DEFLATE that inflates to nothing). The reader waited for
  * output for ever, and the session with it; it ends the input once
- * deflatebuf::max_idle bytes came without output.
+ * input came without output for the idle limit (seconds).
  */
 class emptyblocks : public streambuf {
 	char _g[4000];		// 800 blocks
@@ -274,12 +275,32 @@ class emptyblocks : public streambuf {
 static void check_empty_blocks()
 {
 	emptyblocks endless;
-	deflatebuf r(&endless);
+	deflatebuf r(&endless, 1);
 	istream is(&r);
 	string line;
+	const time_t start = time(NULL);
 	CHECK(!getline(is, line));
 	CHECK(r.error() != NULL);
-	CHECK(endless.given() < 1024 * 1024);
+	CHECK(time(NULL) - start <= 3);
+}
+
+/*
+ * A long run of empty blocks, then a reply: valid, and the reply comes
+ * through. With a limit in bytes (64 KiB) it was discarded as data
+ * without content.
+ */
+static void check_long_empty_run()
+{
+	string data;
+	for (int i = 0; i < 20000; i++)	// 100000 bytes
+		data.append("\x00\x00\x00\xff\xff", 5);
+	data += zlib_deflate("200 server ready\r\n", -15, Z_SYNC_FLUSH);
+	pipebuf conn(data);
+	deflatebuf r(&conn);
+	istream is(&r);
+	string line;
+	CHECK(getline(is, line) && line == "200 server ready\r");
+	CHECK(r.error() == NULL);
 }
 
 int main()
@@ -287,6 +308,7 @@ int main()
 	// (a reader that never returns fails the test instead of hanging it)
 	alarm(60);
 	check_empty_blocks();
+	check_long_empty_run();
 	check_round_trip();
 	check_flush_and_buffered();
 	check_destructor_and_abandon();

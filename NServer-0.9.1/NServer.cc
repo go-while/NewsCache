@@ -588,12 +588,39 @@ void RServer::connect()
 			_OverviewFormat->readxoin(standardOverviewFmt);
 		}
 
+		// The current group is selected again as part of the set-up,
+		// with both guards still on. Selected after the guards were
+		// released, a 400 or a closed connection at this GROUP made
+		// issue() reconnect from inside connect(), whose GROUP
+		// reconnected again, nested without limit until the stack
+		// overflowed. Now such a GROUP fails this connect() like a
+		// failed connection (the stream goes): the caller's issue()
+		// tries again, up to Retries times.
+		if (_CurrentGroup.name()[0] != '\0') {
+			try {
+				selectgroup(_CurrentGroup.name(), 1);
+			}
+			catch(NoSuchGroupError &) {
+				// the group is gone; the connection is fine
+				_CurrentGroup.init();
+				half_open.release();
+				connecting.release();
+				_CurrentServer->connectFailed = 0;
+				throw;
+			}
+			catch(ResponseError & re) {
+				slog.p(Logger::Warning) << "news server "
+				    << _CurrentServer->hostname
+				    << ": GROUP failed after reconnecting: "
+				    << re._got << "\n";
+				throw SystemError("RServer::connect: GROUP failed "
+						  "after reconnecting", -1,
+						  ERROR_LOCATION);
+			}
+		}
 		// set up: from here a 480 may be answered with a new login
 		half_open.release();
 		connecting.release();
-		if (_CurrentGroup.name()[0] != '\0') {
-			selectgroup(_CurrentGroup.name(), 1);
-		}
 		_CurrentServer->connectFailed = 0;
 		return;
 	}
@@ -993,6 +1020,25 @@ void RServer::setserverlist(MPList * serverlist)
 	_ServerList = serverlist;
 }
 
+/*
+ * The active list lines of the groups routed to server servernbr, as
+ * GROUP is (MPList::server): the replies to "LIST ACTIVE" and to "LIST
+ * ACTIVE <one Read pattern>" hold groups routed elsewhere. (A pattern
+ * filter made from the Read patterns lost the place after a partial
+ * match, read an excluded pattern of another server as a literal "!",
+ * and couldn't give a group read by two servers alike to the first.)
+ */
+class RoutedFilter:public ActiveFilter {
+	const MPList & _list;
+	int _servernbr;
+  public:
+	RoutedFilter(const MPList & list, unsigned int servernbr)
+	:_list(list), _servernbr((int) servernbr) {}
+	bool keep(const char *line) const {
+		return _list.route(line) == _servernbr;
+	}
+};
+
 ActiveDB *RServer::active(bool)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::active()\n");
@@ -1014,6 +1060,7 @@ ActiveDB *RServer::active(bool)
 	for (i = 0; i < _ServerList->entries.size(); i++) {
 		if (!_ServerList->entries[i].hostname[0])
 			continue;
+		RoutedFilter routed(*_ServerList, i);
 		// Connect to ith news server
 		try {
 			setserver(&(_ServerList->entries[i]));
@@ -1054,9 +1101,7 @@ ActiveDB *RServer::active(bool)
 							ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 							_ActiveDB->
 							    read(*_pServerStream,
-								 _ServerList->
-								 makeFilter(i,
-									    cgroup.c_str()).c_str(),
+								 &routed,
 								 flags,
 								 _CurrentServer->limitgroupsize,
 								 asked);
@@ -1097,8 +1142,7 @@ ActiveDB *RServer::active(bool)
 				try {
 					ReplyReadGuard reply(*_pServerStream, ACTIVE_REPLY_SECONDS);
 					_ActiveDB->read(*_pServerStream,
-							_ServerList->makeFilter(i,
-										"*").c_str(),
+							&routed,
 							flags,
 							_CurrentServer->limitgroupsize,
 							asked);
@@ -1158,8 +1202,10 @@ ActiveDB *RServer::active(bool)
 	// incomplete one is stamped by CServer::active with the retry time
 	// (stamping it here too could, after a signal between the two checks,
 	// turn an unfinished first fill's marker into INVALIDATED).
+	// (forced: a stamp still to come, from before the clock was put
+	// back, must not stay)
 	if (!_active_incomplete && any_complete && !sockstream::stopping())
-		_ActiveDB->setmtime(nvtime(NULL));
+		_ActiveDB->setmtime(nvtime(NULL), 1);
 	return _ActiveDB;
 }
 
@@ -1262,31 +1308,127 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 	}
 }
 
+/*
+ * One LISTGROUP gname a-b, the group selected: the numbers in [a,b] go to
+ * *os unless os is NULL; the lowest goes to *first and the highest to
+ * *last, unless they are NULL (0 if there are none). Returns how many
+ * there were. limit (a probe, see probelisted): after limit numbers of
+ * [a,b], a reply that goes on isn't read further: the connection is
+ * closed (the next request opens a new one and selects the group again)
+ * and *cut set. Throws ResponseError for anything but 211, ReplyLimitError
+ * (the connection closed, *os set bad: part of the list may be on the
+ * wire) and SystemError.
+ */
+uint64_t RServer::liststep(const char *gname, artnum_t a, artnum_t b,
+			   ostream * os, artnum_t * first, artnum_t * last,
+			   uint64_t limit, bool *cut)
+{
+	char buf[MAXGROUPNAMELEN + 64];
+	string resp, line;
+	artnum_t i;
+	uint64_t rows = 0;
+	bool stop = false;
+
+	if (first)
+		*first = 0;
+	if (last)
+		*last = 0;
+	if (cut)
+		*cut = false;
+	snprintf(buf, sizeof(buf), "listgroup %s %llu-%llu\r\n", gname,
+		 (unsigned long long) a, (unsigned long long) b);
+	resp = issue(buf, NULL);
+	if (!NNTP_ISCODE(resp.c_str(), "211")) {
+		string c(buf), e("211");
+		throw ResponseError(c, e, resp);
+	}
+	ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);
+	try {
+		ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+		for (;;) {
+			if (os && !os->good())
+				throw SystemError("LISTGROUP client disconnected", -1,
+						  ERROR_LOCATION);
+			size_t wire_bytes = 0;
+			nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
+			if (budget.expired())
+				throw ReplyLimitError(budget);
+			if (!_pServerStream->good() && _pServerStream->reply_expired())
+				throw ReplyLimitError(budget, true);
+			if (!_pServerStream->good())
+				throw SystemError("error while reading from server",
+						  errno, ERROR_LOCATION);
+			if (line == ".\r\n") {
+				if (!budget.finish(wire_bytes))
+					throw ReplyLimitError(budget);
+				break;
+			}
+			if (limit && rows >= limit) {
+				stop = true;
+				break;
+			}
+			if (!budget.add(wire_bytes))
+				throw ReplyLimitError(budget);
+			i = leading_artnum(line.data());
+			if (i && a <= i && i <= b) {
+				if (os)
+					*os << i << "\r\n";
+				if (first && (!*first || i < *first))
+					*first = i;
+				if (last && i > *last)
+					*last = i;
+				rows++;
+			}
+		}
+		if (!stop)
+			reply.finish();
+	} catch(const ReplyLimitError &e) {
+		slog.p(Logger::Error) << _CurrentServer->hostname
+		    << ": LISTGROUP: " << e._errtext << "\n";
+		reply_unread();
+		// The status or part of the reply may already be on the wire.
+		// Do not let callers append a success terminator after this error.
+		if (os)
+			os->setstate(std::ios::badbit);
+		throw;
+	} catch(...) {
+		reply_unread();
+		throw;
+	}
+	if (stop) {
+		// (the reply guard is gone: the stream can go)
+		slog.p(Logger::Info) << _CurrentServer->hostname << ": LISTGROUP "
+		    << gname << " " << a << "-" << b << ": enough after "
+		    << rows << " numbers, closing the connection\n";
+		_pServerStream->abort();
+		delete _pServerStream;
+		_pServerStream = NULL;
+		if (cut)
+			*cut = true;
+	}
+	return rows;
+}
+
 void RServer::printlistgroup(const char *gname, ostream & os,
 			     artnum_t f, artnum_t l, artnum_t *next)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::printlistgroup(" << gname
 	     << "," << f << "-" << l << ")\n");
-	char buf[MAXGROUPNAMELEN + 64];
-	string resp, line;
-	artnum_t a, b, i;
+	artnum_t a, b;
 	uint64_t step = LISTGROUP_STEP_ROWS, rows;
 	// when a number last went to the client (see LISTGROUP_IDLE_SECONDS)
-	struct timespec progress, now;
+	WalkGuard guard;
 
 	*next = f;
 	if (f > l)
 		return;
 	selectgroup(gname);
-	clock_gettime(CLOCK_MONOTONIC, &progress);
 	// In steps (see next_listgroup_step), each with its own row budget
 	// and deadline, however many numbers the group has.
 	for (a = f;; a = b + 1) {
 		b = l - a < step ? l : a + (step - 1);
 		*next = a;
-		rows = 0;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		if (now.tv_sec - progress.tv_sec >= (time_t) LISTGROUP_IDLE_SECONDS) {
+		if (guard.idle()) {
 			slog.p(Logger::Error) << _CurrentServer->hostname
 			    << ": LISTGROUP " << gname << ": no number for "
 			    << LISTGROUP_IDLE_SECONDS << " s, giving up at "
@@ -1296,67 +1438,142 @@ void RServer::printlistgroup(const char *gname, ostream & os,
 			throw SystemError("LISTGROUP: no number from the news server for "
 					  "too long", -1, ERROR_LOCATION);
 		}
-		if (!os.good())
+		if (!os.good() || client_gone())
 			throw SystemError("LISTGROUP client disconnected", -1,
 					  ERROR_LOCATION);
 		if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
 			throw ResponseError("listgroup", "211", "not supported");
-		snprintf(buf, sizeof(buf), "listgroup %s %llu-%llu\r\n", gname,
-			 (unsigned long long) a, (unsigned long long) b);
-		resp = issue(buf, NULL);
-		if (!NNTP_ISCODE(resp.c_str(), "211")) {
-			string c(buf), e("211");
-			throw ResponseError(c, e, resp);
-		}
-		ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);
-		try {
-			ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
-			for (;;) {
-				if (!os.good())
-					throw SystemError("LISTGROUP client disconnected", -1,
-							  ERROR_LOCATION);
-				size_t wire_bytes = 0;
-				nlreadline(*_pServerStream, line, 1, NNTP_MAXLINE, &wire_bytes);
-				if (budget.expired())
-					throw ReplyLimitError(budget);
-				if (!_pServerStream->good() && _pServerStream->reply_expired())
-					throw ReplyLimitError(budget, true);
-				if (!_pServerStream->good())
-					throw SystemError("error while reading from server",
-							  errno, ERROR_LOCATION);
-				if (line == ".\r\n") {
-					if (!budget.finish(wire_bytes))
-						throw ReplyLimitError(budget);
-					break;
-				}
-				if (!budget.add(wire_bytes))
-					throw ReplyLimitError(budget);
-				i = leading_artnum(line.data());
-				if (i && a <= i && i <= b) {
-					os << i << "\r\n";
-					rows++;
-				}
-			}
-			reply.finish();
-		} catch(const ReplyLimitError &e) {
-			slog.p(Logger::Error) << _CurrentServer->hostname
-			    << ": LISTGROUP: " << e._errtext << "\n";
-			reply_unread();
-			// The status or part of the reply may already be on the wire.
-			// Do not let callers append a success terminator after this error.
-			os.setstate(std::ios::badbit);
-			throw;
-		} catch(...) {
-			reply_unread();
-			throw;
-		}
+		rows = liststep(gname, a, b, &os, NULL, NULL, 0, NULL);
 		if (b >= l)
 			break;
 		if (rows)
-			clock_gettime(CLOCK_MONOTONIC, &progress);
+			guard.progress();
 		step = next_listgroup_step(step, rows);
 	}
 	*next = 0;
+}
+
+/*
+ * Where a walk through a stretch without articles goes on: the lowest
+ * number in [f,l] that the news server lists for gname, or with down the
+ * highest; 0 if it lists none there. LISTGROUP in steps that grow 16-fold
+ * from 160000 numbers up to LISTGROUP_MAX_STEP (next_listgroup_step),
+ * upwards from f or downwards from l: 10^10 empty numbers take about 100
+ * requests, not 10^6 of OVERVIEW_CHUNK numbers.
+ *
+ * A step that runs from the gap into a block of articles could list up
+ * to 10^8 numbers. Upwards only the first one is needed: the rest of the
+ * reply is read only up to OVERVIEW_CHUNK numbers, then the connection is
+ * closed (liststep's limit). Downwards the highest one is needed, the
+ * last of the reply: a step cut off that way is halved from the top
+ * until one is read to its end, at most about 14 more steps.
+ *
+ * false when it can't tell (no LISTGROUP, a LISTGROUP refused, a step
+ * that ran into its reply limits): *at is then the first number, in the
+ * walk's direction, not known to be empty, and the caller goes on one
+ * chunk (or number) after the other. Throws what check_walk throws, and
+ * SystemError.
+ */
+bool RServer::probelisted(const char *gname, artnum_t f, artnum_t l,
+			  bool down, const WalkGuard & guard, artnum_t * at)
+{
+	VERB(slog.p(Logger::Debug) << "RServer::probelisted(" << gname
+	     << "," << f << "-" << l << (down ? ",down" : "") << ")\n");
+	uint64_t step = OVERVIEW_CHUNK;
+	artnum_t a = f, b = l, sa, sb, lo, hi, first, last;
+	bool cut;
+
+	*at = 0;
+	if (f > l)
+		return true;
+	*at = down ? l : f;	// (if GROUP fails: can't tell, from the start)
+	try {
+		selectgroup(gname);
+		// [a,b]: not known to be empty
+		for (;;) {
+			step = next_listgroup_step(step, 0);
+			if (down) {
+				sb = b;
+				sa = b - a < step ? a : b - (step - 1);
+				*at = sb;
+			} else {
+				sa = a;
+				sb = b - a < step ? b : a + (step - 1);
+				*at = sa;
+			}
+			check_walk(guard, gname, *at);
+			if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
+				return false;
+			liststep(gname, sa, sb, NULL, &first, &last,
+				 down ? OVERVIEW_CHUNK : OVERVIEW_CHUNK + 1, &cut);
+			if (!down) {
+				if (first) {
+					*at = first;
+					return true;
+				}
+				if (sb >= b) {
+					*at = 0;
+					return true;
+				}
+				a = sb + 1;
+				continue;
+			}
+			if (last && !cut) {
+				*at = last;
+				return true;
+			}
+			if (last) {
+				// the highest is in [last, sb]
+				lo = last;
+				hi = sb;
+				break;
+			}
+			if (sa <= a) {
+				*at = 0;
+				return true;
+			}
+			b = sa - 1;
+		}
+		// Down, a step cut off: lo is listed, above hi nothing is.
+		for (;;) {
+			artnum_t mid = hi - lo < OVERVIEW_CHUNK ? lo :
+			    lo + (hi - lo) / 2 + 1;
+			*at = hi;
+			check_walk(guard, gname, hi);
+			if (!(_CurrentServer->nntpflags & MPListEntry::F_LISTGROUP))
+				return false;
+			liststep(gname, mid, hi, NULL, &first, &last, OVERVIEW_CHUNK,
+				 &cut);
+			if (last && !cut) {
+				*at = last;
+				return true;
+			}
+			if (mid == lo)
+				return false;	// (the server's list changed)
+			if (last)
+				lo = last;
+			else
+				hi = mid - 1;
+		}
+	}
+	catch(const ResponseError & e) {
+		// (500, 501, 503 to LISTGROUP: not supported; others, e.g. 502 by
+		// policy, or any refused GROUP: not for us. The overview records
+		// still tell.)
+		if (strncasecmp(e._command.c_str(), "listgroup", 9) == 0 &&
+		    listgroup_unsupported(e))
+			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
+		else
+			slog.p(Logger::Notice) << _CurrentServer->hostname
+			    << ": " << e._command << " answered " << e._got
+			    << ", going on without it\n";
+		return false;
+	}
+	catch(const ReplyLimitError &) {
+		// (logged; the connection is closed, the next request opens a
+		// new one)
+		return false;
+	}
 }
 
 /*

@@ -21,8 +21,8 @@ class deflatebuf : public std::streambuf {
 	z_stream _out, _in;
 	bool _out_ok, _in_ok;
 	bool _pending;		// deflated since the last flush
-	size_t _idle;		// compressed bytes taken in since the
-				// last inflated output
+	// seconds that compressed input may keep coming without any output
+	unsigned int _idle_limit;
 	bool _abandoned;
 	const char *_error;
 	char _pbuf[4096];
@@ -30,16 +30,19 @@ class deflatebuf : public std::streambuf {
 	char _ibuf[4096];	// compressed input, not inflated yet
 	char _obuf[8192];	// deflate's output
 
-	// Compressed input that may come without any output, at most: a
-	// stream of empty blocks (5 bytes each, valid DEFLATE) inflates
-	// to nothing, and the reader would wait for a line for ever.
-	static const size_t max_idle = 64 * 1024;
-
 	bool deflate_out(int flush);
 	int inflate_some(bool wait);
 
   public:
-	explicit deflatebuf(std::streambuf * lower);
+	// A stream of empty blocks (5 bytes each, valid DEFLATE) inflates
+	// to nothing, and the reader would wait for a line for ever: a read
+	// that gets compressed input but no output for idle_limit seconds
+	// ends the input, as a server that sends nothing for that long ends
+	// the connection (ReadTimeout). It is counted in time, not bytes: a
+	// long run of empty blocks followed by a reply is valid.
+	enum { DEFAULT_IDLE_LIMIT = 300 };
+	explicit deflatebuf(std::streambuf * lower,
+			    unsigned int idle_limit = DEFAULT_IDLE_LIMIT);
 	virtual ~deflatebuf();
 
 	// Both directions set up (zlib had the memory).

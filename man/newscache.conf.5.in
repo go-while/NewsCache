@@ -479,7 +479,7 @@ is the name of the news server and
 .I Service
 indicates the port, where the news server is listening for connections.
 .IP "Read \fINewsgroupList\fR"
-A comma separated list of wildmat patterns: the groups NewsCache takes from this server. NewsCache fetches the active list with one LIST ACTIVE command per pattern; for example, Read at.*,de.* sends "list active at.*" and "list active de.*" to the server (RFC 3977 7.6.3). This can save bandwidth. If the server refuses LIST ACTIVE with a pattern, NewsCache asks it for the whole list once instead and keeps the groups that match. No default value.
+A comma separated list of newsgroup names: the groups NewsCache takes from this server. A name may end in *, which stands for any string (comp.*), and may start with ! to leave out the groups it matches (!comp.binaries.*). These are not full wildmat patterns: a * anywhere matches the rest of the group name from there on (*.answers matches every group), and ? and [...] are taken literally. A group is read from the server whose Read has the longest matching name, an excluding one included: with Read * for one server and Read comp.* for another, comp.lang.c comes from the second. NewsCache fetches the active list with one LIST ACTIVE command per name; for example, Read at.*,de.* sends "list active at.*" and "list active de.*" to the server (RFC 3977 7.6.3). This can save bandwidth. If the server refuses LIST ACTIVE with a pattern, NewsCache asks it for the whole list once instead. Either way it keeps only the groups that are read from this server. No default value.
 .IP "PostTo \fINGSpecification\fR"
 NewsCache post an article to the best matching upstream newsserver. If the article cannot be submitted immediately, it is kept for later transmission. The default is the value of Read, whatever the order of the two in the block. See the example: Multiple Upstream NewsServer.
 .IP "GroupTimeout \fIseconds\fR"
@@ -573,7 +573,7 @@ With ssl or starttls: don't verify the server's certificate. The connection is e
 .IP "compress"
 COMPRESS DEFLATE (RFC 8054). After STARTTLS, the login and MODE READER, NewsCache asks the server to compress the connection; from its 206 on, everything is compressed both ways: articles, overview data and the active list come in a fraction of their size. A server that refuses it (or doesn't know COMPRESS) is used without compression, and a notice is logged. Needs a build with zlib
 .RB ( "newscache \-o"
-lists \-\-with\-zlib). The login is never compressed (RFC 8054 2.2.2): when the server asks for it again with 480, NewsCache opens a new connection, which logs in and compresses again. With ssl or starttls, the size of compressed data can tell anyone watching the connection something about it (RFC 8054 7).
+lists \-\-with\-zlib). The login is never compressed (RFC 8054 2.2.2): when the server asks for it again with 480, NewsCache opens a new connection, which logs in and compresses again. With ssl or starttls, the size of compressed data can tell anyone watching the connection something about it (RFC 8054 7). Compressed data that inflates to nothing (empty blocks) for ReadTimeout seconds, or 5 minutes with ReadTimeout 0, ends the connection, as invalid compressed data does.
 .IP "dontgenmsgid"
 NewsCache gives a posted article without a Message-ID header one of its
 own (see Hostname). With dontgenmsgid, an article that goes only to
