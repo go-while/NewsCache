@@ -437,9 +437,9 @@ UBSan (`-fsanitize=undefined`, which no CI lane uses) reports "invalid vptr ... 
 
 ## CodeQL dismissals
 
-17 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22, #27 on 2026-10-28, #29 and #30 on 2026-10-29, #38 on 2026-11-11). They were
-rechecked against main on 2026-10-22, after the review fixes; each still
-holds:
+17 alerts are dismissed (12 on 2026-10-19, #25 on 2026-10-22, #27 on 2026-10-28, #29 and #30 on 2026-10-29, #38 on 2026-11-11). Those dismissed by
+2026-10-22 were rechecked against main that day, after the review fixes;
+the later ones were checked when they were dismissed. Each still holds:
 
 | Alerts | Rule | Code | Why dismissed |
 |---|---|---|---|
