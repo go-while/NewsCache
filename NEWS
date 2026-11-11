@@ -135,6 +135,10 @@ Behaviour changes:
   sessions started after a reload. A reload no longer looks up the host
   name (a DNS lookup that could stall the daemon), so the default name is
   looked up once, at startup, and only when the file sets no `Hostname`.
+* A walk that gives up after 5 minutes without an article answers 403;
+  after part of a list the connection is closed, as after other upstream
+  failures. NEXT and LAST answer 403 then, instead of running until they
+  find an article.
 
 New options:
 * ReadTimeout (in a Server entry): give up the connection to the news
@@ -1134,6 +1138,85 @@ Bug fixes:
   for any client that may list. It is now sent from the buffer itself:
   for a list of 3 million groups (190 MiB) a session's peak memory
   goes from about 370 to 260 MiB.
+* With several news servers, the active list could take a group from a
+  server it isn't routed to. NewsCache asks each server for "LIST ACTIVE
+  <pattern>" per pattern of its Read; the filter for that reply let every
+  group through except those it matched against the other servers'
+  patterns, and that comparison lost its place after a partial match. With
+  one server reading "dk.*,de.alt.binaries.*" and another "de.*", the
+  second server's numbers and posting flag for de.alt.binaries.* replaced
+  the first's, GROUP and LIST ACTIVE showed them, and the cached records
+  above a lower last number were dropped at each refresh. Also, a group
+  that another server's Read excludes ("!de.sub.special.*") could be
+  missing from the active list, and a group that two servers read with
+  the same pattern came with the second server's numbers. Each server's
+  reply now keeps only the groups that GROUP takes from that server.
+* Group names with a "/" or an empty component (a/b, a.b., .a.b, a..b)
+  had the spool directory of a.b: when a news server answered GROUP for
+  such a name, its overview records and articles went into a.b's
+  database, and readers of a.b got them; such a name also got past an
+  exact "!a.b" in a list. They aren't newsgroup names (RFC 5536 3.1.4):
+  GROUP and LISTGROUP answer 411 for them now, and the spool refuses
+  them.
+* newscacheclean neither counted nor removed article files in a group
+  directory without a database (left when the database was removed while
+  a session still had it open and stored an article, or moved aside as
+  corrupt on a full disk). No session can reach them, but they stayed
+  outside SpoolSize until a session opened the group again. They are
+  removed first now, unless a session has started a new database in the
+  directory meanwhile; a file a session stores there while one is being
+  removed is kept.
+* When memory ran out while a session applied its message-ID history
+  updates at the end of an overview reply or a stored chunk, the session
+  ended with SIGABRT and a core dump (an exception left a destructor)
+  instead of the error reply other failures get. The updates are dropped
+  now, with a log message; the history is an index, and a missing entry
+  only costs a lookup.
+* After a broken connection to a news server, NewsCache selects the
+  client's group again on the new connection. That GROUP was sent after
+  the set-up guard of the connection was off, so a server that closed the
+  connection (or answered 400) at it made NewsCache reconnect from inside
+  the reconnect, nested without limit: thousands of connections to the
+  server, then the session crashed (stack overflow) without a reply. A
+  failed GROUP now ends that connection attempt, the client's command gets
+  an error reply after at most Retries attempts, and the session goes on.
+  The guard for MODE READER and LIST OVERVIEW.FMT came in 1.3.23 too.
+* An XOVER, OVER, XHDR, HDR or LISTGROUP over several chunks of a group
+  could leave out records without any error: when another session's
+  request moved the group's index up meanwhile (articles far above, or a
+  group larger than the index's 10^7 numbers), the chunks that fell below
+  it printed nothing, and the list still ended with "." as if complete.
+  Those numbers come from the news server now.
+* After the clock was put back (a VM whose clock was ahead until NTP
+  corrected it), the active list's time stamp lay in the future: the list
+  counted as fresh until the clock got there, and a refresh couldn't lower
+  the stamp, so new groups stayed invisible and LIST ACTIVE and NEWGROUPS
+  stayed as they were for as long as the clock had been ahead (unless
+  updatenews -a was run). A stamp still to come now counts as stale, and
+  the refresh replaces it. The same holds for the overview's per-chunk
+  stamps. Single groups were fixed in 1.3.23 already.
+* With Options compress, a valid reply was discarded (the client got 403)
+  when more than 64 KiB of compressed data that inflates to nothing (empty
+  blocks, which zlib sends for repeated flushes) came before it. The limit
+  against a server that sends such blocks for ever is a time now: the
+  server's ReadTimeout (5 minutes with ReadTimeout 0) without any content,
+  as for a server that sends nothing.
+* XOVER, OVER, XHDR, XPAT and HDR across a long stretch of article
+  numbers without articles (below the cached part of a group, as in a
+  binary group whose low number lags far behind its oldest article)
+  asked the news server for one range of 10000 numbers after the other,
+  and NEXT and LAST went one number after the other: 10^10 empty numbers
+  took a million requests, and the walk went on after the client had
+  left, since nothing was written that could fail. After 160000 empty
+  numbers in a row they now ask where the next (or previous) article
+  is, with LISTGROUP in growing steps as LISTGROUP itself does (about
+  120 requests for 10^10 numbers). A connection the client reset (or a
+  pipe it closed in inetd mode) ends such a walk at once; otherwise it
+  gives up when it has found no article for 5 minutes (a client that
+  only closed its sending side may still read the reply).
+* NEXT, above the cached part of a group, asked the news server once
+  for every number it passed. Looking up one number (NEXT, LAST, STAT)
+  now caches the rest of its range of 10000 numbers at once.
 
 Documentation:
 * SECURITY.md: how to report a vulnerability privately (GitHub Security
@@ -1211,6 +1294,11 @@ Documentation:
 * The notes in doc/ on PAM, core dumps, stunnel and corrupt databases are
   rewritten for the current parser, the systemd packages, built-in client
   TLS and the connection close after a part-sent reply.
+* newscache.conf(5) called a server's Read "wildmat patterns", but the
+  groups are routed by names that may end in * and start with !, with the
+  longest match winning: a * anywhere matches the rest of the name, and ?
+  and [...] are taken literally. The page and the manual say so now, with
+  an example of the longest match.
 
 Other changes:
 * CI: the macOS jobs (build and test, checkout on a case-insensitive
@@ -1246,6 +1334,11 @@ Other changes:
   (E2E_TIMEOUT sets another). It had go test's default of 10 minutes,
   and the suite takes 8 to 9 minutes on a machine with one core: make
   check failed there with "test timed out after 10m0s".
+* The end-to-end test of a TLS client that stops reading allows the
+  session 14 seconds to end, not 11: on a busy one-core machine with
+  the race detector, the fetches before the reply fills the socket made
+  it fail although the session ended in time (11.2 s). The behaviour it
+  guards against took about 18 seconds.
 
 Release 1.3.22:
 Billy G. - 2026-10-23

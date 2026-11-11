@@ -33,6 +33,11 @@ newscache (1.3.23-1) unstable; urgency=medium
   * --without-syslog: SIGHUP reopens the log file, for logrotate
   * The client's host name lookup takes at most 10 seconds
   * Folded headers unfolded as RFC 5322 says; HDR turns TABs into spaces
+  * Several news servers: each group's active list entry comes from the
+    server GROUP uses; names that would share a spool directory refused
+  * Walks over long runs of empty article numbers ask the news server
+    in LISTGROUP steps and stop when the client has gone
+  * newscacheclean removes article files of groups without a database
 
  -- Billy G. <newscache-maintainer@pugleaf.net>  Thu, 05 Nov 2026 12:00:00 +0000
 
