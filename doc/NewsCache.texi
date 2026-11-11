@@ -402,17 +402,37 @@ ClientTimeout 900
 @end example
 
 @cdindex AuthFailureDelay
-After a failed login (@code{AUTHINFO PASS} with a wrong user name or
-password), NewsCache waits @code{AuthFailureDelay} seconds before it
-answers 481; after the third failure in a connection it closes the
-connection. The default is 1 second; 0 answers at once. Values up to 3600
-are accepted for older configuration files, but the delay is at most 1
-second: a longer one only keeps a process busy per connection. (Up to
-1.3.22 the delay was multiplied by the number of failed logins: 15, 30
-and 45 seconds by default.)
+With @code{AuthFailureDelay} set to any value from 1 to 3600 (the
+default is 1), a failed login (@code{AUTHINFO PASS} with a wrong user
+name or password) is answered with 481 after 1 second the first time in
+a connection, after 2 seconds the second time and after 4 seconds the
+third time; then NewsCache closes the connection. A successful login is
+answered at once. The count is per connection: a client that connects
+again starts at 1 second. 0 turns the wait off: every 481 comes at once,
+and the connection is still closed after the third failure. Values above
+1 are accepted for older configuration files and work like 1. (Up to
+1.3.22 the delay was the value times the number of failed logins: 15, 30
+and 45 seconds by default.) NewsCache does no dummy password check for
+an unknown user or a locked password field, so the time of a 481 may
+tell whether a user name exists.
 
 @example
 AuthFailureDelay 0
+@end example
+
+@cdindex AuthMinLength
+@code{AuthMinLength} is the shortest user name and password a login may
+have, counted in bytes. When @code{AUTHINFO PASS} arrives, a user name
+or password shorter than this is refused with 481 after the wait of
+@code{AuthFailureDelay}, without a password check, a lookup or a PAM
+call; it counts as a failed login. @code{AUTHINFO USER} is answered with
+381 as before. The default is 10, the range 0 to 255; 0 turns the check
+off. Administrators must use user names and passwords of at least 10
+characters; set @code{AuthMinLength 0} only to keep shorter ones that
+already exist.
+
+@example
+AuthMinLength 10
 @end example
 
 @cdindex MaxArticleSize
@@ -1144,7 +1164,8 @@ rights of its entry from the start. An entry with only @code{allow
 authentication} and one of these logins still lets nobody read or post
 without a login, as in the example below, but because it gives no
 rights: the commands that need one get @samp{480} until the login. As RFC 4643 says, a failed login (wrong password, unknown user,
-a stored hash that can't be checked) gets 481, @code{AUTHINFO PASS}
+a stored hash that can't be checked, a user name or password shorter
+than @code{AuthMinLength}) gets 481, @code{AUTHINFO PASS}
 without @code{AUTHINFO USER} gets 482, and @code{AUTHINFO} after a
 successful login, or where the entry has @code{Authentication none},
 gets 502. Before the login, commands that need a right the client doesn't

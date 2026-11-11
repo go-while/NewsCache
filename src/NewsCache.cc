@@ -641,12 +641,13 @@ class ClientData {
 	bool tls;		// the connection is TLS (TLSListenTo, -t)
 	char auth_user[512];
 	bool auth_user_valid; // a USER is pending for one PASS
-	bool auth_refused;    // the last AUTHINFO checked a password and refused it
+	bool auth_refused;    // the last AUTHINFO PASS was refused (a failure)
+	const char *auth_refused_why; // why, if no password was checked, else NULL
 	char auth_pass[512];
 	int auth_state;
 	int auth_failures;
 	int auth_max_failures;
-	int auth_failure_sleep_time;
+	bool auth_failure_delay; // wait 1, 2, 4 s after failed logins
 
 #ifdef PAM_AUTH
 	pam_handle_t *pamh;
@@ -664,9 +665,11 @@ class ClientData {
 		  grp(NULL), nbr(0),
 		  access_entry(NULL), tls(false),
 		  auth_user_valid(false), auth_refused(false),
+		  auth_refused_why(NULL),
 		  auth_state(AUTH_OK),
 		  auth_failures(0),
-		  auth_max_failures(3), auth_failure_sleep_time(Cfg.AuthFailureDelay),
+		  auth_max_failures(3),
+		  auth_failure_delay(Cfg.AuthFailureDelay != 0),
 		  stat_groups(0), stat_artingrp(0), stat_articles(0)
 	{
 		auth_user[0] = auth_pass[0] = '\0';
@@ -957,74 +960,6 @@ int auto_cryptcheck(const char *key, const char *pass)
 	return r;
 }
 
-/*
- * Does the work of checking a password against a stored hash and throws
- * the result away. A login for a user that does not exist (or whose
- * password field is locked) returned at once, while one with a wrong
- * password first computed a hash, so a remote client could tell existing
- * user names by the time of the reply. Calling this for the user that
- * isn't there makes both take about as long. hash is the setting to hash
- * with: for "Authentication file" a hash from the same file (so that the
- * cost is the one the administrator chose), else a fixed $6$ hash.
- */
-static void dummy_password_check(const char *key, const char *hash)
-{
-	static const char fixed[] = "$6$ncdummysalt$kRpQqp7lXkZrlvI2YTvvoD8gQyPz4FcoZGD0UUmeCjxyAHweanwg9PP.vyX39TuZJREeQYHSxL/GTjyoHuXzM/";
-
-	if (hash == NULL || hash[0] == '\0')
-		hash = fixed;
-	bool md5 = false;
-#ifdef MD5_CRYPT
-#ifdef MD5_AUTO
-	md5 = strlen(hash) == 24 && hash[23] == '=' && hash[22] == '=';
-#else
-	md5 = true;
-#endif
-#endif
-	if (md5) {
-#ifdef MD5_CRYPT
-		free(md5crypt(key));
-#endif
-	} else {
-		(void) crypt(key, hash);
-	}
-}
-
-/*
- * A hash that looks usable from the first line of the auth file that has
- * one (for dummy_password_check), or "" if there is none.
- */
-static std::string auth_file_sample_hash(const char *filename)
-{
-	std::string res;
-	FILE *F = fopen(filename, "r");
-	if (F == NULL)
-		return res;
-	char *buf = NULL;
-	size_t bufsize = 0;
-	while (getline(&buf, &bufsize, F) != -1) {
-		char *c1 = strchr(buf, ':');
-		if (buf[0] == '#' || c1 == NULL)
-			continue;
-		char *h = c1 + 1;
-		char *c2 = strchr(h, ':');
-		size_t n = c2 ? (size_t) (c2 - h) : strlen(h);
-		while (n > 0 && isspace((unsigned char) h[n - 1]))
-			n--;
-		if (n > 3 && h[0] == '$') {
-			res.assign(h, n);
-			break;
-		}
-		if (n == 24 && h[22] == '=' && h[23] == '=') {
-			res.assign(h, n);
-			break;
-		}
-	}
-	free(buf);
-	fclose(F);
-	return res;
-}
-
 #ifdef PLAIN_TEXT_PASSWORDS
 /*
  * Whether an auth-file password field may be compared as plain text: not
@@ -1065,10 +1000,8 @@ int check_auth_unix (ClientData *clt)
 	struct passwd *pw = NULL;
 	pw = getpwnam(clt->auth_user);
 	if (!pw || !(pw->pw_name) || !(pw->pw_passwd)
-	    || !(pw->pw_passwd[0])) {
-		dummy_password_check(clt->auth_pass, NULL);
+	    || !(pw->pw_passwd[0]))
 		return -1;
-	}
 	pass = pw->pw_passwd;
 	if ((pass[0] == 'x') && (pass[1] == '\0')) {
 #ifdef SHADOW_PASSWORD
@@ -1147,38 +1080,25 @@ int check_auth_file (ClientData *clt)
 	int authc = 0;
 	int passf=-1;
 
-	if (!authv) {
-		// no such user: same work as for a wrong password
-		dummy_password_check(clt->auth_pass,
-				     auth_file_sample_hash(authfile.c_str()).c_str());
+	if (!authv)
 		return -1;
-	}
 
 	// user:hash is enough; missing list, read, postto and allow fields
 	// add nothing, like empty ones.
 	while (authv[authc])
 		authc++;
-	// no password, or a locked or empty field, never matches (and takes
-	// as long as a wrong password, like an unknown user)
+	// no password, or a locked or empty field, never matches
 	if (authc < 2 || authv[1][0] == '\0' || authv[1][0] == '*'
-	    || authv[1][0] == '!') {
-		dummy_password_check(clt->auth_pass,
-				     auth_file_sample_hash(authfile.c_str()).c_str());
+	    || authv[1][0] == '!')
 		return -1;
-	}
 #ifdef PLAIN_TEXT_PASSWORDS
 	// A field that is no hash is compared as plain text, without
 	// crypt(): it can't use the field and logged an error for every
-	// login. It still does the work of a hash check (which logs
-	// nothing), so that a user with a plain field doesn't answer
-	// faster than an unknown one. A hash is never compared as plain
-	// text (the plain comparison came first and accepted a hash as its
-	// own password).
-	if (plain_password_field(authv[1])) {
-		dummy_password_check(clt->auth_pass,
-				     auth_file_sample_hash(authfile.c_str()).c_str());
+	// login. A hash is never compared as plain text (the plain
+	// comparison came first and accepted a hash as its own password).
+	if (plain_password_field(authv[1]))
 		passf = hashes_differ(clt->auth_pass, authv[1]);
-	} else
+	else
 #endif
 		passf = auto_cryptcheck(clt->auth_pass, authv[1]);
 	if (passf)
@@ -1722,6 +1642,7 @@ static void clear_password(char *p)
 int ns_authinfo(ClientData * clt, int argc, char *argv[])
 {
 	clt->auth_refused = false;
+	clt->auth_refused_why = NULL;
 	// No AUTHINFO after a login (RFC 4643 2.2: 502); a second login
 	// added that user's rights to the first one's. Entries without an
 	// Authentication start out in AUTH_OK: no login for them either.
@@ -1779,7 +1700,21 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 		}
 		strcpy(clt->auth_pass, argv[2]);
 		clear_password(argv[2]);
-		int checked = check_authentication(clt);
+		// AuthMinLength: a user name or password that is too short is
+		// refused without a lookup, password check or PAM call, and
+		// counts as a failure. (Only here, not at USER, so that USER
+		// tells nothing; bytes, not characters.)
+		int checked;
+		if (strlen(clt->auth_user) < (size_t) Cfg.AuthMinLength) {
+			clt->auth_refused_why =
+			    "user name shorter than AuthMinLength";
+			checked = -1;
+		} else if (strlen(clt->auth_pass) < (size_t) Cfg.AuthMinLength) {
+			clt->auth_refused_why =
+			    "password shorter than AuthMinLength";
+			checked = -1;
+		} else
+			checked = check_authentication(clt);
 		clear_password(clt->auth_pass);
 		// Keep the name for the failed-login audit log, but require another
 		// USER before a subsequent PASS (RFC 4643 2.3.2).
@@ -1787,11 +1722,17 @@ int ns_authinfo(ClientData * clt, int argc, char *argv[])
 
 		if (checked < 0) {
 			clt->auth_refused = true;
-			// the same short delay after each failure; it grew with
-			// the failures (15, 30, 45 s by default), which only held
-			// the session's process and memory
+			// 1, 2 and 4 s after the first, second and third failure
+			// in this session (then it is closed); a successful login
+			// doesn't wait. Per session only: a client that connects
+			// again starts at 1 s.
 			++clt->auth_failures;
-			sleep(clt->auth_failure_sleep_time);
+			if (clt->auth_failure_delay) {
+				int n = clt->auth_failures < 1 ? 1
+				    : clt->auth_failures > 3 ? 3
+				    : clt->auth_failures;
+				sleep(1u << (n - 1));
+			}
 			(*clt->
 			 co) << FAILED_SEQUENCE << " Bad authinfo.\r\n";
 			return -1;
@@ -4461,11 +4402,14 @@ void nnrpd(int fd, bool tls)
 							client_logname << " failed " << oreq <<
 							"\n";
 				else if (clt.auth_refused)
-					// (the user name only when its password was
-					// checked: not for 482, 501, 502 or too long)
+					// (the user name only for a refused login: not
+					// for 482, 501, 502 or too long)
 					slog.p(Logger::Notice) << clt.
 						client_logname << " failed authinfo for user  " <<
-						clt.auth_user << "\n";
+						clt.auth_user <<
+						(clt.auth_refused_why ? " (" : "") <<
+						(clt.auth_refused_why ? clt.auth_refused_why : "") <<
+						(clt.auth_refused_why ? ")" : "") << "\n";
 				else
 					slog.p(Logger::Notice) << clt.
 						client_logname << " failed authinfo\n";

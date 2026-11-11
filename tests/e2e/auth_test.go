@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"crypto/md5"
 	"debug/elf"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,55 +66,6 @@ func authEnv(t *testing.T, rights string, lines ...string) *env {
   }
 }`
 	return e
-}
-
-// TestAuthUnknownUserTiming: an unknown user was refused at once, while a
-// wrong password first computed the hash, so the time of the reply told
-// whether a user name exists. With a costly hash in the auth file (SHA-512,
-// 600000 rounds, some 0.3 s) the unknown user's reply must take about as
-// long: at least half of the wrong password's, a generous bound (the
-// unfixed code needs a few milliseconds). The same for a locked line.
-func TestAuthUnknownUserTiming(t *testing.T) {
-	if runtime.GOOS == "darwin" {
-		t.Skip("macOS crypt() has no SHA-512 ($6$)")
-	}
-	const slow = "$6$rounds=600000$ncslowsalt$UzZarigsENPa9S.5Y2jR3OczOpyLqiOROQovOdMlqMP5Z..Q8R/wyv.AsdE/gb1JHc3.wDy2PFQrL6c0EPKvA."
-	e := authFileEnv(t, "tester:"+slow+":*:*:*:", "locked:*")
-	e.Extra = "AuthFailureDelay 0"
-	// Interleave the three cases so a temporary change in host load does not
-	// affect every sample of just one user. Keep each user's shortest of
-	// three, as before, to limit scheduling delays in the comparison.
-	users := []string{"tester", "nobody-here", "locked"}
-	best := make(map[string]time.Duration, len(users))
-	for _, user := range users {
-		best[user] = time.Duration(1 << 62)
-	}
-	for i := 0; i < 3; i++ {
-		for _, user := range users {
-			c := e.session()
-			if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
-				t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
-			}
-			start := time.Now()
-			code, line := c.Cmd("AUTHINFO PASS wrong")
-			d := time.Since(start)
-			if code != 481 {
-				t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
-			}
-			if d < best[user] {
-				best[user] = d
-			}
-		}
-	}
-	wrong := best["tester"]
-	if wrong < 50*time.Millisecond {
-		t.Skipf("the costly hash took only %v here; can't measure", wrong)
-	}
-	for _, u := range []string{"nobody-here", "locked"} {
-		if d := best[u]; d < wrong/2 {
-			t.Errorf("reply for %s took %v, a wrong password for an existing user %v: the time tells whether the user exists", u, d, wrong)
-		}
-	}
 }
 
 // TestAuthFileShortLine: an auth-file line with only user, password and the
@@ -471,28 +424,203 @@ func TestAuthFileBadHash(t *testing.T) {
 	}
 }
 
-// TestAuthFailureDelay: after each failed login NewsCache waits
-// AuthFailureDelay seconds (at most 1) before it answers; a later correct
-// password still logs in. The delay was a fixed 15 seconds, then (1.3.22)
-// AuthFailureDelay times the number of failures.
-func TestAuthFailureDelay(t *testing.T) {
+// failLogin sends AUTHINFO USER user (381 expected) and AUTHINFO PASS pass,
+// expects 481 and returns how long the PASS took.
+func failLogin(t *testing.T, c *client.Conn, user, pass string) time.Duration {
+	t.Helper()
+	if code, line := c.Cmd("AUTHINFO USER %s", user); code != 381 {
+		t.Fatalf("AUTHINFO USER %s: %q, want 381", user, line)
+	}
+	start := time.Now()
+	code, line := c.Cmd("AUTHINFO PASS %s", pass)
+	d := time.Since(start)
+	if code != 481 {
+		t.Fatalf("AUTHINFO PASS for %s: %q, want 481", user, line)
+	}
+	return d
+}
+
+// expectClosed reads the 400 after the third failed login and checks that
+// the connection is closed then.
+func expectClosed(t *testing.T, c *client.Conn) {
+	t.Helper()
+	code, line, err := c.ReadStatus()
+	if err != nil || code != 400 {
+		t.Fatalf("after the third failure: %q, %v; want 400", line, err)
+	}
+	if l, err := c.ReadLine(); err == nil {
+		t.Fatalf("after the 400: %q, want the connection closed", l)
+	}
+}
+
+// checkBackoff fails if the n-th failed login (from 1) didn't wait about
+// 1, 2 or 4 s: at least that minus a little, at most 3 s more.
+func checkBackoff(t *testing.T, n int, d time.Duration) {
+	t.Helper()
+	want := time.Second << (n - 1)
+	if d < want-100*time.Millisecond || d > want+3*time.Second {
+		t.Errorf("failure %d: answered after %v, want about %v", n, d.Round(time.Millisecond), want)
+	}
+}
+
+// TestAuthFailureBackoff: with the wait on (AuthFailureDelay 1, the
+// default, or a larger value from an older configuration) the first,
+// second and third failed login of a session are answered after 1, 2 and
+// 4 s, and then the connection is closed. Every failure waited the same
+// 1 s before; in 1.3.22 the wait was AuthFailureDelay times the failures.
+func TestAuthFailureBackoff(t *testing.T) {
+	for _, extra := range []string{"", "AuthFailureDelay 1", "AuthFailureDelay 15"} {
+		name := extra
+		if name == "" {
+			name = "default"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+			e.Extra = extra
+			c := e.session()
+			c.Deadline = 20 * time.Second
+			for n := 1; n <= 3; n++ {
+				checkBackoff(t, n, failLogin(t, c, "tester", "wrong"))
+			}
+			expectClosed(t, c)
+		})
+	}
+}
+
+// TestAuthSuccessNoDelay: with the wait on, a successful login is answered
+// at once, also after a failed one in the same session.
+func TestAuthSuccessNoDelay(t *testing.T) {
 	t.Parallel()
 	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
-	e.Extra = "AuthFailureDelay 1"
-	c := e.session()
-	c.Deadline = 20 * time.Second
-	for n := 1; n <= 2; n++ {
-		c.Cmd("AUTHINFO USER tester")
-		start := time.Now()
-		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
-			t.Fatalf("failure %d: AUTHINFO PASS wrong: %q, want 481", n, line)
+	timedLogin := func(c *client.Conn, what string) {
+		t.Helper()
+		if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
+			t.Fatalf("AUTHINFO USER: %q, want 381", line)
 		}
-		want := time.Second
-		if d := time.Since(start); d < want || d > want+2*time.Second {
-			t.Errorf("failure %d: answered after %v, want about %v", n, d.Round(time.Millisecond), want)
+		start := time.Now()
+		if code, line := c.Cmd("AUTHINFO PASS secret"); code != 281 {
+			t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+		}
+		if d := time.Since(start); d > 500*time.Millisecond {
+			t.Errorf("successful login %s answered after %v, want no wait", what, d.Round(time.Millisecond))
 		}
 	}
-	login(t, c)
+	timedLogin(e.session(), "as the first command")
+	c := e.session()
+	c.Deadline = 20 * time.Second
+	checkBackoff(t, 1, failLogin(t, c, "tester", "wrong"))
+	timedLogin(c, "after a failure")
+}
+
+// TestAuthFailureNoDelayOff: AuthFailureDelay 0 turns the wait off: three
+// failed logins are answered at once, and the connection is still closed
+// after the third.
+func TestAuthFailureNoDelayOff(t *testing.T) {
+	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
+	e.Extra = "AuthFailureDelay 0"
+	c := e.session()
+	c.Deadline = 10 * time.Second
+	for n := 1; n <= 3; n++ {
+		if d := failLogin(t, c, "tester", "wrong"); d > 500*time.Millisecond {
+			t.Errorf("failure %d with AuthFailureDelay 0: answered after %v, want no wait", n, d.Round(time.Millisecond))
+		}
+	}
+	expectClosed(t, c)
+}
+
+// ncMD5 is NewsCache's MD5 auth-file hash of pass: the MD5 digest in
+// base64, as md5Hash is for "secret".
+func ncMD5(pass string) string {
+	sum := md5.Sum([]byte(pass))
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// TestAuthMinLength: a user name or password shorter than AuthMinLength
+// (default 10 bytes) is refused with 481 when AUTHINFO PASS arrives,
+// without checking it: the right password doesn't help. It counts as a
+// failure, with the wait (1, 2, 4 s) and the close after the third. USER
+// still answers 381. A 10-byte name and password log in; AuthMinLength 0
+// accepts short ones.
+func TestAuthMinLength(t *testing.T) {
+	const (
+		user10 = "tester0123"
+		pass10 = "secret0123"
+		user9  = "tester012"
+		pass9  = "secret012"
+	)
+	lines := []string{
+		user10 + ":" + ncMD5(pass10) + ":*:*:*:",
+		user9 + ":" + ncMD5(pass10) + ":*:*:*:",
+		"shortpass1:" + ncMD5(pass9) + ":*:*:*:",
+	}
+	t.Run("10 bytes log in with the default", func(t *testing.T) {
+		e := authFileEnv(t, lines...)
+		e.AuthMinLength = ""
+		c := e.session()
+		if code, line := c.Cmd("AUTHINFO USER %s", user10); code != 381 {
+			t.Fatalf("AUTHINFO USER: %q, want 381", line)
+		}
+		if code, line := c.Cmd("AUTHINFO PASS %s", pass10); code != 281 {
+			t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+		}
+	})
+	t.Run("shorter refused with the default", func(t *testing.T) {
+		t.Parallel()
+		e := authFileEnv(t, lines...)
+		e.AuthMinLength = ""
+		p, c := e.sessionProcess()
+		c.Deadline = 20 * time.Second
+		// the right passwords: refused without a check
+		checkBackoff(t, 1, failLogin(t, c, user9, pass10))
+		checkBackoff(t, 2, failLogin(t, c, "shortpass1", pass9))
+		checkBackoff(t, 3, failLogin(t, c, user9, pass10))
+		expectClosed(t, c)
+		if err := p.Wait(); err != nil {
+			t.Fatalf("session exit: %v", err)
+		}
+		log := e.logFile()
+		for _, want := range []string{
+			"failed authinfo for user  " + user9 + " (user name shorter than AuthMinLength)",
+			"failed authinfo for user  shortpass1 (password shorter than AuthMinLength)",
+		} {
+			if !strings.Contains(log, want) {
+				t.Errorf("the log lacks %q:\n%s", want, log)
+			}
+		}
+		for _, pass := range []string{pass9, pass10} {
+			if strings.Contains(log, pass) {
+				t.Errorf("the log has the password %q:\n%s", pass, log)
+			}
+		}
+	})
+	t.Run("AuthMinLength 10 counts bytes", func(t *testing.T) {
+		// "t\u00e9ster012" is 10 bytes but 9 characters
+		u := "t\u00e9ster012"
+		e := authFileEnv(t, u+":"+ncMD5(pass10)+":*:*:*:")
+		e.AuthMinLength = "10"
+		e.Extra = "AuthFailureDelay 0"
+		c := e.session()
+		if code, line := c.Cmd("AUTHINFO USER %s", u); code != 381 {
+			t.Fatalf("AUTHINFO USER: %q, want 381", line)
+		}
+		if code, line := c.Cmd("AUTHINFO PASS %s", pass10); code != 281 {
+			t.Fatalf("AUTHINFO PASS: %q, want 281", line)
+		}
+	})
+	t.Run("AuthMinLength 0", func(t *testing.T) {
+		for _, up := range [][2]string{{user9, pass10}, {"shortpass1", pass9}} {
+			e := authFileEnv(t, lines...)
+			e.AuthMinLength = "0"
+			c := e.session()
+			if code, line := c.Cmd("AUTHINFO USER %s", up[0]); code != 381 {
+				t.Fatalf("AUTHINFO USER: %q, want 381", line)
+			}
+			if code, line := c.Cmd("AUTHINFO PASS %s", up[1]); code != 281 {
+				t.Fatalf("AUTHINFO PASS for %s with AuthMinLength 0: %q, want 281", up[0], line)
+			}
+		}
+	})
 }
 
 // TestLoginOnlyEntry: an entry with "allow authentication" and nothing
@@ -1359,29 +1487,6 @@ func TestLogControlBytes(t *testing.T) {
 		"failed authinfo for user  te?[31mster"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("the log lacks %q:\n%s", want, log)
-		}
-	}
-}
-
-// TestAuthFailureDelayFixed: each failed login waits the same short delay,
-// at most 1 s, also with an AuthFailureDelay from an older configuration.
-// The delay was AuthFailureDelay times the number of failures (15, 30 and
-// 45 s by default, up to 3 h with 3600), which only held the session's
-// process and memory for each guessing connection.
-func TestAuthFailureDelayFixed(t *testing.T) {
-	e := authFileEnv(t, "tester:"+md5Hash+":*:*:*:")
-	e.Extra = "AuthFailureDelay 15"
-	c := e.session()
-	for i := 1; i <= 2; i++ {
-		if code, line := c.Cmd("AUTHINFO USER tester"); code != 381 {
-			t.Fatalf("AUTHINFO USER: %q, want 381", line)
-		}
-		start := time.Now()
-		if code, line := c.Cmd("AUTHINFO PASS wrong"); code != 481 {
-			t.Fatalf("AUTHINFO PASS (wrong) #%d: %q, want 481", i, line)
-		}
-		if d := time.Since(start); d < 900*time.Millisecond || d > 3*time.Second {
-			t.Errorf("failed login #%d answered after %v, want about 1 s", i, d.Round(10*time.Millisecond))
 		}
 	}
 }

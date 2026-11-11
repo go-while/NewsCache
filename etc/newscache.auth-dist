@@ -1,12 +1,14 @@
 # This are commentar lines
 # You can use plaintext passwords, if the newscache is configured with
 # the option --enable-plainpass
-user1:pass1:at.linux:at.linux:at.linux:post
-user2:pass2:de.linux:de.linux:de.linux:post
-user3:xtKlYxMWGiBYg:de.linux:de.linux:de.linux:post
+# User names and passwords need at least 10 characters (AuthMinLength
+# in newscache.conf); shorter ones are refused.
+reader-one:password-one:at.linux:at.linux:at.linux:post
+reader-two:password-two:de.linux:de.linux:de.linux:post
+reader-three:xtKlYxMWGiBYg:de.linux:de.linux:de.linux:post
 # Only user and password are required; missing fields add nothing, so
-# user4 gets just the rights of its Client entry after logging in.
-user4:pass4
+# reader-four gets just the rights of its Client entry after logging in.
+reader-four:password-four
 # The default build recognizes raw MD5 as base64(MD5(password)); this is
 # unsalted and weak. Prefer a salted crypt(3) hash supported by this system.
 # htpasswd defaults to APR1 ($apr1$), which NewsCache does not support;

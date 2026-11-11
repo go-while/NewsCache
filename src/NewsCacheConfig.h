@@ -54,7 +54,8 @@ class Config {
 	char PidFile[MAXPATHLEN];
 
 	int ClientTimeout;
-	int AuthFailureDelay;	// seconds after each failed login, 0 or 1
+	int AuthFailureDelay;	// 0: no wait after failed logins, 1: 1, 2, 4 s
+	int AuthMinLength;	// bytes: shortest user name and password, 0: off
 	int HistoryEnabled;	// History on: the message-ID history in the spool
 	int MaxConnections;
 	int MaxConnectionsPerHost;	// 0: no limit
