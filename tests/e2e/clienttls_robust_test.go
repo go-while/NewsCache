@@ -337,7 +337,7 @@ func TestClientTLSForksUseDistinctServerRandoms(t *testing.T) {
 
 func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	f := newRobustTLSFixture(t)
-	f.e.ClientTimeout = 6
+	f.e.ClientTimeout = 3
 	const group = "alt.binaries.tls-stall"
 	f.e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
 	f.e.writeConf()
@@ -359,6 +359,29 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		// standalone()'s readiness check is a session of its own
 		// (greeting, QUIT); it may still be exiting, and the first
 		// client's session must be the daemon's only child below
+		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+	}
+
+	// Fill the cache first, so that the stalled XOVER below comes from
+	// the spool and the socket fills at once. Otherwise the measured time
+	// also counts how fast the fake upstream, which runs in this process,
+	// serves 40000 records: under -race that took the session's end from
+	// about 7.4 s to 9.6 s after the request (ClientTimeout 6), and the
+	// bounds were raised for "slow lanes" (#226, #363) instead.
+	warm, warmConn := robustTLSSession(t, f.addr, f.ca)
+	warm.Deadline = 60 * time.Second
+	if code, line := warm.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("warming GROUP: %q", line)
+	}
+	if code, line := warm.Cmd("XOVER 1-40000"); code != 224 {
+		t.Fatalf("warming XOVER: %q", line)
+	}
+	if n := len(warm.ReadDotLines()); n != 40000 {
+		t.Fatalf("warming XOVER returned %d records, want 40000", n)
+	}
+	warm.Cmd("QUIT")
+	warmConn.Close()
+	if haveProc {
 		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
 	}
 
@@ -385,6 +408,26 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		firstPid = kids[0]
 	}
 	stallStart := time.Now()
+	// When the session ends, seen from the start: the check further down
+	// comes after the second client, which a busy machine slows down.
+	sessionEnd := make(chan time.Duration, 1)
+	if haveProc {
+		go func() {
+			for {
+				gone := true
+				for _, k := range linuxProcChildren(t, p.Pid()) {
+					if k == firstPid {
+						gone = false
+					}
+				}
+				if gone {
+					sessionEnd <- time.Since(stallStart)
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}()
+	}
 	if code, line := first.Cmd("XOVER 1-40000"); code != 224 {
 		t.Fatalf("first XOVER: %q", line)
 	}
@@ -407,33 +450,24 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Errorf("second client waited %v for the group lock, want under %v (well before another ClientTimeout)", elapsed, secondBound)
 	}
 	// The session must end about one ClientTimeout after the stall began
-	// (the send timeout, then a second for the wait for the socket). A
-	// failed write used to leave its data in the buffer, and every later
-	// flush waited for the timeout again: about three ClientTimeouts.
-	// Needs no log file: the session process is gone from the daemon's
-	// children (the daemon reaps it).
-	// The bound also covers the upstream fetches before the reply fills
-	// the socket, which on a loaded one-core host with -race took up to
-	// 11.2 s in all (9 s when idle). Two ClientTimeouts plus 2 s (14 s)
-	// leave headroom for that and stay clear of the old behaviour, about
-	// three ClientTimeouts (18 s).
-	endBound := time.Duration(2*f.e.ClientTimeout+2) * time.Second
+	// (the send timeout, then a second for the wait for the socket): 4.0
+	// to 4.1 s with ClientTimeout 3, 4.3 s under -race. A failed write
+	// used to leave its data in the buffer, and every later flush waited
+	// for the timeout again: about three ClientTimeouts (13 s here). The
+	// bound, ClientTimeout+3, catches anything from about two
+	// ClientTimeouts on. Needs no log file: the
+	// session process is gone from the daemon's children (the daemon
+	// reaps it).
+	endBound := time.Duration(f.e.ClientTimeout+3) * time.Second
 	if haveProc {
-		for {
-			gone := true
-			for _, k := range linuxProcChildren(t, p.Pid()) {
-				if k == firstPid {
-					gone = false
-				}
+		select {
+		case d := <-sessionEnd:
+			t.Logf("the stalled session ended %v after the stall began", d.Round(time.Millisecond))
+			if d > endBound {
+				t.Errorf("stalled TLS writer's session %s ended %v after the stall began, want within %v", firstPid, d.Round(time.Millisecond), endBound)
 			}
-			if gone {
-				break
-			}
-			if time.Since(stallStart) > endBound {
-				t.Errorf("stalled TLS writer's session %s still running %v after the stall began, want it gone within %v", firstPid, time.Since(stallStart).Round(time.Millisecond), endBound)
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
+		case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
+			t.Errorf("stalled TLS writer's session %s still running %v after the stall began, want it gone within %v", firstPid, time.Since(stallStart).Round(time.Millisecond), endBound)
 		}
 	}
 	if !haveLog {
