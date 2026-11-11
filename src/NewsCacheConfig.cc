@@ -71,6 +71,7 @@ void Config::init(void)
 
 	ClientTimeout = 1200;
 	AuthFailureDelay = 1;
+	AuthMinLength = 10;
 	HistoryEnabled = 0;
 	MaxConnections = 32;
 	MaxConnectionsPerHost = 0;
@@ -223,10 +224,24 @@ void Config::read(const char *fn, bool lookupHostname)
 				throw SyntaxError(lex,
 						  "AuthFailureDelay expects seconds, 0 to 3600",
 						  ERROR_LOCATION);
-			// at most 1 s: a longer (and, before, growing) sleep
-			// only kept a process and its memory busy per guessing
-			// connection; values up to 3600 are still accepted
+			// 0 turns the wait after failed logins off, any other
+			// value on: 1, 2 and 4 s after the first, second and
+			// third failure in a session. Values up to 3600 (seconds
+			// times the failures in 1.3.22) are still accepted.
 			AuthFailureDelay = v > 1 ? 1 : (int) v;
+		} else if (tok == "AuthMinLength") {
+			char *e;
+			long v;
+
+			a1 = lex.getToken();
+			errno = 0;
+			v = strtol(a1.c_str(), &e, 10);
+			if (!isdigit((unsigned char) a1[0]) || *e || errno
+			    || v > 255)
+				throw SyntaxError(lex,
+						  "AuthMinLength expects bytes, 0 to 255",
+						  ERROR_LOCATION);
+			AuthMinLength = (int) v;
 		} else if (tok == "MaxArticleSize" || tok == "MaxPostSize") {
 			char *e;
 			long v;
@@ -346,6 +361,7 @@ void Config::printParameters (ostream *pOut)
 	}
 	*pOut << "ClientTimeout " << ClientTimeout << endl;
 	*pOut << "AuthFailureDelay " << AuthFailureDelay << endl;
+	*pOut << "AuthMinLength " << AuthMinLength << endl;
 	*pOut << "History " << (HistoryEnabled ? "on" : "off") << endl;
 	*pOut << "MaxConnections " << MaxConnections << endl;
 	*pOut << "MaxConnectionsPerHost " << MaxConnectionsPerHost << endl;

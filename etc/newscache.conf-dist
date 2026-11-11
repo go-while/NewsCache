@@ -146,7 +146,9 @@ Admin root@localhost
 #       with newscache -t the client is matched by its address.
 #       Login example: anyone may connect, but must log in first. The
 #       entry allows only the login itself; the rights come from the user
-#       file (user:hash:list:read:postto:allow, e.g. alice:$6$...:*:*:*:read,post).
+#       file (user:hash:list:read:postto:allow, e.g.
+#       alice-reader:$6$...:*:*:*:read,post; user names and passwords need
+#       at least 10 bytes, see AuthMinLength).
 #       With "allow read post" instead, the login would be optional and
 #       clients that don't log in could read and post too.
 #         Default {
@@ -366,9 +368,16 @@ NewsServerList {
 # stop reading their replies, or stop sending in the middle of a POST)
 ClientTimeout 600
 
-# After a failed login, wait this many seconds before answering 481
-# (0 or 1; default 1). The connection is closed after the third failure.
+# Wait 1, 2 and 4 s before answering the first, second and third failed
+# login in a connection with 481; then the connection is closed. A
+# successful login doesn't wait. 0 turns the wait off (default 1; values
+# up to 3600 from older configurations work like 1).
 # AuthFailureDelay 1
+
+# Refuse user names and passwords shorter than this many bytes (481, a
+# failed login, no password check). Use at least 10 bytes for both;
+# 0 turns the check off (default 10, range 0 to 255).
+# AuthMinLength 10
 
 # Serve ARTICLE <message-id> and the like from the spool when it has the
 # article, using a history in SpoolDirectory/.history (default off)

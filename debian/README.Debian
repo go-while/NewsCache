@@ -63,7 +63,8 @@ and put one line per user into /etc/newscache.users:
 
   user:password-hash:*:*:*:read,post
 
-The fields after the hash are the groups the user may list, read and post
+User names and passwords must have at least 10 bytes: shorter ones
+are refused (AuthMinLength, default 10). The fields after the hash are the groups the user may list, read and post
 to, and the extra permissions (see newscache.conf(5)); only user and hash
 are required, and fields missing at the end add nothing. Create the hash with "openssl passwd -6" (or -1), and make
 the file readable for the group news only:

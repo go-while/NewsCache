@@ -147,7 +147,10 @@ The default values are 3600 seconds for both parameter.
 Terminate the connection after t seconds inactivity. The default value is 1200 seconds. The same limit applies to each write to the client and, plus 10 seconds, to each read inside a command (the article of a POST). The whole article of a POST must arrive within t seconds after the 340 reply, however steadily it is sent: a client that stops reading its replies, or sends an article too slowly, is disconnected too, with 400 for the article.
 .TP
 .I "AuthFailureDelay seconds"
-After a failed login (AUTHINFO PASS), wait this many seconds before answering 481; after the third failure the connection is closed. The default is 1 second; 0 answers at once. Values up to 3600 are accepted for older configuration files, but the delay is at most 1 second: a longer one only keeps a process busy per connection. (Up to 1.3.22 the delay was multiplied by the number of failed logins: 15, 30 and 45 seconds by default.)
+With any value from 1 to 3600 (the default is 1), a failed login (AUTHINFO PASS) is answered with 481 after 1 second the first time in a connection, after 2 seconds the second time and after 4 seconds the third time; then the connection is closed. A successful login is answered at once. The count is per connection: a client that connects again starts at 1 second. 0 turns the wait off: every 481 comes at once, and the connection is still closed after the third failure. Values above 1 are accepted for older configuration files and work like 1. (Up to 1.3.22 the delay was the value times the number of failed logins: 15, 30 and 45 seconds by default.) NewsCache does no dummy password check for an unknown user or a locked password field, so the time of a 481 may tell whether a user name exists.
+.TP
+.I "AuthMinLength bytes"
+The shortest user name and password a login may have, counted in bytes. When AUTHINFO PASS arrives, a user name or password shorter than this is refused with 481 after the wait of AuthFailureDelay, without a password check, a lookup or a PAM call; it counts as a failed login. AUTHINFO USER is answered with 381 as before. The default is 10, the range 0 to 255; 0 turns the check off. Administrators must use user names and passwords of at least 10 bytes; set AuthMinLength 0 only to keep shorter ones that already exist.
 .TP
 .I "History on|off"
 With on (or yes), keep a history of the articles in the spool (the directory .history in SpoolDirectory) and serve ARTICLE, HEAD, BODY, STAT and the message-ID forms of XHDR, XPAT and HDR from the spool when it has the article; see the manual, "Articles by Message-ID". The history counts toward SpoolSize; newscacheclean removes it when it alone takes more than half of SpoolSize, and when History is off. The default is off: every message-ID request goes to the news server.
@@ -391,7 +394,7 @@ Only
 .B unix
 without fields makes the login required: until then every command but CAPABILITIES, MODE READER, AUTHINFO, HELP and QUIT gets 480, whatever the entry allows.
 With file:, pam (also without fields), pam+file and unix with fields the login is optional: the client has the rights of its entry from the start, and a login adds those of the user. An entry that allows only authentication still lets nobody in without a login, but for another reason: it gives no rights, so the commands that need one get 480 until the login (those that need none, such as DATE, work).
-A failed login (wrong password, unknown user, a stored hash that can't be checked) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
+A failed login (wrong password, unknown user, a stored hash that can't be checked, a user name or password shorter than AuthMinLength) is answered with 481, AUTHINFO PASS without AUTHINFO USER with 482, and AUTHINFO after a successful login, or where the entry has Authentication none, with 502 (RFC 4643). Possible values are:
 .IP none
 no further authentication necessary
 .IP file:/path/to/file
@@ -399,7 +402,7 @@ formatdescription:
 .nf
 		username:password:list:read:postto:allow
 .fi
-Only username and password are required. Fields missing at the end add nothing, like empty ones: a line \fBalice:hash\fR only checks the login, and the client keeps the rights of its Client entry. A password field that is empty or starts with * or ! locks the user: no password matches it.
+Only username and password are required. Fields missing at the end add nothing, like empty ones: a line \fBalice-reader:hash\fR only checks the login, and the client keeps the rights of its Client entry. A password field that is empty or starts with * or ! locks the user: no password matches it.
 The additional access specifications are added to the normal List, Read and PostTo parameters (see above and the examples).
 In the default build, NewsCache recognizes a raw-MD5 password value as base64-encoded MD5, 24 characters ending in \fB==\fR. This legacy format is unsalted and weak; do not use it for new passwords. Otherwise, NewsCache passes the stored value to the system's \fBcrypt(3)\fR; the supported algorithms vary by platform. Apache \fBhtpasswd\fR defaults to APR1 hashes (\fB$apr1$\fR), which are not supported by the system \fBcrypt(3)\fR implementations used with NewsCache. SHA-512 crypt hashes (\fB$6$\fR) work only where the system's \fBcrypt(3)\fR supports them; generate one with \fBopenssl passwd -6\fR or \fBmkpasswd -m sha-512\fR where available. With \fB--without-md5auto\fR, all stored values are checked as MD5, so \fBcrypt(3)\fR hashes cannot be used. Plaintext passwords are accepted only if NewsCache was built with \fB--enable-plainpass\fR. In the allow field, additional permissions can be specified (for example, allowing an authenticated user to post).
 .IP unix:list:read:postto:allow
