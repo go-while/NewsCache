@@ -6,12 +6,15 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -337,7 +340,7 @@ func TestClientTLSForksUseDistinctServerRandoms(t *testing.T) {
 
 func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	f := newRobustTLSFixture(t)
-	f.e.ClientTimeout = 6
+	f.e.ClientTimeout = 3
 	const group = "alt.binaries.tls-stall"
 	f.e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
 	f.e.writeConf()
@@ -346,19 +349,42 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	haveLog := mode != "syslog"
-	// /proc/<pid>/task/<pid>/children (Linux 3.5+); a restricted /proc
-	// in a container may lack it
-	self := strconv.Itoa(os.Getpid())
-	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
-	haveProc := runtime.GOOS == "linux" && procErr == nil
-	if !haveLog && !haveProc {
-		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
+	// The session's end is its process leaving the daemon's children:
+	// /proc/<pid>/task/<pid>/children (Linux 3.5+; a restricted /proc in
+	// a container may lack it), else pgrep -P. The log line doesn't tell:
+	// a session that waited again in a later flush logged it before that.
+	_, haveProc := daemonChildren(os.Getpid())
+	if !haveProc {
+		t.Skip("needs /proc or pgrep to see the session end")
 	}
 	p := f.e.standalone()
 	if haveProc {
 		// standalone()'s readiness check is a session of its own
 		// (greeting, QUIT); it may still be exiting, and the first
 		// client's session must be the daemon's only child below
+		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+	}
+
+	// Fill the cache first, so that the stalled XOVER below comes from
+	// the spool and the socket fills at once. Otherwise the measured time
+	// also counts how fast the fake upstream, which runs in this process,
+	// serves 40000 records: under -race that took the session's end from
+	// about 7.4 s to 9.6 s after the request (ClientTimeout 6), and the
+	// bounds were raised for "slow lanes" (#226, #363) instead.
+	warm, warmConn := robustTLSSession(t, f.addr, f.ca)
+	warm.Deadline = 60 * time.Second
+	if code, line := warm.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("warming GROUP: %q", line)
+	}
+	if code, line := warm.Cmd("XOVER 1-40000"); code != 224 {
+		t.Fatalf("warming XOVER: %q", line)
+	}
+	if n := len(warm.ReadDotLines()); n != 40000 {
+		t.Fatalf("warming XOVER returned %d records, want 40000", n)
+	}
+	warm.Cmd("QUIT")
+	warmConn.Close()
+	if haveProc {
 		waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
 	}
 
@@ -385,6 +411,29 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		firstPid = kids[0]
 	}
 	stallStart := time.Now()
+	// When the session ends, seen from the start: the check further down
+	// comes after the second client, which a busy machine slows down.
+	// (It reads the children itself: t.Fatal must not run outside the
+	// test's goroutine, and it stops when the test ends.)
+	sessionEnd := make(chan time.Duration, 1)
+	stop := make(chan struct{})
+	defer close(stop)
+	if haveProc {
+		go func() {
+			for {
+				kids, ok := daemonChildren(p.Pid())
+				if ok && !slices.Contains(kids, firstPid) {
+					sessionEnd <- time.Since(stallStart)
+					return
+				}
+				select {
+				case <-stop:
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+		}()
+	}
 	if code, line := first.Cmd("XOVER 1-40000"); code != 224 {
 		t.Fatalf("first XOVER: %q", line)
 	}
@@ -407,33 +456,24 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Errorf("second client waited %v for the group lock, want under %v (well before another ClientTimeout)", elapsed, secondBound)
 	}
 	// The session must end about one ClientTimeout after the stall began
-	// (the send timeout, then a second for the wait for the socket). A
-	// failed write used to leave its data in the buffer, and every later
-	// flush waited for the timeout again: about three ClientTimeouts.
-	// Needs no log file: the session process is gone from the daemon's
-	// children (the daemon reaps it).
-	// The bound also covers the upstream fetches before the reply fills
-	// the socket, which on a loaded one-core host with -race took up to
-	// 11.2 s in all (9 s when idle). Two ClientTimeouts plus 2 s (14 s)
-	// leave headroom for that and stay clear of the old behaviour, about
-	// three ClientTimeouts (18 s).
-	endBound := time.Duration(2*f.e.ClientTimeout+2) * time.Second
+	// (the send timeout, then a second for the wait for the socket): 4.0
+	// to 4.1 s with ClientTimeout 3, 4.3 s under -race. A failed write
+	// used to leave its data in the buffer, and every later flush waited
+	// for the timeout again: about three ClientTimeouts (13 s here). The
+	// bound, ClientTimeout+3, catches anything from about two
+	// ClientTimeouts on. Needs no log file: the
+	// session process is gone from the daemon's children (the daemon
+	// reaps it).
+	endBound := time.Duration(f.e.ClientTimeout+3) * time.Second
 	if haveProc {
-		for {
-			gone := true
-			for _, k := range linuxProcChildren(t, p.Pid()) {
-				if k == firstPid {
-					gone = false
-				}
+		select {
+		case d := <-sessionEnd:
+			t.Logf("the stalled session ended %v after the stall began", d.Round(time.Millisecond))
+			if d > endBound {
+				t.Errorf("stalled TLS writer's session %s ended %v after the stall began, want within %v", firstPid, d.Round(time.Millisecond), endBound)
 			}
-			if gone {
-				break
-			}
-			if time.Since(stallStart) > endBound {
-				t.Errorf("stalled TLS writer's session %s still running %v after the stall began, want it gone within %v", firstPid, time.Since(stallStart).Round(time.Millisecond), endBound)
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
+		case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
+			t.Errorf("stalled TLS writer's session %s still running %v after the stall began, want it gone within %v", firstPid, time.Since(stallStart).Round(time.Millisecond), endBound)
 		}
 	}
 	if !haveLog {
@@ -784,14 +824,32 @@ func linuxProcFDCount(t *testing.T, pid int) int {
 	return len(entries)
 }
 
+// daemonChildren lists pid's child processes: from /proc on Linux, else
+// with pgrep -P (FreeBSD, macOS). ok is false when neither works. It
+// doesn't use t, so a goroutine can call it.
+func daemonChildren(pid int) (kids []string, ok bool) {
+	p := strconv.Itoa(pid)
+	if b, err := os.ReadFile(filepath.Join("/proc", p, "task", p, "children")); err == nil {
+		return strings.Fields(string(b)), true
+	}
+	out, err := exec.Command("pgrep", "-P", p).Output()
+	if err == nil {
+		return strings.Fields(string(out)), true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return nil, true // no children
+	}
+	return nil, false
+}
+
 func linuxProcChildren(t *testing.T, pid int) []string {
 	t.Helper()
-	path := filepath.Join("/proc", strconv.Itoa(pid), "task", strconv.Itoa(pid), "children")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	kids, ok := daemonChildren(pid)
+	if !ok {
+		t.Fatalf("can't list the children of %d (no /proc, no pgrep)", pid)
 	}
-	return strings.Fields(string(b))
+	return kids
 }
 
 func waitForNoLinuxChildren(t *testing.T, pid int, timeout time.Duration) {
