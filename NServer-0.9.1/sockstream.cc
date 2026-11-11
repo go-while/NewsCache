@@ -568,22 +568,37 @@ int sockstream::sockstreambuf::overflow(int c)
   return c;
 }
 
-// Whether a send that began at t0 has waited for the socket's whole send
-// timeout (SO_SNDTIMEO: ClientTimeout for a client, set on its socket, or
-// the I/O timeout). 90 %: the kernel counts the timeout in clock ticks.
-bool sockstream::sockstreambuf::send_timed_out(const struct timespec &t0) const
+// After a send that began at t0 returned short: waits until the socket
+// can take more, for what is left of its send timeout (SO_SNDTIMEO:
+// ClientTimeout for a client, set on its socket, or the I/O timeout).
+// False when nothing is left or the socket stays full: the client isn't
+// reading. Without a send timeout, true (the next send waits as before).
+bool sockstream::sockstreambuf::wait_rest_of_send_timeout(const struct timespec &t0)
 {
   struct timeval tv;
   socklen_t len = sizeof(tv);
-  struct timespec t1;
   if (getsockopt(_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, &len) != 0 ||
-      (tv.tv_sec == 0 && tv.tv_usec == 0) ||
-      clock_gettime(CLOCK_MONOTONIC, &t1) != 0)
-    return false;
-  const long long waited = ((long long) t1.tv_sec - t0.tv_sec) * 1000 +
-    ((long long) t1.tv_nsec - t0.tv_nsec) / 1000000;
+      (tv.tv_sec == 0 && tv.tv_usec == 0))
+    return true;
   const long long limit = (long long) tv.tv_sec * 1000 + tv.tv_usec / 1000;
-  return waited * 10 >= limit * 9;
+  int rc;
+  do
+  {
+    struct timespec t1;
+    if (interrupted() || clock_gettime(CLOCK_MONOTONIC, &t1) != 0)
+      return false;
+    const long long left = limit -
+      (((long long) t1.tv_sec - t0.tv_sec) * 1000 +
+       ((long long) t1.tv_nsec - t0.tv_nsec) / 1000000);
+    if (left <= 0)
+      return false;
+    struct pollfd p;
+    p.fd = _fd;
+    p.events = POLLOUT;
+    p.revents = 0;
+    rc = poll(&p, 1, left > INT_MAX ? INT_MAX : (int) left);
+  } while (rc < 0 && errno == EINTR);
+  return rc > 0;
 }
 
 int sockstream::sockstreambuf::sync()
@@ -602,9 +617,10 @@ int sockstream::sockstreambuf::sync()
     }
     const size_t want = pptr() - pbase() - off;
     struct timespec t0;
-    const bool timed = clock_gettime(CLOCK_MONOTONIC, &t0) == 0;
+    bool timed;
     do
     {
+      timed = clock_gettime(CLOCK_MONOTONIC, &t0) == 0;
       rc_send = ::send(_fd, pbase() + off, want, 0);
     } while ((rc_send < 0) && (errno == EINTR) &&
 	     !interrupted());
@@ -623,10 +639,14 @@ int sockstream::sockstreambuf::sync()
     // A blocking send returns less than asked only when it was cut
     // short: by a signal, or by the send timeout (SO_SNDTIMEO) after it
     // had taken part of the data, which FreeBSD returns as a short count
-    // instead of EAGAIN. After a whole timeout the client isn't reading:
-    // that is final too. Sending the rest waited for a second timeout,
-    // and a session stalled for two ClientTimeouts instead of one.
-    if ((size_t) rc_send < want && timed && send_timed_out(t0))
+    // instead of EAGAIN. The rest is sent only if the socket can take
+    // more within what is left of the timeout; after the whole timeout
+    // the client isn't reading, and that is final too. Sending the rest
+    // at once waited for a second timeout: a session stalled for two
+    // ClientTimeouts instead of one. (Not during a reply deadline: the
+    // socket is non-blocking then, and a short count comes at once.)
+    if ((size_t) rc_send < want && timed && !_reply_deadline_active &&
+	!wait_rest_of_send_timeout(t0))
     {
       setp(_pbuf, _pbuf + sizeof(_pbuf));
       return -1;
