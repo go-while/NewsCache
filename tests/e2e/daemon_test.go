@@ -1557,9 +1557,10 @@ func TestInetdSharedSocket(t *testing.T) {
 // fails (SpoolDirectory is a file) while SIGHUP makes the daemon log a
 // reload line every 200 microseconds; afterwards the daemon must still
 // answer, and the "returned 1" lines must still be logged (from the main
-// loop now). The window is small: the old code hung after 30-60 seconds of
-// this, so the default run (5 s) mainly checks the logging;
-// NEWSCACHE_STRESS=120s runs longer.
+// loop now), and one SIGHUP after the burst must reread the good config
+// at once. The window is small: the old code hung after 30-60 seconds of
+// this, so the default run (5 s) mainly checks the logging and the
+// reread; NEWSCACHE_STRESS=120s runs longer.
 func TestSigchldStress(t *testing.T) {
 	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
 		t.Skip("repeated signal stress coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
@@ -1609,12 +1610,50 @@ func TestSigchldStress(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// The good config again: a session must get its greeting. Written to
-	// a new file and renamed, so that a reread can't see it half written,
-	// and with SIGHUP again until a session gets it: a SIGHUP of the
-	// burst may still be pending, and the reread it causes can come just
-	// before the rename, while the next SIGHUP merges with it (one flag).
-	// That made the test fail now and then on slow CI runners.
+	// Let the burst settle before the one SIGHUP that counts: no session
+	// left (Linux) and the log unchanged for a while, so that no reread
+	// of the burst is still pending or running.
+	mode, err := logMode(e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	haveLog := mode != "syslog"
+	logPath := filepath.Join(e.LogDir, "newscache.log")
+	logSize := func() int64 {
+		fi, err := os.Stat(logPath)
+		if err != nil {
+			return -1
+		}
+		return fi.Size()
+	}
+	self := strconv.Itoa(os.Getpid())
+	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
+	haveProc := runtime.GOOS == "linux" && procErr == nil
+	settle := time.Now().Add(20 * time.Second)
+	for last, stable := logSize(), time.Now(); ; {
+		time.Sleep(50 * time.Millisecond)
+		if haveProc && len(linuxProcChildren(t, p.Pid())) > 0 {
+			stable = time.Now()
+		}
+		if n := logSize(); n != last {
+			last, stable = n, time.Now()
+		}
+		if time.Since(stable) >= 500*time.Millisecond {
+			break
+		}
+		if time.Now().After(settle) {
+			wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+			t.Fatalf("the burst did not settle within 20 s (hung? wchan %q)", wchan)
+		}
+	}
+
+	// The good config again, written to a new file and renamed so that a
+	// reread can't see it half written, then one SIGHUP. The daemon must
+	// reread at once (the handler wakes its poll()); a lost or late
+	// SIGHUP is the defect to catch, so it is not sent again. With a log
+	// file the test waits for the "reread" line and then dials once: the
+	// first session must get the new configuration. Without one it can
+	// only poll for the greeting.
 	tmp := e.Conf + ".new"
 	if err := os.WriteFile(tmp, good, 0o644); err != nil {
 		t.Fatal(err)
@@ -1622,28 +1661,57 @@ func TestSigchldStress(t *testing.T) {
 	if err := os.Rename(tmp, e.Conf); err != nil {
 		t.Fatal(err)
 	}
+	const rereadBound = time.Second
+	off := logSize()
+	hup := time.Now()
+	p.Signal(syscall.SIGHUP)
+	if haveLog {
+		marker := "reread " + e.Conf + "\n"
+		for {
+			b, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if off >= 0 && int64(len(b)) >= off && strings.Contains(string(b[off:]), marker) {
+				t.Logf("reread logged %v after the SIGHUP", time.Since(hup).Round(time.Millisecond))
+				break
+			}
+			if time.Since(hup) > rereadBound {
+				wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+				t.Fatalf("no %q in the log %v after the one SIGHUP, want within %v (lost or late reread? hung? wchan %q)",
+					strings.TrimSpace(marker), time.Since(hup).Round(time.Millisecond), rereadBound, wchan)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	var greeting string
 	var gerr error
-	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); {
-		p.Signal(syscall.SIGHUP)
-		time.Sleep(200 * time.Millisecond)
+	for {
 		c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
-		if err != nil {
-			gerr = err
-			continue
+		if err == nil {
+			// After the logged reread the daemon must just answer; in
+			// a syslog build every read ends with the bound itself, so
+			// a 200 that comes later fails instead of passing.
+			deadline := time.Now().Add(10 * time.Second)
+			if !haveLog {
+				deadline = hup.Add(rereadBound)
+			}
+			c.SetDeadline(deadline)
+			greeting, gerr = bufio.NewReader(c).ReadString('\n')
+			c.Close()
+		} else {
+			greeting, gerr = "", err
 		}
-		c.SetDeadline(time.Now().Add(10 * time.Second))
-		greeting, gerr = bufio.NewReader(c).ReadString('\n')
-		c.Close()
-		if strings.HasPrefix(greeting, "200") {
+		if strings.HasPrefix(greeting, "200") || haveLog || time.Since(hup) > rereadBound {
 			break
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !strings.HasPrefix(greeting, "200") {
 		wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
-		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", greeting, gerr, wchan)
+		t.Fatalf("daemon after the stress and one SIGHUP: greeting %q, %v (hung? wchan %q)", greeting, gerr, wchan)
 	}
-	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+	if b, err := os.ReadFile(logPath); err == nil &&
 		!strings.Contains(string(b), " returned 1") {
 		t.Errorf("no \"<pid> returned 1\" line in the log for the failed sessions")
 	}
