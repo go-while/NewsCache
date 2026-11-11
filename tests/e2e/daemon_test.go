@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2056,13 +2057,17 @@ func TestSIGTERMUpdatenewsPosting(t *testing.T) {
 // XOVER and then stops reading used to hold the group's shared lock until its
 // send timed out (ClientTimeout), and every session that needed the exclusive
 // lock - storing an article or an overview record - waited that long. The
-// records are now formatted in chunks under a shortened lock. B starts only
-// once A's session is seen blocked in send() (Linux /proc): before, a fixed
-// 700 ms let B run before A's session was stalled on a slow machine, and B
-// then passed without testing anything.
+// records are now formatted in chunks under a shortened lock.
+//
+// B stores one article after the other, from A's 224 until A's session has
+// ended. A reads nothing, so its session ends only when a send times out,
+// ClientTimeout after it blocked: B's stores cover that whole time, with the
+// old code one of them waits for the lock until A's session ends. Before, B
+// stored one article after a fixed 700 ms, and on a slow machine that could
+// be before A's session had blocked: B then passed without testing anything.
 func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("needs /proc to see that the first session is blocked writing")
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep)")
 	}
 	const group = "alt.binaries.lockhold"
 	e := newEnv(t)
@@ -2105,68 +2110,53 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
 		t.Fatalf("XOVER: %q %v", l, err)
 	}
-	// A reads nothing more. Wait until its session is blocked in send()
-	// with the reply's rest not sent: then, with the old code, it held the
-	// group's lock until the send timed out (ClientTimeout).
 	kids := linuxProcChildren(t, daemon)
 	if len(kids) != 1 {
 		t.Fatalf("daemon children %v, want only A's session", kids)
 	}
-	waitBlockedInSend(t, kids[0], 20*time.Second)
+	sessionA := kids[0]
+	aRunning := func() bool {
+		return slices.Contains(linuxProcChildren(t, daemon), sessionA)
+	}
 
+	// A reads nothing more. The articles aren't cached yet: each one is
+	// fetched and then stored, which needs the group's exclusive lock.
 	b := e.dial()
 	b.Deadline = 30 * time.Second
 	if code, line := b.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("B GROUP: %q", line)
 	}
-	// ARTICLE 1 is not cached yet: it is fetched and then stored, which
-	// needs the group's exclusive lock.
 	start := time.Now()
-	code, line := b.Cmd("ARTICLE 1")
-	elapsed := time.Since(start)
-	if code != 220 {
-		t.Fatalf("B ARTICLE 1: %q, want 220", line)
-	}
-	b.ReadDotLines()
-	t.Logf("second session waited %v (ClientTimeout %d s)", elapsed.Round(10*time.Millisecond), e.ClientTimeout)
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", elapsed)
-	}
-}
-
-// waitBlockedInSend waits until process pid sleeps in a send syscall
-// (/proc/<pid>/syscall: the syscall number first; "running" while it
-// runs). It skips when that file can't be read (another user, or a
-// restricted /proc).
-func waitBlockedInSend(t *testing.T, pid string, timeout time.Duration) {
-	t.Helper()
-	send := map[string]bool{
-		strconv.Itoa(syscall.SYS_SENDTO):  true,
-		strconv.Itoa(syscall.SYS_SENDMSG): true,
-		strconv.Itoa(syscall.SYS_WRITE):   true,
-	}
-	start := time.Now()
-	for {
-		b, err := os.ReadFile("/proc/" + pid + "/syscall")
-		if err != nil {
-			t.Skipf("cannot see what the session does: %v", err)
+	var worst time.Duration
+	stores := 0
+	for n := 1; aRunning(); n++ {
+		// a hang guard: A's session ends ClientTimeout after it blocked
+		if time.Since(start) > 60*time.Second {
+			t.Fatalf("A's session %s still runs after %v", sessionA, time.Since(start).Round(time.Second))
 		}
-		f := strings.Fields(string(b))
-		if len(f) > 0 && send[f[0]] {
-			st, err := os.ReadFile("/proc/" + pid + "/stat")
-			if err != nil {
-				t.Fatal(err)
-			}
-			s := string(st)
-			if fs := strings.Fields(s[strings.LastIndex(s, ")")+1:]); len(fs) > 0 && fs[0] == "S" {
-				t.Logf("session %s blocked in send() %v after the request", pid, time.Since(start).Round(time.Millisecond))
-				return
-			}
+		if n > 40000 {
+			t.Fatalf("no uncached article left after %d stores", n-1)
 		}
-		if time.Since(start) > timeout {
-			t.Fatalf("session %s not blocked in send() within %v (syscall %q)", pid, timeout, b)
+		// pacing only (at most about 1500 stores in A's 3 s): a store that
+		// starts while A holds the lock waits until A's session ends
+		time.Sleep(2 * time.Millisecond)
+		s := time.Now()
+		code, line := b.Cmd("ARTICLE %d", n)
+		took := time.Since(s)
+		if code != 220 {
+			t.Fatalf("B ARTICLE %d: %q, want 220", n, line)
 		}
-		time.Sleep(5 * time.Millisecond)
+		b.ReadDotLines()
+		stores++
+		worst = max(worst, took)
+	}
+	if stores == 0 {
+		t.Fatalf("A's session %s ended before B stored an article", sessionA)
+	}
+	t.Logf("A's session ended %v after its XOVER; B stored %d articles meanwhile, the longest wait %v (ClientTimeout %d s)",
+		time.Since(start).Round(10*time.Millisecond), stores, worst.Round(10*time.Millisecond), e.ClientTimeout)
+	if worst > 1500*time.Millisecond {
+		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", worst)
 	}
 }
 
