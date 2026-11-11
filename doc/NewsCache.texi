@@ -428,7 +428,7 @@ or password shorter than this is refused with 481 after the wait of
 call; it counts as a failed login. @code{AUTHINFO USER} is answered with
 381 as before. The default is 10, the range 0 to 255; 0 turns the check
 off. Administrators must use user names and passwords of at least 10
-characters; set @code{AuthMinLength 0} only to keep shorter ones that
+bytes; set @code{AuthMinLength 0} only to keep shorter ones that
 already exist.
 
 @example

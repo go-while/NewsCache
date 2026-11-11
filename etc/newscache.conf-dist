@@ -148,7 +148,7 @@ Admin root@localhost
 #       entry allows only the login itself; the rights come from the user
 #       file (user:hash:list:read:postto:allow, e.g.
 #       alice-reader:$6$...:*:*:*:read,post; user names and passwords need
-#       at least 10 characters, see AuthMinLength).
+#       at least 10 bytes, see AuthMinLength).
 #       With "allow read post" instead, the login would be optional and
 #       clients that don't log in could read and post too.
 #         Default {
@@ -375,7 +375,7 @@ ClientTimeout 600
 # AuthFailureDelay 1
 
 # Refuse user names and passwords shorter than this many bytes (481, a
-# failed login, no password check). Use at least 10 characters for both;
+# failed login, no password check). Use at least 10 bytes for both;
 # 0 turns the check off (default 10, range 0 to 255).
 # AuthMinLength 10
 

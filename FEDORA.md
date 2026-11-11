@@ -193,7 +193,7 @@ Each line of `/etc/newscache.users` is `user:hash:list:read:postto:allow`,
 for example `alice-reader:$6$...:*:*:*:read,post`; `openssl passwd -6`
 makes the hash. Only `user:hash` is required: fields missing at the end add
 nothing, like empty ones. User names and passwords must have at least 10
-characters: shorter ones are refused (`AuthMinLength`, default 10). The file is read at login, after NewsCache has switched to its
+bytes: shorter ones are refused (`AuthMinLength`, default 10). The file is read at login, after NewsCache has switched to its
 `Username` (news), so that user must be able to read it. Until a client has
 logged in, it can only use `AUTHINFO`, `CAPABILITIES`, `MODE READER`, `HELP`
 and `QUIT`.

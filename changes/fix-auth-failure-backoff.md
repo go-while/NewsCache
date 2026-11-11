@@ -3,7 +3,7 @@ Upgrading:
   (481) after the upgrade: the new option AuthMinLength defaults to 10.
   Give such users longer names and passwords, or set "AuthMinLength 0"
   to keep them. The sample auth file and the examples in the
-  documentation now use names and passwords of at least 10 characters.
+  documentation now use names and passwords of at least 10 bytes.
 
 Behaviour changes:
 * A failed login (AUTHINFO PASS) is answered with 481 after 1 second the

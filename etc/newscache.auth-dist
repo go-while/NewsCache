@@ -1,7 +1,7 @@
 # This are commentar lines
 # You can use plaintext passwords, if the newscache is configured with
 # the option --enable-plainpass
-# User names and passwords need at least 10 characters (AuthMinLength
+# User names and passwords need at least 10 bytes (AuthMinLength
 # in newscache.conf); shorter ones are refused.
 reader-one:password-one:at.linux:at.linux:at.linux:post
 reader-two:password-two:de.linux:de.linux:de.linux:post
