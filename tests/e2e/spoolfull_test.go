@@ -343,6 +343,10 @@ wait $pid`, kb)
 	// stall of nearly three minutes pass).
 	const setupDeadline = 180 * time.Second
 	const bound = 5 * time.Second
+	// Every command must succeed, also on the full disk (what can't be
+	// kept is passed on from the upstream): an error reply comes at once
+	// and would pass the time bound without sending the data.
+	want := map[string]int{"LIST": 215, "GROUP": 211, "XOVER": 224, "ARTICLE": 220}
 	run := func(name string, c *client.Conn, cmds ...string) {
 		for _, cmd := range cmds {
 			start := time.Now()
@@ -350,10 +354,13 @@ wait $pid`, kb)
 			if err != nil {
 				t.Fatalf("%s: %s: no reply within %v (%v)", name, cmd, c.Deadline, err)
 			}
-			if strings.HasPrefix(cmd, "ARTICLE") && code != 220 {
-				t.Errorf("%s: %s: %q, want the article (passed on when it can't be kept)", name, cmd, line)
+			verb, _, _ := strings.Cut(cmd, " ")
+			if w, ok := want[verb]; !ok {
+				t.Fatalf("%s: %s: no expected reply code for %s", name, cmd, verb)
+			} else if code != w {
+				t.Errorf("%s: %s: %q, want %d (passed on when it can't be kept)", name, cmd, line, w)
 			}
-			if code == 215 || code == 224 || code == 220 || code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+			if code == 215 || code == 224 || code == 220 {
 				lines, err := c.TryReadDotLines()
 				if err != nil {
 					t.Fatalf("%s: %s: %v", name, cmd, err)
