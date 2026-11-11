@@ -1,3 +1,11 @@
+Bug fixes:
+* On FreeBSD the session of a client that stopped reading in the middle
+  of a reply ended after two ClientTimeouts instead of one: when the send
+  timeout runs out after send() has taken part of the data, FreeBSD
+  returns that part instead of an error, and the rest was sent with a
+  second wait. A send that returns short after waiting for the whole
+  send timeout now ends the write, like a failed one.
+
 Other changes:
 * TestClientStalledReader checks again that the session of a client
   that stops reading in the middle of OVER or XOVER ends after one
