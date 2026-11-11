@@ -6,10 +6,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -347,13 +349,13 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	haveLog := mode != "syslog"
-	// /proc/<pid>/task/<pid>/children (Linux 3.5+); a restricted /proc
-	// in a container may lack it
-	self := strconv.Itoa(os.Getpid())
-	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
-	haveProc := runtime.GOOS == "linux" && procErr == nil
-	if !haveLog && !haveProc {
-		t.Skip("needs the log file (configure --without-syslog) or /proc (Linux) to see the session end")
+	// The session's end is its process leaving the daemon's children:
+	// /proc/<pid>/task/<pid>/children (Linux 3.5+; a restricted /proc in
+	// a container may lack it), else pgrep -P. The log line doesn't tell:
+	// a session that waited again in a later flush logged it before that.
+	_, haveProc := daemonChildren(os.Getpid())
+	if !haveProc {
+		t.Skip("needs /proc or pgrep to see the session end")
 	}
 	p := f.e.standalone()
 	if haveProc {
@@ -417,11 +419,10 @@ func TestClientTLSStalledReaderTimesOutAndReleasesGroup(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
 	if haveProc {
-		children := filepath.Join("/proc", strconv.Itoa(p.Pid()), "task", strconv.Itoa(p.Pid()), "children")
 		go func() {
 			for {
-				b, err := os.ReadFile(children)
-				if err == nil && !slices.Contains(strings.Fields(string(b)), firstPid) {
+				kids, ok := daemonChildren(p.Pid())
+				if ok && !slices.Contains(kids, firstPid) {
 					sessionEnd <- time.Since(stallStart)
 					return
 				}
@@ -823,14 +824,32 @@ func linuxProcFDCount(t *testing.T, pid int) int {
 	return len(entries)
 }
 
+// daemonChildren lists pid's child processes: from /proc on Linux, else
+// with pgrep -P (FreeBSD, macOS). ok is false when neither works. It
+// doesn't use t, so a goroutine can call it.
+func daemonChildren(pid int) (kids []string, ok bool) {
+	p := strconv.Itoa(pid)
+	if b, err := os.ReadFile(filepath.Join("/proc", p, "task", p, "children")); err == nil {
+		return strings.Fields(string(b)), true
+	}
+	out, err := exec.Command("pgrep", "-P", p).Output()
+	if err == nil {
+		return strings.Fields(string(out)), true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return nil, true // no children
+	}
+	return nil, false
+}
+
 func linuxProcChildren(t *testing.T, pid int) []string {
 	t.Helper()
-	path := filepath.Join("/proc", strconv.Itoa(pid), "task", strconv.Itoa(pid), "children")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	kids, ok := daemonChildren(pid)
+	if !ok {
+		t.Fatalf("can't list the children of %d (no /proc, no pgrep)", pid)
 	}
-	return strings.Fields(string(b))
+	return kids
 }
 
 func waitForNoLinuxChildren(t *testing.T, pid int, timeout time.Duration) {
