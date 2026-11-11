@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2125,12 +2126,22 @@ func TestSIGTERMUpdatenewsPosting(t *testing.T) {
 // send timed out (ClientTimeout), and every session that needed the exclusive
 // lock - storing an article or an overview record - waited that long. The
 // records are now formatted in chunks under a shortened lock.
+//
+// B stores one article after the other, from A's 224 until A's session has
+// ended. A reads nothing, so its session ends only when a send times out,
+// ClientTimeout after it blocked: B's stores cover that whole time, with the
+// old code one of them waits for the lock until A's session ends. Before, B
+// stored one article after a fixed 700 ms, and on a slow machine that could
+// be before A's session had blocked: B then passed without testing anything.
 func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep)")
+	}
 	const group = "alt.binaries.lockhold"
 	e := newEnv(t)
 	e.ClientTimeout = 3
 	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
-	e.standalone()
+	daemon := e.standalone().Pid()
 
 	// Fill the group's overview first, with a client that reads it all:
 	// fetching it holds the group's exclusive lock (freshen), and on a
@@ -2147,6 +2158,8 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 		t.Fatalf("XOVER (warm-up): %d records, want 40000", n)
 	}
 	w.Cmd("QUIT")
+	// A's session is then the daemon's only child
+	waitForNoLinuxChildren(t, daemon, 10*time.Second)
 
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {
@@ -2165,26 +2178,53 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
 		t.Fatalf("XOVER: %q %v", l, err)
 	}
-	// A reads nothing more; give its reply time to fill the socket.
-	time.Sleep(700 * time.Millisecond)
+	kids := linuxProcChildren(t, daemon)
+	if len(kids) != 1 {
+		t.Fatalf("daemon children %v, want only A's session", kids)
+	}
+	sessionA := kids[0]
+	aRunning := func() bool {
+		return slices.Contains(linuxProcChildren(t, daemon), sessionA)
+	}
 
+	// A reads nothing more. The articles aren't cached yet: each one is
+	// fetched and then stored, which needs the group's exclusive lock.
 	b := e.dial()
 	b.Deadline = 30 * time.Second
 	if code, line := b.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("B GROUP: %q", line)
 	}
-	// ARTICLE 1 is not cached yet: it is fetched and then stored, which
-	// needs the group's exclusive lock.
 	start := time.Now()
-	code, line := b.Cmd("ARTICLE 1")
-	elapsed := time.Since(start)
-	if code != 220 {
-		t.Fatalf("B ARTICLE 1: %q, want 220", line)
+	var worst time.Duration
+	stores := 0
+	for n := 1; aRunning(); n++ {
+		// a hang guard: A's session ends ClientTimeout after it blocked
+		if time.Since(start) > 60*time.Second {
+			t.Fatalf("A's session %s still runs after %v", sessionA, time.Since(start).Round(time.Second))
+		}
+		if n > 40000 {
+			t.Fatalf("no uncached article left after %d stores", n-1)
+		}
+		// pacing only (at most about 1500 stores in A's 3 s): a store that
+		// starts while A holds the lock waits until A's session ends
+		time.Sleep(2 * time.Millisecond)
+		s := time.Now()
+		code, line := b.Cmd("ARTICLE %d", n)
+		took := time.Since(s)
+		if code != 220 {
+			t.Fatalf("B ARTICLE %d: %q, want 220", n, line)
+		}
+		b.ReadDotLines()
+		stores++
+		worst = max(worst, took)
 	}
-	b.ReadDotLines()
-	t.Logf("second session waited %v (ClientTimeout %d s)", elapsed.Round(10*time.Millisecond), e.ClientTimeout)
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", elapsed)
+	if stores == 0 {
+		t.Fatalf("A's session %s ended before B stored an article", sessionA)
+	}
+	t.Logf("A's session ended %v after its XOVER; B stored %d articles meanwhile, the longest wait %v (ClientTimeout %d s)",
+		time.Since(start).Round(10*time.Millisecond), stores, worst.Round(10*time.Millisecond), e.ClientTimeout)
+	if worst > 1500*time.Millisecond {
+		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", worst)
 	}
 }
 
