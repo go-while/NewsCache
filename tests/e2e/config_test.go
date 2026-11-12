@@ -658,7 +658,8 @@ func TestAccessPrefixInvalid(t *testing.T) {
 }
 
 // TestAuthFailureDelayConfig: AuthFailureDelay accepts 0 to 3600 seconds;
-// values above 1 are capped at 1, the default printed by newscache -p.
+// 0 turns the wait after failed logins off, any other value on (1, 2, 4 s),
+// printed as 1 by newscache -p, the default.
 func TestAuthFailureDelayConfig(t *testing.T) {
 	for _, c := range []struct {
 		extra, want string
@@ -692,6 +693,48 @@ func TestAuthFailureDelayConfig(t *testing.T) {
 			}
 			if !strings.Contains("\n"+string(out), "\n"+c.want+"\n") {
 				t.Errorf("newscache -p output lacks %q:\n%s", c.want, out)
+			}
+		})
+	}
+}
+
+// TestAuthMinLengthConfig: AuthMinLength accepts 0 to 255 bytes, default
+// 10, and newscache -p prints it (next to AuthFailureDelay).
+func TestAuthMinLengthConfig(t *testing.T) {
+	for _, c := range []struct {
+		value string // "" = no AuthMinLength line
+		want  string // "" = a config error
+	}{
+		{"", "AuthMinLength 10"},
+		{"0", "AuthMinLength 0"},
+		{"10", "AuthMinLength 10"},
+		{"255", "AuthMinLength 255"},
+		{"256", ""},
+		{"-1", ""},
+		{"ten", ""},
+		{"10b", ""},
+	} {
+		t.Run(c.value, func(t *testing.T) {
+			e := newEnv(t)
+			e.AuthMinLength = c.value
+			e.writeConf()
+			out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("newscache -p accepted AuthMinLength %s:\n%s", c.value, out)
+				}
+				if !strings.Contains(string(out), "AuthMinLength expects bytes, 0 to 255") {
+					t.Errorf("AuthMinLength %s: error %q", c.value, strings.TrimSpace(string(out)))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newscache -p: %v\n%s", err, out)
+			}
+			for _, want := range []string{c.want, "AuthFailureDelay 1"} {
+				if !strings.Contains("\n"+string(out), "\n"+want+"\n") {
+					t.Errorf("newscache -p output lacks %q:\n%s", want, out)
+				}
 			}
 		})
 	}

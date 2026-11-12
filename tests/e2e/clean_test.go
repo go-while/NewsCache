@@ -82,6 +82,25 @@ func newscachecleanEvictionOrder(t *testing.T, newerAtime bool) {
 	var keptBlocks int64
 	newest := time.Unix(1700000000, 0)
 	cold := newest.Add(-24 * time.Hour)
+	// measure returns the blocks each group's files take now.
+	measure := func() map[string]int64 {
+		m := make(map[string]int64)
+		for _, group := range groups {
+			for _, name := range []string{".db", ".art1"} {
+				path := filepath.Join(e.Spool, strings.ReplaceAll(group, ".", "/"), name)
+				st, err := os.Lstat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				stat, ok := st.Sys().(*syscall.Stat_t)
+				if !ok || stat.Blocks <= 0 {
+					t.Fatalf("%s has no allocated blocks: %+v", path, st.Sys())
+				}
+				m[group] += stat.Blocks
+			}
+		}
+		return m
+	}
 	for attempt := 0; ; attempt++ {
 		blocks = make(map[string]int64)
 		for i, group := range groups {
@@ -115,6 +134,23 @@ func newscachecleanEvictionOrder(t *testing.T, newerAtime bool) {
 				}
 				blocks[group] += stat.Blocks
 			}
+		}
+		// ZFS (FreeBSD CI) reports the final st_blocks only after its
+		// transaction group is written, and fsync doesn't wait for that:
+		// the files showed 1 block each here and 49 and 129 blocks to
+		// newscacheclean a moment later, which then removed all three
+		// groups. sync() and measure until two measurements agree.
+		for i := 0; ; i++ {
+			syscall.Sync()
+			again := measure()
+			if fmt.Sprint(again) == fmt.Sprint(blocks) {
+				break
+			}
+			if i == 20 {
+				t.Fatalf("allocated blocks keep changing: %v, then %v", blocks, again)
+			}
+			blocks = again
+			time.Sleep(250 * time.Millisecond)
 		}
 		keptBlocks = blocks[groups[0]] + blocks[groups[1]]
 		if keptBlocks%2 == 0 {

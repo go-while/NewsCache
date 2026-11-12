@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,7 +149,11 @@ func TestReaderQuitWhileConnecting(t *testing.T) {
 // The harness readiness connection may still occupy a slot after StartTCP
 // returns. Keep the first accepted client while retrying only a temporary
 // 400 for the second; never retry the actual over-limit third connection.
-func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, error) {
+// maxConnectionsClients opens the two allowed clients. While the
+// harness's readiness session still ends it counts, and the second client
+// may get the limit's refusal: busy is that refusal, the only greeting
+// retried.
+func maxConnectionsClients(addr, busy string, timeout time.Duration) ([]*client.Conn, error) {
 	deadline := time.Now().Add(timeout)
 	var clients []*client.Conn
 	fail := func(err error) ([]*client.Conn, error) {
@@ -175,7 +180,9 @@ func maxConnectionsClients(addr string, timeout time.Duration) ([]*client.Conn, 
 		}
 		greeting := c.Greeting
 		c.Close()
-		if greeting != "400 too many users" {
+		// a session that is still ending (the harness's readiness probe,
+		// whose process is only waited for on Linux) still counts
+		if greeting != busy {
 			return fail(fmt.Errorf("client %d unexpected greeting %q", len(clients)+1, greeting))
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -190,7 +197,7 @@ func TestMaxConnections(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		waitForNoLinuxChildren(t, p.Pid(), 3*time.Second)
 	}
-	clients, err := maxConnectionsClients(e.Listen, 3*time.Second)
+	clients, err := maxConnectionsClients(e.Listen, "400 too many users", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +314,7 @@ func TestMaxConnectionsReadiness(t *testing.T) {
 				}
 			}()
 			started := time.Now()
-			clients, err := maxConnectionsClients(ln.Addr().String(), 250*time.Millisecond)
+			clients, err := maxConnectionsClients(ln.Addr().String(), "400 too many users", 250*time.Millisecond)
 			for _, c := range clients {
 				c.Close()
 			}
@@ -1066,7 +1073,38 @@ func testClientStalledReader(t *testing.T, command string) {
 	e := newEnv(t)
 	e.ClientTimeout = 3
 	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
-	e.standalone()
+	mode, err := logMode(e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	haveLog := mode != "syslog"
+	// A's session end is seen in the daemon's children: /proc, or pgrep -P
+	// without /proc (FreeBSD, macOS)
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep) to see the session end")
+	}
+	p := e.standalone()
+	// standalone()'s readiness check is a session of its own
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+
+	// Fill the cache first, so that A's reply below comes from the spool
+	// and its socket fills at once: the time to the session's end must not
+	// count how fast the fake upstream, which runs in this process (slow
+	// under -race), serves 40000 records.
+	w := e.dial()
+	w.Deadline = 60 * time.Second
+	if code, line := w.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("warming GROUP: %q", line)
+	}
+	if code, line := w.Cmd("%s 1-40000", command); code != 224 {
+		t.Fatalf("warming %s: %q", command, line)
+	}
+	if n := len(w.ReadDotLines()); n != 40000 {
+		t.Fatalf("warming %s returned %d records, want 40000", command, n)
+	}
+	w.Cmd("QUIT")
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {
 		t.Fatal(err)
@@ -1080,6 +1118,34 @@ func testClientStalledReader(t *testing.T, command string) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
 		t.Fatalf("A: GROUP: %q %v", l, err)
 	}
+	// The daemon's only child is A's session.
+	kids := linuxProcChildren(t, p.Pid())
+	if len(kids) != 1 {
+		t.Fatalf("daemon children before the stall = %v, want A's session", kids)
+	}
+	aPid := kids[0]
+	stallStart := time.Now()
+	// When A's session ends, seen from the request: checked at the end,
+	// after B, which a busy machine slows down.
+	// (Not through linuxProcChildren: no t.Fatal from this goroutine,
+	// and it stops with the test when the session doesn't end.)
+	sessionEnd := make(chan time.Duration, 1)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			kids, ok := daemonChildren(p.Pid())
+			if ok && !slices.Contains(kids, aPid) {
+				sessionEnd <- time.Since(stallStart)
+				return
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}()
 	io.WriteString(a, command+" 1-40000\r\n")
 	// A reads the status line and a little, then nothing more
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
@@ -1098,6 +1164,38 @@ func testClientStalledReader(t *testing.T, command string) {
 	}
 	b.ReadDotLines()
 	t.Logf("B served after %v", time.Since(start).Round(100*time.Millisecond))
+
+	// A's session must end one ClientTimeout after the request (the send
+	// timeout): 3.0 to 3.1 s with ClientTimeout 3, 3.3 s under -race. It
+	// used to stay blocked in send() for good (3cefac9), and a failed send
+	// that left its data in the buffer made the next flush wait for the
+	// timeout again: 6.0 s here (763126c). The bound is 1.5 ClientTimeouts.
+	endBound := time.Duration(e.ClientTimeout) * 1500 * time.Millisecond
+	select {
+	case d := <-sessionEnd:
+		t.Logf("the stalled session ended %v after the request", d.Round(time.Millisecond))
+		if d > endBound {
+			t.Errorf("stalled reader's session %s ended %v after the request, want within %v", aPid, d.Round(time.Millisecond), endBound)
+		}
+	case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
+		t.Errorf("stalled reader's session %s still running %v after the request, want it gone within %v", aPid, time.Since(stallStart).Round(time.Millisecond), endBound)
+	}
+	// With a log file: the session ended because the send failed. (Not
+	// the time of its end: that line comes at the first failed write.)
+	if !haveLog {
+		return
+	}
+	for {
+		log := e.logFile()
+		if strings.Contains(log, "can't be written to, session ended") {
+			break
+		}
+		if time.Since(stallStart) > endBound+10*time.Second {
+			t.Errorf("stalled reader's session not logged as ended %v after the request", time.Since(stallStart).Round(time.Millisecond))
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // TestClientPostStall: a client that sends POST, part of the article and
@@ -1551,9 +1649,10 @@ func TestInetdSharedSocket(t *testing.T) {
 // fails (SpoolDirectory is a file) while SIGHUP makes the daemon log a
 // reload line every 200 microseconds; afterwards the daemon must still
 // answer, and the "returned 1" lines must still be logged (from the main
-// loop now). The window is small: the old code hung after 30-60 seconds of
-// this, so the default run (5 s) mainly checks the logging;
-// NEWSCACHE_STRESS=120s runs longer.
+// loop now), and one SIGHUP after the burst must reread the good config
+// at once. The window is small: the old code hung after 30-60 seconds of
+// this, so the default run (5 s) mainly checks the logging and the
+// reread; NEWSCACHE_STRESS=120s runs longer.
 func TestSigchldStress(t *testing.T) {
 	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
 		t.Skip("repeated signal stress coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
@@ -1603,12 +1702,50 @@ func TestSigchldStress(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// The good config again: a session must get its greeting. Written to
-	// a new file and renamed, so that a reread can't see it half written,
-	// and with SIGHUP again until a session gets it: a SIGHUP of the
-	// burst may still be pending, and the reread it causes can come just
-	// before the rename, while the next SIGHUP merges with it (one flag).
-	// That made the test fail now and then on slow CI runners.
+	// Let the burst settle before the one SIGHUP that counts: no session
+	// left (Linux) and the log unchanged for a while, so that no reread
+	// of the burst is still pending or running.
+	mode, err := logMode(e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	haveLog := mode != "syslog"
+	logPath := filepath.Join(e.LogDir, "newscache.log")
+	logSize := func() int64 {
+		fi, err := os.Stat(logPath)
+		if err != nil {
+			return -1
+		}
+		return fi.Size()
+	}
+	self := strconv.Itoa(os.Getpid())
+	_, procErr := os.ReadFile(filepath.Join("/proc", self, "task", self, "children"))
+	haveProc := runtime.GOOS == "linux" && procErr == nil
+	settle := time.Now().Add(20 * time.Second)
+	for last, stable := logSize(), time.Now(); ; {
+		time.Sleep(50 * time.Millisecond)
+		if haveProc && len(linuxProcChildren(t, p.Pid())) > 0 {
+			stable = time.Now()
+		}
+		if n := logSize(); n != last {
+			last, stable = n, time.Now()
+		}
+		if time.Since(stable) >= 500*time.Millisecond {
+			break
+		}
+		if time.Now().After(settle) {
+			wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+			t.Fatalf("the burst did not settle within 20 s (hung? wchan %q)", wchan)
+		}
+	}
+
+	// The good config again, written to a new file and renamed so that a
+	// reread can't see it half written, then one SIGHUP. The daemon must
+	// reread at once (the handler wakes its poll()); a lost or late
+	// SIGHUP is the defect to catch, so it is not sent again. With a log
+	// file the test waits for the "reread" line and then dials once: the
+	// first session must get the new configuration. Without one it can
+	// only poll for the greeting.
 	tmp := e.Conf + ".new"
 	if err := os.WriteFile(tmp, good, 0o644); err != nil {
 		t.Fatal(err)
@@ -1616,28 +1753,57 @@ func TestSigchldStress(t *testing.T) {
 	if err := os.Rename(tmp, e.Conf); err != nil {
 		t.Fatal(err)
 	}
+	const rereadBound = time.Second
+	off := logSize()
+	hup := time.Now()
+	p.Signal(syscall.SIGHUP)
+	if haveLog {
+		marker := "reread " + e.Conf + "\n"
+		for {
+			b, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if off >= 0 && int64(len(b)) >= off && strings.Contains(string(b[off:]), marker) {
+				t.Logf("reread logged %v after the SIGHUP", time.Since(hup).Round(time.Millisecond))
+				break
+			}
+			if time.Since(hup) > rereadBound {
+				wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
+				t.Fatalf("no %q in the log %v after the one SIGHUP, want within %v (lost or late reread? hung? wchan %q)",
+					strings.TrimSpace(marker), time.Since(hup).Round(time.Millisecond), rereadBound, wchan)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	var greeting string
 	var gerr error
-	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); {
-		p.Signal(syscall.SIGHUP)
-		time.Sleep(200 * time.Millisecond)
+	for {
 		c, err := net.DialTimeout("tcp", e.Listen, 2*time.Second)
-		if err != nil {
-			gerr = err
-			continue
+		if err == nil {
+			// After the logged reread the daemon must just answer; in
+			// a syslog build every read ends with the bound itself, so
+			// a 200 that comes later fails instead of passing.
+			deadline := time.Now().Add(10 * time.Second)
+			if !haveLog {
+				deadline = hup.Add(rereadBound)
+			}
+			c.SetDeadline(deadline)
+			greeting, gerr = bufio.NewReader(c).ReadString('\n')
+			c.Close()
+		} else {
+			greeting, gerr = "", err
 		}
-		c.SetDeadline(time.Now().Add(10 * time.Second))
-		greeting, gerr = bufio.NewReader(c).ReadString('\n')
-		c.Close()
-		if strings.HasPrefix(greeting, "200") {
+		if strings.HasPrefix(greeting, "200") || haveLog || time.Since(hup) > rereadBound {
 			break
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !strings.HasPrefix(greeting, "200") {
 		wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", p.Pid()))
-		t.Fatalf("daemon after the stress: greeting %q, %v (hung? wchan %q)", greeting, gerr, wchan)
+		t.Fatalf("daemon after the stress and one SIGHUP: greeting %q, %v (hung? wchan %q)", greeting, gerr, wchan)
 	}
-	if b, err := os.ReadFile(filepath.Join(e.LogDir, "newscache.log")); err == nil &&
+	if b, err := os.ReadFile(logPath); err == nil &&
 		!strings.Contains(string(b), " returned 1") {
 		t.Errorf("no \"<pid> returned 1\" line in the log for the failed sessions")
 	}
@@ -2051,12 +2217,22 @@ func TestSIGTERMUpdatenewsPosting(t *testing.T) {
 // send timed out (ClientTimeout), and every session that needed the exclusive
 // lock - storing an article or an overview record - waited that long. The
 // records are now formatted in chunks under a shortened lock.
+//
+// B stores one article after the other, from A's 224 until A's session has
+// ended. A reads nothing, so its session ends only when a send times out,
+// ClientTimeout after it blocked: B's stores cover that whole time, with the
+// old code one of them waits for the lock until A's session ends. Before, B
+// stored one article after a fixed 700 ms, and on a slow machine that could
+// be before A's session had blocked: B then passed without testing anything.
 func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep)")
+	}
 	const group = "alt.binaries.lockhold"
 	e := newEnv(t)
 	e.ClientTimeout = 3
 	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
-	e.standalone()
+	daemon := e.standalone().Pid()
 
 	// Fill the group's overview first, with a client that reads it all:
 	// fetching it holds the group's exclusive lock (freshen), and on a
@@ -2073,6 +2249,8 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 		t.Fatalf("XOVER (warm-up): %d records, want 40000", n)
 	}
 	w.Cmd("QUIT")
+	// A's session is then the daemon's only child
+	waitForNoLinuxChildren(t, daemon, 10*time.Second)
 
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {
@@ -2091,26 +2269,53 @@ func TestXoverStalledClientDoesNotHoldGroupLock(t *testing.T) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
 		t.Fatalf("XOVER: %q %v", l, err)
 	}
-	// A reads nothing more; give its reply time to fill the socket.
-	time.Sleep(700 * time.Millisecond)
+	kids := linuxProcChildren(t, daemon)
+	if len(kids) != 1 {
+		t.Fatalf("daemon children %v, want only A's session", kids)
+	}
+	sessionA := kids[0]
+	aRunning := func() bool {
+		return slices.Contains(linuxProcChildren(t, daemon), sessionA)
+	}
 
+	// A reads nothing more. The articles aren't cached yet: each one is
+	// fetched and then stored, which needs the group's exclusive lock.
 	b := e.dial()
 	b.Deadline = 30 * time.Second
 	if code, line := b.Cmd("GROUP %s", group); code != 211 {
 		t.Fatalf("B GROUP: %q", line)
 	}
-	// ARTICLE 1 is not cached yet: it is fetched and then stored, which
-	// needs the group's exclusive lock.
 	start := time.Now()
-	code, line := b.Cmd("ARTICLE 1")
-	elapsed := time.Since(start)
-	if code != 220 {
-		t.Fatalf("B ARTICLE 1: %q, want 220", line)
+	var worst time.Duration
+	stores := 0
+	for n := 1; aRunning(); n++ {
+		// a hang guard: A's session ends ClientTimeout after it blocked
+		if time.Since(start) > 60*time.Second {
+			t.Fatalf("A's session %s still runs after %v", sessionA, time.Since(start).Round(time.Second))
+		}
+		if n > 40000 {
+			t.Fatalf("no uncached article left after %d stores", n-1)
+		}
+		// pacing only (at most about 1500 stores in A's 3 s): a store that
+		// starts while A holds the lock waits until A's session ends
+		time.Sleep(2 * time.Millisecond)
+		s := time.Now()
+		code, line := b.Cmd("ARTICLE %d", n)
+		took := time.Since(s)
+		if code != 220 {
+			t.Fatalf("B ARTICLE %d: %q, want 220", n, line)
+		}
+		b.ReadDotLines()
+		stores++
+		worst = max(worst, took)
 	}
-	b.ReadDotLines()
-	t.Logf("second session waited %v (ClientTimeout %d s)", elapsed.Round(10*time.Millisecond), e.ClientTimeout)
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", elapsed)
+	if stores == 0 {
+		t.Fatalf("A's session %s ended before B stored an article", sessionA)
+	}
+	t.Logf("A's session ended %v after its XOVER; B stored %d articles meanwhile, the longest wait %v (ClientTimeout %d s)",
+		time.Since(start).Round(10*time.Millisecond), stores, worst.Round(10*time.Millisecond), e.ClientTimeout)
+	if worst > 1500*time.Millisecond {
+		t.Errorf("the second session waited %v for the group lock while the first client stopped reading; the lock is held across the write to the client", worst)
 	}
 }
 

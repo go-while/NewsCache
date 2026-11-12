@@ -33,13 +33,21 @@ import (
 // cached by a first session.
 func corruptEnv(t *testing.T) *env {
 	t.Helper()
+	return corruptEnvSize(t, 20)
+}
+
+// corruptEnvSize is corruptEnv with n articles in test.alpha before the
+// big one (n+1).
+func corruptEnvSize(t *testing.T, n int) *env {
+	t.Helper()
 	e := newEnv(t)
-	e.addArticles("test.alpha", 20)
-	e.Store.AddArticle("test.alpha", groupArticle("test.alpha", 21, bigBody()))
+	e.addArticles("test.alpha", n)
+	big := int64(n + 1)
+	e.Store.AddArticle("test.alpha", groupArticle("test.alpha", big, bigBody()))
 	e.addArticles("test.beta", 3)
 	c := e.session()
-	for _, cmd := range []string{"GROUP test.alpha", "XOVER 1-21", "ARTICLE 1", "ARTICLE 21",
-		"GROUP test.beta", "XOVER 1-3"} {
+	for _, cmd := range []string{"GROUP test.alpha", fmt.Sprintf("XOVER 1-%d", big), "ARTICLE 1",
+		fmt.Sprintf("ARTICLE %d", big), "GROUP test.beta", "XOVER 1-3"} {
 		code, line := c.Cmd("%s", cmd)
 		switch code {
 		case 211:
@@ -210,17 +218,19 @@ func TestCorruptActiveDB(t *testing.T) {
 // .active64 must never crash a session or leave a reply unfinished, and
 // the next session must work again. A list the damage interrupts may end
 // the session (closed, never a "." after part of it); then the log says
-// so.
+// so. The group has 201 records, more than the 64 formatted in one chunk,
+// so that damage past the first chunk is found after part of the list
+// went out.
 func TestCorruptDBFuzz(t *testing.T) {
 	if os.Getenv("NEWSCACHE_E2E_SHORT") == "1" {
 		t.Skip("repeated fuzz coverage runs in full make check and race tests (NEWSCACHE_E2E_SHORT=1)")
 	}
-	cmds := []string{"GROUP test.alpha", "XOVER 1-21", "ARTICLE 1", "ARTICLE 2", "ARTICLE 21",
-		"XHDR subject 1-21", "STAT 5", "LISTGROUP test.alpha", "GROUP test.beta", "XOVER 1-3",
+	cmds := []string{"GROUP test.alpha", "XOVER 1-201", "ARTICLE 1", "ARTICLE 2", "ARTICLE 201",
+		"XHDR subject 1-201", "STAT 5", "LISTGROUP test.alpha", "GROUP test.beta", "XOVER 1-3",
 		"LIST", "NEWGROUPS 20000101 000000"}
 	for _, target := range []string{"db", "active"} {
 		t.Run(target, func(t *testing.T) {
-			e := corruptEnv(t)
+			e := corruptEnvSize(t, 200)
 			path := filepath.Join(e.Spool, "test", "alpha", ".db")
 			if target == "active" {
 				path = filepath.Join(e.Spool, ".active64")
@@ -268,16 +278,14 @@ func TestCorruptDBFuzz(t *testing.T) {
 					}
 				}
 			}
-			// This group has 21 records, fewer than the 64 that are
-			// formatted in one chunk, so damage is found before any of
-			// the list reached the client: the command retries on the
-			// repaired database (NewsCache.cc, "nothing sent yet: once
-			// more") and no session is closed mid-list. That is why this
-			// fuzz no longer produces the closed-mid-list case; the
-			// closing path is covered by TestCorruptDBMidListCloses with
-			// a range of more than one chunk.
+			// With this seed, damage to the group's .db past the first
+			// chunk of 64 records interrupts lists after part of them
+			// went out: none closed means such a list was ended with a
+			// "." as if it were complete. (Damage in the first chunk is
+			// found before anything is sent, and the command is retried
+			// on the repaired database.)
 			if target == "db" && closed == 0 {
-				t.Logf("no session closed mid-list: the damaged database was moved aside and the command retried")
+				t.Errorf("no session was closed in the middle of a list: interrupted lists are ended as if complete")
 			}
 			if closed > 0 {
 				t.Logf("%s: %d damaged sessions were closed in the middle of a list", target, closed)

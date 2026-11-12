@@ -2445,6 +2445,10 @@ func TestActiveForcedRefreshReadersContinue(t *testing.T) {
 	}
 }
 
+// TestActiveRefreshBlocksGroup: a session's GROUP must not wait while
+// another session fetches the active list (CServer::active held the
+// database's exclusive lock across the fetch). B starts once the news
+// server has the refresh's LIST ACTIVE, which it then holds back 5 s.
 func TestActiveRefreshBlocksGroup(t *testing.T) {
 	const group = "test.alpha"
 	e := newEnv(t)
@@ -2468,13 +2472,28 @@ func TestActiveRefreshBlocksGroup(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond) // Timeouts 1: the list is stale now
 	slow.Store(true)
 
+	listActive := func() int {
+		n := 0
+		for _, l := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToLower(l), "list active") {
+				n++
+			}
+		}
+		return n
+	}
+	before := listActive()
 	r := e.session()
 	done := make(chan int, 1)
+	sent := time.Now()
 	go func() {
 		code, _ := r.Cmd("LIST ACTIVE")
 		done <- code
 	}()
-	time.Sleep(300 * time.Millisecond) // the refresh is in flight (5 s)
+	// The refresh is in flight once the news server has its LIST ACTIVE
+	// (answered after 5 s). A fixed 300 ms before could start B before
+	// the refresh had begun, and B passed without testing anything.
+	waitFor(t, "the refresh's LIST ACTIVE at the news server", func() bool { return listActive() > before })
+	t.Logf("the refresh reached the news server %v after the request", time.Since(sent).Round(time.Millisecond))
 
 	start := time.Now()
 	code, line := b.Cmd("GROUP %s", group)

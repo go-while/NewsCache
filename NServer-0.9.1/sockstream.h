@@ -109,6 +109,7 @@ class sockstream
     char _pbuf[4096];
 
     void apply_io_timeout();
+    bool wait_rest_of_send_timeout(const struct timespec &t0);
 
     // seconds wait_io() waits for reading / writing, 0 = _io_timeout
     unsigned int _wait_read, _wait_write;

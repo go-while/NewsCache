@@ -1,9 +1,12 @@
 #include <iostream>
 #include <sstream>
 #include <fcntl.h>
+#include <string.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "Logger.h"
 #include "ReplyBudget.h"
@@ -97,6 +100,70 @@ static void client_connection_gone()
 	close(fd[1]);
 }
 
+// When the send timeout runs out after send() has taken part of the data,
+// Linux and FreeBSD return that part instead of EAGAIN. The rest must not
+// wait for a second timeout: the write to a peer that reads nothing fails
+// after one (it took two, and a stalled client's session two
+// ClientTimeouts).
+static void short_send_ends_write()
+{
+	int l = socket(AF_INET, SOCK_STREAM, 0);
+	struct sockaddr_in sa;
+	socklen_t salen = sizeof(sa);
+	memset(&sa, 0, sizeof(sa));
+	sa.sin_family = AF_INET;
+	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	int small = 4096;
+	// (a small window, inherited by the accepted socket)
+	setsockopt(l, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small));
+	if (l < 0 || bind(l, (struct sockaddr *) &sa, sizeof(sa)) != 0 ||
+	    listen(l, 1) != 0 ||
+	    getsockname(l, (struct sockaddr *) &sa, &salen) != 0) {
+		std::cerr << "short_send_ends_write: no loopback socket, skipped\n";
+		if (l >= 0)
+			close(l);
+		return;
+	}
+	// (on a failure no accept(): it would wait for good)
+	int c = socket(AF_INET, SOCK_STREAM, 0);
+	if (c < 0 || connect(c, (struct sockaddr *) &sa, sizeof(sa)) != 0) {
+		CHECK(!"connect to the loopback listener");
+		if (c >= 0)
+			close(c);
+		close(l);
+		return;
+	}
+	int a = accept(l, NULL, NULL);
+	if (a < 0) {
+		CHECK(!"accept");
+		close(c);
+		close(l);
+		return;
+	}
+	{
+		sockstream stream;
+		stream.attach(c);
+		stream.set_io_timeout(1);	// SO_SNDTIMEO 1 s
+		const std::string chunk(1000, 'x');
+		struct timespec before, after;
+		clock_gettime(CLOCK_MONOTONIC, &before);
+		for (int i = 0; i < 1000000 && stream.good(); ++i)
+			stream << chunk;
+		stream.flush();
+		clock_gettime(CLOCK_MONOTONIC, &after);
+		double elapsed = after.tv_sec - before.tv_sec +
+		    (after.tv_nsec - before.tv_nsec) / 1000000000.0;
+		std::cerr << "short_send_ends_write: the write failed after "
+		    << elapsed << " s\n";
+		CHECK(!stream.good());
+		// one send timeout (1 s), not two
+		CHECK(elapsed < 1.5);
+		stream.abort();
+	}
+	close(a);
+	close(l);
+}
+
 int main()
 {
 #if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
@@ -154,5 +221,6 @@ int main()
 	CHECK(line == "abc" && wire == 3 && partial.eof());
 	partial_line_deadline();
 	client_connection_gone();
+	short_send_ends_write();
 	return failures ? 1 : 0;
 }
