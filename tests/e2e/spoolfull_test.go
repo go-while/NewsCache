@@ -247,7 +247,7 @@ exit "$rc"`, tc.kb),
 
 // TestSpoolDiskFullDaemon: the daemon on a nearly full spool (tmpfs in a
 // user namespace), History on. Client 1 reads the active list of an
-// upstream with 3000 groups and the overview of a group of 20000
+// upstream with 3000 groups and the overview of a group of 20010
 // articles, then an independent filler exhausts any remaining tmpfs space.
 // Then 2000 new groups make the active list grow on the full disk; client 1
 // stays connected. Client 2 (its
@@ -276,14 +276,16 @@ func testDiskFullDaemon(t *testing.T, kb int, clean string) {
 	// Timeouts: the active list is due again after a second
 	e.Extra += "History on\nTimeouts 1 3600\n"
 	e.MaxConnections = 4
-	// client 1 waits while client 2 works: on a busy machine, and with a
-	// -race fake upstream, that took longer than the default 60 s, and
-	// NewsCache rightly ended client 1's session as idle
-	e.ClientTimeout = 600
 	for i := 0; i < 3000; i++ {
 		e.Store.AddGroup(fmt.Sprintf("test.many.group-with-a-longer-name.%04d", i), "")
 	}
-	e.Store.AddGenerated(hugeGroup, "", fakeserver.Generator{Low: 1, High: 20000})
+	// 20000 records fill the disk while client 1 reads them; the last
+	// chunk of overview (20000-20010) is small, so that client 2 can ask
+	// for one that couldn't be kept without waiting for this process's
+	// fake upstream (under -race it took 20 s to send the chunk
+	// 10000-19999 again, and that was inside the measured time)
+	const last = 20010
+	e.Store.AddGenerated(hugeGroup, "", fakeserver.Generator{Low: 1, High: last})
 	out := filepath.Join(e.Dir, "out")
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		t.Fatal(err)
@@ -331,21 +333,34 @@ wait $pid`, kb)
 	o.Path = "unshare"
 	p := proc.StartTCP(t, o, e.Listen)
 
-	// each reply must arrive within 180 s (the deadline of the conn, for a
-	// whole dot block: a -race client and fake upstream on a busy machine
-	// need well over a minute for 20000 records); a lock left held makes
-	// a session wait for good, which still fails
-	const deadline = 180 * time.Second
+	// Client 1's first commands fill the cache from the fake upstream,
+	// which runs in this process: setup, with a hang guard of 180 s for a
+	// -race build on a busy machine. Every command after that, on the
+	// full disk, must be answered completely within bound: they took at
+	// most 0.12 s, also with -race, and a lock left held by another
+	// session makes a session wait until that session ends (client 1 stays
+	// connected, so for good; before, the 180 s let a held lock or a
+	// stall of nearly three minutes pass).
+	const setupDeadline = 180 * time.Second
+	const bound = 5 * time.Second
+	// Every command must succeed, also on the full disk (what can't be
+	// kept is passed on from the upstream): an error reply comes at once
+	// and would pass the time bound without sending the data.
+	want := map[string]int{"LIST": 215, "GROUP": 211, "XOVER": 224, "ARTICLE": 220}
 	run := func(name string, c *client.Conn, cmds ...string) {
 		for _, cmd := range cmds {
+			start := time.Now()
 			code, line, err := c.TryCmd("%s", cmd)
 			if err != nil {
-				t.Fatalf("%s: %s: no reply within %v (%v)", name, cmd, deadline, err)
+				t.Fatalf("%s: %s: no reply within %v (%v)", name, cmd, c.Deadline, err)
 			}
-			if strings.HasPrefix(cmd, "ARTICLE") && code != 220 {
-				t.Errorf("%s: %s: %q, want the article (passed on when it can't be kept)", name, cmd, line)
+			verb, _, _ := strings.Cut(cmd, " ")
+			if w, ok := want[verb]; !ok {
+				t.Fatalf("%s: %s: no expected reply code for %s", name, cmd, verb)
+			} else if code != w {
+				t.Errorf("%s: %s: %q, want %d (passed on when it can't be kept)", name, cmd, line, w)
 			}
-			if code == 215 || code == 224 || code == 220 || code == 211 && strings.HasPrefix(cmd, "LISTGROUP") {
+			if code == 215 || code == 224 || code == 220 {
 				lines, err := c.TryReadDotLines()
 				if err != nil {
 					t.Fatalf("%s: %s: %v", name, cmd, err)
@@ -355,13 +370,21 @@ wait $pid`, kb)
 					t.Errorf("%s: %s: %d records, want %d (passed on when they can't be kept)", name, cmd, len(lines), b-a+1)
 				}
 			}
-			t.Logf("%s: %s -> %.60s", name, cmd, line)
+			took := time.Since(start)
+			t.Logf("%s: %s -> %.60s (%v)", name, cmd, line, took.Round(time.Millisecond))
+			if c.Deadline == bound && took > bound {
+				t.Errorf("%s: %s took %v on the full disk, want within %v (a lock held by another session?)", name, cmd, took.Round(time.Millisecond), bound)
+			}
 		}
 	}
-	session := func(name string, keep bool, cmds ...string) *client.Conn {
+	session := func(name string, deadline time.Duration, keep bool, cmds ...string) *client.Conn {
+		start := time.Now()
 		c, err := client.TryDial(e.Listen, deadline)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
+		}
+		if took := time.Since(start); deadline == bound && took > bound {
+			t.Errorf("%s: greeting after %v, want within %v", name, took.Round(time.Millisecond), bound)
 		}
 		c = c.WithTB(t)
 		run(name, c, cmds...)
@@ -371,8 +394,9 @@ wait $pid`, kb)
 		}
 		return c
 	}
-	c1 := session("client 1", true, "LIST", "GROUP "+hugeGroup, "XOVER 1-20000",
-		"ARTICLE 19999")
+	c1 := session("client 1", setupDeadline, true, "LIST", "GROUP "+hugeGroup,
+		fmt.Sprintf("XOVER 1-%d", last), fmt.Sprintf("ARTICLE %d", last-1))
+	c1.Deadline = bound
 	// The helper fills any remaining tmpfs blocks before the next LIST,
 	// which must grow the active database while the filesystem is full.
 	if err := os.WriteFile(filepath.Join(out, "probe-request"), nil, 0o644); err != nil {
@@ -394,17 +418,9 @@ wait $pid`, kb)
 	}
 	time.Sleep(1100 * time.Millisecond)
 	run("client 1", c1, "LIST")
-	session("client 2", false, "LIST ACTIVE test.many.*.000?", "GROUP "+hugeGroup,
-		"XOVER 1-100", "ARTICLE 50", "ARTICLE "+hugeID(60), "XOVER 19990-20000")
-	for _, cmd := range []string{"GROUP " + hugeGroup, "XOVER 1-10"} {
-		if code, line, err := c1.TryCmd("%s", cmd); err != nil {
-			t.Fatalf("client 1 afterwards: %s: %v", cmd, err)
-		} else if code == 224 {
-			c1.TryReadDotLines()
-		} else {
-			t.Logf("client 1 afterwards: %s -> %q", cmd, line)
-		}
-	}
+	session("client 2", bound, false, "LIST ACTIVE test.many.*.000?", "GROUP "+hugeGroup,
+		"XOVER 1-100", "ARTICLE 50", "ARTICLE "+hugeID(60), fmt.Sprintf("XOVER 20000-%d", last))
+	run("client 1 afterwards", c1, "GROUP "+hugeGroup, "XOVER 1-10")
 	c1.TryCmd("QUIT")
 	c1.Close()
 	p.Stop()
