@@ -1398,12 +1398,14 @@ Other changes:
   across the fetch and the fetch half a second late, the old test
   passed and this one fails.
 * TestSigchldStress sends one SIGHUP after the stress and wants the good
-  configuration reread within a second (logged after 9 to 46 ms), and
-  the first session after that line to get its greeting. Since #170 it
-  sent SIGHUP again and dialled every 200 ms for up to 5 seconds, so a
-  lost or late reread passed: a daemon that only noticed SIGHUP with the
-  next connection passed the old test and fails this one. The config is
-  still written to a new file and renamed.
+  configuration reread within a second: with a log file the reread line
+  (logged after 9 to 46 ms), and the first session after that line to get
+  its greeting; with syslog, whose lines it can't read, the 200 greeting
+  within a second of the SIGHUP. Since #170 it sent SIGHUP again and
+  dialled every 200 ms for up to 5 seconds, so a lost or late reread
+  passed: a daemon that only noticed SIGHUP with the next connection
+  passed the old test and fails this one. The config is still written to a
+  new file and renamed.
 * TestCorruptDBFuzz fails again when no damaged session was closed in
   the middle of a list. Its group has 201 records now, more than the 64
   formatted at a time, so damage past the first chunk is found after
