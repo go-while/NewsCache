@@ -1073,7 +1073,38 @@ func testClientStalledReader(t *testing.T, command string) {
 	e := newEnv(t)
 	e.ClientTimeout = 3
 	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 40000})
-	e.standalone()
+	mode, err := logMode(e.Bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	haveLog := mode != "syslog"
+	// A's session end is seen in the daemon's children: /proc, or pgrep -P
+	// without /proc (FreeBSD, macOS)
+	if _, ok := daemonChildren(os.Getpid()); !ok {
+		t.Skip("can't list a process's children (no /proc, no pgrep) to see the session end")
+	}
+	p := e.standalone()
+	// standalone()'s readiness check is a session of its own
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+
+	// Fill the cache first, so that A's reply below comes from the spool
+	// and its socket fills at once: the time to the session's end must not
+	// count how fast the fake upstream, which runs in this process (slow
+	// under -race), serves 40000 records.
+	w := e.dial()
+	w.Deadline = 60 * time.Second
+	if code, line := w.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("warming GROUP: %q", line)
+	}
+	if code, line := w.Cmd("%s 1-40000", command); code != 224 {
+		t.Fatalf("warming %s: %q", command, line)
+	}
+	if n := len(w.ReadDotLines()); n != 40000 {
+		t.Fatalf("warming %s returned %d records, want 40000", command, n)
+	}
+	w.Cmd("QUIT")
+	waitForNoLinuxChildren(t, p.Pid(), 10*time.Second)
+
 	a, err := net.Dial("tcp", e.Listen)
 	if err != nil {
 		t.Fatal(err)
@@ -1087,6 +1118,34 @@ func testClientStalledReader(t *testing.T, command string) {
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "211") {
 		t.Fatalf("A: GROUP: %q %v", l, err)
 	}
+	// The daemon's only child is A's session.
+	kids := linuxProcChildren(t, p.Pid())
+	if len(kids) != 1 {
+		t.Fatalf("daemon children before the stall = %v, want A's session", kids)
+	}
+	aPid := kids[0]
+	stallStart := time.Now()
+	// When A's session ends, seen from the request: checked at the end,
+	// after B, which a busy machine slows down.
+	// (Not through linuxProcChildren: no t.Fatal from this goroutine,
+	// and it stops with the test when the session doesn't end.)
+	sessionEnd := make(chan time.Duration, 1)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			kids, ok := daemonChildren(p.Pid())
+			if ok && !slices.Contains(kids, aPid) {
+				sessionEnd <- time.Since(stallStart)
+				return
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}()
 	io.WriteString(a, command+" 1-40000\r\n")
 	// A reads the status line and a little, then nothing more
 	if l, err := ra.ReadString('\n'); err != nil || !strings.HasPrefix(l, "224") {
@@ -1105,6 +1164,38 @@ func testClientStalledReader(t *testing.T, command string) {
 	}
 	b.ReadDotLines()
 	t.Logf("B served after %v", time.Since(start).Round(100*time.Millisecond))
+
+	// A's session must end one ClientTimeout after the request (the send
+	// timeout): 3.0 to 3.1 s with ClientTimeout 3, 3.3 s under -race. It
+	// used to stay blocked in send() for good (3cefac9), and a failed send
+	// that left its data in the buffer made the next flush wait for the
+	// timeout again: 6.0 s here (763126c). The bound is 1.5 ClientTimeouts.
+	endBound := time.Duration(e.ClientTimeout) * 1500 * time.Millisecond
+	select {
+	case d := <-sessionEnd:
+		t.Logf("the stalled session ended %v after the request", d.Round(time.Millisecond))
+		if d > endBound {
+			t.Errorf("stalled reader's session %s ended %v after the request, want within %v", aPid, d.Round(time.Millisecond), endBound)
+		}
+	case <-time.After(endBound - time.Since(stallStart) + 10*time.Second):
+		t.Errorf("stalled reader's session %s still running %v after the request, want it gone within %v", aPid, time.Since(stallStart).Round(time.Millisecond), endBound)
+	}
+	// With a log file: the session ended because the send failed. (Not
+	// the time of its end: that line comes at the first failed write.)
+	if !haveLog {
+		return
+	}
+	for {
+		log := e.logFile()
+		if strings.Contains(log, "can't be written to, session ended") {
+			break
+		}
+		if time.Since(stallStart) > endBound+10*time.Second {
+			t.Errorf("stalled reader's session not logged as ended %v after the request", time.Since(stallStart).Round(time.Millisecond))
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // TestClientPostStall: a client that sends POST, part of the article and
