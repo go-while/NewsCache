@@ -16,14 +16,22 @@ Upgrading:
   "SpoolSize 10G" or "Client 192.168.1.0/", which were misread, are
   configuration errors with the file and line (see Bug fixes). Check the
   file with `newscache -p` before restarting.
+* Logins with a user name or password shorter than 10 bytes are refused
+  (481) after the upgrade: the new option AuthMinLength defaults to 10.
+  Give such users longer names and passwords, or set "AuthMinLength 0"
+  to keep them. The sample auth file and the examples in the
+  documentation now use names and passwords of at least 10 bytes.
 
 Behaviour changes:
-* A failed login (AUTHINFO PASS) waits at most 1 second before the 481,
-  the same after each failure; the connection is still closed after the
-  third. The delay was AuthFailureDelay times the number of failures (15,
-  30 and 45 s by default, up to 3 hours with 3600), which only kept the
-  session's process and memory busy. AuthFailureDelay now defaults to 1;
-  larger values are accepted but count as 1, 0 still answers at once.
+* A failed login (AUTHINFO PASS) is answered with 481 after 1 second the
+  first time in a connection, after 2 seconds the second time and after
+  4 seconds the third time; then the connection is closed, as before. A
+  successful login is answered at once. The count is per connection, so
+  a client that connects again starts at 1 second. AuthFailureDelay
+  keeps its name: 0 turns the wait off, any other value (1 to 3600, as
+  in older configuration files) turns it on; the default is 1, on. Up to
+  1.3.22 the wait was AuthFailureDelay times the number of failures (15,
+  30 and 45 s by default).
 * PAM logins: NewsCache now gives PAM the client's address (PAM_RHOST), so
   host-based PAM rules (pam_access, pam_succeed_if rhost, ...) apply. They
   saw no host before: a service that allows only some hosts refused every
@@ -187,6 +195,13 @@ New options:
   finds it (--with-zlib requires it, --without-zlib leaves it out), and
   "newscache -o" lists --with-zlib. zlib's development files are a new
   optional build dependency (zlib1g-dev, zlib-devel).
+* AuthMinLength bytes (default 10, 0 to 255, 0 turns it off): a user name
+  or password shorter than this is refused with 481 when AUTHINFO PASS
+  arrives, after the wait of AuthFailureDelay and without a password
+  check, a lookup or a PAM call. It counts as a failed login. AUTHINFO
+  USER still answers 381. The log says "failed authinfo for user ...
+  (user name shorter than AuthMinLength)" or "(password shorter than
+  AuthMinLength)", without the password. newscache -p prints it.
 
 Bug fixes:
 * LimitGroupSize was not applied to LIST ACTIVE entries. Until a GROUP reply
@@ -724,10 +739,6 @@ Bug fixes:
   container filename buffer, without disturbing an already-open database.
 * A configuration path that is a directory is now reported as "cannot open
   configuration file <path>: Is a directory" instead of "unexpected EOF".
-* A login with an unknown user (or a locked line) in `Authentication file`
-  or `Authentication unix` is no longer answered faster than one with a
-  wrong password. A dummy hash check takes the same time, so the time of
-  the reply no longer tells which user names exist.
 * updatenews now retains group-number information for up to 60 seconds during
   prefetch, avoiding redundant upstream GROUP commands within a prefetch.
 * Upstream TLS handshakes now have a whole-handshake deadline based on
@@ -771,6 +782,14 @@ Bug fixes:
   sent again by every later flush, each waiting for the timeout once more,
   so such a session lasted several ClientTimeouts (seen with TLS on
   EL9).
+* The session of a client that stopped reading in the middle of a reply
+  could end after two ClientTimeouts instead of one (seen on FreeBSD):
+  when the send timeout runs out after send() has taken part of the
+  data, Linux and FreeBSD return that part instead of an error, and the
+  rest was sent with a second wait. After a short send, the rest now
+  goes out only if the socket can take more within what is left of the
+  send timeout; otherwise the write fails, like a failed send. The same
+  applies to connections to the upstream servers (ReadTimeout).
 * A client's LISTGROUP goes to the news server in steps, each with its
   own reply limits: 10000 numbers at a time in a dense group, larger
   steps (up to 100000000 numbers) across gaps; it fails when no number
@@ -1315,9 +1334,19 @@ Other changes:
   for, so there the shared section that follows an exclusive one holds
   the exclusive lock until it ends. (The e2e tests need Go, which the
   Hurd lacks.)
-* The end-to-end tests use nntp-testkit 0.11.0 (still Go 1.26 or later).
-* TestSpoolDiskFullDaemon no longer fails on a busy machine (its client
-  sat idle past ClientTimeout while the other client worked).
+* The end-to-end tests use nntp-testkit 0.12.0 (still Go 1.26 or later),
+  and its reader conformance checks also run over the TLS listener
+  (TLSListenTo), including the check that CAPABILITIES there doesn't
+  list STARTTLS.
+* TestSpoolDiskFullDaemon wants every reply on the full disk within 5
+  seconds again (they take at most 0.14 s, also with the race detector),
+  with the default ClientTimeout. Since #83 it allowed 180 s per reply
+  and ClientTimeout 600, so a lock held for nearly three minutes passed:
+  the second client's last XOVER fetched 10000 records again from the
+  test's own fake news server (20 s under -race), and the first client
+  idled that long. The group now ends in a small chunk of 11 records
+  that can't be kept either, so nothing slow is left in the measured
+  part; the first client's fill of the cache keeps its 180 s.
 * TestSessionSigchldDefault no longer fails on a busy machine: the
   session of the harness's readiness probe could still be running when
   it counted the daemon's children.
@@ -1334,11 +1363,61 @@ Other changes:
   (E2E_TIMEOUT sets another). It had go test's default of 10 minutes,
   and the suite takes 8 to 9 minutes on a machine with one core: make
   check failed there with "test timed out after 10m0s".
-* The end-to-end test of a TLS client that stops reading allows the
-  session 14 seconds to end, not 11: on a busy one-core machine with
-  the race detector, the fetches before the reply fills the socket made
-  it fail although the session ended in time (11.2 s). The behaviour it
-  guards against took about 18 seconds.
+* TestClientTLSStalledReaderTimesOutAndReleasesGroup measures the stalled
+  session again from a reply that comes from the spool: it counted how
+  fast the test's own fake news server served 40000 records, which under
+  the race detector took the session's end from 7.4 to 9.6 s, and its
+  bounds had been raised for that (ClientTimeout 3 to 6, then the end
+  bound from 11 to 14 s). With ClientTimeout 3 again the session ends
+  after about 4 s and the bounds are 6 s for the end and 2 s for the
+  second client's wait; the old defect (13 s) fails.
+* TestClientStalledReader checks again that the session of a client
+  that stops reading in the middle of OVER or XOVER ends after one
+  ClientTimeout: it now fills the cache first, so that the reply comes
+  from the spool, and wants the session gone within 1.5 ClientTimeouts
+  of the request (3.0 to 3.3 s, also under -race). It only checked that
+  another client was still served, which since the records are written
+  with the group's lock released passed even when the session never
+  ended (3cefac9 reverted) or ended a ClientTimeout late (763126c
+  reverted: 6.0 s).
+* TestXoverStalledClientDoesNotHoldGroupLock: the second client stores
+  one article after the other from the first client's XOVER until the
+  first client's session has ended, instead of storing one article after
+  a fixed 700 ms. On a slow machine the first session could still be
+  before its XOVER's records then, and the second client passed without
+  testing anything: with the lock held across the write and the session
+  one second late, the old test passed and this one fails. The first
+  session ends only when its send times out, so the stores cover the
+  whole time it is stalled, on every system that has /proc or pgrep.
+* TestActiveRefreshBlocksGroup starts the waiting session's GROUP once
+  the news server has the refresh's LIST ACTIVE, instead of 300 ms after
+  the request. When the refresh began later than that, the GROUP ran
+  before it and passed without testing anything: with the lock held
+  across the fetch and the fetch half a second late, the old test
+  passed and this one fails.
+* TestSigchldStress sends one SIGHUP after the stress and wants the good
+  configuration reread within a second (logged after 9 to 46 ms), and
+  the first session after that line to get its greeting. Since #170 it
+  sent SIGHUP again and dialled every 200 ms for up to 5 seconds, so a
+  lost or late reread passed: a daemon that only noticed SIGHUP with the
+  next connection passed the old test and fails this one. The config is
+  still written to a new file and renamed.
+* TestCorruptDBFuzz fails again when no damaged session was closed in
+  the middle of a list. Its group has 201 records now, more than the 64
+  formatted at a time, so damage past the first chunk is found after
+  part of a list went out (75 of the 150 damaged sessions). Since #274
+  its 21 records were found damaged before anything was sent, and the
+  check had become a log line.
+* TestDate checks again that the 501 for "DATE x" names DATE's syntax;
+  the check (it once named GROUP's) was dropped in a test clean-up.
+* TestNewscachecleanEvictionOrder no longer fails on ZFS (FreeBSD CI):
+  it measured the files' allocated blocks before ZFS had written them
+  and set SpoolSize from the smaller numbers, so newscacheclean removed
+  every group. It syncs and measures until the numbers are stable.
+* TestMaxConnectionsPerHost no longer fails when the harness's readiness
+  connection is still ending (seen on FreeBSD, where the test doesn't wait
+  for its process): its helper retried that only for MaxConnections'
+  "400 too many users". Each test now names the one refusal it retries.
 
 Release 1.3.22:
 Billy G. - 2026-10-23
