@@ -46,8 +46,8 @@ Behaviour changes:
   following PASS gets 482 instead of being checked against the earlier name.
 * The log names the user in "failed authinfo for user <name>" only when that
   user's password was checked and refused, or when the user name or the
-  password was shorter than AuthMinLength (with the reason in brackets,
-  see New options). Other AUTHINFO failures (482, 501, 502, an argument
+  password was shorter than AuthMinLength (with the reason in
+  parentheses, see New options). Other AUTHINFO failures (482, 501, 502, an argument
   too long) are logged as "failed authinfo"; they were logged as a failed
   login of the last USER.
 * A known command that the client's entry doesn't allow, where no login
