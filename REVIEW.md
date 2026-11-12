@@ -83,9 +83,9 @@ checked for a test weakened to pass on a busy machine: #363 and #226
 (raised bounds, a dropped check), #83, #170 and #274 had left tests
 passing without testing what they guard, and two more tests waited a
 fixed time that a slow machine could pass without testing anything. Each
-was fixed to time the event itself, and shown to fail with the defect it
-guards (the fix reverted, or a scratch mutant): rows #369 and #371 to
-#376. FreeBSD CI found #367, #368 and the short send fixed in #377. The
+got its check back or now times the event itself, and was shown to fail
+with the defect it guards (the fix reverted, or a scratch mutant): rows
+#369 and #371 to #376. FreeBSD CI found #367, #368 and the short send fixed in #377. The
 user redesigned the wait after failed logins (#370), which replaced #147
 and removed the dummy hash work of #209, #253 and #310. nc-oc-gpt61t
 verified them. #365 only updated nntp-testkit; it has no row.
