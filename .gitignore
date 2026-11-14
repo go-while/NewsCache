@@ -1,2 +1,5 @@
 # Local credentials (VM and host logins); never commit them.
 /creds/
+
+# Agent reports (see /etc/agents/projects/NewsCache.md); never commit them.
+/reports/
