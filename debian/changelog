@@ -1,3 +1,50 @@
+newscache (1.3.23-1) unstable; urgency=medium
+
+  * TLS for client connections: TLSListenTo, TLSCertFile, TLSKeyFile,
+    TLSPriority; AuthRequiresTLS answers AUTHINFO without TLS with 483
+  * COMPRESS DEFLATE (RFC 8054) to news servers: Options compress (zlib)
+  * New options ReadTimeout, MaxArticleSize and MaxPostSize; optional
+    init.d script (configure --enable-sysv-init)
+  * Logins: PAM gets the client's address (PAM_RHOST); failed logins
+    wait 1, 2 and 4 seconds, then the connection closes; user names and
+    passwords shorter than AuthMinLength (default 10) are refused;
+    hashes compared in constant time; RFC 4643 replies
+  * Message-IDs from clients checked against RFC 3977 and RFC 5536
+  * Locking: no group lock held while fetching from the news server or
+    sending to a slow client; races between sessions, updatenews and
+    newscacheclean fixed
+  * SIGTERM, SIGHUP and timeouts no longer leave sessions running or
+    the daemon hanging
+  * A client that stops reading ends its session after one
+    ClientTimeout, also when the last send was partial
+  * Upstream replies bounded in size and time; TLS handshake deadline
+  * Bare CR and NUL bytes in articles, posts and overview data handled;
+    control bytes in log lines written as "?"
+  * Spool: damaged and cut-off files, file size limits and failed
+    remaps handled without hangs or crashes
+  * configure: --prefix and --sysconfdir expanded without running shell
+    code; --with-pam=, and --with-gnutls without GnuTLS, are errors
+  * Spool directory should be mode 0750; new log files get 0640
+  * POST: repeated once-only headers refused, a time limit for the
+    article, spooled posts synced to disk before 240
+  * Wildmat lists (a,b,!c) for LIST ACTIVE, ACTIVE.TIMES, NEWSGROUPS;
+    a detached daemon that fails to start exits with an error
+  * Builds on Debian GNU/Hurd
+  * New option MaxConnectionsPerHost; ConnectTimeout defaults to 30
+    seconds; refused clients at MaxConnections are logged
+  * Only one newscacheclean, and one prefetching updatenews, at a time
+    (a second run exits with status 3)
+  * --without-syslog: SIGHUP reopens the log file, for logrotate
+  * The client's host name lookup takes at most 10 seconds
+  * Folded headers unfolded as RFC 5322 says; HDR turns TABs into spaces
+  * Several news servers: each group's active list entry comes from the
+    server GROUP uses; names that would share a spool directory refused
+  * Walks over long runs of empty article numbers ask the news server
+    in LISTGROUP steps and stop when the client has gone
+  * newscacheclean removes article files of groups without a database
+
+ -- Billy G. <newscache-maintainer@pugleaf.net>  Thu, 05 Nov 2026 12:00:00 +0000
+
 newscache (1.3.22-1) unstable; urgency=medium
 
   * XPAT, HDR and LIST HEADERS; XHDR by message-ID
