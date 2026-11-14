@@ -673,6 +673,30 @@ void RServer::reply_unread()
 }
 
 /*
+ * NewsCache sends one command at a time and reads its reply to the end,
+ * so nothing is left in the buffer when the next command goes out. Bytes
+ * that are there came with an earlier reply: a block after a status that
+ * didn't announce one (215 and a list in reply to GROUP, 430 and text),
+ * the rest of a line longer than NNTP_MAXLINE. Read as the reply to the
+ * next command they put it and every later one out of step (an article
+ * the server has came back as 430). The connection is closed instead,
+ * and a new one is made; in connect() the set-up fails, and the caller
+ * tries again.
+ */
+void RServer::stale_reply()
+{
+	slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
+	    << " sent more than its reply, closing the connection\n";
+	_pServerStream->abort();
+	delete _pServerStream;
+	_pServerStream = NULL;
+	if (_connecting)
+		throw SystemError("news server sent more than its reply", -1,
+				  ERROR_LOCATION);
+	connect();
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
@@ -784,6 +808,8 @@ string RServer::issue(const char *command, const char *expresp)
 	slog.p(Logger::Info) << "RServer::issue: " << req.c_str();
 	if (!is_connected())
 		connect();
+	else if (_pServerStream->rdbuf()->in_avail() > 0)
+		stale_reply();
 	// Send command
 	for (;;) {
 		try {
