@@ -274,6 +274,7 @@ class RServer:virtual public NServer {
 	* multi-line reply unread (it would be read as the next reply).
 	*/
 	void reply_unread();
+	void stale_reply();
 	void log_compress_error();
 
 	/**
