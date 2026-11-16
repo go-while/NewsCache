@@ -1084,10 +1084,14 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 		line string
 		resp string
 	}{
-		{"overview.fmt 503", "list overview.fmt", "503 Not supported"},
-		{"overview.fmt 500", "list overview.fmt", "500 What?"},
-		{"overview.fmt 400", "list overview.fmt", "400 Not now"},
-		{"mode reader 503", "mode reader", "503 Not supported"},
+		// (OverrideLine keys are the line as the fake server
+		// normalises it: the command upper-cased, the arguments as
+		// NewsCache sends them; "list overview.fmt" never matched, so
+		// these cases ran without their refusal)
+		{"overview.fmt 503", "LIST overview.fmt", "503 Not supported"},
+		{"overview.fmt 500", "LIST overview.fmt", "500 What?"},
+		{"overview.fmt 400", "LIST overview.fmt", "400 Not now"},
+		{"mode reader 503", "MODE reader", "503 Not supported"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -1107,6 +1111,17 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 			}
 			if n := e.Upstream.Count("MODE"); n > 5 {
 				t.Errorf("%d upstream connections (MODE READER), want a few at most", n)
+			}
+			// the refusal was sent: NewsCache sent the line of its key
+			refused := false
+			for _, l := range e.Upstream.Lines() {
+				if f := strings.Fields(l); len(f) > 0 {
+					f[0] = strings.ToUpper(f[0])
+					refused = refused || strings.Join(f, " ") == tc.line
+				}
+			}
+			if !refused {
+				t.Errorf("no %q reached the server: the refusal was never sent", tc.line)
 			}
 		})
 	}
