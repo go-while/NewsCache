@@ -276,6 +276,13 @@ class RServer:virtual public NServer {
 	*/
 	void reply_unread();
 	void stale_reply();
+	/**
+	* Closes the connection when the command rejects a positive reply
+	* (1xx, 2xx, 3xx) it didn't expect: such a reply may come with a
+	* block the command can't frame. Returns true then; a 4xx or 5xx
+	* reply is one line and keeps the connection (false).
+	*/
+	bool reply_unexpected(const std::string & resp);
 	void log_compress_error();
 
 	/**

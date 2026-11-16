@@ -697,6 +697,33 @@ void RServer::stale_reply()
 }
 
 /*
+ * A positive reply (1xx, 2xx, 3xx) that the command didn't expect may
+ * come with a block, and only the replies a command expects tell where
+ * theirs ends (RFC 3977 3.1): a 215 and a list in reply to GROUP, a 222
+ * and a body in reply to ARTICLE. The rest of such a block that arrives
+ * after the next command was sent isn't in the buffer yet, so
+ * stale_reply() can't see it, and it is read as that command's reply. The
+ * connection is closed instead; the next command makes a new one. A 4xx
+ * or 5xx reply is one line (RFC 3977 3.1) and keeps the connection.
+ */
+bool RServer::reply_unexpected(const string & resp)
+{
+	if (resp.empty() || resp[0] < '1' || resp[0] > '3')
+		return false;
+	if (_CurrentServer)
+		slog.p(Logger::Warning) << "news server "
+		    << _CurrentServer->hostname << " answered "
+		    << resp.substr(0, 3) << ", not a reply to the command; "
+		    "closing the connection\n";
+	if (_pServerStream) {
+		_pServerStream->abort();
+		delete _pServerStream;
+		_pServerStream = NULL;
+	}
+	return true;
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
@@ -916,6 +943,8 @@ string RServer::issue(const char *command, const char *expresp)
 	    || (expresp
 		&& strncmp(expresp, resp.data(), strlen(expresp)))) {
 		string c(loggable(command)), e(expresp ? expresp : "");
+		if (rs >= 3)
+			reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 
@@ -982,6 +1011,7 @@ void RServer::selectgroup(const char *name, int force)
 			throw NoSuchGroupError("no such group",
 					       ERROR_LOCATION);
 		string c(buf), e("211");
+		reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 
@@ -1296,6 +1326,7 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		if (!NNTP_ISCODE(p, "211")) {
 			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 			string c(buf), e("211");
+			reply_unexpected(resp);
 			throw ResponseError(c, e, resp);
 		}
 
@@ -1372,6 +1403,10 @@ uint64_t RServer::liststep(const char *gname, artnum_t a, artnum_t b,
 	resp = issue(buf, NULL);
 	if (!NNTP_ISCODE(resp.c_str(), "211")) {
 		string c(buf), e("211");
+		// (and LISTGROUP is no use with this server, as in
+		// listgroup(): else every step made a new connection)
+		if (reply_unexpected(resp))
+			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 		throw ResponseError(c, e, resp);
 	}
 	ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);
@@ -1709,6 +1744,10 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
 			return 0;
+		// Anything else: the other command is tried, as before. A
+		// positive reply other than 224 may come with a block, so its
+		// connection is closed first; the next try makes a new one.
+		reply_unexpected(resp);
 		if (fmt[0] == 'o')
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else
@@ -1736,6 +1775,7 @@ void RServer::article(const char *gname, artnum_t nbr, Article * art)
 		if (strncmp(p, "423", 3) == 0)
 			throw NoSuchArticleError(resp, ERROR_LOCATION);
 		string c(buf), e("220");
+		reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 	readarticle(art);
@@ -1768,6 +1808,7 @@ void RServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	// check whether the article can be found at one of the other
@@ -1792,6 +1833,7 @@ void RServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	throw NoSuchArticleError(resp, ERROR_LOCATION);
@@ -1834,6 +1876,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 				    << p;
 			} else {
 				string c(cmd), e("223|430");
+				reply_unexpected(resp);
 				throw ResponseError(c, e, resp);
 			}
 		}
@@ -1851,6 +1894,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			if (strncmp(p, "440", 3) == 0)
 				throw NotAllowedError(resp,
 						      ERROR_LOCATION);
+			reply_unexpected(resp);
 			throw ResponseError("post\r\n", "[34]40", resp);
 		}
 		*_pServerStream << *article << ".\r\n" << flush;
@@ -1890,6 +1934,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			throw NotAllowedError(resp, ERROR_LOCATION);
 		if (strncmp("441", p, 3) == 0)
 			throw PostingFailedError(resp, ERROR_LOCATION);
+		reply_unexpected(resp);
 		throw ResponseError("post\r\n", "[23]40,44[01]", resp);
 	}
 }
@@ -2970,6 +3015,7 @@ void CServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	// check whether the article can be found at one of the other
@@ -2995,6 +3041,7 @@ void CServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	if (unreachable)
