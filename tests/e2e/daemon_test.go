@@ -436,10 +436,11 @@ func TestListenDefaultIPv6(t *testing.T) {
 		l.Close()
 	}
 	e := newEnv(t)
-	_, port, err := net.SplitHostPort(e.Listen)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// free on every address, not only on 127.0.0.1 (DEFAULT binds the
+	// wildcard; another test's listener on that port made the bind fail
+	// with "Address already in use"); standalone retries a collision
+	port := freeDefaultPort(t)
+	e.Listen = net.JoinHostPort("127.0.0.1", port)
 	e.ListenTo = "DEFAULT:" + port
 	e.AccessList = strings.Replace(DefaultAccessList, "  Default {", `  Client ::1/128 {
     allow read post
@@ -451,6 +452,11 @@ func TestListenDefaultIPv6(t *testing.T) {
   Default {`, 1)
 	e.addArticles("test.alpha", 1)
 	e.standalone() // waits until 127.0.0.1:port accepts
+	// (a retry after a bind collision picks another port)
+	_, port, err := net.SplitHostPort(e.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, addr := range []string{e.Listen, net.JoinHostPort("::1", port)} {
 		c, err := client.TryDial(addr, 0)
 		if err != nil {
