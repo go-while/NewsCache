@@ -1118,10 +1118,11 @@ ActiveDB *RServer::active(bool)
 							throw;
 						}
 					} while (sp != end);
-					// the server's whole list: every pattern's
-					// (one pattern's reply, then a refusal of the
-					// next, gave no list, and an empty first reply
-					// made LIST ACTIVE an empty 215 again)
+					// Complete only once every pattern's list
+					// was read: a server that answered one
+					// pattern and refused the next gave no whole
+					// list (an empty first answer made LIST
+					// ACTIVE an empty 215 again).
 					any_complete = true;
 				}
 				catch(ResponseError & re) {
