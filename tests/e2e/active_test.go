@@ -98,7 +98,7 @@ func TestListActiveRefusedFreshCache(t *testing.T) {
 	}
 	want502 := func(c *client.Conn, cmd string) {
 		t.Helper()
-		code, line := c.Cmd(cmd)
+		code, line := c.Cmd("%s", cmd)
 		if code == 502 {
 			return
 		}
