@@ -1403,7 +1403,10 @@ uint64_t RServer::liststep(const char *gname, artnum_t a, artnum_t b,
 	resp = issue(buf, NULL);
 	if (!NNTP_ISCODE(resp.c_str(), "211")) {
 		string c(buf), e("211");
-		reply_unexpected(resp);
+		// (and LISTGROUP is no use with this server, as in
+		// listgroup(): else every step made a new connection)
+		if (reply_unexpected(resp))
+			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 		throw ResponseError(c, e, resp);
 	}
 	ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);

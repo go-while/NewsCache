@@ -386,10 +386,12 @@ class UpstreamReplyError:public Error {
 // fallback. Other replies, such as 400 or 502, are upstream failures. A
 // positive reply other than 211 counts as unsupported: LISTGROUP can't be
 // framed with that server (RServer::reply_unexpected closed the
-// connection), so it is switched off rather than tried, with a new
-// connection, at every step.
+// connection). Only LISTGROUP's own reply counts: a refused GROUP, or a
+// failed login or set-up on the way, stays an upstream failure.
 inline bool listgroup_unsupported(const ResponseError & e)
 {
+	if (e._command.compare(0, 9, "listgroup") != 0)
+		return false;
 	return e._got == "not supported" || e._got.compare(0, 3, "500") == 0 ||
 	    e._got.compare(0, 3, "501") == 0 || e._got.compare(0, 3, "503") == 0 ||
 	    (!e._got.empty() && e._got[0] >= '1' && e._got[0] <= '3');
