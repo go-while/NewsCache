@@ -1741,13 +1741,10 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
 			return 0;
-		// a positive reply other than 224 isn't "not supported": it
-		// fails this range (the connection is closed), OVER and
-		// XOVER stay as they are
-		if (reply_unexpected(resp)) {
-			string c(buf), e("224");
-			throw ResponseError(c, e, resp);
-		}
+		// Anything else: the other command is tried, as before. A
+		// positive reply other than 224 may come with a block, so its
+		// connection is closed first; the next try makes a new one.
+		reply_unexpected(resp);
 		if (fmt[0] == 'o')
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else
