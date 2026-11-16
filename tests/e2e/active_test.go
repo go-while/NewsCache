@@ -73,11 +73,12 @@ func TestIncompleteActiveRetry(t *testing.T) {
 
 // TestListActiveRefusedFreshCache: the news server refuses LIST ACTIVE
 // and the cache has no active list yet. LIST ACTIVE, LIST ACTIVE.TIMES and
-// NEWGROUPS answer 502; they answered 215 and an empty list, as if the
-// server had no groups. Within ACTIVE_RETRY_SECONDS (60) neither this
-// session nor another one asks the server again, and GROUP still works.
-// In the short-limit build (2 seconds, too short to check the first part
-// on a busy host) the list is fetched once that time is over.
+// NEWGROUPS answer 403 (temporary, try again later); they answered 215 and
+// an empty list, as if the server had no groups. Within
+// ACTIVE_RETRY_SECONDS (60) neither this session nor another one asks the
+// server again, and GROUP still works. In the short-limit build (2
+// seconds, too short to check the first part on a busy host) the list is
+// fetched once that time is over.
 func TestListActiveRefusedFreshCache(t *testing.T) {
 	short := os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") == "1"
 	e := newEnv(t)
@@ -96,29 +97,29 @@ func TestListActiveRefusedFreshCache(t *testing.T) {
 		}
 		return n
 	}
-	want502 := func(c *client.Conn, cmd string) {
+	want403 := func(c *client.Conn, cmd string) {
 		t.Helper()
 		code, line := c.Cmd("%s", cmd)
-		if code == 502 {
+		if code == 403 {
 			return
 		}
 		if code == 215 || code == 231 {
-			t.Fatalf("%s: %q %q, want 502", cmd, line, c.ReadDotLines())
+			t.Fatalf("%s: %q %q, want 403", cmd, line, c.ReadDotLines())
 		}
-		t.Fatalf("%s: %q, want 502", cmd, line)
+		t.Fatalf("%s: %q, want 403", cmd, line)
 	}
 	c := e.session()
-	want502(c, "LIST ACTIVE")
+	want403(c, "LIST ACTIVE")
 	first := asked()
 	if first == 0 {
 		t.Fatal("the news server was not asked for LIST ACTIVE")
 	}
 	for _, cmd := range []string{"LIST", "LIST ACTIVE test.*", "LIST ACTIVE.TIMES",
 		"NEWGROUPS 20000101 000000 GMT"} {
-		want502(c, cmd)
+		want403(c, cmd)
 	}
 	other := e.session()
-	want502(other, "LIST ACTIVE")
+	want403(other, "LIST ACTIVE")
 	if got := asked(); got != first && !short {
 		t.Errorf("the news server was asked again within the retry time: %d then %d LIST ACTIVE", first, got)
 	}

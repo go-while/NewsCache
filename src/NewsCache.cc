@@ -2300,10 +2300,11 @@ static void list_headers(ClientData * clt, const char *form)
 /*
  * The reply to LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS when there is
  * no active list yet and no news server gave one (CServer::active_missing):
- * an empty list would say that the servers have no groups.
+ * an empty list would say that the servers have no groups. 403: a
+ * temporary problem, the client may try again later (RFC 3977 3.2.1).
  */
 static const char active_missing_reply[] =
-    "502 the news server gave no active list, try again later\r\n";
+    "403 the news server gave no active list, try again later\r\n";
 
 int ns_list(ClientData * clt, int argc, char *argv[])
 {
