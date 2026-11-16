@@ -687,8 +687,8 @@ class CServer
 	* True when the last active() has no list to give: the list was
 	* never filled, and no news server gave it (it refused LIST ACTIVE,
 	* or could not be reached) in this try or in one less than
-	* ACTIVE_RETRY_SECONDS (or the TTL, if shorter) ago. LIST ACTIVE answers an error then, not
-	* an empty list.
+	* ACTIVE_RETRY_SECONDS (or the TTL, if shorter) ago. LIST ACTIVE
+	* answers an error then, not an empty list.
 	*/
 	bool active_missing() const {
 		return _active_missing;

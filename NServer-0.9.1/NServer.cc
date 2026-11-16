@@ -2445,9 +2445,9 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		return _NVActiveDB;
 	}
 	// Another session's first fill got no list a moment ago: the news
-	// servers aren't asked again before the retry time (ACTIVE_RETRY_SECONDS,
-	// or the TTL if shorter), as the retry mark below does for a list that
-	// exists.
+	// servers aren't asked again before the retry time
+	// (ACTIVE_RETRY_SECONDS, or the TTL if shorter), as the retry mark
+	// below does for a list that exists.
 	if (first_fill && !wait_for_refresh && first_fill_failed_recently()) {
 		refresh_unlock();
 		_active_missing = true;
@@ -2466,12 +2466,13 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		}
 		RServer::active();
 		if (first_fill && _active_incomplete && !_active_any_complete) {
-			// No news server gave a list, and there is none yet: LIST
-			// ACTIVE answers an error, not an empty list as if the
-			// servers had no groups. The first-fill mark stays (a
-			// retry mark made the empty list look fresh to every
-			// session); the failure's time in the lock file keeps
-			// the next tries from asking again too soon.
+			// No news server gave a list, and there is none
+			// yet: LIST ACTIVE answers an error, not an empty
+			// list as if the servers had no groups. The
+			// first-fill mark stays (a retry mark made the empty
+			// list look fresh to every session); the failure's
+			// time in the lock file keeps the next tries from
+			// asking again too soon.
 			_active_missing = true;
 			if (!sockstream::stopping())
 				note_first_fill_failed();
