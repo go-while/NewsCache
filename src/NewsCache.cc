@@ -2297,12 +2297,24 @@ static void list_headers(ClientData * clt, const char *form)
 	(*clt->co) << ".\r\n";
 }
 
+/*
+ * The reply to LIST ACTIVE, LIST ACTIVE.TIMES and NEWGROUPS when there is
+ * no active list yet and no news server gave one (CServer::active_missing):
+ * an empty list would say that the servers have no groups.
+ */
+static const char active_missing_reply[] =
+    "502 the news server gave no active list, try again later\r\n";
+
 int ns_list(ClientData * clt, int argc, char *argv[])
 {
 	if (argc <= 3) {
 		if (argc == 1 || strcasecmp(argv[1], "active") == 0) {
 			ActiveDB *active;
 			active = clt->srvr->active();
+			if (clt->srvr->active_missing()) {
+				(*clt->co) << active_missing_reply;
+				return 0;
+			}
 			NewsgroupFilter filter(clt->access_entry->list);
 			if (argc == 3)
 				filter.setWildmat(argv[2]);
@@ -2320,6 +2332,10 @@ int ns_list(ClientData * clt, int argc, char *argv[])
 		} else if (strcasecmp(argv[1], "active.times") == 0) {
 			ActiveDB *active;
 			active = clt->srvr->active();
+			if (clt->srvr->active_missing()) {
+				(*clt->co) << active_missing_reply;
+				return 0;
+			}
 			NewsgroupFilter filter(clt->access_entry->list);
 			if (argc == 3)
 				filter.setWildmat(argv[2]);
@@ -2683,6 +2699,10 @@ int ns_newgroups(ClientData * clt, int argc, char *argv[])
 	// 3.2.1), or once more after a damaged database. (It answered 410,
 	// which isn't a NEWGROUPS reply.)
 	ActiveDB *active = clt->srvr->active();
+	if (clt->srvr->active_missing()) {
+		(*clt->co) << active_missing_reply;
+		return 0;
+	}
 	// in the format of LIST ACTIVE (RFC 3977 7.3.2), not LIST
 	// ACTIVE.TIMES
 	stringstream lines;

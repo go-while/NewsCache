@@ -247,6 +247,7 @@ class RServer:virtual public NServer {
 	int _authenticating;	// in authenticate(): no second login on a 480
 	int _connecting;	// in connect(): no login on a 480 (TLS may not be up yet)
 	bool _active_incomplete; // the last combined active-list refresh failed
+	bool _active_any_complete; // a news server gave its whole list in it
 	size_t _MaxArticleSize;	// largest article accepted (MaxArticleSize)
 
 	/**
@@ -296,6 +297,7 @@ class RServer:virtual public NServer {
 		_authenticating = 0;
 		_connecting = 0;
 		_active_incomplete = false;
+		_active_any_complete = false;
 		_MaxArticleSize = 1024 * 1024;
 	}
 	void init(MPList * serverlist);
@@ -603,6 +605,15 @@ class CServer
 	bool refresh_lock(bool block);
 	void refresh_unlock();
 
+	// true when the active list has never been filled and the last try
+	// got it from no news server (see CServer::active)
+	bool _active_missing;
+	// The time of the last failed first fill is kept in the refresh lock
+	// file, so that the other sessions don't ask the news servers again
+	// within ACTIVE_RETRY_SECONDS either.
+	bool first_fill_failed_recently();
+	void note_first_fill_failed();
+
 	int active_valid()
 	{
 		unsigned long tm;
@@ -669,6 +680,17 @@ class CServer
 	* \return ActiveDB* Pointer to the active database.
 	*/
 	virtual ActiveDB *active(bool wait_for_refresh = false);
+
+	/**
+	* True when the last active() has no list to give: the list was
+	* never filled, and no news server gave it (it refused LIST ACTIVE,
+	* or could not be reached) in this try or in one less than
+	* ACTIVE_RETRY_SECONDS ago. LIST ACTIVE answers an error then, not
+	* an empty list.
+	*/
+	bool active_missing() const {
+		return _active_missing;
+	}
 
 	/**
 	 * Invalidate the Active DB. This is done by reseting the datebase
