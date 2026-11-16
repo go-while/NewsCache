@@ -144,6 +144,36 @@ func TestListActiveRefusedFreshCache(t *testing.T) {
 	}
 }
 
+// TestListActiveRefusedOnePattern: with two Read patterns, the news server
+// answers the first one's LIST ACTIVE (with no groups) and refuses the
+// second one and the plain LIST ACTIVE. It gave no whole list, so on a
+// fresh cache LIST ACTIVE answers 403 like a refusal of everything; the
+// first reply counted as a complete list and LIST ACTIVE gave an empty 215.
+func TestListActiveRefusedOnePattern(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    Read test.empty.*,test.alpha"
+	refuse := []string{"502 Permission denied"}
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"LIST active test.alpha": refuse, "LIST active": refuse},
+	}})
+	c := e.session()
+	code, line := c.Cmd("LIST ACTIVE")
+	if code == 215 {
+		t.Fatalf("LIST ACTIVE: %q %q, want 403", line, c.ReadDotLines())
+	}
+	if code != 403 || !strings.Contains(line, "no active list") {
+		t.Fatalf("LIST ACTIVE: %q, want 403 ... no active list", line)
+	}
+	sent := strings.Join(e.Upstream.Lines(), "\n")
+	for _, want := range []string{"list active test.empty.*", "list active test.alpha"} {
+		if !strings.Contains(strings.ToLower(sent), want) {
+			t.Errorf("the news server never got %q; it got:\n%s", want, sent)
+		}
+	}
+	c.Cmd("QUIT")
+}
+
 // TestLongGroupName: the upstream offers a group whose name is longer than
 // NewsCache's limit (511 characters). GROUP for it is refused with 411, the
 // session goes on, and the other groups are still listed.

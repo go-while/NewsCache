@@ -1106,7 +1106,6 @@ ActiveDB *RServer::active(bool)
 								 _CurrentServer->limitgroupsize,
 								 asked);
 							reply.finish();
-							any_complete = true;
 						}
 						catch(const ReplyLimitError &e) {
 							slog.p(Logger::Error) << _CurrentServer->hostname
@@ -1119,6 +1118,11 @@ ActiveDB *RServer::active(bool)
 							throw;
 						}
 					} while (sp != end);
+					// the server's whole list: every pattern's
+					// (one pattern's reply, then a refusal of the
+					// next, gave no list, and an empty first reply
+					// made LIST ACTIVE an empty 215 again)
+					any_complete = true;
 				}
 				catch(ResponseError & re) {
 					slog.p(Logger::Notice)
