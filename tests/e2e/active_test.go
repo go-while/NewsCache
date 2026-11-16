@@ -100,7 +100,8 @@ func TestListActiveRefusedFreshCache(t *testing.T) {
 	want403 := func(c *client.Conn, cmd string) {
 		t.Helper()
 		code, line := c.Cmd("%s", cmd)
-		if code == 403 {
+		// (the reply of this case: other errors answer 403 too)
+		if code == 403 && strings.Contains(line, "no active list") {
 			return
 		}
 		if code == 215 || code == 231 {
