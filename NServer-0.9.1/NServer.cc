@@ -228,7 +228,7 @@ int LServer::post(Article * article)
 RServer::RServer(MPList * serverlist)
 :	_ServerList(NULL), _CurrentServer(NULL), _pServerStream(NULL),
 	_authenticating(0), _connecting(0), _active_incomplete(false),
-	_MaxArticleSize(1024 * 1024)
+	_active_any_complete(false), _MaxArticleSize(1024 * 1024)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::RServer/1\n");
 	init(serverlist);
@@ -1132,7 +1132,6 @@ ActiveDB *RServer::active(bool)
 								 _CurrentServer->limitgroupsize,
 								 asked);
 							reply.finish();
-							any_complete = true;
 						}
 						catch(const ReplyLimitError &e) {
 							slog.p(Logger::Error) << _CurrentServer->hostname
@@ -1145,6 +1144,12 @@ ActiveDB *RServer::active(bool)
 							throw;
 						}
 					} while (sp != end);
+					// Complete only once every pattern's list
+					// was read: a server that answered one
+					// pattern and refused the next gave no whole
+					// list (an empty first answer made LIST
+					// ACTIVE an empty 215 again).
+					any_complete = true;
 				}
 				catch(ResponseError & re) {
 					slog.p(Logger::Notice)
@@ -1230,6 +1235,7 @@ ActiveDB *RServer::active(bool)
 	// turn an unfinished first fill's marker into INVALIDATED).
 	// (forced: a stamp still to come, from before the clock was put
 	// back, must not stay)
+	_active_any_complete = any_complete;
 	if (!_active_incomplete && any_complete && !sockstream::stopping())
 		_ActiveDB->setmtime(nvtime(NULL), 1);
 	return _ActiveDB;
@@ -2172,6 +2178,7 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 {
 	_refresh_fd = -1;
 	_refresh_locked = false;
+	_active_missing = false;
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "CServer::CServer(" << spooldir <<
@@ -2397,8 +2404,32 @@ void CServer::refresh_unlock()
 		;
 }
 
+bool CServer::first_fill_failed_recently()
+{
+	uint64_t t;
+	if (_refresh_fd < 0 ||
+	    pread(_refresh_fd, &t, sizeof(t), 0) != (ssize_t) sizeof(t))
+		return false;
+	const uint64_t now = nvtime(NULL);
+	// the retry mark's time: not longer than the list's own TTL
+	const uint64_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
+	    _TTLActive : ACTIVE_RETRY_SECONDS;
+	// (a time still to come: the clock was put back)
+	return t <= now && now - t < retry;
+}
+
+void CServer::note_first_fill_failed()
+{
+	const uint64_t t = nvtime(NULL);
+	if (_refresh_fd >= 0 &&
+	    pwrite(_refresh_fd, &t, sizeof(t), 0) != (ssize_t) sizeof(t))
+		slog.p(Logger::Warning) << "cannot write the active list's "
+		    "refresh lock file: " << strerror(errno) << "\n";
+}
+
 ActiveDB *CServer::active(bool wait_for_refresh)
 {
+	_active_missing = false;
 	// The validity is tested twice: another process may have refreshed the
 	// list while this one waited for the refresh lock.
 	if (active_valid())
@@ -2421,8 +2452,12 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		_NVActiveDB->getmtime(&stamp);
 		first_fill = stamp <= ActiveDB::FIRST_REFRESH_PENDING;
 	}
-	if (!refresh_lock(wait_for_refresh || first_fill))
+	if (!refresh_lock(wait_for_refresh || first_fill)) {
+		// (a first fill waits for the lock: it failed only because
+		// this process is stopping, and there is no list to give)
+		_active_missing = first_fill;
 		return _NVActiveDB;
+	}
 	// Another process may have refreshed the list between the check above
 	// and the lock (the non-blocking branch included): its list is as fresh
 	// as one this process would fetch, so nothing is fetched again. This is
@@ -2440,6 +2475,15 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		refresh_unlock();
 		return _NVActiveDB;
 	}
+	// Another session's first fill got no list a moment ago: the news
+	// servers aren't asked again before the retry time
+	// (ACTIVE_RETRY_SECONDS, or the TTL if shorter), as the retry mark
+	// below does for a list that exists.
+	if (first_fill && !wait_for_refresh && first_fill_failed_recently()) {
+		refresh_unlock();
+		_active_missing = true;
+		return _NVActiveDB;
+	}
 	try {
 		// Keep first-fill waiters waiting even after the first upstream
 		// applies records. A stopped first fill leaves this marker for the
@@ -2452,11 +2496,23 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 				_NVActiveDB->setmtime(ActiveDB::FIRST_REFRESH_PENDING, 1);
 		}
 		RServer::active();
+		if (first_fill && _active_incomplete && !_active_any_complete) {
+			// No news server gave a list, and there is none
+			// yet: LIST ACTIVE answers an error, not an empty
+			// list as if the servers had no groups. The
+			// first-fill mark stays (a retry mark made the empty
+			// list look fresh to every session); the failure's
+			// time in the lock file keeps the next tries from
+			// asking again too soon.
+			_active_missing = true;
+			if (!sockstream::stopping())
+				note_first_fill_failed();
+		}
 		// (not when the fetch failed because this process is
 		// stopping: that says nothing about the news servers, and the
 		// mark kept every other session from fetching the list for
 		// ACTIVE_RETRY_SECONDS, serving an old or even empty one)
-		if (_active_incomplete && !sockstream::stopping()) {
+		else if (_active_incomplete && !sockstream::stopping()) {
 			// Avoid fetching every server on every request when
 			// one is down, without extending the normal TTL.
 			nvtime_t now = nvtime(NULL);
