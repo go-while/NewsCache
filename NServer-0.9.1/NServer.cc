@@ -2380,8 +2380,11 @@ bool CServer::first_fill_failed_recently()
 	    pread(_refresh_fd, &t, sizeof(t), 0) != (ssize_t) sizeof(t))
 		return false;
 	const uint64_t now = nvtime(NULL);
+	// the retry mark's time: not longer than the list's own TTL
+	const uint64_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
+	    _TTLActive : ACTIVE_RETRY_SECONDS;
 	// (a time still to come: the clock was put back)
-	return t <= now && now - t < ACTIVE_RETRY_SECONDS;
+	return t <= now && now - t < retry;
 }
 
 void CServer::note_first_fill_failed()
@@ -2442,8 +2445,9 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		return _NVActiveDB;
 	}
 	// Another session's first fill got no list a moment ago: the news
-	// servers aren't asked again before ACTIVE_RETRY_SECONDS, as the
-	// retry mark below does for a list that exists.
+	// servers aren't asked again before the retry time (ACTIVE_RETRY_SECONDS,
+	// or the TTL if shorter), as the retry mark below does for a list that
+	// exists.
 	if (first_fill && !wait_for_refresh && first_fill_failed_recently()) {
 		refresh_unlock();
 		_active_missing = true;

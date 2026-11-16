@@ -598,7 +598,8 @@ class CServer
 
 	// The active list's refresh lock (.<spool>/.active.refresh): one
 	// session fetches the list at a time, and the others serve the list
-	// they have (see CServer::active).
+	// they have (see CServer::active). The file holds the time of the
+	// last first fill that got no list.
 	int _refresh_fd;
 	// true when the lock is held by this process
 	bool _refresh_locked;
@@ -610,7 +611,8 @@ class CServer
 	bool _active_missing;
 	// The time of the last failed first fill is kept in the refresh lock
 	// file, so that the other sessions don't ask the news servers again
-	// within ACTIVE_RETRY_SECONDS either.
+	// within the retry time either (ACTIVE_RETRY_SECONDS, or the TTL if
+	// shorter).
 	bool first_fill_failed_recently();
 	void note_first_fill_failed();
 
@@ -685,7 +687,7 @@ class CServer
 	* True when the last active() has no list to give: the list was
 	* never filled, and no news server gave it (it refused LIST ACTIVE,
 	* or could not be reached) in this try or in one less than
-	* ACTIVE_RETRY_SECONDS ago. LIST ACTIVE answers an error then, not
+	* ACTIVE_RETRY_SECONDS (or the TTL, if shorter) ago. LIST ACTIVE answers an error then, not
 	* an empty list.
 	*/
 	bool active_missing() const {
