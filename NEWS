@@ -1238,6 +1238,26 @@ Bug fixes:
 * NEXT, above the cached part of a group, asked the news server once
   for every number it passed. Looking up one number (NEXT, LAST, STAT)
   now caches the rest of its range of 10000 numbers at once.
+* A news server that sent more than its reply (lines after a status that
+  announced none, such as a list in reply to GROUP, text after a 430, or
+  the rest of a line longer than NewsCache reads) put the connection to
+  it out of step: the next command took those lines for its reply, so an
+  article the server had could reach the client as 430, and every later
+  reply on that connection was off too. NewsCache now closes such a
+  connection before the next command and opens a new one. A new
+  end-to-end test runs the cases of nntp-testkit's reply corpus for every
+  command NewsCache sends to a news server.
+* A news server that answered a command with a positive reply the command
+  did not expect (215 and a list in reply to GROUP, 222 and a body in reply
+  to ARTICLE) and sent the block after a pause put the connection out of
+  step: the lines were read as the next command's reply (430 for an article
+  the server has). NewsCache closes the connection on such a reply now.
+* When the news server refused LIST ACTIVE (or could not be reached)
+  and the cache had no active list yet, LIST ACTIVE, LIST ACTIVE.TIMES
+  and NEWGROUPS answered with an empty list, as if the server had no
+  groups. They now answer 403 (try again later); within 60 seconds of
+  such a failure (or the active list's Timeouts, if shorter) no session
+  asks the news servers for the list again.
 
 Documentation:
 * SECURITY.md: how to report a vulnerability privately (GitHub Security
@@ -1336,7 +1356,7 @@ Other changes:
   for, so there the shared section that follows an exclusive one holds
   the exclusive lock until it ends. (The e2e tests need Go, which the
   Hurd lacks.)
-* The end-to-end tests use nntp-testkit 0.12.0 (still Go 1.26 or later),
+* The end-to-end tests use nntp-testkit 0.14.1 (still Go 1.26 or later),
   and its reader conformance checks also run over the TLS listener
   (TLSListenTo), including the check that CAPABILITIES there doesn't
   list STARTTLS.
