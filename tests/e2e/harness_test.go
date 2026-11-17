@@ -158,6 +158,23 @@ func freeAddr(t *testing.T) string {
 	return l.Addr().String()
 }
 
+// freeDefaultPort returns a port that is free on every address, as
+// ListenTo DEFAULT binds it (the wildcard, IPv4 and IPv6), not only on
+// 127.0.0.1 like freeAddr's.
+func freeDefaultPort(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
 // deadAddr returns an address on 127.0.0.1 where connections are refused
 // until the test ends: a socket is bound there that doesn't listen. A
 // port from freeAddr is free again at once, and the test's own fake
@@ -416,7 +433,8 @@ func quitSession(t *testing.T, p *proc.Process, c *client.Conn) {
 // standalone starts newscache as a daemon in the foreground (-n) listening on
 // e.Listen. A port that was free when chosen can be taken before bind (by
 // another test run on the machine, too); retry a failed bind only for the
-// default loopback listener and for the TLS listener at *e.TLSAddr.
+// default loopback listener, for ListenTo DEFAULT:<port> (e.Listen is
+// 127.0.0.1 on that port) and for the TLS listener at *e.TLSAddr.
 func (e *env) standalone() *proc.Process {
 	e.t.Helper()
 	const attempts = 3
@@ -451,10 +469,19 @@ func (e *env) standalone() *proc.Process {
 			case <-p.Done():
 				err := p.Wait()
 				output := p.Stderr()
+				defaultPort := strings.HasPrefix(e.ListenTo, "DEFAULT:")
 				retry := automatic &&
-					strings.Contains(output, "can't listen on ListenTo "+e.Listen+":")
+					strings.Contains(output, "can't listen on ListenTo "+e.Listen+":") ||
+					defaultPort &&
+						strings.Contains(output, "can't listen on ListenTo "+e.ListenTo+":")
 				if retry && attempt+1 < attempts {
-					e.Listen = freeAddr(e.t)
+					if defaultPort {
+						port := freeDefaultPort(e.t)
+						e.ListenTo = "DEFAULT:" + port
+						e.Listen = net.JoinHostPort("127.0.0.1", port)
+					} else {
+						e.Listen = freeAddr(e.t)
+					}
 					break
 				}
 				if attempt+1 < attempts && e.retryTLSAddr(output) {

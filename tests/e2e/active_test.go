@@ -71,6 +71,109 @@ func TestIncompleteActiveRetry(t *testing.T) {
 	}
 }
 
+// TestListActiveRefusedFreshCache: the news server refuses LIST ACTIVE
+// and the cache has no active list yet. LIST ACTIVE, LIST ACTIVE.TIMES and
+// NEWGROUPS answer 403 (temporary, try again later); they answered 215 and
+// an empty list, as if the server had no groups. Within
+// ACTIVE_RETRY_SECONDS (60) neither this session nor another one asks the
+// server again, and GROUP still works. In the short-limit build (2
+// seconds, too short to check the first part on a busy host) the list is
+// fetched once that time is over.
+func TestListActiveRefusedFreshCache(t *testing.T) {
+	short := os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") == "1"
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	// NewsCache asks "list active <Read pattern>" first, then "list active"
+	refuse := []string{"502 Permission denied"}
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"LIST active *": refuse, "LIST active": refuse},
+	}})
+	asked := func() int {
+		n := 0
+		for _, l := range e.Upstream.Lines() {
+			if strings.HasPrefix(strings.ToUpper(l), "LIST ACTIVE") {
+				n++
+			}
+		}
+		return n
+	}
+	want403 := func(c *client.Conn, cmd string) {
+		t.Helper()
+		code, line := c.Cmd("%s", cmd)
+		// (the reply of this case: other errors answer 403 too)
+		if code == 403 && strings.Contains(line, "no active list") {
+			return
+		}
+		if code == 215 || code == 231 {
+			t.Fatalf("%s: %q %q, want 403", cmd, line, c.ReadDotLines())
+		}
+		t.Fatalf("%s: %q, want 403", cmd, line)
+	}
+	c := e.session()
+	want403(c, "LIST ACTIVE")
+	first := asked()
+	if first == 0 {
+		t.Fatal("the news server was not asked for LIST ACTIVE")
+	}
+	for _, cmd := range []string{"LIST", "LIST ACTIVE test.*", "LIST ACTIVE.TIMES",
+		"NEWGROUPS 20000101 000000 GMT"} {
+		want403(c, cmd)
+	}
+	other := e.session()
+	want403(other, "LIST ACTIVE")
+	if got := asked(); got != first && !short {
+		t.Errorf("the news server was asked again within the retry time: %d then %d LIST ACTIVE", first, got)
+	}
+	if code, line := other.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("GROUP: %q, want 211", line)
+	}
+	c.Cmd("QUIT")
+	other.Cmd("QUIT")
+	if !short {
+		return
+	}
+	// the news server gives its list now
+	upstreamWith(t, e, fakeserver.Options{})
+	time.Sleep(2300 * time.Millisecond)
+	later := e.session()
+	if code, line := later.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE after the retry time: %q, want 215", line)
+	}
+	if lines := later.ReadDotLines(); !containsPrefix(lines, "test.alpha ") {
+		t.Fatalf("LIST ACTIVE after the retry time: %q, want test.alpha", lines)
+	}
+}
+
+// TestListActiveRefusedOnePattern: with two Read patterns, the news server
+// answers the first one's LIST ACTIVE (with no groups) and refuses the
+// second one and the plain LIST ACTIVE. It gave no whole list, so on a
+// fresh cache LIST ACTIVE answers 403 like a refusal of everything; the
+// first reply counted as a complete list and LIST ACTIVE gave an empty 215.
+func TestListActiveRefusedOnePattern(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerLines = "    Read test.empty.*,test.alpha"
+	refuse := []string{"502 Permission denied"}
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		OverrideLine: map[string][]string{"LIST active test.alpha": refuse, "LIST active": refuse},
+	}})
+	c := e.session()
+	code, line := c.Cmd("LIST ACTIVE")
+	if code == 215 {
+		t.Fatalf("LIST ACTIVE: %q %q, want 403", line, c.ReadDotLines())
+	}
+	if code != 403 || !strings.Contains(line, "no active list") {
+		t.Fatalf("LIST ACTIVE: %q, want 403 ... no active list", line)
+	}
+	sent := strings.Join(e.Upstream.Lines(), "\n")
+	for _, want := range []string{"list active test.empty.*", "list active test.alpha"} {
+		if !strings.Contains(strings.ToLower(sent), want) {
+			t.Errorf("the news server never got %q; it got:\n%s", want, sent)
+		}
+	}
+	c.Cmd("QUIT")
+}
+
 // TestLongGroupName: the upstream offers a group whose name is longer than
 // NewsCache's limit (511 characters). GROUP for it is refused with 411, the
 // session goes on, and the other groups are still listed.

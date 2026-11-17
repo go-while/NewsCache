@@ -228,7 +228,7 @@ int LServer::post(Article * article)
 RServer::RServer(MPList * serverlist)
 :	_ServerList(NULL), _CurrentServer(NULL), _pServerStream(NULL),
 	_authenticating(0), _connecting(0), _active_incomplete(false),
-	_MaxArticleSize(1024 * 1024)
+	_active_any_complete(false), _MaxArticleSize(1024 * 1024)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::RServer/1\n");
 	init(serverlist);
@@ -673,6 +673,57 @@ void RServer::reply_unread()
 }
 
 /*
+ * NewsCache sends one command at a time and reads its reply to the end,
+ * so nothing is left in the buffer when the next command goes out. Bytes
+ * that are there came with an earlier reply: a block after a status that
+ * didn't announce one (215 and a list in reply to GROUP, 430 and text),
+ * the rest of a line longer than NNTP_MAXLINE. Read as the reply to the
+ * next command they put it and every later one out of step (an article
+ * the server has came back as 430). The connection is closed instead,
+ * and a new one is made; in connect() the set-up fails, and the caller
+ * tries again.
+ */
+void RServer::stale_reply()
+{
+	slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
+	    << " sent more than its reply, closing the connection\n";
+	_pServerStream->abort();
+	delete _pServerStream;
+	_pServerStream = NULL;
+	if (_connecting)
+		throw SystemError("news server sent more than its reply", -1,
+				  ERROR_LOCATION);
+	connect();
+}
+
+/*
+ * A positive reply (1xx, 2xx, 3xx) that the command didn't expect may
+ * come with a block, and only the replies a command expects tell where
+ * theirs ends (RFC 3977 3.1): a 215 and a list in reply to GROUP, a 222
+ * and a body in reply to ARTICLE. The rest of such a block that arrives
+ * after the next command was sent isn't in the buffer yet, so
+ * stale_reply() can't see it, and it is read as that command's reply. The
+ * connection is closed instead; the next command makes a new one. A 4xx
+ * or 5xx reply is one line (RFC 3977 3.1) and keeps the connection.
+ */
+bool RServer::reply_unexpected(const string & resp)
+{
+	if (resp.empty() || resp[0] < '1' || resp[0] > '3')
+		return false;
+	if (_CurrentServer)
+		slog.p(Logger::Warning) << "news server "
+		    << _CurrentServer->hostname << " answered "
+		    << resp.substr(0, 3) << ", not a reply to the command; "
+		    "closing the connection\n";
+	if (_pServerStream) {
+		_pServerStream->abort();
+		delete _pServerStream;
+		_pServerStream = NULL;
+	}
+	return true;
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
@@ -784,6 +835,8 @@ string RServer::issue(const char *command, const char *expresp)
 	slog.p(Logger::Info) << "RServer::issue: " << req.c_str();
 	if (!is_connected())
 		connect();
+	else if (_pServerStream->rdbuf()->in_avail() > 0)
+		stale_reply();
 	// Send command
 	for (;;) {
 		try {
@@ -890,6 +943,8 @@ string RServer::issue(const char *command, const char *expresp)
 	    || (expresp
 		&& strncmp(expresp, resp.data(), strlen(expresp)))) {
 		string c(loggable(command)), e(expresp ? expresp : "");
+		if (rs >= 3)
+			reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 
@@ -956,6 +1011,7 @@ void RServer::selectgroup(const char *name, int force)
 			throw NoSuchGroupError("no such group",
 					       ERROR_LOCATION);
 		string c(buf), e("211");
+		reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 
@@ -1106,7 +1162,6 @@ ActiveDB *RServer::active(bool)
 								 _CurrentServer->limitgroupsize,
 								 asked);
 							reply.finish();
-							any_complete = true;
 						}
 						catch(const ReplyLimitError &e) {
 							slog.p(Logger::Error) << _CurrentServer->hostname
@@ -1119,6 +1174,12 @@ ActiveDB *RServer::active(bool)
 							throw;
 						}
 					} while (sp != end);
+					// Complete only once every pattern's list
+					// was read: a server that answered one
+					// pattern and refused the next gave no whole
+					// list (an empty first answer made LIST
+					// ACTIVE an empty 215 again).
+					any_complete = true;
 				}
 				catch(ResponseError & re) {
 					slog.p(Logger::Notice)
@@ -1204,6 +1265,7 @@ ActiveDB *RServer::active(bool)
 	// turn an unfinished first fill's marker into INVALIDATED).
 	// (forced: a stamp still to come, from before the clock was put
 	// back, must not stay)
+	_active_any_complete = any_complete;
 	if (!_active_incomplete && any_complete && !sockstream::stopping())
 		_ActiveDB->setmtime(nvtime(NULL), 1);
 	return _ActiveDB;
@@ -1264,6 +1326,7 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		if (!NNTP_ISCODE(p, "211")) {
 			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 			string c(buf), e("211");
+			reply_unexpected(resp);
 			throw ResponseError(c, e, resp);
 		}
 
@@ -1340,6 +1403,10 @@ uint64_t RServer::liststep(const char *gname, artnum_t a, artnum_t b,
 	resp = issue(buf, NULL);
 	if (!NNTP_ISCODE(resp.c_str(), "211")) {
 		string c(buf), e("211");
+		// (and LISTGROUP is no use with this server, as in
+		// listgroup(): else every step made a new connection)
+		if (reply_unexpected(resp))
+			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 		throw ResponseError(c, e, resp);
 	}
 	ReplyBudget budget(range_reply_rows(a, b), UINT64_MAX, RANGE_REPLY_SECONDS);
@@ -1677,6 +1744,10 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
 			return 0;
+		// Anything else: the other command is tried, as before. A
+		// positive reply other than 224 may come with a block, so its
+		// connection is closed first; the next try makes a new one.
+		reply_unexpected(resp);
 		if (fmt[0] == 'o')
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else
@@ -1704,6 +1775,7 @@ void RServer::article(const char *gname, artnum_t nbr, Article * art)
 		if (strncmp(p, "423", 3) == 0)
 			throw NoSuchArticleError(resp, ERROR_LOCATION);
 		string c(buf), e("220");
+		reply_unexpected(resp);
 		throw ResponseError(c, e, resp);
 	}
 	readarticle(art);
@@ -1736,6 +1808,7 @@ void RServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	// check whether the article can be found at one of the other
@@ -1760,6 +1833,7 @@ void RServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	throw NoSuchArticleError(resp, ERROR_LOCATION);
@@ -1802,6 +1876,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 				    << p;
 			} else {
 				string c(cmd), e("223|430");
+				reply_unexpected(resp);
 				throw ResponseError(c, e, resp);
 			}
 		}
@@ -1819,6 +1894,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			if (strncmp(p, "440", 3) == 0)
 				throw NotAllowedError(resp,
 						      ERROR_LOCATION);
+			reply_unexpected(resp);
 			throw ResponseError("post\r\n", "[34]40", resp);
 		}
 		*_pServerStream << *article << ".\r\n" << flush;
@@ -1858,6 +1934,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			throw NotAllowedError(resp, ERROR_LOCATION);
 		if (strncmp("441", p, 3) == 0)
 			throw PostingFailedError(resp, ERROR_LOCATION);
+		reply_unexpected(resp);
 		throw ResponseError("post\r\n", "[23]40,44[01]", resp);
 	}
 }
@@ -2146,6 +2223,7 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 {
 	_refresh_fd = -1;
 	_refresh_locked = false;
+	_active_missing = false;
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "CServer::CServer(" << spooldir <<
@@ -2371,8 +2449,32 @@ void CServer::refresh_unlock()
 		;
 }
 
+bool CServer::first_fill_failed_recently()
+{
+	uint64_t t;
+	if (_refresh_fd < 0 ||
+	    pread(_refresh_fd, &t, sizeof(t), 0) != (ssize_t) sizeof(t))
+		return false;
+	const uint64_t now = nvtime(NULL);
+	// the retry mark's time: not longer than the list's own TTL
+	const uint64_t retry = _TTLActive < ACTIVE_RETRY_SECONDS ?
+	    _TTLActive : ACTIVE_RETRY_SECONDS;
+	// (a time still to come: the clock was put back)
+	return t <= now && now - t < retry;
+}
+
+void CServer::note_first_fill_failed()
+{
+	const uint64_t t = nvtime(NULL);
+	if (_refresh_fd >= 0 &&
+	    pwrite(_refresh_fd, &t, sizeof(t), 0) != (ssize_t) sizeof(t))
+		slog.p(Logger::Warning) << "cannot write the active list's "
+		    "refresh lock file: " << strerror(errno) << "\n";
+}
+
 ActiveDB *CServer::active(bool wait_for_refresh)
 {
+	_active_missing = false;
 	// The validity is tested twice: another process may have refreshed the
 	// list while this one waited for the refresh lock.
 	if (active_valid())
@@ -2395,8 +2497,12 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		_NVActiveDB->getmtime(&stamp);
 		first_fill = stamp <= ActiveDB::FIRST_REFRESH_PENDING;
 	}
-	if (!refresh_lock(wait_for_refresh || first_fill))
+	if (!refresh_lock(wait_for_refresh || first_fill)) {
+		// (a first fill waits for the lock: it failed only because
+		// this process is stopping, and there is no list to give)
+		_active_missing = first_fill;
 		return _NVActiveDB;
+	}
 	// Another process may have refreshed the list between the check above
 	// and the lock (the non-blocking branch included): its list is as fresh
 	// as one this process would fetch, so nothing is fetched again. This is
@@ -2414,6 +2520,15 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 		refresh_unlock();
 		return _NVActiveDB;
 	}
+	// Another session's first fill got no list a moment ago: the news
+	// servers aren't asked again before the retry time
+	// (ACTIVE_RETRY_SECONDS, or the TTL if shorter), as the retry mark
+	// below does for a list that exists.
+	if (first_fill && !wait_for_refresh && first_fill_failed_recently()) {
+		refresh_unlock();
+		_active_missing = true;
+		return _NVActiveDB;
+	}
 	try {
 		// Keep first-fill waiters waiting even after the first upstream
 		// applies records. A stopped first fill leaves this marker for the
@@ -2426,11 +2541,23 @@ ActiveDB *CServer::active(bool wait_for_refresh)
 				_NVActiveDB->setmtime(ActiveDB::FIRST_REFRESH_PENDING, 1);
 		}
 		RServer::active();
+		if (first_fill && _active_incomplete && !_active_any_complete) {
+			// No news server gave a list, and there is none
+			// yet: LIST ACTIVE answers an error, not an empty
+			// list as if the servers had no groups. The
+			// first-fill mark stays (a retry mark made the empty
+			// list look fresh to every session); the failure's
+			// time in the lock file keeps the next tries from
+			// asking again too soon.
+			_active_missing = true;
+			if (!sockstream::stopping())
+				note_first_fill_failed();
+		}
 		// (not when the fetch failed because this process is
 		// stopping: that says nothing about the news servers, and the
 		// mark kept every other session from fetching the list for
 		// ACTIVE_RETRY_SECONDS, serving an old or even empty one)
-		if (_active_incomplete && !sockstream::stopping()) {
+		else if (_active_incomplete && !sockstream::stopping()) {
 			// Avoid fetching every server on every request when
 			// one is down, without extending the normal TTL.
 			nvtime_t now = nvtime(NULL);
@@ -2888,6 +3015,7 @@ void CServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	// check whether the article can be found at one of the other
@@ -2913,6 +3041,7 @@ void CServer::article(const char *id, Article * art)
 			    <<
 			    "illegal response code to <article <id>> request\n"
 			    << p;
+			reply_unexpected(resp);
 		}
 	}
 	if (unreachable)
