@@ -11,6 +11,7 @@ EXTRA_DIST = COPYRIGHT README.md FEDORA.md SECURITY.md Dockerfile .dockerignore 
 	tests/e2e/artnum_test.go tests/e2e/updatenews_test.go tests/e2e/window_test.go tests/e2e/listgroup_steps_test.go tests/e2e/empty_range_test.go tests/e2e/hdr_test.go tests/e2e/history_test.go tests/e2e/corrupt_test.go \
 	tests/e2e/upstream_test.go tests/e2e/upstream_failure_test.go tests/e2e/upstream_late_failure_test.go tests/e2e/upstreams_test.go tests/e2e/spoolfull_test.go tests/e2e/clean_test.go tests/e2e/log_test.go tests/e2e/syslog_test.go \
 	tests/e2e/clienttls_test.go tests/e2e/clienttls_robust_test.go tests/e2e/serverhello_parser_test.go tests/e2e/sighup_restart_test.go tests/e2e/maxconn_host_test.go tests/e2e/compress_test.go
+EXTRA_DIST += tests/e2e/cached_refresh_test.go
 
 EXTRA_DIST += tests/e2e/concurrency_test.go tests/e2e/replycorpus_test.go
 
