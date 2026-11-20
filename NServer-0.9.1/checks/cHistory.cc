@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
+#include <algorithm>
 #include <iostream>
 #include <new>
 #include <string>
@@ -382,10 +383,9 @@ class RawShard:public NVHash {
 };
 
 // A damaged shard whose empty buckets all point into one sound chain of
-// 64 records: every chain looks sound, but the walk visits the same
-// records again and again (far more than fit into the file). prune
-// finds it damaged and moves it aside, as it did before it read a shard
-// in slices.
+// 64 records: every chain looks sound, but one slice reaches the same
+// records from many buckets. prune finds it damaged on its first slice
+// and moves it aside.
 static void prune_detects_aliased_chains(const string & hist)
 {
 	string id = id_for_shard(10, 0);
@@ -412,6 +412,83 @@ static void prune_detects_aliased_chains(const string & hist)
 	History::prune(keep, NULL);
 	CHECK(exists(hist + "/a.bad"));
 	CHECK(locs(id.c_str()) == "");
+}
+
+// For prune_survives_churn: message-IDs of shard 15 in bucket order.
+// keep replaces each location it is asked about by the one churn_ahead
+// places further on, in a later bucket. All records have the same size,
+// so the new ones take the space of the removed ones.
+static vector < string > churn_ids;
+static const int churn_ahead = 2 * History::PRUNE_SLICE;
+
+static string churn_group(int i)
+{
+	char g[32];
+	snprintf(g, sizeof(g), "g.churn.%06d", i);
+	return g;
+}
+
+static bool churn_keep(const string & group, void *)
+{
+	int i;
+	if (sscanf(group.c_str(), "g.churn.%d", &i) == 1 && i >= 0 &&
+	    (size_t) i < churn_ids.size()) {
+		// (the first keep runs without the shard's lock, so the test
+		// can write here: it plays sessions freeing and storing)
+		History::remove(churn_ids[i].c_str(), group.c_str(), 100000 + i);
+		size_t j = i + churn_ahead;
+		if (j < churn_ids.size())
+			History::add(churn_ids[j].c_str(),
+				     churn_group(j).c_str(), 100000 + j);
+	}
+	return true;
+}
+
+// A sound shard that changes much while prune walks it: between the
+// slices, the records just read are removed and as many added in
+// buckets still ahead. The walk then visits more records than the file
+// has room for, though it never holds more than about 2 slices' worth.
+// That is no damage: the shard must not be moved aside, its entries
+// stay, and prune returns.
+static void prune_survives_churn(const string & hist)
+{
+	const int churn_shard = 15;
+	const size_t pool = 32 * History::PRUNE_SLICE;
+	vector < pair < int, string > > ids;
+	for (int i = 0; ids.size() < pool; i++) {
+		char id[64];
+		snprintf(id, sizeof(id), "<churn%08d@check>", i);
+		unsigned char dg[16];
+		int sh, b;
+		History::route(id, dg, &sh, &b);
+		if (sh == churn_shard)
+			ids.push_back(make_pair(b, string(id)));
+	}
+	sort(ids.begin(), ids.end());
+	churn_ids.clear();
+	for (size_t i = 0; i < ids.size(); i++)
+		churn_ids.push_back(ids[i].second);
+	{
+		HistoryBatch hb;
+		for (int i = 0; i < churn_ahead; i++)
+			History::add(churn_ids[i].c_str(),
+				     churn_group(i).c_str(), 100000 + i);
+	}
+	string base = id_for_shard(churn_shard, 3);
+	History::add(base.c_str(), "g.base", 1);
+	struct stat st;
+	CHECK(stat((hist + "/f").c_str(), &st) == 0);
+	// room: what History's walk allows (records of the file's size)
+	size_t room = st.st_size / (2 * sizeof(unsigned long));
+	CHECK(room + churn_ahead < pool);
+	CHECK(History::prune(churn_keep, NULL) == 0);
+	CHECK(!exists(hist + "/f.bad"));
+	CHECK(locs(base.c_str()) == "g.base:1");
+	size_t live = 0;
+	for (size_t i = 0; i < churn_ids.size(); i++)
+		if (locs(churn_ids[i].c_str()) != "")
+			live++;
+	CHECK(live == (size_t) churn_ahead);
 }
 
 int main(int argc, char **argv)
@@ -605,6 +682,7 @@ int main(int argc, char **argv)
 	prune_with_concurrent_change(hist, true);
 	prune_survives_keep_failure(hist);
 	prune_detects_aliased_chains(hist);
+	prune_survives_churn(hist);
 
 	// a damaged shard: moved aside, lookups find nothing, then it works
 	string id5 = id_for_shard(5, 1);

@@ -40,6 +40,11 @@ struct Corrupt {
 struct Moved {
 };
 
+// prune visited more records in one walk of a shard than its file has
+// room for (see Shard::collect).
+struct Budget {
+};
+
 // A history record copied out of a shard for prune.
 struct PruneRec {
 	string msgid, locs;
@@ -107,31 +112,45 @@ class Shard:public NVHash {
 	}
 
 	// Copies the records (not the format record) of whole buckets, from
-	// bucket b on, into out until it holds at least limit records, and
-	// returns the first bucket not copied (BUCKETS at the end). Checks
-	// the links like sfind. Needs a lock.
+	// bucket b on, into out until at least limit records were visited,
+	// and returns the first bucket not copied (BUCKETS at the end).
+	// Checks the links like sfind. Needs a lock.
 	//
-	// visited counts the records visited in all slices of one walk of
-	// the shard: more than fit into the file means links that alias
-	// (many buckets into one chain), which per chain look sound. The
-	// file only grows, so the bound is taken anew at each lock. (Records
-	// removed and added again between slices may be counted twice; a
-	// sound shard still stays far below, every record being larger
-	// than sizeof(Record).)
+	// Damage (Corrupt): a chain that loops without coming back to its
+	// tail, or longer than the file has room for, or a record reached
+	// twice within the slice. Under one lock nothing changes, and a sound
+	// record is in one chain only, so a record reached twice means links
+	// that alias (buckets pointing into another bucket's chain).
+	//
+	// visited adds up the records visited in all slices of one walk; more
+	// than the file has room for (taken anew at each lock) throws Budget.
+	// That is no proof of damage: between slices, records of buckets
+	// already read may be removed and their space used again by new
+	// records in buckets still ahead, so a sound shard under heavy change
+	// gets there too. It bounds what aliasing that spans slices costs
+	// (each slice reaching the same chain once, which no slice can see):
+	// about one walk of a full file, then the shard is left for this run.
 	int collect(int b, size_t limit, vector < PruneRec > &out,
 		    size_t & visited) {
 		if (!hashtab || hashsz != History::BUCKETS)
 			throw Corrupt();
 		size_t max = mem_sz / sizeof(Record);
-		for (; b < History::BUCKETS && out.size() < limit; b++) {
+		vector < nvoff_t > seen;
+		for (; b < History::BUCKETS && seen.size() < limit; b++) {
 			nvoff_t t = hashtab[b];
 			if (!t)
 				continue;
 			check(t);
 			Record *tail = o2r(t), *prev = tail, *r;
+			// a loop that misses the tail, found as in Brent's method
+			Record *mark = tail;
+			size_t n = 0, lap = 0, power = 1;
 			do {
 				check(prev->next);
 				r = o2r(prev->next);
+				if (r != tail && r == mark)
+					throw Corrupt();
+				seen.push_back(prev->next);
 				if (r->szdata >= 18) {
 					const char *id = r->datap() + 16,
 					    *e = r->datap() + r->szdata;
@@ -143,11 +162,29 @@ class Shard:public NVHash {
 					}
 				}
 				prev = r;
-				if (++visited > max)
+				if (++n > max)
 					throw Corrupt();
+				if (++lap == power) {
+					mark = r;
+					power *= 2;
+					lap = 0;
+				}
 			} while (r != tail);
+			visited += n;
+			if (visited > max) {
+				check_unique(seen);
+				throw Budget();
+			}
 		}
+		check_unique(seen);
 		return b;
+	}
+
+	// Corrupt if an offset is in v twice.
+	static void check_unique(vector < nvoff_t > &v) {
+		sort(v.begin(), v.end());
+		if (adjacent_find(v.begin(), v.end()) != v.end())
+			throw Corrupt();
 	}
 
 	// The locations string of a record ("" if it has none).
@@ -236,8 +273,14 @@ void reset_shard(Shard & s, const char *why, bool damaged)
 		catch(...) {
 		}
 	} else {
-		slog.p(Logger::Notice) << "history: " << s.path << " " << why
-		    << ", reopening\n";
+		// (logging can fail when memory has run out; this is the
+		// recovery, it must not throw)
+		try {
+			slog.p(Logger::Notice) << "history: " << s.path << " "
+			    << why << ", reopening\n";
+		}
+		catch(...) {
+		}
 	}
 	try {
 		s.close();
@@ -678,6 +721,17 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 				reset_shard(*s, "was moved aside", false);
 				break;
 			}
+			catch(Budget &) {
+				// no damage seen: left as it is, for the next run
+				try {
+					slog.p(Logger::Warning) << "history: " << s->path
+					    << " changed too much while it was pruned,"
+					    " left for the next run\n";
+				}
+				catch(...) {
+				}
+				break;
+			}
 			catch(...) {
 				reset_shard(*s, "failed", false);
 				break;
@@ -763,8 +817,18 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 				ok = false;
 			}
 			catch(Error & e) {
-				slog.p(Logger::Error) << "history: " << s->path << ": "
-				    << e._errtext << "\n";
+				try {
+					slog.p(Logger::Error) << "history: " << s->path
+					    << ": " << e._errtext << "\n";
+				}
+				catch(...) {
+				}
+				reset_shard(*s, "failed", false);
+				ok = false;
+			}
+			catch(...) {
+				// (std::bad_alloc in keep, parse or apply) as in
+				// the walk
 				reset_shard(*s, "failed", false);
 				ok = false;
 			}
