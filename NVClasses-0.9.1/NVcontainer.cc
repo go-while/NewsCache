@@ -1037,6 +1037,14 @@ static int lock_dir(const string & fn)
 	return fd;
 }
 
+bool NVcontainer::is_named_file(void)
+{
+	struct stat ours, named;
+	return mem_fd >= 0 && mem_fn[0] && fstat(mem_fd, &ours) == 0 &&
+	    stat(mem_fn, &named) == 0 && ours.st_dev == named.st_dev &&
+	    ours.st_ino == named.st_ino;
+}
+
 void NVcontainer::corrupt(const std::string & why)
 {
 	string fn = mem_fn, bad = fn + ".bad";

@@ -36,6 +36,10 @@ namespace {
 struct Corrupt {
 };
 
+// The shard's file is no longer the one under its name (see prune).
+struct Moved {
+};
+
 // A history record copied out of a shard for prune.
 struct PruneRec {
 	string msgid, locs;
@@ -61,6 +65,7 @@ class Shard:public NVHash {
 
 	using NVHash::lock;
 	using NVHash::Record;
+	using NVHash::is_named_file;
 
 	void check(nvoff_t o) {
 		if (o < 16 || o % sizeof(unsigned long) != 0 ||
@@ -105,7 +110,16 @@ class Shard:public NVHash {
 	// bucket b on, into out until it holds at least limit records, and
 	// returns the first bucket not copied (BUCKETS at the end). Checks
 	// the links like sfind. Needs a lock.
-	int collect(int b, size_t limit, vector < PruneRec > &out) {
+	//
+	// visited counts the records visited in all slices of one walk of
+	// the shard: more than fit into the file means links that alias
+	// (many buckets into one chain), which per chain look sound. The
+	// file only grows, so the bound is taken anew at each lock. (Records
+	// removed and added again between slices may be counted twice; a
+	// sound shard still stays far below, every record being larger
+	// than sizeof(Record).)
+	int collect(int b, size_t limit, vector < PruneRec > &out,
+		    size_t & visited) {
 		if (!hashtab || hashsz != History::BUCKETS)
 			throw Corrupt();
 		size_t max = mem_sz / sizeof(Record);
@@ -115,7 +129,6 @@ class Shard:public NVHash {
 				continue;
 			check(t);
 			Record *tail = o2r(t), *prev = tail, *r;
-			size_t n = 0;
 			do {
 				check(prev->next);
 				r = o2r(prev->next);
@@ -130,7 +143,7 @@ class Shard:public NVHash {
 					}
 				}
 				prev = r;
-				if (++n > max)
+				if (++visited > max)
 					throw Corrupt();
 			} while (r != tail);
 		}
@@ -630,15 +643,26 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 		 * the slices the shard may change and be mapped anew, so only
 		 * copies are kept across locks. A record stays in its bucket
 		 * when it changes, so each one is read once, as it is when its
-		 * bucket is read.
+		 * bucket is read. Unlocking gives a waiting writer a chance to
+		 * take the shard, not a guarantee (file locks keep no queue);
+		 * the check of a slice without the lock leaves it the time.
+		 *
+		 * Another process that finds the file damaged moves it aside
+		 * without the file's lock, also between two slices: this one
+		 * would go on in the file moved aside. So each lock first
+		 * checks that the file is still the one under its name, and
+		 * the shard is left for this run if not.
 		 */
 		bool ok = true;
+		size_t visited = 0;
 		for (int b = 0; ok && b < BUCKETS;) {
 			vector < PruneRec > recs;
 			try {
 				s->lock(NVcontainer::ShrdLock);
 				try {
-					b = s->collect(b, PRUNE_SLICE, recs);
+					if (!s->is_named_file())
+						throw Moved();
+					b = s->collect(b, PRUNE_SLICE, recs, visited);
 				}
 				catch(...) {
 					s->lock(NVcontainer::UnLock);
@@ -650,16 +674,29 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 				reset_shard(*s, "is damaged", true);
 				break;
 			}
+			catch(Moved &) {
+				reset_shard(*s, "was moved aside", false);
+				break;
+			}
 			catch(...) {
 				reset_shard(*s, "failed", false);
 				break;
 			}
 			// Parsed and checked without the lock (keep may stat).
+			// What fails here (std::bad_alloc) ends this shard's
+			// walk, as when the walk itself fails.
 			PruneCtx ctx;
 			ctx.keep = keep;
 			ctx.arg = arg;
-			for (size_t i = 0; i < recs.size(); i++)
-				prune_one(recs[i].msgid, recs[i].locs, &ctx);
+			try {
+				for (size_t i = 0; i < recs.size(); i++)
+					prune_one(recs[i].msgid, recs[i].locs,
+						  &ctx);
+			}
+			catch(...) {
+				reset_shard(*s, "failed", false);
+				break;
+			}
 			vector < Op > &ops = ctx.ops;
 			if (ops.empty())
 				continue;
@@ -686,6 +723,8 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 			try {
 				s->lock(NVcontainer::ExclLock);
 				try {
+					if (!s->is_named_file())
+						throw Moved();
 					for (size_t i = 0; i < ops.size(); i++) {
 						const Op &op = ops[i];
 						unsigned char dg[16];
@@ -717,6 +756,10 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 			}
 			catch(Corrupt &) {
 				reset_shard(*s, "is damaged", true);
+				ok = false;
+			}
+			catch(Moved &) {
+				reset_shard(*s, "was moved aside", false);
 				ok = false;
 			}
 			catch(Error & e) {
