@@ -1677,13 +1677,22 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 	char buf[513];
 	string resp;
 	const char *p;
-	const char *fmt = "over %llu-%llu\r\n";
+	const char *fmt;
+	// OVER refused here with a reply that doesn't say it is unsupported
+	// (403, 480 without a login, a rate limit; see reply_unsupported):
+	// XOVER is tried instead, for this request only. Each command is
+	// sent at most once per call.
+	bool over_refused = false;
+	string refused_cmd, refused;
 
 	selectgroup(ng->name());
 	for (;;) {
-		if (!(_CurrentServer->nntpflags & MPListEntry::F_OVER))
-			fmt = "xover %llu-%llu\r\n";
-		if (!(_CurrentServer->nntpflags & MPListEntry::F_XOVER)) {
+		const bool over = (_CurrentServer->nntpflags & MPListEntry::F_OVER)
+		    && !over_refused;
+		fmt = over ? "over %llu-%llu\r\n" : "xover %llu-%llu\r\n";
+		if (!over && !(_CurrentServer->nntpflags & MPListEntry::F_XOVER)) {
+			if (over_refused)
+				throw ResponseError(refused_cmd, "224", refused);
 			slog.
 			    p(Logger::
 			      Critical) <<
@@ -1744,11 +1753,30 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
 			return 0;
-		// Anything else: the other command is tried, as before. A
-		// positive reply other than 224 may come with a block, so its
-		// connection is closed first; the next try makes a new one.
+		// Anything else: the other command is tried. A positive reply
+		// other than 224 may come with a block, so its connection is
+		// closed first; the next try makes a new one.
 		reply_unexpected(resp);
-		if (fmt[0] == 'o')
+		if (!reply_unsupported(resp)) {
+			// Not now (403, 480 without a login, ...): this request
+			// fails, unless XOVER gives the records, but OVER and
+			// XOVER stay on for the next one. They were turned off
+			// for the rest of the process: after a 403 to OVER and
+			// one to XOVER every later request failed with "neither
+			// OVER nor XOVER" without asking the server (updatenews:
+			// every later group of the run).
+			if (!over) {
+				string c(buf), e("224");
+				throw ResponseError(c, e, resp);
+			}
+			over_refused = true;
+			refused_cmd = buf;
+			refused = resp;
+			continue;
+		}
+		// (500, 501, 503, a positive reply: not supported, for the
+		// rest of the process)
+		if (over)
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else
 			_CurrentServer->nntpflags &= ~MPListEntry::F_XOVER;
