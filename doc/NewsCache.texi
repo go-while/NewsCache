@@ -682,8 +682,18 @@ server closes, or on which @code{ReadTimeout} or a status line's limit
 runs out, while NewsCache sets it up (at the
 greeting, or at @code{MODE READER}, @code{STARTTLS}, @code{AUTHINFO},
 @code{COMPRESS} or @code{LIST OVERVIEW.FMT}) is made again too, up to
-@code{Retries} times; a refusal there (a login or @code{STARTTLS}
-refused) isn't retried. A TLS handshake that fails (after the
+@code{Retries} times, and so is one where @code{MODE READER} or
+@code{LIST OVERVIEW.FMT} gets @samp{400} (or a @samp{503} with the
+connection closed behind it); a refusal there (a login or
+@code{STARTTLS} refused) isn't retried. Only @samp{500}, @samp{501},
+@samp{503} or an unexpected positive reply to @code{MODE READER} or
+@code{LIST OVERVIEW.FMT} turns that command off for the server for the
+rest of the client session or @command{updatenews} run. Any other
+refusal of @code{MODE READER} (such as @samp{403}, or @samp{480}
+without a login) gives up that connection like one that couldn't be
+made; any other refusal of @code{LIST OVERVIEW.FMT} leaves the
+standard overview format for that connection. The next connection
+sends the command again. A TLS handshake that fails (after the
 @samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
 connection that couldn't be made: a connection that can't be made at
 all (refused, timed out, a failed TLS handshake) isn't retried within

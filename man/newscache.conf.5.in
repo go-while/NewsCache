@@ -515,9 +515,17 @@ plus 60 seconds), and sends the command again. A connection that the
 server closes, or on which ReadTimeout or a status line's limit runs
 out, while it is set up (at the greeting or at MODE READER, STARTTLS,
 AUTHINFO, COMPRESS or LIST OVERVIEW.FMT) is made again too, up to
-Retries times; a refusal there (a login or STARTTLS refused) isn't
-retried. A TLS handshake that fails (after the 382 to STARTTLS, or with
-ssl) counts as a connection that couldn't be made. With a login (User
+Retries times, and so is one where MODE READER or LIST OVERVIEW.FMT
+gets 400 (or a 503 with the connection closed behind it); a refusal
+there (a login or STARTTLS refused) isn't retried. Only 500, 501, 503
+or an unexpected positive reply to MODE READER or LIST OVERVIEW.FMT
+turns that command off for the server for the rest of the client
+session or updatenews run. Any other refusal of MODE READER (such as
+403, or 480 without a login) gives up that connection like one that
+couldn't be made; any other refusal of LIST OVERVIEW.FMT leaves the
+standard overview format for that connection. The next connection
+sends the command again. A TLS handshake that fails (after the 382 to
+STARTTLS, or with ssl) counts as a connection that couldn't be made. With a login (User
 and Password) each set-up logs in again: a server that closes at
 AUTHINFO gets the login up to Retries + 1 times for each connection
 NewsCache makes, so up to (Retries + 1) x (Retries + 1) times for a
