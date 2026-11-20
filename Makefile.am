@@ -15,6 +15,7 @@ EXTRA_DIST += tests/e2e/cached_refresh_test.go
 
 EXTRA_DIST += tests/e2e/concurrency_test.go tests/e2e/replycorpus_test.go
 EXTRA_DIST += tests/e2e/status_deadline_test.go
+EXTRA_DIST += tests/e2e/listgroup_sync_test.go
 
 # Every Go file of the e2e suite must be in the tarball: one left out of
 # EXTRA_DIST only means fewer tests there, and nothing else would notice

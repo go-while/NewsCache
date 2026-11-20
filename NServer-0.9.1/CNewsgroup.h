@@ -51,10 +51,11 @@ class CNewsgroup:public NVNewsgroup {
 	};
 
 	void sUpdateGroupInfo(void);
-	void listgroup(char *lstgrp, artnum_t f, artnum_t l);
+	// false: the list didn't come whole (see CNewsgroup.cc)
+	bool listgroup(char *lstgrp, artnum_t f, artnum_t l);
 	bool synced(artnum_t c, artnum_t l, nvtime_t now);
 	bool chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf);
-	void fetchchunk(ChunkFetch & cf);
+	bool fetchchunk(ChunkFetch & cf);
 	void storechunk(ChunkFetch & cf, bool complete);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the

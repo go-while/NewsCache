@@ -149,30 +149,54 @@ RNewsgroup *CNewsgroup::pass(void)
 	return _pass;
 }
 
-void CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
+/*
+ * The numbers of [f,l] the news server has: lstgrp[n - f] is set for each.
+ * true: lstgrp is the server's whole list of [f,l], or the server doesn't
+ * do LISTGROUP (every number is set: only the overview records tell).
+ * false: the list didn't come whole (the connection broke in the middle
+ * of it or couldn't be set up, a 403 or another refusal that doesn't say
+ * "unsupported"): every number is set too, since a number missing from a
+ * partial list is no sign that its article is gone, and the caller must
+ * not mark the range as synchronized, so the next synchronization asks
+ * again and removes what the news server deleted. Deleted articles stayed
+ * in the spool for one group timeout. A ReplyLimitError goes on to the
+ * caller.
+ */
+bool CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 {
 	try {
 		_RServer->listgroup(_NewsgroupName, lstgrp, f, l);
+		return true;
 	} catch(ResponseError & rs) {
-		// error, we should update nntpflag variable
-		// Assume server has all articles
-		slog.
-		    p(Logger::
-		      Error) <<
-		    "news server does not support listgroup command\n";
 		memset(lstgrp, 1, l - f + 1);
+		if (listgroup_unsupported(rs)) {
+			// (RServer::listgroup switched LISTGROUP off)
+			slog.p(Logger::Error)
+			    << "news server does not support listgroup command\n";
+			return true;
+		}
+		slog.p(Logger::Error) << name() << ": LISTGROUP " << f << "-"
+		    << l << " failed (" << rs._got << "), not marked as "
+		    << "synchronized\n";
+		return false;
 	} catch(const ReplyLimitError &) {
 		// A limit is not an unsupported LISTGROUP: do not mark an
 		// incomplete reply as a successful synchronization.
 		throw;
 	} catch(Error & e) {
+		// (the connection broke in the middle of the list)
 		memset(lstgrp, 1, l - f + 1);
+		slog.p(Logger::Error) << name() << ": LISTGROUP " << f << "-"
+		    << l << " failed (" << e._errtext << "), not marked as "
+		    << "synchronized\n";
+		return false;
 	} catch(...) {
 		slog.p(Logger::Error)
 		    << "UNEXPECTED EXCEPTION WHILE ISSUEING LISTGROUP\n"
 		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
 		// (left at 0, every cached article of the range was deleted)
 		memset(lstgrp, 1, l - f + 1);
+		return false;
 	}
 }
 
@@ -310,9 +334,12 @@ class OverCollector:public RNewsgroup {
  * numbers it has, if it supports LISTGROUP, and the overview records the
  * spool doesn't have. Nothing is stored and no lock is held while the
  * news server is waited for; storechunk() stores the result. Throws what
- * the server connection throws (cf keeps what came before).
+ * the server connection throws (cf keeps what came before). false: the
+ * news server's list didn't come whole (see listgroup): the records are
+ * fetched as without LISTGROUP, nothing may be removed, and the chunk
+ * must not be marked as synchronized.
  */
-void CNewsgroup::fetchchunk(ChunkFetch & cf)
+bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 {
 	VERB(slog.p(Logger::Debug) << "CNewsgroup::fetchchunk(" << cf.from
 	     << "," << cf.top << ")\n");
@@ -322,8 +349,10 @@ void CNewsgroup::fetchchunk(ChunkFetch & cf)
 			  cf.records);
 
 	cf.lstgrp.assign(l0 - f0 + 1, 0);
-	listgroup(&cf.lstgrp[0], f0, l0);
-	cf.listed = (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP) != 0;
+	bool whole = listgroup(&cf.lstgrp[0], f0, l0);
+	// (a partial list is no evidence that the others are gone)
+	cf.listed = whole &&
+	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP) != 0;
 	{
 		// the records the spool has now (storechunk checks again)
 		GroupLock guard(*this, NVcontainer::ShrdLock);
@@ -350,8 +379,9 @@ void CNewsgroup::fetchchunk(ChunkFetch & cf)
 			done = l;
 		}
 	} else {
-		// No LISTGROUP: fetch the runs of numbers we have no record
-		// for (gaps of fewer than 8 cached ones along)
+		// No LISTGROUP, or its list didn't come whole: fetch the
+		// runs of numbers we have no record for (gaps of fewer
+		// than 8 cached ones along)
 		f = f0;
 		while (f <= l0) {
 			if (have[f - f0]) {
@@ -367,6 +397,7 @@ void CNewsgroup::fetchchunk(ChunkFetch & cf)
 			f = l + 1;
 		}
 	}
+	return whole;
 }
 
 /*
@@ -517,12 +548,19 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 	// the news server, which gives the records, or a 403 (the
 	// connection closed after part of a list) when it fails again.
 	try {
+		// false: the news server's list didn't come whole. The
+		// records the index lacked were fetched as without LISTGROUP,
+		// so it holds every article the server has (and perhaps some
+		// it deleted): it is served, but the chunk stays
+		// unsynchronized, and the next request synchronizes it again
+		// (and removes what the server deleted)
+		bool whole = true;
 		if (cf.from <= cf.top) {
 			try {
 #ifdef NEWSCACHE_TEST_FRESHEN_FAULT
 				test_freshen_fault();
 #endif
-				fetchchunk(cf);
+				whole = fetchchunk(cf);
 			}
 			catch(...) {
 				// what came before the failure is kept, as when
@@ -531,7 +569,7 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 				throw;
 			}
 		}
-		storechunk(cf, true);
+		storechunk(cf, whole);
 	}
 	catch(const CorruptDBError &) {
 		// NVcontainer has moved the database aside and started a new
@@ -920,8 +958,9 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 	char *data;
 	size_t szdata;
 	artnum_t f, top;
-
-	listgroup(&lstgrp[0], a, b);
+	// false: the list didn't come whole (all set: nothing is removed),
+	// and the chunk isn't marked as synchronized below
+	bool whole = listgroup(&lstgrp[0], a, b);
 	{
 		// what the spool has now (checked again before each change)
 		GroupLock guard(*this, NVcontainer::ShrdLock);
@@ -980,7 +1019,7 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		first = arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
-	if (a <= first && first <= top &&
+	if (whole && a <= first && first <= top &&
 	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
 		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
 	setmtime(nvtime(NULL));
