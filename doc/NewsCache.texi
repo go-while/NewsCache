@@ -672,14 +672,18 @@ NewsCache connects to it again and issues the command again, up to
 client gets an error. A reply of @samp{400} counts as a closed
 connection, and so does a connection on which @code{ReadTimeout} ran
 out or a status line took longer than @code{ReadTimeout} plus 60
-seconds (a reply to a command of the connection set-up, such as
-@code{MODE READER} or @code{AUTHINFO}, that takes this long fails the
-command at once, as a closed connection during the set-up does; every
-attempt, and every connection set-up within it, can wait up to that
-limit, so with the defaults a command can wait well over an hour); @samp{503} (``feature not supported'' in RFC 3977) only when the
+seconds (every attempt, and every connection set-up within it, can wait
+up to that limit, so with the defaults a command can wait well over an
+hour); @samp{503} (``feature not supported'' in RFC 3977) only when the
 server has closed the connection behind it, as old INN versions did
 with @samp{503 Timeout} on an idle connection. Otherwise a @samp{503}
-is an ordinary error reply and isn't sent again. A first connection
+is an ordinary error reply and isn't sent again. A connection that the
+server closes, or on which @code{ReadTimeout} or a status line's limit
+runs out, while NewsCache sets it up (at the
+greeting, or at @code{MODE READER}, @code{STARTTLS}, @code{AUTHINFO},
+@code{COMPRESS} or @code{LIST OVERVIEW.FMT}) is made again too, up to
+@code{Retries} times; a refusal there (a login or @code{STARTTLS}
+refused) isn't retried. A first connection
 that fails isn't retried. @code{Retries} is an option of a
 @code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout

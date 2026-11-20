@@ -362,6 +362,9 @@ void RServer::connect()
 #endif
 
 	for (;;) {
+		// (each attempt asks again: the last one may have broken
+		// after a 480 to MODE READER)
+		mode_reader_after_login = 0;
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
@@ -479,8 +482,11 @@ void RServer::connect()
 		}
 #endif
 
-		if (_CurrentServer->user[0])
+		if (_CurrentServer->user[0]) {
 			authenticate();
+			RSERVER_CONNECT_CHECK_CONNECTION
+			    ("Cannot read data from %s:%s");
+		}
 
 		if (mode_reader_after_login) {
 			resp = issue("mode reader\r\n", NULL);
@@ -734,9 +740,9 @@ bool RServer::reply_unexpected(const string & resp)
  * ReadTimeout). Past that the connection is aborted (no QUIT, no flush to
  * a peer that isn't answering) and the stream is bad, as when the server
  * closed it, so the callers retry (Retries) or fail as for a lost
- * connection. The part of the line that came is dropped: in connect() an
- * issue() hands the reply on even from a bad stream, and a cut "211 n f l"
- * from the GROUP of the set-up was taken for the group's numbers.
+ * connection. The part of the line that came is dropped (and issue() in
+ * connect() hands on nothing from a bad stream): a cut "211 n f l" from the
+ * GROUP of the set-up was taken for the group's numbers.
  * ReadTimeout 0 stays "no timeout at all".
  */
 int RServer::readstatus(string & line, int keepnl)
@@ -859,6 +865,10 @@ void RServer::authenticate()
 		throw;
 	}
 	_authenticating = 0;
+	// The connection broke while connect() set it up: no reply, no
+	// refusal; connect() sees the bad stream and connects again.
+	if (_connecting && !_pServerStream->good())
+		return;
 	if (resp[0] != '2') {
 		string c("_authenticate_"), e("[23]..");
 		delete _pServerStream;
@@ -928,9 +938,19 @@ string RServer::issue(const char *command, const char *expresp)
 			log_compress_error();
 		}
 		if (_connecting) {
-			if (!_pServerStream->good())
+			if (!_pServerStream->good()) {
+				// The connection broke (closed, ReadTimeout, the
+				// status line's deadline): there is no reply, and a
+				// part of a line that came before is none either.
+				// connect() sees the bad stream and connects again
+				// (Retries). The ResponseError thrown below for a
+				// missing reply skipped that, and the command
+				// failed on one dropped set-up; a cut "211 n f l"
+				// was taken as the set-up GROUP's numbers.
 				slog.p(Logger::Warning) << "RServer::issue: no "
 				    "connection to news server while connecting\n";
+				return string();
+			}
 			break;
 		} else if (!_pServerStream->good()) {
 			slog.
@@ -977,11 +997,17 @@ string RServer::issue(const char *command, const char *expresp)
 		// to reconnect to the server and reissue the command.
 		for (;;) {
 			i--;
-			if (i == 0)
+			if (i == 0) {
+				// The broken connection goes: with Retries 0 it
+				// stayed, is_connected() was true, and every later
+				// command of the session was sent on it and failed
+				// without a new connection.
+				disconnect();
 				throw
 				    SystemError
 				    ("maximum number of retries reached",
 				     -1, ERROR_LOCATION);
+			}
 			disconnect();
 			try {
 				connect();
@@ -1967,11 +1993,14 @@ void RServer::post(MPListEntry * srvr, Article * article)
 		    "lost connection to news server unexpectedly\n";
 		for (;;) {
 			i--;
-			if (i == 0)
+			if (i == 0) {
+				// (as in issue(): the broken connection goes)
+				disconnect();
 				throw
 				    SystemError
 				    ("maximum number of retries reached while trying to post an article",
 				     -1, ERROR_LOCATION);
+			}
 			disconnect();
 			try {
 				connect();
