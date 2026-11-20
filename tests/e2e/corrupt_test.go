@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -712,37 +713,225 @@ func TestCorruptDBMidListCloses(t *testing.T) {
 	}
 }
 
-// breakRecord damages the length prefix of one article's record in a group
-// database: sget then rejects it ("bad index entry") wherever that record is
-// read. The layout is NVcontainer's: a Header, then the index block the header
-// points at (userdata), first article number, last article number, then one
-// file offset per article.
-func breakRecord(t *testing.T, path string, b []byte, artnum uint64) {
-	t.Helper()
-	if len(b) < 48 {
-		t.Fatalf("%s: only %d bytes", path, len(b))
+// nvLayout is how the newscache that wrote a database stores NVcontainer's
+// unsigned longs (nvoff_t, nvtime_t, NVArray's index and size prefixes): their
+// width and byte order. The file is mapped into memory, so both are those of
+// the platform newscache was built for (i386: 4 bytes, little-endian; s390x:
+// 8 bytes, big-endian), which need not be this test binary's.
+type nvLayout struct {
+	order binary.ByteOrder
+	word  uint64
+}
+
+func (l nvLayout) String() string {
+	return fmt.Sprintf("%d-byte words, %s", l.word, l.order)
+}
+
+// at reads the unsigned long at off.
+func (l nvLayout) at(b []byte, off uint64) uint64 {
+	if l.word == 4 {
+		return uint64(l.order.Uint32(b[off:]))
 	}
-	if hdr := uint64(binary.LittleEndian.Uint32(b[0:4])); hdr != 48 {
-		t.Skipf("%s: header size %d, this test knows 48", path, hdr)
+	return l.order.Uint64(b[off:])
+}
+
+// nvLayoutOf tells the layout from NVcontainer's header: hlen (4 bytes) is
+// sizeof(Header), two 4-byte fields and five unsigned longs, so 28 or 48;
+// version (4 bytes) is 2. In the other byte order neither value reads as
+// itself, so at most one layout matches. A header that matches none is an
+// error, not a skip: the corruption must not quietly stop running.
+func nvLayoutOf(b []byte) (nvLayout, error) {
+	if len(b) < 8 {
+		return nvLayout{}, fmt.Errorf("only %d bytes, no NVcontainer header", len(b))
 	}
-	userdata := binary.LittleEndian.Uint64(b[40:48])
-	if userdata+16 > uint64(len(b)) {
-		t.Fatalf("%s: index block at %d outside the file", path, userdata)
+	for _, order := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
+		for _, word := range []uint64{4, 8} {
+			l := nvLayout{order, word}
+			hlen := 8 + 5*word
+			if uint64(order.Uint32(b[0:4])) != hlen || order.Uint32(b[4:8]) != 2 {
+				continue
+			}
+			if uint64(len(b)) < hlen {
+				return l, fmt.Errorf("%d bytes, shorter than its %d-byte header (%s)", len(b), hlen, l)
+			}
+			return l, nil
+		}
 	}
-	fst := binary.LittleEndian.Uint64(b[userdata:])
-	lst := binary.LittleEndian.Uint64(b[userdata+8:])
+	return nvLayout{}, fmt.Errorf("unknown NVcontainer header (first bytes % x): want hlen 28 or 48 "+
+		"and version 2, 4-byte fields in little- or big-endian order; has the database format changed?", b[:8])
+}
+
+// breakRecordBytes sets the size prefix of article artnum's record in the
+// group database b to all ones and returns the layout it found. The layout is
+// NVcontainer's: a Header whose last field is userdata, the offset of the
+// index block (NVArray); the block holds the first article number, the last
+// one, then one file offset per article. A record starts with its size. All of
+// these are unsigned longs in newscache's layout (see nvLayout). b is left
+// alone on an error.
+func breakRecordBytes(b []byte, artnum uint64) (nvLayout, error) {
+	l, err := nvLayoutOf(b)
+	if err != nil {
+		return l, err
+	}
+	w := l.word
+	userdata := l.at(b, 8+4*w)
+	if userdata < 8+5*w || userdata > uint64(len(b))-2*w {
+		return l, fmt.Errorf("index block at %d outside the file (%s)", userdata, l)
+	}
+	fst := l.at(b, userdata)
+	lst := l.at(b, userdata+w)
 	if artnum < fst || artnum > lst {
-		t.Fatalf("%s: articles %d..%d, no %d", path, fst, lst, artnum)
+		return l, fmt.Errorf("articles %d..%d, no %d (%s)", fst, lst, artnum, l)
 	}
-	off := binary.LittleEndian.Uint64(b[userdata+16+(artnum-fst)*8:])
-	if off == 0 || off+8 > uint64(len(b)) {
-		t.Fatalf("%s: record %d at %d outside the file", path, artnum, off)
+	slot := userdata + 2*w + (artnum-fst)*w
+	if slot+w > uint64(len(b)) {
+		return l, fmt.Errorf("index entry of %d at %d outside the file (%s)", artnum, slot, l)
 	}
-	// the 8-byte size prefix no longer fits the block: sget calls corrupt()
-	for i := uint64(0); i < 8; i++ {
+	off := l.at(b, slot)
+	if off == 0 || off > uint64(len(b))-w {
+		return l, fmt.Errorf("record %d at %d outside the file (%s)", artnum, off, l)
+	}
+	for i := uint64(0); i < w; i++ {
 		b[off+i] = 0xff
 	}
+	return l, nil
+}
+
+// breakRecord damages the length prefix of one article's record in a group
+// database: the size no longer fits the record's block, so sget calls
+// corrupt() ("bad index entry") wherever that record is read.
+func breakRecord(t *testing.T, path string, b []byte, artnum uint64) {
+	t.Helper()
+	l, err := breakRecordBytes(b, artnum)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	t.Logf("%s: record %d broken, NVcontainer layout: %s", path, artnum, l)
 	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// nvTestDB builds a group database as newscache with layout l writes it, with
+// the header size hlen and the userdata field at udoff given by the caller
+// (not derived from l): the header, the index block for articles fst.. and
+// one record per entry of recs, each block after its size as nvalloc stores
+// it. It returns the file and each record's offset.
+func nvTestDB(l nvLayout, hlen, udoff, fst uint64, recs [][]byte) ([]byte, []uint64) {
+	w := l.word
+	put := func(b []byte, off, v uint64) {
+		if w == 4 {
+			l.order.PutUint32(b[off:], uint32(v))
+		} else {
+			l.order.PutUint64(b[off:], v)
+		}
+	}
+	n := uint64(len(recs))
+	userdata := hlen + w
+	end := userdata + (2+n)*w
+	offs := make([]uint64, n)
+	for i, r := range recs {
+		offs[i] = end + w
+		end = (offs[i] + w + uint64(len(r)) + w - 1) / w * w
+	}
+	b := make([]byte, end)
+	l.order.PutUint32(b[0:], uint32(hlen))
+	l.order.PutUint32(b[4:], 2)
+	put(b, 8, end)
+	put(b, udoff, userdata)
+	put(b, userdata-w, (2+n)*w+w)
+	put(b, userdata, fst)
+	put(b, userdata+w, fst+n-1)
+	for i, r := range recs {
+		put(b, userdata+(2+uint64(i))*w, offs[i])
+		put(b, offs[i]-w, (2*w+uint64(len(r))+w-1)/w*w)
+		put(b, offs[i], uint64(len(r)))
+		copy(b[offs[i]+w:], r)
+	}
+	return b, offs
+}
+
+// TestBreakRecordLayouts: breakRecord finds the record in each layout
+// newscache writes and sets exactly that record's size prefix to all ones.
+// Before, it read the header as 8-byte little-endian words only and skipped
+// on any other: on i386 (hlen 28) and s390x (hlen 48 big-endian, which reads
+// as 805306368) TestCorruptDBMidListCloses never ran. A header it doesn't
+// know fails instead of skipping.
+func TestBreakRecordLayouts(t *testing.T) {
+	recs := make([][]byte, 5)
+	for i := range recs {
+		recs[i] = []byte(fmt.Sprintf("\x02%d\tSubject %d\tfrom\tdate\t<%d@test>\t\t%d\t1\x00", 10+i, i, i, 100+i))
+	}
+	for _, tc := range []struct {
+		l           nvLayout
+		hlen, udoff uint64
+	}{
+		{nvLayout{binary.LittleEndian, 8}, 48, 40}, // amd64, arm64
+		{nvLayout{binary.LittleEndian, 4}, 28, 24}, // i386, armhf
+		{nvLayout{binary.BigEndian, 8}, 48, 40},    // s390x, ppc64
+		{nvLayout{binary.BigEndian, 4}, 28, 24},    // powerpc
+	} {
+		t.Run(tc.l.String(), func(t *testing.T) {
+			b, offs := nvTestDB(tc.l, tc.hlen, tc.udoff, 10, recs)
+			want := append([]byte(nil), b...)
+			// article 12: the third record
+			for i := uint64(0); i < tc.l.word; i++ {
+				want[offs[2]+i] = 0xff
+			}
+			l, err := breakRecordBytes(b, 12)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l != tc.l {
+				t.Errorf("layout %s, want %s", l, tc.l)
+			}
+			if !bytes.Equal(b, want) {
+				for i := range b {
+					if b[i] != want[i] {
+						t.Fatalf("byte %d is %#x, want %#x (record 12's size prefix at %d)", i, b[i], want[i], offs[2])
+					}
+				}
+			}
+
+			c := append([]byte(nil), want...)
+			if _, err := breakRecordBytes(c, 15); err == nil {
+				t.Errorf("article 15 (the group has 10..14): no error")
+			} else if !bytes.Equal(c, want) {
+				t.Errorf("article 15: the file was changed despite the error %v", err)
+			}
+		})
+	}
+
+	le48 := func(hlen, version uint32) []byte {
+		b := make([]byte, 256)
+		binary.LittleEndian.PutUint32(b[0:], hlen)
+		binary.LittleEndian.PutUint32(b[4:], version)
+		return b
+	}
+	mixed := make([]byte, 256)
+	binary.LittleEndian.PutUint32(mixed[0:], 48)
+	binary.BigEndian.PutUint32(mixed[4:], 2)
+	for _, tc := range []struct {
+		name string
+		b    []byte
+	}{
+		{"changed header size", le48(56, 2)},
+		{"version 3", le48(48, 3)},
+		{"mixed byte order", mixed},
+		{"all ones", bytes.Repeat([]byte{0xff}, 256)},
+		{"shorter than the fields", []byte{48, 0, 0, 0, 2, 0}},
+		{"shorter than the header", le48(48, 2)[:40]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := append([]byte(nil), tc.b...)
+			if l, err := breakRecordBytes(tc.b, 1); err == nil {
+				t.Errorf("no error, layout %s", l)
+			} else {
+				t.Logf("error as expected: %v", err)
+			}
+			if !bytes.Equal(tc.b, orig) {
+				t.Errorf("the bytes were changed")
+			}
+		})
 	}
 }
