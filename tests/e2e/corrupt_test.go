@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -523,10 +522,6 @@ func TestUpdatenewsCorruptDB(t *testing.T) {
 // more on the new database, read those lines as its replies: LISTGROUP
 // and OVER were taken as unsupported and the session's XOVER failed.
 func TestCorruptDBDuringFetch(t *testing.T) {
-	// This targeted corruption walks native unsigned-long NVArray records,
-	// not a portable wire format. The Go test and C++ binary use the same
-	// native Unix ABI; the other corruption cases do not decode an index.
-	wordBytes := strconv.IntSize / 8
 	e := newEnv(t)
 	e.Store.AddGroup("test.alpha", "test group")
 	for n := int64(1); n <= 10; n++ {
@@ -551,25 +546,16 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The index is native-endian: first/last, then one offset per number.
-	word := func(off int) uint64 {
-		if wordBytes == 4 {
-			return uint64(binary.NativeEndian.Uint32(b[off : off+4]))
-		}
-		return binary.NativeEndian.Uint64(b[off : off+8])
+	// the index entry of 3, in newscache's layout (see nvLayout)
+	l, entry, err := recordSlot(b, 3)
+	if err != nil {
+		t.Fatalf("%s: %v", db, err)
 	}
-	idx := -1
-	for off := 0; off+wordBytes*(2+10) <= len(b); off += wordBytes {
-		if f := word(off); f >= 1 && f <= 3 && word(off+wordBytes) == 10 && word(off+wordBytes*(2+int(3-f))) != 0 {
-			idx = off
-			break
-		}
+	if l.at(b, entry) == 0 {
+		t.Fatalf("%s: article 3 has no index entry (%s)", db, l)
 	}
-	if idx < 0 {
-		t.Fatal("index not found in the .db")
-	}
-	entry := idx + wordBytes*(2+int(3-word(idx)))
-	for i := 0; i < wordBytes; i++ {
+	t.Logf("%s: index entry of 3 at %d broken, NVcontainer layout: %s", db, entry, l)
+	for i := uint64(0); i < l.word; i++ {
 		b[entry+i] = 0xff
 	}
 	if err := os.WriteFile(db, b, 0o644); err != nil {
@@ -796,32 +782,48 @@ func nvLayoutOf(b []byte) (nvLayout, error) {
 		"and version 2, 4-byte fields in little- or big-endian order; has the database format changed?", b[:8])
 }
 
-// breakRecordBytes sets the size prefix of article artnum's record in the
-// group database b to all ones and returns the layout it found. The layout is
-// NVcontainer's: a Header whose last field is userdata, the offset of the
-// index block (NVArray); the block holds the first article number, the last
-// one, then one file offset per article. A record starts with its size. All of
-// these are unsigned longs in newscache's layout (see nvLayout). b is left
-// alone on an error.
-func breakRecordBytes(b []byte, artnum uint64) (nvLayout, error) {
+// recordSlot finds the index entry of article artnum in the group database b
+// and returns the layout and the entry's offset. The layout is NVcontainer's:
+// a Header whose last field is userdata, the offset of the index block
+// (NVArray); the block holds the first article number, the last one, then one
+// file offset per article. All of these are unsigned longs in newscache's
+// layout (see nvLayout). The numbers come from the file, so the arithmetic is
+// checked before it is used: a damaged file gives an error, never a wrong
+// offset or a panic.
+func recordSlot(b []byte, artnum uint64) (nvLayout, uint64, error) {
 	l, err := nvLayoutOf(b)
 	if err != nil {
-		return l, err
+		return l, 0, err
 	}
 	w := l.word
+	size := uint64(len(b))
 	userdata := l.at(b, l.userdataOff())
-	if userdata < l.hlen() || userdata > uint64(len(b))-2*w {
-		return l, fmt.Errorf("index block at %d outside the file (%s)", userdata, l)
+	if userdata < l.hlen() || userdata > size-2*w {
+		return l, 0, fmt.Errorf("index block at %d outside the file (%s)", userdata, l)
 	}
 	fst := l.at(b, userdata)
 	lst := l.at(b, userdata+w)
 	if artnum < fst || artnum > lst {
-		return l, fmt.Errorf("articles %d..%d, no %d (%s)", fst, lst, artnum, l)
+		return l, 0, fmt.Errorf("articles %d..%d, no %d (%s)", fst, lst, artnum, l)
 	}
-	slot := userdata + 2*w + (artnum-fst)*w
-	if slot+w > uint64(len(b)) {
-		return l, fmt.Errorf("index entry of %d at %d outside the file (%s)", artnum, slot, l)
+	// entries that fit between the table's start and the end of the file
+	room := (size - userdata - 2*w) / w
+	if artnum-fst >= room {
+		return l, 0, fmt.Errorf("index entry %d of articles %d..%d outside the file (index at %d, %s)",
+			artnum-fst, fst, lst, userdata, l)
 	}
+	return l, userdata + 2*w + (artnum-fst)*w, nil
+}
+
+// breakRecordBytes sets the size prefix of article artnum's record in the
+// group database b to all ones (a record starts with its size, an unsigned
+// long) and returns the layout it found. b is left alone on an error.
+func breakRecordBytes(b []byte, artnum uint64) (nvLayout, error) {
+	l, slot, err := recordSlot(b, artnum)
+	if err != nil {
+		return l, err
+	}
+	w := l.word
 	off := l.at(b, slot)
 	if off == 0 || off > uint64(len(b))-w {
 		return l, fmt.Errorf("record %d at %d outside the file (%s)", artnum, off, l)
@@ -847,11 +849,13 @@ func breakRecord(t *testing.T, path string, b []byte, artnum uint64) {
 	}
 }
 
-// nvTestDB builds a group database as newscache with layout l writes it, with
-// the header size hlen and the userdata field at udoff given by the caller
-// (not derived from l): the header, the index block for articles fst.. and
-// one record per entry of recs, each block after its size as nvalloc stores
-// it. It returns the file and each record's offset.
+// nvTestDB builds a minimal group database in layout l with only what the
+// tests read: the header (hlen and the userdata field at udoff given by the
+// caller, not derived from l), the index block for articles fst.. and one
+// record per entry of recs, each block after its size. It is not a file
+// newscache would write: blocks are rounded to the word width, not to
+// NVcontainer's 16 bytes, and there is no free list. It returns the file and
+// each record's offset.
 func nvTestDB(l nvLayout, hlen, udoff, fst uint64, recs [][]byte) ([]byte, []uint64) {
 	w := l.word
 	put := l.put
@@ -927,6 +931,25 @@ func TestBreakRecordLayouts(t *testing.T) {
 				t.Errorf("article 15 (the group has 10..14): no error")
 			} else if !bytes.Equal(c, want) {
 				t.Errorf("article 15: the file was changed despite the error %v", err)
+			}
+
+			// A damaged index with first 0 and last all ones: with 8-byte
+			// words (artnum-fst)*w for 1<<62 wraps to 0, the first entry;
+			// 10+len(b) is past the end of the file. Both must be errors.
+			userdata := tc.hlen + tc.l.word // where nvTestDB puts the index
+			for _, bad := range []struct{ fst, artnum uint64 }{
+				{0, 1 << 62},
+				{10, 10 + uint64(len(want))},
+			} {
+				d := append([]byte(nil), want...)
+				tc.l.put(d, userdata, bad.fst)
+				tc.l.put(d, userdata+tc.l.word, ^uint64(0))
+				orig := append([]byte(nil), d...)
+				if _, err := breakRecordBytes(d, bad.artnum); err == nil {
+					t.Errorf("first %d, last all ones, article %d: no error", bad.fst, bad.artnum)
+				} else if !bytes.Equal(d, orig) {
+					t.Errorf("article %d: the file was changed despite the error %v", bad.artnum, err)
+				}
 			}
 		})
 	}
