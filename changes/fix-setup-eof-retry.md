@@ -10,9 +10,12 @@ Bug fixes:
   too, and a LIST ACTIVE with a pattern was then given up for the rest of
   the process (the whole list was fetched instead). Such a connection is
   now made again, up to Retries times. A refused login or STARTTLS still
-  fails at once, and a part of a status line that came before the close
-  is never taken as the reply (the GROUP that NewsCache sends again on a
-  new connection could store the article numbers of a cut "211" line).
+  fails at once (a failed TLS handshake after the 382 too, as a
+  connection that couldn't be made), and a part of a status line that
+  came before the close is never taken as the reply (the GROUP that
+  NewsCache sends again on a new connection could store the article
+  numbers of a cut "211" line, and a client's GROUP within GroupTimeout
+  showed them).
   With Retries 0, a connection that broke during a command stayed in
   place, and every later command of the session failed on it without a
   new connection; it is closed now, and the next command connects again.

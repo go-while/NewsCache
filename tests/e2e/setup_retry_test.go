@@ -251,8 +251,8 @@ func TestUpstreamSetupClosedAlways(t *testing.T) {
 // issue()'s own retries (they take only a SystemError), and the client got
 // an error at once. "once": the next connection works, and the client gets
 // the group. "always": every new connection is closed; the client gets an
-// error after at most Retries reconnects, each with up to Retries more
-// connection attempts of its own.
+// error after Retries reconnects, each with Retries more connection
+// attempts of its own.
 func TestUpstreamReconnectSetupClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -286,9 +286,9 @@ func TestUpstreamReconnectSetupClosed(t *testing.T) {
 					t.Errorf("GROUP test.beta with every new connection closed: %q, want an error", line)
 				}
 				// (the first connection, then Retries reconnects of
-				// up to Retries+1 attempts each)
-				if most := 1 + setupRetries*(setupRetries+1); n < 1+setupRetries || n > most {
-					t.Errorf("%d connections to the news server, want %d to %d", n, 1+setupRetries, most)
+				// Retries+1 attempts each; ConnectBackoff is 0)
+				if want := 1 + setupRetries*(setupRetries+1); n != want {
+					t.Errorf("%d connections to the news server, want %d (the first, then %d reconnects of %d attempts each)", n, want, setupRetries, setupRetries+1)
 				}
 				if code, line := c.Cmd("DATE"); code != 111 {
 					t.Fatalf("DATE after the failed GROUP: %q, want 111", line)
@@ -297,6 +297,46 @@ func TestUpstreamReconnectSetupClosed(t *testing.T) {
 			quitSession(t, p, c)
 		})
 	}
+}
+
+// TestUpstreamReconnectGroupCutLine: on a new connection connect() selects
+// the client's group again. The news server sends "211 9 3 11 test.alpha"
+// there without its line end and closes. issue() handed that part of a
+// line on (a set-up command got its reply even from a broken connection),
+// and selectgroup() stored its numbers in the active database; a client's
+// GROUP within GroupTimeout is answered from there, without the news
+// server, so it showed 9 3 11 instead of the server's 5 1 5. Now the cut
+// line is no reply: that set-up fails and nothing is stored. Retries 1, so
+// the connection with the cut line is the last attempt (a later GROUP on a
+// new connection would store the right numbers over it).
+func TestUpstreamReconnectGroupCutLine(t *testing.T) {
+	s := &setupServer{at: "group test.alpha", cut: "211 9 3 11 test.alpha"}
+	e := setupEnv(t, s, "plain", false)
+	e.ServerLines = "    Retries 1"
+	e.GroupTimeout = 3600
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 || !strings.HasPrefix(line, "211 5 1 5 ") {
+		t.Fatalf("GROUP test.alpha: %q, want 211 5 1 5", line)
+	}
+	// the connection breaks at GROUP test.beta; the next one is cut at
+	// its GROUP test.alpha
+	s.closeGroup.Store(1)
+	s.left.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code < 400 {
+		t.Fatalf("GROUP test.beta with the news server failing: %q, want an error", line)
+	}
+	if n := s.Accepted(); n != 2 {
+		t.Fatalf("%d connections to the news server, want 2 (the first, the one with the cut line)", n)
+	}
+	accepted := s.Accepted()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 || !strings.HasPrefix(line, "211 5 1 5 ") {
+		t.Errorf("GROUP test.alpha from the cache: %q, want 211 5 1 5 (the numbers of the cut line were stored)", line)
+	}
+	if n := s.Accepted() - accepted; n != 0 {
+		t.Errorf("GROUP test.alpha within GroupTimeout made %d new connections, want none (answered from the cache)", n)
+	}
+	quitSession(t, p, c)
 }
 
 // TestUpstreamSetupRefusalNotRetried: a refusal in the set-up is an answer,

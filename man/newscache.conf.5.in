@@ -516,8 +516,12 @@ server closes, or on which ReadTimeout or a status line's limit runs
 out, while it is set up (at the greeting or at MODE READER, STARTTLS,
 AUTHINFO, COMPRESS or LIST OVERVIEW.FMT) is made again too, up to
 Retries times; a refusal there (a login or STARTTLS refused) isn't
-retried. Every attempt, and every connection set-up within it, can wait
-up to that limit. If that fails
+retried. A TLS handshake that fails (after the 382 to STARTTLS, or with
+ssl) counts as a connection that couldn't be made. With a login (User
+and Password) each new connection logs in again, so a server that
+closes at AUTHINFO gets the login up to Retries x (Retries + 1) times
+for one command. Every attempt, and every connection set-up within it,
+can wait up to that limit. If that fails
 too, the client gets an error. The default is 3, the range 0 to 100; 0
 gives up at once. A 503 counts only when the server has closed the
 connection right behind it (old INN sent "503 Timeout" on an idle

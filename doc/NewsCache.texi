@@ -683,8 +683,13 @@ runs out, while NewsCache sets it up (at the
 greeting, or at @code{MODE READER}, @code{STARTTLS}, @code{AUTHINFO},
 @code{COMPRESS} or @code{LIST OVERVIEW.FMT}) is made again too, up to
 @code{Retries} times; a refusal there (a login or @code{STARTTLS}
-refused) isn't retried. A first connection
-that fails isn't retried. @code{Retries} is an option of a
+refused) isn't retried. A TLS handshake that fails (after the
+@samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
+connection that couldn't be made: a first connection
+that fails isn't retried. With a login (@code{User} and
+@code{Password}) each new connection logs in again, so a server that
+closes at @code{AUTHINFO} gets the login up to @code{Retries} x
+(@code{Retries} + 1) times for one command. @code{Retries} is an option of a
 @code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout
 @cdindex ConnectTimeout
