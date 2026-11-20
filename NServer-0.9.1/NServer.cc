@@ -1769,11 +1769,21 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 				string c(buf), e("224");
 				throw ResponseError(c, e, resp);
 			}
-			// (logged: an OVER refused for good costs one failed
-			// OVER per request now, which this line shows)
-			slog.p(Logger::Notice) << "news server "
-			    << _CurrentServer->hostname << " refused OVER ("
-			    << resp << "), XOVER for this request\n";
+			// (logged once per process, a client session or an
+			// updatenews run: a server that refuses OVER for good
+			// costs one refused OVER per request, which this line
+			// shows without a line for each)
+			static bool over_refused_logged = false;
+			if (!over_refused_logged) {
+				over_refused_logged = true;
+				slog.p(Logger::Notice) << "news server "
+				    << _CurrentServer->hostname
+				    << " refused OVER (" << resp << ")"
+				    << ((_CurrentServer->nntpflags &
+					 MPListEntry::F_XOVER) ?
+					", XOVER instead" : "")
+				    << "; logged once, OVER is asked again\n";
+			}
 			over_refused = true;
 			refused_cmd = buf;
 			refused = resp;
