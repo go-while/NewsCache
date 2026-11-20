@@ -407,7 +407,7 @@ void RServer::connect()
 		//FIXME! groupname to send correct passwd to correct server/group
 		//FIXME! RECONNECT/RETRY? HOW IMPLEMENT? What happens if module 
 		//FIXME! cannot handle this?!?
-		nlreadline(*_pServerStream, grt, 0, NNTP_MAXLINE);
+		readstatus(grt, 0);
 		// (no line when nothing came: the check below says why)
 		if (_pServerStream->good())
 			slog.p(Logger::Info) << grt << "\n";
@@ -724,6 +724,62 @@ bool RServer::reply_unexpected(const string & resp)
 }
 
 /*
+ * Reads a status line: the greeting, the reply to a command, POST's 240.
+ * ReadTimeout limits each wait for data, not the line, so a server that
+ * sent a byte just before each ReadTimeout ran out kept one line going for
+ * up to NNTP_MAXLINE times ReadTimeout (days), and the session waited, with
+ * the locks its caller holds (on a first fill of the active list the
+ * refresh lock, which other sessions then wait for). The whole line has
+ * ReadTimeout + STATUS_LINE_SECONDS now (each wait still at most
+ * ReadTimeout). Past that the connection is aborted (no QUIT, no flush to
+ * a peer that isn't answering) and the stream is bad, as when the server
+ * closed it, so the callers retry (Retries) or fail as for a lost
+ * connection. The part of the line that came is dropped: in connect() an
+ * issue() hands the reply on even from a bad stream, and a cut "211 n f l"
+ * from the GROUP of the set-up was taken for the group's numbers.
+ * ReadTimeout 0 stays "no timeout at all".
+ */
+int RServer::readstatus(string & line, int keepnl)
+{
+	const unsigned int seconds =
+	    status_line_seconds(_CurrentServer->readTimeout);
+	if (!seconds)
+		return nlreadline(*_pServerStream, line, keepnl, NNTP_MAXLINE);
+
+	if (!_pServerStream->begin_reply(seconds)) {
+		// (a connection already closed; or the socket's flags can't
+		// be changed: then it can't be read with a deadline, and is
+		// given up like a lost one)
+		_pServerStream->abort();
+		line.clear();
+		return 0;
+	}
+	int rs;
+	try {
+		rs = nlreadline(*_pServerStream, line, keepnl, NNTP_MAXLINE);
+	}
+	catch(...) {
+		_pServerStream->end_reply();
+		throw;
+	}
+	const bool expired = !_pServerStream->good() &&
+	    _pServerStream->reply_expired();
+	// (closes the connection itself when the socket can't be made
+	// blocking again)
+	_pServerStream->end_reply();
+	if (expired) {
+		slog.p(Logger::Error) << "news server "
+		    << _CurrentServer->hostname
+		    << " took too long to send a status line ("
+		    << seconds << " s), closing the connection\n";
+		_pServerStream->abort();
+		line.clear();
+		return 0;
+	}
+	return rs;
+}
+
+/*
  * Reads the text of an article (after a 220) into art. When the server
  * closed the connection before the "." line, the article is cut off: the
  * connection is closed and SystemError thrown, so that it isn't served or
@@ -853,7 +909,7 @@ string RServer::issue(const char *command, const char *expresp)
 		// loop throws ResponseError.
 		rs = 0;
 		try {
-			rs = nlreadline(*_pServerStream, resp, 0, NNTP_MAXLINE);
+			rs = readstatus(resp, 0);
 		}
 		catch(...) {
 			slog.
@@ -1898,7 +1954,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 			throw ResponseError("post\r\n", "[34]40", resp);
 		}
 		*_pServerStream << *article << ".\r\n" << flush;
-		nlreadline(*_pServerStream, resp, 1, NNTP_MAXLINE);
+		readstatus(resp, 1);
 		if (_pServerStream->good())
 			break;
 		stop_check();
