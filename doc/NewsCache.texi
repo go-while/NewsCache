@@ -669,8 +669,8 @@ it; they print the comment @samp{# Password set, not shown} instead.
 Whenever the news server closes the connection during a command,
 NewsCache connects to it again and issues the command again, up to
 @code{Retries} times (3 by default, 0 to 100); then it gives up and the
-client gets an error. A reply of @samp{400} counts as a closed
-connection, and so does a connection on which @code{ReadTimeout} ran
+client gets an error. A reply of @samp{400} to the command counts as a
+closed connection, and so does a connection on which @code{ReadTimeout} ran
 out or a status line took longer than @code{ReadTimeout} plus 60
 seconds (every attempt, and every connection set-up within it, can wait
 up to that limit, so with the defaults a command can wait well over an
@@ -682,17 +682,22 @@ server closes, or on which @code{ReadTimeout} or a status line's limit
 runs out, while NewsCache sets it up (at the
 greeting, or at @code{MODE READER}, @code{STARTTLS}, @code{AUTHINFO},
 @code{COMPRESS} or @code{LIST OVERVIEW.FMT}) is made again too, up to
-@code{Retries} times, and so is one where @code{MODE READER} or
-@code{LIST OVERVIEW.FMT} gets @samp{400} (or a @samp{503} with the
-connection closed behind it); a refusal there (a login or
-@code{STARTTLS} refused) isn't retried. Only @samp{500}, @samp{501},
-@samp{503} or an unexpected positive reply to @code{MODE READER} or
-@code{LIST OVERVIEW.FMT} turns that command off for the server for the
-rest of the client session or @command{updatenews} run. Any other
-refusal of @code{MODE READER} (such as @samp{403}, or @samp{480}
-without a login) gives up that connection like one that couldn't be
-made; any other refusal of @code{LIST OVERVIEW.FMT} leaves the
-standard overview format for that connection. The next connection
+@code{Retries} times, and so is one where @code{MODE READER} gets
+@samp{400}, or @code{MODE READER} or @code{LIST OVERVIEW.FMT} gets a
+@samp{400} or @samp{503} with the connection closed behind it. A
+refusal at the greeting, @code{STARTTLS} or @code{AUTHINFO} (a
+@samp{400} there too) fails like a connection that was refused, and
+isn't retried; @code{COMPRESS} refused leaves the connection
+uncompressed. Only @samp{500}, @samp{501}, @samp{503} or an unexpected
+positive reply to @code{MODE READER} or @code{LIST OVERVIEW.FMT} turns
+that command off for the server for the rest of the client session or
+@command{updatenews} run (after a positive reply, which may come with
+lines that aren't for NewsCache, the connection is made again without
+it). Any other refusal of @code{MODE READER} (such as @samp{403},
+@samp{502}, or @samp{480} without a login) gives up that connection
+like one that couldn't be made; any other refusal of @code{LIST
+OVERVIEW.FMT} (a @samp{400} on a connection that stays open too) leaves
+the standard overview format for that connection. The next connection
 sends the command again. A TLS handshake that fails (after the
 @samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
 connection that couldn't be made: a connection that can't be made at

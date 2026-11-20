@@ -509,22 +509,27 @@ A PEM file with the CA certificates to verify this server's TLS certificate agai
 Local address used for connections to this upstream server. It must be a numeric IPv4 or IPv6 address; host names are not resolved. No default value.
 .IP "Retries \fInumber\fR"
 How often NewsCache connects to this server again when the connection
-breaks during a command (the server closes it, answers 400,
+breaks during a command (the server closes it, answers the command with 400,
 ReadTimeout runs out, or a status line takes longer than ReadTimeout
 plus 60 seconds), and sends the command again. A connection that the
 server closes, or on which ReadTimeout or a status line's limit runs
 out, while it is set up (at the greeting or at MODE READER, STARTTLS,
 AUTHINFO, COMPRESS or LIST OVERVIEW.FMT) is made again too, up to
-Retries times, and so is one where MODE READER or LIST OVERVIEW.FMT
-gets 400 (or a 503 with the connection closed behind it); a refusal
-there (a login or STARTTLS refused) isn't retried. Only 500, 501, 503
-or an unexpected positive reply to MODE READER or LIST OVERVIEW.FMT
-turns that command off for the server for the rest of the client
-session or updatenews run. Any other refusal of MODE READER (such as
-403, or 480 without a login) gives up that connection like one that
-couldn't be made; any other refusal of LIST OVERVIEW.FMT leaves the
-standard overview format for that connection. The next connection
-sends the command again. A TLS handshake that fails (after the 382 to
+Retries times, and so is one where MODE READER gets 400, or MODE
+READER or LIST OVERVIEW.FMT gets a 400 or 503 with the connection
+closed behind it. A refusal at the greeting, STARTTLS or AUTHINFO (a
+400 there too) fails like a connection that was refused, and isn't
+retried; COMPRESS refused leaves the connection uncompressed. Only
+500, 501, 503 or an unexpected positive reply to MODE READER or LIST
+OVERVIEW.FMT turns that command off for the server for the rest of
+the client session or updatenews run (after a positive reply, which
+may come with lines that aren't for NewsCache, the connection is made
+again without it). Any other refusal of MODE READER (such as 403, 502,
+or 480 without a login) gives up that connection like one that
+couldn't be made; any other refusal of LIST OVERVIEW.FMT (a 400 on a
+connection that stays open too) leaves the standard overview format
+for that connection. The next connection sends the command again. A
+TLS handshake that fails (after the 382 to
 STARTTLS, or with ssl) counts as a connection that couldn't be made. With a login (User
 and Password) each set-up logs in again: a server that closes at
 AUTHINFO gets the login up to Retries + 1 times for each connection

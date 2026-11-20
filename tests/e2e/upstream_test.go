@@ -1077,26 +1077,24 @@ func TestUpstreamClosedNoDiscontinue(t *testing.T) {
 // connect(), which sent it again: thousands of upstream connections, then
 // a stack overflow (SIGSEGV). Answered with 500 (old servers), issue()
 // threw: the fallback to the standard overview format never ran and the
-// first command of every session failed (GROUP 411). A 400 says the
-// server closes the connection: each connection is made again, up to
-// Retries times, and then the command fails (it was taken as "not
-// supported", and LIST OVERVIEW.FMT was turned off for the rest of the
-// process; this server answers 400 on every connection).
+// first command of every session failed (GROUP 411). This server keeps
+// the connection open after its reply, so a 400 to LIST OVERVIEW.FMT is a
+// refusal of that optional command, not a close: the standard format, on
+// the same connection.
 func TestUpstreamConnectRefusals(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		line   string
-		resp   string
-		closes bool // the reply says the server closes the connection
+		name string
+		line string
+		resp string
 	}{
 		// (OverrideLine keys are the line as the fake server
 		// normalises it: the command upper-cased, the arguments as
 		// NewsCache sends them; "list overview.fmt" never matched, so
 		// these cases ran without their refusal)
-		{"overview.fmt 503", "LIST overview.fmt", "503 Not supported", false},
-		{"overview.fmt 500", "LIST overview.fmt", "500 What?", false},
-		{"overview.fmt 400", "LIST overview.fmt", "400 Not now", true},
-		{"mode reader 503", "MODE reader", "503 Not supported", false},
+		{"overview.fmt 503", "LIST overview.fmt", "503 Not supported"},
+		{"overview.fmt 500", "LIST overview.fmt", "500 What?"},
+		{"overview.fmt 400", "LIST overview.fmt", "400 Not now"},
+		{"mode reader 503", "MODE reader", "503 Not supported"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -1106,19 +1104,6 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 			}})
 			c := e.session()
 			c.Deadline = 20 * time.Second
-			if tc.closes {
-				if code, line := c.Cmd("GROUP test.alpha"); code < 400 {
-					t.Errorf("GROUP with a 400 at %q on every connection: %q, want an error", tc.line, line)
-				}
-				// (Retries is 3 by default)
-				if n := e.Upstream.Accepted(); n != 4 {
-					t.Errorf("%d upstream connections, want 4 (the first and Retries more)", n)
-				}
-				if code, line := c.Cmd("DATE"); code != 111 {
-					t.Fatalf("DATE after the failed GROUP: %q, want 111", line)
-				}
-				return
-			}
 			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 				t.Fatalf("GROUP: %q, want 211", line)
 			}
@@ -1129,6 +1114,12 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 			}
 			if n := e.Upstream.Count("MODE"); n > 5 {
 				t.Errorf("%d upstream connections (MODE READER), want a few at most", n)
+			}
+			// (the server keeps the connection open after each of these
+			// replies: a 400 to LIST OVERVIEW.FMT on it leaves the
+			// standard format, it isn't taken for a close)
+			if n := e.Upstream.Accepted(); n != 1 {
+				t.Errorf("%d upstream connections, want 1", n)
 			}
 			// the refusal was sent: NewsCache sent the line of its key
 			refused := false

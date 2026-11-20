@@ -255,9 +255,10 @@ void RServer::init(MPList * serverlist)
 
 // A retry starts with a new stream: with Options ssl the old one's GnuTLS
 // session had done its handshake on the old connection, and a handshake
-// with it on the new one failed every time.
+// with it on the new one failed every time. (No stream at all: an
+// unexpected positive reply closed it, see reply_unexpected.)
 #define RSERVER_CONNECT_CHECK_CONNECTION(errstrg) \
-    if(!_pServerStream->good()) { \
+    if(!_pServerStream || !_pServerStream->good()) { \
       delete _pServerStream; \
       _pServerStream = NULL; \
       stop_check(); \
@@ -274,22 +275,33 @@ void RServer::init(MPList * serverlist)
 
 /*
  * A reply to MODE READER or LIST OVERVIEW.FMT that says the server closes
- * the connection: 400, or a 503 with the end of the stream right behind it
- * (old INN's "503 Timeout"), as issue() takes them outside connect(). The
- * connection is made again (Retries), as when it broke. Such a reply used
- * to turn MODE READER or LIST OVERVIEW.FMT off for the rest of the process.
+ * the connection, as issue() takes them outside connect(): a 503 with the
+ * end of the stream right behind it (old INN's "503 Timeout"), and a 400.
+ * The connection is made again (Retries), as when it broke; such a reply
+ * used to turn the command off for the rest of the process. For LIST
+ * OVERVIEW.FMT (optional) a 400 counts only when the server did close: on
+ * a connection that stays open it is a refusal like a 403, and connect()
+ * goes on with the standard format. The end of the stream is seen only if
+ * it is there when the reply has been read (poll without waiting, as in
+ * issue()): one that comes a moment later leaves a 503 unsupported, and a
+ * 400 to LIST OVERVIEW.FMT a refusal; the next command then finds the
+ * connection closed and makes a new one.
  */
-static bool setup_reply_closes(const string & resp, sockstream * s)
+static bool setup_reply_closes(const string & resp, sockstream * s,
+			       bool optional)
 {
-	return resp.compare(0, 3, "400") == 0 ||
-	    (resp.compare(0, 3, "503") == 0 && s->input_pending());
+	const bool r400 = resp.compare(0, 3, "400") == 0;
+	if (r400 && !optional)
+		return true;
+	return (r400 || resp.compare(0, 3, "503") == 0) && s->input_pending();
 }
 
-#define RSERVER_CONNECT_CHECK_CLOSING(cmd) \
-    if(setup_reply_closes(resp, _pServerStream)) { \
+#define RSERVER_CONNECT_CHECK_CLOSING(cmd, optional) \
+    if(setup_reply_closes(resp, _pServerStream, optional)) { \
       slog.p(Logger::Warning) << "news server " \
 	<< _CurrentServer->hostname << " answered " cmd " with \"" \
-	<< resp << "\" while connecting, connecting again\n"; \
+	<< resp << "\" while connecting" \
+	<< (i ? ", connecting again\n" : "\n"); \
       _pServerStream->abort(); \
     } \
     RSERVER_CONNECT_CHECK_CONNECTION("Cannot read data from %s:%s")
@@ -298,19 +310,26 @@ static bool setup_reply_closes(const string & resp, sockstream * s)
  * MODE READER refused with a reply that doesn't say it is unsupported
  * (403, 480 without a login, 502, a rate limit; see reply_unsupported).
  * Turning it off, as before, did so for the rest of the process. Going on
- * without it on this connection would send reader commands to a server
- * that may need MODE READER first (a mode-switching server, RFC 3977
- * 3.4.2), whose refusals of them (500, 503) could turn OVER or LISTGROUP
- * off for good instead. So this connection is given up like one that
- * couldn't be made (StreamGuard closes it), and MODE READER stays on for
- * the next one.
+ * without it on this connection would talk to a mode-switching server
+ * (RFC 3977 3.4.2) in transit mode: its GROUP fails (401), and commands
+ * without a group (LIST ACTIVE, ARTICLE <message-id>) may get 500, which
+ * turns LIST ACTIVE with a pattern, OVER and others off for good, or
+ * answers that are wrong for a reader. So this connection is given up like
+ * one that couldn't be made (StreamGuard closes it), and MODE READER stays
+ * on for the next one. (Logged once per process: a client session, an
+ * updatenews run.)
  */
 static void mode_reader_refused(const MPListEntry * server,
 				const string & resp)
 {
-	slog.p(Logger::Warning) << "news server " << server->hostname << ":"
-	    << server->servicename << " refused MODE READER (" << resp
-	    << "), giving up this connection\n";
+	static bool logged = false;
+	if (!logged) {
+		logged = true;
+		slog.p(Logger::Warning) << "news server " << server->hostname
+		    << ":" << server->servicename << " refused MODE READER ("
+		    << resp << "), giving up the connection; logged once, "
+		    "MODE READER is sent again on each new connection\n";
+	}
 	throw SystemError("RServer::connect: MODE READER refused", -1,
 			  ERROR_LOCATION);
 }
@@ -472,7 +491,7 @@ void RServer::connect()
 		if (_CurrentServer->nntpflags & MPListEntry::F_MODE_READER) {
 			// mode reader
 			resp = issue("mode reader\r\n", NULL);
-			RSERVER_CONNECT_CHECK_CLOSING("MODE READER");
+			RSERVER_CONNECT_CHECK_CLOSING("MODE READER", false);
 			if (NNTP_ISCODE(resp.c_str(), "480")
 			    && _CurrentServer->user[0]) {
 				// the server wants the login first: again
@@ -483,13 +502,20 @@ void RServer::connect()
 				grt = resp;
 			} else if (reply_unsupported(resp)) {
 				// (500, 501, 503, or a positive reply other
-				// than 200 or 201: the server doesn't know it)
+				// than 200 or 201: the server doesn't know it.
+				// A positive one may come with a block that
+				// would be read as the next reply: that
+				// closes the connection, and a new one is
+				// made without MODE READER.)
+				reply_unexpected(resp);
 				slog.
 				    p(Logger::
 				      Warning) <<
 				    "mode reader failed, ignored\n";
 				_CurrentServer->nntpflags &=
 				    ~MPListEntry::F_MODE_READER;
+				RSERVER_CONNECT_CHECK_CONNECTION
+				    ("Cannot read data from %s:%s");
 			} else {
 				mode_reader_refused(_CurrentServer, resp);
 			}
@@ -537,15 +563,20 @@ void RServer::connect()
 
 		if (mode_reader_after_login) {
 			resp = issue("mode reader\r\n", NULL);
-			RSERVER_CONNECT_CHECK_CLOSING("MODE READER");
+			RSERVER_CONNECT_CHECK_CLOSING("MODE READER", false);
 			if (resp[0] == '2' && resp[1] == '0'
 			    && (resp[2] == '0' || resp[2] == '1')) {
 				grt = resp;
 			} else if (reply_unsupported(resp)) {
+				// (a positive reply closes the connection,
+				// as above)
+				reply_unexpected(resp);
 				slog.p(Logger::Warning)
 				    << "mode reader failed, ignored\n";
 				_CurrentServer->nntpflags &=
 				    ~MPListEntry::F_MODE_READER;
+				RSERVER_CONNECT_CHECK_CONNECTION
+				    ("Cannot read data from %s:%s");
 			} else {
 				// (a 480 again, after the login, too)
 				mode_reader_refused(_CurrentServer, resp);
@@ -598,7 +629,7 @@ void RServer::connect()
 			// so the fallback below never ran and connect() was
 			// left half done; the list is read only after a 215)
 			resp = issue("list overview.fmt\r\n", NULL);
-			RSERVER_CONNECT_CHECK_CLOSING("LIST OVERVIEW.FMT");
+			RSERVER_CONNECT_CHECK_CLOSING("LIST OVERVIEW.FMT", true);
 			if (resp[0] == '2' && resp[1] == '1' && resp[2] == '5') {
 				// (the whole reply within a time and size limit,
 				// else the connection is closed as for a cut-off
@@ -624,24 +655,36 @@ void RServer::connect()
 				    ("Cannot read data from %s:%s");
 			} else if (reply_unsupported(resp)) {
 				// (500, 501, 503, or a positive reply other
-				// than 215: the server doesn't know it)
+				// than 215: the server doesn't know it. A
+				// positive one may come with a block: that
+				// closes the connection, as for MODE READER.)
+				reply_unexpected(resp);
 				slog.
 				    p(Logger::
 				      Warning) <<
 				    "list overview.fmt failed, ignored\n";
 				_CurrentServer->nntpflags &=
 				    ~MPListEntry::F_LIST_OVERVIEW_FMT;
+				RSERVER_CONNECT_CHECK_CONNECTION
+				    ("Cannot read data from %s:%s");
 				goto rserver__connect_no_list_overview_fmt;
 			} else {
-				// Refused now (403, 480, 502, a rate limit):
-				// the standard format (RFC 3977 8.4) for this
+				// Refused now (403, 480, 502, a rate limit, a
+				// 400 on a connection that stays open): the
+				// standard format (RFC 3977 8.4) for this
 				// connection; the next one asks again. Turning
 				// it off did so for the rest of the process.
-				slog.p(Logger::Warning) << "news server "
-				    << _CurrentServer->hostname
-				    << " refused LIST OVERVIEW.FMT (" << resp
-				    << "), standard overview format for this "
-				       "connection\n";
+				// (Logged once per process.)
+				static bool overview_fmt_refused_logged = false;
+				if (!overview_fmt_refused_logged) {
+					overview_fmt_refused_logged = true;
+					slog.p(Logger::Warning) << "news server "
+					    << _CurrentServer->hostname
+					    << " refused LIST OVERVIEW.FMT (" << resp
+					    << "), standard overview format for the "
+					       "connection; logged once, asked again "
+					       "on each new connection\n";
+				}
 				goto rserver__connect_no_list_overview_fmt;
 			}
 		} else {
