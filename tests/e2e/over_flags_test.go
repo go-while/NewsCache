@@ -63,8 +63,8 @@ func xoverAsked(t *testing.T, e *env, c *client.Conn, what string, a, b int64, w
 // XOVER of the upstream connection are refused for now. The XOVER that
 // meets them gets 403, after one OVER and one XOVER (no more: the
 // fallback is bounded); the next one, in the same group and in another,
-// gets the records with one OVER each. They got 403 ("neither OVER nor
-// XOVER", the upstream not asked).
+// gets the records with one OVER each. (Before the fix they got 403,
+// "neither OVER nor XOVER", without the upstream being asked.)
 func TestOverRefusedOnce(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -113,8 +113,8 @@ func TestOverRefusedOnce(t *testing.T) {
 // TestOverRefusedOnceCached: the same in cached groups (the default). The
 // chunk refresh meets both refusals (one OVER, one XOVER) and fails, so the
 // command asks the upstream for the range again (one more OVER) and gets
-// the records; the next group's refresh asks the upstream too. Both got
-// 403 ("neither OVER nor XOVER").
+// the records; the next group's refresh asks the upstream too. (Before
+// the fix both got 403, "neither OVER nor XOVER".)
 func TestOverRefusedOnceCached(t *testing.T) {
 	e := newEnv(t)
 	e.addArticles("test.alpha", 3)
@@ -137,7 +137,8 @@ func TestOverRefusedOnceCached(t *testing.T) {
 // TestOverRefusedEveryTime: the upstream refuses every OVER and XOVER with
 // 403 (not-cached). Every XOVER gets 403 after exactly one OVER and one
 // XOVER: no loop between the two, and no request answered without asking.
-// The second one got 403 without any (the first had turned both off).
+// (Before the fix the second one got 403 without asking: the first had
+// turned both off.)
 func TestOverRefusedEveryTime(t *testing.T) {
 	e := newEnv(t)
 	e.ServerOptions = "not-cached"
@@ -232,8 +233,10 @@ func TestUpdatenewsOverRefusedOnce(t *testing.T) {
 		t.Errorf("test.alpha: upstream got %d OVER and %d XOVER, want 1 and 1 (the refused pair)",
 			n["test.alpha OVER"], n["test.alpha XOVER"])
 	}
-	if n["test.beta OVER"] < 1 || n["test.beta OVER"]+n["test.beta XOVER"] > 2 {
-		t.Errorf("test.beta: upstream got %d OVER and %d XOVER, want an OVER (no more than one of each)",
+	// the refusals are used up on the run's one connection: test.beta's
+	// OVER is answered (one OVER, no XOVER fallback)
+	if n["test.beta OVER"] != 1 || n["test.beta XOVER"] != 0 {
+		t.Errorf("test.beta: upstream got %d OVER and %d XOVER, want 1 and 0 (answered)",
 			n["test.beta OVER"], n["test.beta XOVER"])
 	}
 }

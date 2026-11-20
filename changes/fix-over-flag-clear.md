@@ -8,3 +8,7 @@ Bug fixes:
   fails only the request it answers. OVER or XOVER is turned off only
   when the news server answers 500, 501 or 503 (without closing the
   connection) or with a positive reply that isn't 224, as for LISTGROUP.
+  A news server that refuses OVER for good with such a reply now gets
+  one OVER per request that it refuses before XOVER is tried (logged at
+  Notice as "refused OVER"); "Commands not-over" in its server entry
+  turns OVER off for it.

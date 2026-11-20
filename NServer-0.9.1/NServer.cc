@@ -1769,6 +1769,11 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 				string c(buf), e("224");
 				throw ResponseError(c, e, resp);
 			}
+			// (logged: an OVER refused for good costs one failed
+			// OVER per request now, which this line shows)
+			slog.p(Logger::Notice) << "news server "
+			    << _CurrentServer->hostname << " refused OVER ("
+			    << resp << "), XOVER for this request\n";
 			over_refused = true;
 			refused_cmd = buf;
 			refused = resp;
