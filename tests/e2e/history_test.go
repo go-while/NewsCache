@@ -567,9 +567,9 @@ func TestHistorySpoolSize(t *testing.T) {
 
 // TestMessageIDOddNewsgroupsHeader: an article in the spool under a group
 // the client may read is served by message-ID even when its Newsgroups
-// header can't give the right because of a control byte in it, as on a
-// real server ("bc.politics,\x07can.politics,\x07..."); the same article
-// was readable by number. NewsCache answered 502 (live test, 2026-11-20).
+// header can't give the right: a control byte in it, as on a real
+// server ("bc.politics,\x07can.politics,\x07..."), or no group the client
+// may read. The same article was readable by number. NewsCache answered 502 (live test, 2026-11-20).
 // In a group the client may not read, the header still decides. (No case
 // without a Newsgroups header: the fake server adds one when it serves
 // the article.)
@@ -581,6 +581,8 @@ func TestMessageIDOddNewsgroupsHeader(t *testing.T) {
 		// as in the live test's article: a BEL after each comma
 		{"bel", []string{"Newsgroups: test.alpha,\x07test.uncarried\x07"}},
 		{"vtab", []string{"Newsgroups: test.alpha,test.uncarried\v"}},
+		// a valid header naming no group the restricted client may read
+		{"othergroups", []string{"Newsgroups: test.uncarried"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := historyEnv(t)
@@ -620,6 +622,19 @@ func TestMessageIDOddNewsgroupsHeader(t *testing.T) {
 					continue
 				}
 				c.ReadDotLines()
+			}
+			for _, tc2 := range []struct {
+				cmd  string
+				code int
+			}{{"XHDR subject " + id, 221}, {"HDR subject " + id, 225}, {"XPAT subject " + id + " *", 221}} {
+				code, line := c.Cmd("%s", tc2.cmd)
+				if code != tc2.code {
+					t.Errorf("%s from test.other: %q, want %d", tc2.cmd, line, tc2.code)
+					continue
+				}
+				if got := c.ReadDotLines(); len(got) != 1 || !strings.Contains(got[0], "odd Newsgroups header") {
+					t.Errorf("%s: %q", tc2.cmd, got)
+				}
 			}
 			c.Cmd("QUIT")
 
