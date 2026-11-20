@@ -560,11 +560,18 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond) // GroupTimeout 0: sync again
 
 	c, p := corruptSession(t, e)
-	got, err := readCmds(c, []string{"GROUP test.alpha", "XOVER 1-10", "ARTICLE 4", "ARTICLE 5"})
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Fatalf("after the damage: GROUP: %q", line)
+	}
+	// the XOVER that meets the damage is run again on the new database
+	// and lists every record (the CorruptDBError used to be swallowed by
+	// the refresh, and the chunk printed from what the database held)
+	wantNumbers(t, "after the damage: XOVER 1-10", xover(t, c, 1, 10), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	got, err := readCmds(c, []string{"ARTICLE 4", "ARTICLE 5"})
 	if err != nil {
 		t.Errorf("after the damage: %v (so far %q)", err, got)
 	}
-	want := "GROUP test.alpha:211 XOVER 1-10:224 ARTICLE 4:220 ARTICLE 5:220"
+	want := "ARTICLE 4:220 ARTICLE 5:220"
 	if strings.Join(got, " ") != want {
 		t.Errorf("replies %q, want %q", strings.Join(got, " "), want)
 	}
