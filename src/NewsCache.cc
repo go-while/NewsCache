@@ -2913,7 +2913,8 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		// until ClientTimeout (with ClientTimeout 0 as long as the
 		// client kept the connection) after the daemon had stopped.
 		// Checked after alarm(), as in connect: a signal from here on
-		// keeps its mark and its alarm. The command loop says goodbye.
+		// keeps its mark and its alarm. The command loop says goodbye
+		// (or just ends the session when the 340's send failed).
 		if (Xsignal != -1) {
 			alarmed = 1;
 			alarm(1);
