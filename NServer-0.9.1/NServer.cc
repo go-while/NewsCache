@@ -256,7 +256,9 @@ void RServer::init(MPList * serverlist)
 // A retry starts with a new stream: with Options ssl the old one's GnuTLS
 // session had done its handshake on the old connection, and a handshake
 // with it on the new one failed every time. (No stream at all: an
-// unexpected positive reply closed it, see reply_unexpected.)
+// unexpected positive reply closed it, see reply_unexpected.) A retry
+// drops a pending 503 to MODE READER (see RSERVER_CONNECT_ALIVE); a
+// reply on the connection settles it.
 #define RSERVER_CONNECT_CHECK_CONNECTION(errstrg) \
     if(!_pServerStream || !_pServerStream->good()) { \
       delete _pServerStream; \
@@ -271,6 +273,22 @@ void RServer::init(MPList * serverlist)
 	       _CurrentServer->hostname.c_str(),\
 	       _CurrentServer->servicename.c_str()); \
       throw SystemError(buf,errno, ERROR_LOCATION); \
+    } \
+    RSERVER_CONNECT_ALIVE()
+
+/*
+ * A 503 to MODE READER on a connection not seen closed: "not supported",
+ * or old INN's "503 Timeout" with a close that comes a moment later. It is
+ * settled without timing: MODE READER is turned off only once this
+ * connection has shown it is alive (a reply to a later set-up command, or
+ * connect() done). If a later set-up command finds the connection broken,
+ * connect() retries and MODE READER stays on.
+ */
+#define RSERVER_CONNECT_ALIVE() \
+    if(mode_reader_503) { \
+      mode_reader_503 = false; \
+      slog.p(Logger::Warning) << "mode reader failed, ignored\n"; \
+      _CurrentServer->nntpflags &= ~MPListEntry::F_MODE_READER; \
     }
 
 /*
@@ -283,9 +301,12 @@ void RServer::init(MPList * serverlist)
  * checked at that instant as issue() does (input_pending()); otherwise a
  * 503 to MODE READER is "not supported" (turned off), and a 400 or 503 to
  * LIST OVERVIEW.FMT leaves the standard format for this connection. A
- * close that comes only later isn't seen then: the GROUP that connect()
- * selects again, or else the next command, finds the connection broken,
- * and that one command fails or makes a new connection.
+ * close that comes only later is caught by the next set-up command: after
+ * a 503 to MODE READER the decision waits for it (RSERVER_CONNECT_ALIVE),
+ * and after a 400 or 503 to LIST OVERVIEW.FMT a broken connection at the
+ * GROUP that connect() selects again makes connect() retry. Left: a close
+ * that comes only after connect() is done makes one command fail (or
+ * reconnect), or turns MODE READER off for the session.
  */
 static bool setup_reply_closed(const string & resp, sockstream * s,
 			       bool optional)
@@ -411,6 +432,10 @@ void RServer::connect()
 	FlagGuard connecting(_connecting);
 	StreamGuard half_open(_pServerStream);
 	int mode_reader_after_login = 0;
+	// (this attempt: a 503 to MODE READER not settled yet; the
+	// standard format after a 400 or 503 to LIST OVERVIEW.FMT)
+	bool mode_reader_503 = false;
+	bool overview_fmt_fallback = false;
 #if !defined(HAVE_GNUTLS)
 	// Without GnuTLS, ssl and starttls can't be honoured; connecting in
 	// plain text instead would send the login unencrypted.
@@ -429,6 +454,8 @@ void RServer::connect()
 		// (each attempt asks again: the last one may have broken
 		// after a 480 to MODE READER)
 		mode_reader_after_login = 0;
+		mode_reader_503 = false;
+		overview_fmt_fallback = false;
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
@@ -526,9 +553,13 @@ void RServer::connect()
 			} else if (resp[0] == '2' && resp[1] == '0'
 			    && (resp[2] == '0' || resp[2] == '1')) {
 				grt = resp;
+			} else if (NNTP_ISCODE(resp.c_str(), "503")) {
+				// settled by the next reply on this
+				// connection, see RSERVER_CONNECT_ALIVE
+				mode_reader_503 = true;
 			} else if (reply_unsupported(resp)) {
-				// (500, 501, 503, or a positive reply other
-				// than 200 or 201: the server doesn't know it.
+				// (500, 501, or a positive reply other than
+				// 200 or 201: the server doesn't know it.
 				// A positive one may come with a block that
 				// would be read as the next reply: that
 				// closes the connection, and a new one is
@@ -593,6 +624,8 @@ void RServer::connect()
 			if (resp[0] == '2' && resp[1] == '0'
 			    && (resp[2] == '0' || resp[2] == '1')) {
 				grt = resp;
+			} else if (NNTP_ISCODE(resp.c_str(), "503")) {
+				mode_reader_503 = true;
 			} else if (reply_unsupported(resp)) {
 				// (a positive reply closes the connection,
 				// as above)
@@ -704,6 +737,9 @@ void RServer::connect()
 				// 8.4) for this connection; the next one asks
 				// again. Turning it off did so for the rest of
 				// the process. (Logged once per process.)
+				if (NNTP_ISCODE(resp.c_str(), "400") ||
+				    NNTP_ISCODE(resp.c_str(), "503"))
+					overview_fmt_fallback = true;
 				static bool overview_fmt_refused_logged = false;
 				if (!overview_fmt_refused_logged) {
 					overview_fmt_refused_logged = true;
@@ -741,6 +777,7 @@ void RServer::connect()
 			}
 			catch(NoSuchGroupError &) {
 				// the group is gone; the connection is fine
+				RSERVER_CONNECT_ALIVE();
 				_CurrentGroup.init();
 				half_open.release();
 				connecting.release();
@@ -748,6 +785,16 @@ void RServer::connect()
 				throw;
 			}
 			catch(ResponseError & re) {
+				// The connection broke at this GROUP right after
+				// a 400 or 503 to LIST OVERVIEW.FMT, or a 503 to
+				// MODE READER: the server closed after that
+				// reply. The connection is made again here
+				// (Retries); this used to fail the command.
+				if ((overview_fmt_fallback || mode_reader_503) &&
+				    (!_pServerStream || !_pServerStream->good())) {
+					RSERVER_CONNECT_CHECK_CONNECTION
+					    ("Cannot read data from %s:%s");
+				}
 				slog.p(Logger::Warning) << "news server "
 				    << _CurrentServer->hostname
 				    << ": GROUP failed after reconnecting: "
@@ -757,6 +804,7 @@ void RServer::connect()
 						  ERROR_LOCATION);
 			}
 		}
+		RSERVER_CONNECT_ALIVE();
 		// set up: from here a 480 may be answered with a new login
 		half_open.release();
 		connecting.release();
@@ -767,6 +815,7 @@ void RServer::connect()
 
 #undef RSERVER_CONNECT_CHECK_CLOSED
 #undef RSERVER_CONNECT_CHECK_CONNECTION
+#undef RSERVER_CONNECT_ALIVE
 
 void RServer::disconnect()
 {

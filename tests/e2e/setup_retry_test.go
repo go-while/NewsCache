@@ -43,6 +43,9 @@ var setupServerLines = fmt.Sprintf("    Retries %d", setupRetries)
 // GROUP on a connection without an accepted MODE READER gets "401
 // MODE-READER" (RFC 3977 3.2.1) and is counted in groupNoReader. With
 // tlsReader, MODE READER before STARTTLS gets "483 encryption required".
+// With closeNext the server keeps the connection open after a reply of
+// refuse and closes it, with nothing sent, when the next line comes (that
+// line is recorded). While refuseHeld is true, refuse isn't used.
 type setupServer struct {
 	at            string
 	cut           string
@@ -54,6 +57,8 @@ type setupServer struct {
 	lateBlock     []string
 	needReader    bool
 	tlsReader     bool
+	closeNext     bool
+	refuseHeld    atomic.Bool
 	left          atomic.Int32
 	closeGroup    atomic.Int32
 	closePost     atomic.Int32
@@ -106,7 +111,7 @@ func (s *setupServer) sentAfter(id int, first, then string) bool {
 // takeRefusal returns the next reply of refuse and its index; false when
 // they are used up.
 func (s *setupServer) takeRefusal() (string, int, bool) {
-	if len(s.refuse) == 0 {
+	if len(s.refuse) == 0 || s.refuseHeld.Load() {
 		return "", 0, false
 	}
 	i := int(s.refused.Add(1)) - 1
@@ -139,6 +144,7 @@ var setupStatus = map[string]string{
 
 func (s *setupServer) serve(c *fakeserver.Conn) {
 	reader := false
+	closeOnNext := false
 	for {
 		line, err := c.ReadLine()
 		if err != nil {
@@ -146,6 +152,9 @@ func (s *setupServer) serve(c *fakeserver.Conn) {
 		}
 		low := strings.ToLower(line)
 		s.record(c.ID(), low)
+		if closeOnNext {
+			return
+		}
 		if low == s.at {
 			if r, i, ok := s.takeRefusal(); ok {
 				if c.WriteLines(r) != nil {
@@ -155,6 +164,10 @@ func (s *setupServer) serve(c *fakeserver.Conn) {
 					if !c.Sleep(2 * time.Second) || c.WriteLines(s.lateBlock...) != nil {
 						return
 					}
+				}
+				if s.closeNext {
+					closeOnNext = true
+					continue
 				}
 				if s.closeAll || (strings.HasPrefix(r, "400") && !s.keepOpen) {
 					return
@@ -872,6 +885,82 @@ func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
 		}
 		if s.sentAfter(id, "starttls", "mode reader") {
 			t.Errorf("connection %d of %d sent MODE READER after STARTTLS", id, n)
+		}
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamOverviewFmtFallbackGroupClosed: a connection is made again
+// for a client's command while a group is selected (the first one closes at
+// GROUP test.beta). The new one gets 400 (or 503) to LIST OVERVIEW.FMT and
+// is closed by the server only when the next command, the GROUP that
+// connect() selects again, arrives. That GROUP failed connect(), and with
+// Retries 1 the client's command failed. Now connect() makes the
+// connection again itself: three connections (the first, the one closed at
+// its GROUP, one more), the command gets its group, and the third
+// connection asks for LIST OVERVIEW.FMT again.
+func TestUpstreamOverviewFmtFallbackGroupClosed(t *testing.T) {
+	for _, reply := range []string{"400 not now", "503 not supported"} {
+		t.Run(reply[:3], func(t *testing.T) {
+			t.Parallel()
+			const at = "list overview.fmt"
+			s := &setupServer{at: at, refuse: []string{reply}, closeNext: true}
+			s.refuseHeld.Store(true)
+			e := setupEnv(t, s, "plain", false)
+			e.ServerLines = "    Retries 1"
+			p, c := e.sessionProcess()
+			c.Deadline = 30 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP test.alpha: %q", line)
+			}
+			s.refuseHeld.Store(false)
+			s.closeGroup.Store(1)
+			if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+				t.Errorf("GROUP test.beta with %q to %q and a close at the next GROUP: %q, want 211", reply, at, line)
+			}
+			if n := s.Accepted(); n != 3 {
+				t.Errorf("%d connections to the news server, want 3 (the first, the one closed at its GROUP, one more)", n)
+			}
+			if !s.sent(3, at) {
+				t.Errorf("the third connection sent no %q: the %s turned it off", at, reply[:3])
+			}
+			quitSession(t, p, c)
+		})
+	}
+}
+
+// TestUpstreamModeReader503ThenClose: the server answers MODE READER with
+// 503 and closes the connection when the next set-up command (LIST
+// OVERVIEW.FMT) arrives, as old INN's "503 Timeout" with a close that
+// comes a moment later. NewsCache took the 503 for "not supported" at
+// once: the next connection went without MODE READER. Now the 503 waits
+// for the next reply on that connection; the close drops it, a new
+// connection is made, and it sends MODE READER again. (A 503 on a
+// connection that answers the next command still turns MODE READER off:
+// TestUpstreamSetupUnsupportedTurnedOff.)
+func TestUpstreamModeReader503ThenClose(t *testing.T) {
+	const at = "mode reader"
+	s := &setupServer{at: at, refuse: []string{"503 timeout"}, closeNext: true}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 503 to MODE READER and a close at the next command: %q, want 211", line)
+	}
+	if n := s.Accepted(); n != 2 {
+		t.Errorf("%d connections to the news server, want 2 (the closed one and one more)", n)
+	}
+	if !s.sent(2, at) {
+		t.Errorf("the second connection sent no MODE READER: the 503 turned it off")
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	for id := 2; id <= n; id++ {
+		if !s.sent(id, at) {
+			t.Errorf("connection %d of %d sent no MODE READER", id, n)
 		}
 	}
 	quitSession(t, p, c)

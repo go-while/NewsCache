@@ -8,13 +8,15 @@ Bug fixes:
   refused every reader command. Now a 400 to MODE READER, or a 503 (to
   LIST OVERVIEW.FMT also a 400) with the connection already closed behind
   it, counts as a closed connection, and a new one is made, up to Retries
-  times. Only 500, 501 or an unexpected positive reply (or a 503 to MODE
-  READER on an open connection) turns the command off; after a positive
-  reply, which may come with lines that were read as the reply to the
-  next command, the connection is now made again. With Options starttls,
-  a 483 (encryption required) to MODE READER leaves it out on that
-  connection only (it isn't sent after STARTTLS). Another refusal of MODE READER (403, 502, a 480 without a
-  login, a 483 without starttls) gives up that connection like one that
-  couldn't be made. Any other reply to LIST OVERVIEW.FMT leaves the
-  standard overview format for that connection. The next connection
+  times; so is one that the server closes at the next set-up command
+  after such a 503 or 400. Only 500, 501 or an unexpected positive reply
+  (or a 503 to MODE READER on a connection that answers the next command)
+  turns the command off; after a positive reply, which may come with
+  lines that were read as the reply to the next command, the connection
+  is now made again. With Options starttls, a 483 (encryption required)
+  to MODE READER leaves it out on that connection only (it isn't sent
+  after STARTTLS). Another refusal of MODE READER (403, 502, a 480
+  without a login, a 483 without starttls) gives up that connection like
+  one that couldn't be made. Any other reply to LIST OVERVIEW.FMT leaves
+  the standard overview format for that connection. The next connection
   sends the command again. These refusals are logged once per process.

@@ -522,8 +522,9 @@ the greeting, STARTTLS or AUTHINFO (a 400 there too) fails like a
 connection that was refused, and isn't retried; COMPRESS refused
 leaves the connection uncompressed. Only 500, 501 or an unexpected
 positive reply to MODE READER or LIST OVERVIEW.FMT, or a 503 to MODE
-READER on an open connection, turns that command off for the server for the rest of the
-client session or updatenews run (after a positive reply, which may
+READER on a connection that then answers the next set-up command (if it
+closes first, a new connection is made and MODE READER stays on), turns
+that command off for the server for the rest of the client session or updatenews run (after a positive reply, which may
 come with lines that aren't for NewsCache, the connection is made
 again without it). With starttls, a 483 to MODE READER (encryption
 required) leaves it out on that connection (RFC 3977 doesn't allow it
@@ -532,9 +533,11 @@ READER (such as 403, 502, 480 without a login, or 483 without
 starttls) gives up that connection like one that couldn't be made. Any
 other reply to LIST OVERVIEW.FMT, 400 and 503 on an open connection
 too, leaves the standard overview format for that connection; if the
-server closes it a moment later, the next command fails or makes a new
-connection. The next
-connection sends the command again. A TLS handshake that fails (after
+server closes it at the GROUP that NewsCache then selects again, a new
+connection is made. A close that comes only after the set-up makes the
+next command fail or connect again, or, after a 503 to MODE READER,
+leaves it off for the session. The next connection sends the command
+again. A TLS handshake that fails (after
 the 382 to STARTTLS, or with ssl) counts as a connection that couldn't be made. With a login (User
 and Password) each set-up logs in again: a server that closes at
 AUTHINFO gets the login up to Retries + 1 times for each connection

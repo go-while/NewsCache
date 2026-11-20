@@ -690,9 +690,10 @@ already closed behind it when the reply is read. A refusal at the greeting, @cod
 was refused, and isn't retried; @code{COMPRESS} refused leaves the
 connection uncompressed. Only @samp{500}, @samp{501} or an unexpected
 positive reply to @code{MODE READER} or @code{LIST OVERVIEW.FMT}, or a
-@samp{503} to @code{MODE READER} on an open connection, turns that
-command off for the
-server for the rest of the client session or @command{updatenews} run
+@samp{503} to @code{MODE READER} on a connection that then answers the
+next set-up command (if it closes first, a new connection is made and
+@code{MODE READER} stays on), turns that command off for the server for
+the rest of the client session or @command{updatenews} run
 (after a positive reply, which may come with lines that aren't for
 NewsCache, the connection is made again without it). With
 @code{starttls}, a @samp{483} to @code{MODE READER} (encryption
@@ -703,9 +704,11 @@ a login, or @samp{483} without @code{starttls}) gives up that
 connection like one that couldn't be made. Any other reply to
 @code{LIST OVERVIEW.FMT}, @samp{400} and @samp{503} on an open
 connection too, leaves the standard overview format for that
-connection; if the server closes it a moment later, the next command
-fails or makes a new connection.
-The next connection sends the command again. A TLS handshake that fails (after the
+connection; if the server closes it at the @code{GROUP} that NewsCache
+then selects again, a new connection is made. A close that comes only
+after the set-up makes the next command fail or connect again, or, after
+a @samp{503} to @code{MODE READER}, leaves it off for the session. The
+next connection sends the command again. A TLS handshake that fails (after the
 @samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
 connection that couldn't be made: a connection that can't be made at
 all (refused, timed out, a failed TLS handshake) isn't retried within
