@@ -4,11 +4,14 @@
 // started over from 8384 and ran for about 1.8*10^15 chunks. The fake
 // news server of the e2e tests can't send such numbers (int64).
 
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 
 #include <iostream>
 #include <new>
@@ -19,6 +22,7 @@
 #include "CNewsgroup.h"
 #include "MPList.h"
 #include "NServer.h"
+#include "NVActiveDB.h"
 #include "TestTempDir.h"
 
 using namespace std;
@@ -34,10 +38,11 @@ static int failures = 0;
 	} \
 } while (0)
 
-// prefetchchunk (updatenews -g) with a news server that can't be reached:
-// LISTGROUP fails, so every number counts as listed, and retrievearticle
-// finds nothing (and can change the group meanwhile, as another session
-// would).
+// prefetchchunk (updatenews -g) with a news server that lists every number
+// of the range (listing_server), or one that can't be reached (then
+// LISTGROUP fails: every number counts as listed, and the chunk isn't
+// marked); retrievearticle finds nothing (and can change the group
+// meanwhile, as another session would).
 struct PrefetchProbe:public CNewsgroup {
 	void (*on_fetch) (void *);
 	void *arg;
@@ -101,6 +106,92 @@ static std::string closed_port(void)
 	return buf;
 }
 
+// A news server in a child process on a loopback port: GROUP answers 211,
+// LISTGROUP name f-l lists every number of [f,l], anything else 200 (the
+// greeting) or 500. Empty: no socket (the check is then counted as failed).
+struct ListingServer {
+	pid_t child;
+	std::string port;
+	ListingServer():child(-1) {
+		int l = socket(AF_INET, SOCK_STREAM, 0);
+		struct sockaddr_in sa;
+		socklen_t len = sizeof(sa);
+		memset(&sa, 0, sizeof(sa));
+		sa.sin_family = AF_INET;
+		sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		if (l < 0 || ::bind(l, (struct sockaddr *) &sa, sizeof(sa)) != 0
+		    || listen(l, 4) != 0
+		    || getsockname(l, (struct sockaddr *) &sa, &len) != 0) {
+			if (l >= 0)
+				close(l);
+			return;
+		}
+		child = fork();
+		if (child == 0) {
+			signal(SIGPIPE, SIG_IGN);
+			for (;;) {
+				int c = accept(l, NULL, NULL);
+				if (c < 0)
+					_exit(0);
+				serve(c);
+			}
+		}
+		close(l);
+		if (child > 0) {
+			char buf[16];
+			snprintf(buf, sizeof(buf), "%u",
+				 (unsigned) ntohs(sa.sin_port));
+			port = buf;
+		}
+	}
+	~ListingServer() {
+		if (child > 0) {
+			kill(child, SIGKILL);
+			waitpid(child, NULL, 0);
+		}
+	}
+	static void serve(int c) {
+		FILE *in = fdopen(c, "r");
+		FILE *out = fdopen(dup(c), "w");
+		if (!in || !out)
+			_exit(1);
+		fputs("200 listing server\r\n", out);
+		fflush(out);
+		char line[1024], name[512];
+		unsigned long long f, l;
+		while (fgets(line, sizeof(line), in)) {
+			if (strncasecmp(line, "quit", 4) == 0) {
+				fputs("205 bye\r\n", out);
+				break;
+			} else if (sscanf(line, "%*[Ll]%*[Ii]%*[Ss]%*[Tt]%*[Gg]"
+					  "%*[Rr]%*[Oo]%*[Uu]%*[Pp] %511s "
+					  "%llu-%llu", name, &f, &l) == 3) {
+				fprintf(out, "211 %llu %llu %llu %s\r\n",
+					l - f + 1, f, l, name);
+				for (unsigned long long n = f; n <= l; n++)
+					fprintf(out, "%llu\r\n", n);
+				fputs(".\r\n", out);
+			} else if (sscanf(line, "%*[Gg]%*[Rr]%*[Oo]%*[Uu]%*[Pp]"
+					  " %511s", name) == 1) {
+				fprintf(out, "211 30000 1 30000 %s\r\n", name);
+			} else {
+				fputs("500 unknown\r\n", out);
+			}
+			fflush(out);
+		}
+		fclose(out);
+		fclose(in);
+	}
+};
+
+// An RServer with an active database (RServer(MPList *) has none, and
+// GROUP stores the numbers it gets there; NServer deletes it).
+struct DbRServer:public RServer {
+	DbRServer(MPList * l, const std::string & db):RServer(l) {
+		_ActiveDB = new NVActiveDB(db.c_str());
+	}
+};
+
 // RServer(MPList *) sets every member, whatever the memory held before:
 // it left _pServerStream unset, and the first command wrote through it
 // (SIGSEGV on FreeBSD, where the stack wasn't zero).
@@ -135,19 +226,27 @@ static void prefetch_sync(void)
 		failures++;
 		return;
 	}
+	ListingServer srv;
+	if (srv.port.empty()) {
+		CHECK(!"a loopback listener for the news server");
+		return;
+	}
 	MPList list;
 	MPListEntry e;
 	e.hostname = "127.0.0.1";
-	e.servicename = closed_port();
+	e.servicename = srv.port;
 	e.read = "*";
 	e.postTo = "*";
 	e.retries = 0;
+	// (no set-up commands: the greeting, then GROUP and LISTGROUP)
+	e.nntpflags = MPListEntry::F_LISTGROUP;
 	list.entries.push_back(e);
-	RServer rs(&list);
+	DbRServer rs(&list, dir + "/.active64");
 	OverviewFmt fmt;
 	artnum_t through;
 
-	// [a,b] from the chunk's start: the chunk is marked
+	// [a,b] from the chunk's start, the server's list came whole: the
+	// chunk is marked
 	{
 		PrefetchProbe g(&rs, &fmt, dir.c_str(), "test.prefetch.start");
 		g.setsize(1, 30000);
@@ -180,6 +279,21 @@ static void prefetch_sync(void)
 		CHECK(g.on_fetch == NULL);	// (the move happened)
 		bool mk = g.marked(0, &through);
 		CHECK(!(mk && through < 150));
+	}
+	// [a,b] from the chunk's start, but LISTGROUP failed (the server
+	// can't be reached): nothing is removed, and the chunk isn't
+	// marked, so the next synchronization asks again (it was marked)
+	{
+		MPList down;
+		MPListEntry d = e;
+		d.servicename = closed_port();
+		down.entries.push_back(d);
+		RServer rsd(&down);
+		PrefetchProbe g(&rsd, &fmt, dir.c_str(), "test.prefetch.down");
+		g.setsize(1, 30000);
+		g.grow(10000, 30000);
+		g.prefetch(10000, 19999);
+		CHECK(!g.marked(1, &through));
 	}
 }
 
