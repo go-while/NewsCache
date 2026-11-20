@@ -327,9 +327,10 @@ static void prefetch_sync(void)
 		CHECK(threw);
 		CHECK(!g.marked(1, &through));
 	}
-	// a whole synchronization's stamp is kept after a failed list
-	// (neither its time nor how far it reaches changes, and it isn't
-	// cleared)
+	// a whole synchronization's entry that still counts is cleared by
+	// a prefetch whose list didn't come whole, so the next request
+	// synchronizes the chunk (it was kept, and a deleted article stayed
+	// listed until it ran out)
 	{
 		PrefetchProbe g(&rs, &fmt, dir.c_str(), "test.prefetch.newer");
 		g.setsize(1, 30000);
@@ -341,8 +342,7 @@ static void prefetch_sync(void)
 		gd.setsize(1, 30000);
 		gd.grow(10000, 30000);
 		gd.prefetch(10000, 19999);
-		artnum_t through2;
-		CHECK(gd.stamp(1, &through2) == t && through2 == 14999);
+		CHECK(!gd.marked(1, &through));
 	}
 }
 

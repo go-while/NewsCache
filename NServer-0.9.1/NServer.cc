@@ -1406,7 +1406,17 @@ void RServer::listgroup(const char *gname, char *lstgrp,
 		resp = issue(buf, NULL);
 		p = resp.c_str();
 		if (!NNTP_ISCODE(p, "211")) {
-			_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
+			// Only a reply that says LISTGROUP isn't supported (see
+			// reply_unsupported: 500, 501, 503, a positive one other
+			// than 211) switches it off for this process. A refusal
+			// such as 403 or 502 is a failure of this request
+			// (CNewsgroup::listgroup doesn't mark the range), and the
+			// next synchronization asks again. (Any reply but 211
+			// switched it off: after a 403, the next synchronization
+			// in the same session skipped LISTGROUP and marked the
+			// range for the whole group timeout.)
+			if (reply_unsupported(resp))
+				_CurrentServer->nntpflags &= ~MPListEntry::F_LISTGROUP;
 			string c(buf), e("211");
 			reply_unexpected(resp);
 			throw ResponseError(c, e, resp);

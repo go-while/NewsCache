@@ -333,29 +333,48 @@ bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
 }
 
 /*
- * Gives chunk c a retry entry (see retry_pause) through the numbers the
- * fetch covered, written now (under the exclusive lock). A whole
- * synchronization that still counts and reaches that far (another
- * process stored it meanwhile) is kept as it is: a failed list doesn't
- * cut it short. Any other entry is replaced: a whole one that reaches
- * less far (an incremental fetch above it) is synchronized in full after
- * the pause, which mostly comes sooner than its timeout would run out
- * (when less than the pause was left of it, its numbers count until the
- * pause ends, at most a minute more); an older retry entry starts the
- * pause again, so a news server that keeps failing is asked once per
- * pause. No entry when retry entries are off (updatenews, see
- * setretrystamps) or the pause is 0.
+ * After a fetch of chunk c through the number through whose list didn't
+ * come whole (under the exclusive lock); full: the fetch was the whole
+ * chunk, not only the numbers above the synchronized ones.
+ *
+ * No retry entries (updatenews, see setretrystamps, or a pause of 0): the
+ * chunk's entry is cleared, so the next request synchronizes it, also
+ * when it still counted (an extra synchronization at worst).
+ *
+ * Else: a whole synchronization that still counts and reaches that far
+ * (another process stored it meanwhile) is kept as it is: a failed list
+ * doesn't cut it short. A retry entry that still counts, after an
+ * incremental fetch, keeps its time and only reaches further: the pause
+ * isn't started again by every incomplete increment, so the full retry
+ * comes when the first pause ends. Any other entry is replaced by a
+ * retry entry written now: a whole one that reaches less far (an
+ * incremental fetch above it) is synchronized in full after the pause,
+ * which mostly comes sooner than its timeout would run out (when less
+ * than the pause was left of it, its numbers count until the pause ends,
+ * at most a minute more); a retry entry that ran out, or one that still
+ * counts after a full retry (another process wrote it meanwhile), starts
+ * the pause again, so a news server that keeps failing is asked once per
+ * pause.
  */
-void CNewsgroup::setretrysync(artnum_t c, artnum_t through)
+void CNewsgroup::setretrysync(artnum_t c, artnum_t through, bool full)
 {
 	nvtime_t now = nvtime(NULL);
 	SyncEnt e;
 
-	if (!_RetryStamps || !retry_pause())
+	if (!_RetryStamps || !retry_pause()) {
+		setsync(c, 0, 0);
 		return;
+	}
 	getsync(c, &e);
-	if (!is_retry(e) && counts(e, now) && e.through >= through)
-		return;
+	if (counts(e, now)) {
+		if (!is_retry(e) && e.through >= through)
+			return;
+		if (is_retry(e) && !full) {
+			if (through > e.through)
+				setsync(c, e.time, through);
+			return;
+		}
+	}
 	setsync(c, SYNC_RETRY | (uint64_t) now, through);
 }
 
@@ -555,7 +574,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			first = _gfirst;
 		if (first >= cf.from) {
 			if (result == fetch_unlisted)
-				setretrysync(cf.c, top);
+				setretrysync(cf.c, top, true);
 			else
 				setsync(cf.c, cf.now, top);
 		}
@@ -568,7 +587,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 		// the rest of its pause, and then the chunk is synchronized in
 		// full, as it should after an incomplete list.
 		if (result == fetch_unlisted)
-			setretrysync(cf.c, top);
+			setretrysync(cf.c, top, false);
 		else
 			setsync(cf.c, e.time, top);
 	}
@@ -1062,9 +1081,17 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 	size_t szdata;
 	artnum_t f, top;
 	// false: the list didn't come whole (all set: nothing is removed),
-	// and the chunk isn't marked as synchronized below (no retry entry:
-	// updatenews writes none, see setretrystamps)
+	// and the chunk isn't marked as synchronized below
 	bool whole = listgroup(&lstgrp[0], a, b);
+	if (!whole) {
+		// Its entry goes, also one that still counted, so that the next
+		// request synchronizes the chunk (as storechunk does without
+		// retry entries, see setretrysync; updatenews writes none). It
+		// went on counting: a deleted article stayed listed until it
+		// ran out.
+		GroupLock clearlock(*this, NVcontainer::ExclLock);
+		setsync(a / OVERVIEW_CHUNK, 0, 0);
+	}
 	{
 		// what the spool has now (checked again before each change)
 		GroupLock guard(*this, NVcontainer::ShrdLock);

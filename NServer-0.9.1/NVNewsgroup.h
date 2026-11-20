@@ -79,13 +79,18 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 		uint64_t through;	// synchronized up to this number
 	};
 	/*
-	 * A retry entry (see CNewsgroup::retry_stamp): the time it was
+	 * A retry entry (see CNewsgroup::retry_pause): the time it was
 	 * written, with this bit set, which no real time reaches (nvtime_t
 	 * has 32 or 64 bits; the field has 64 on every build). It counts
 	 * only for the reader's retry pause, not for the group timeout.
 	 * Versions before it read such a time as one still to come, which
 	 * they take as stale (the clock was put back): the chunk is
-	 * synchronized again, so going back to one is safe.
+	 * synchronized again. Except on a 32-bit build: when the group's
+	 * last number went down, an older version stores the entry again
+	 * through its 32-bit time (setsize), which drops the bit, and the
+	 * entry then counts as a whole synchronization of that time. After
+	 * going back to an older version there, entries are right again
+	 * within one group timeout.
 	 */
 	static const uint64_t SYNC_RETRY = 1ULL << 62;
 	static bool is_retry(const SyncEnt & e) {

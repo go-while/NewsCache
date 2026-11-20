@@ -43,17 +43,35 @@ const listgroupSyncServerLines = "    Retries 0"
 
 // incompleteListgroupFaults: the upstream faults that leave the
 // synchronization's LISTGROUP incomplete (the deleted article is 2 of 1-3).
+// reaches: the LISTGROUP reaches the upstream (else only the connection
+// does).
 var incompleteListgroupFaults = []struct {
-	name   string
-	faults fakeserver.Faults
+	name    string
+	faults  fakeserver.Faults
+	reaches bool
 }{
 	// the status line and "1", then the connection closes
-	{"cut-off", fakeserver.Faults{DropInMultiline: map[string]int{"LISTGROUP": 2}}},
-	{"403", fakeserver.Faults{Override: map[string][]string{"LISTGROUP": {"403 internal fault"}}}},
+	{"cut-off", fakeserver.Faults{DropInMultiline: map[string]int{"LISTGROUP": 2}}, true},
+	{"403", fakeserver.Faults{Override: map[string][]string{"LISTGROUP": {"403 internal fault"}}}, true},
 	// every connection closes after the greeting, before the reply to
 	// MODE READER (connect() throws ResponseError, or SystemError once
 	// its retries are used up)
-	{"closed-after-greeting", fakeserver.Faults{DropInMultiline: map[string]int{"MODE": 0}}},
+	{"closed-after-greeting", fakeserver.Faults{DropInMultiline: map[string]int{"MODE": 0}}, false},
+}
+
+// wantFaultyAttempt: the faulty phase did try to synchronize: it sent
+// LISTGROUP to the faulty upstream, or, where the connection closes during
+// set-up, connected to it. (Without it the next phase could pass without
+// the faulty one having been tested.)
+func wantFaultyAttempt(t *testing.T, e *env, reaches bool) {
+	t.Helper()
+	if reaches {
+		if n := e.Upstream.Count("LISTGROUP"); n == 0 {
+			t.Fatal("faulty upstream: no LISTGROUP: the faulty synchronization didn't happen")
+		}
+	} else if n := e.Upstream.Accepted(); n == 0 {
+		t.Fatal("faulty upstream: no connection: the faulty synchronization didn't happen")
+	}
 }
 
 // wantSyncedWithout: a session with a working upstream, inside the group
@@ -128,6 +146,7 @@ func TestCachedIncompleteListgroupNotSynced(t *testing.T) {
 				t.Errorf("faulty upstream: XOVER 1-3: numbers %v, want 1 and 3 at least", got)
 			}
 			c.Cmd("QUIT")
+			wantFaultyAttempt(t, e, tc.reaches)
 
 			wantSyncedWithout(t, e, group, faulty)
 		})
@@ -136,9 +155,10 @@ func TestCachedIncompleteListgroupNotSynced(t *testing.T) {
 
 // TestPrefetchIncompleteListgroupNotSynced: the same for updatenews -g,
 // whose chunk (prefetchchunk) was marked after an incomplete LISTGROUP as
-// well. (A 403 also switched LISTGROUP off for the process, and the chunk
-// was then not marked; the case guards the stamp once only an unsupported
-// LISTGROUP switches it off.)
+// well. (Before, a 403 also switched LISTGROUP off for the process, and the
+// chunk was then not marked, so the "403" case passed for that reason. Now
+// a 403 leaves LISTGROUP on, and the case checks prefetchchunk's own rule:
+// an incomplete list doesn't mark the chunk.)
 func TestPrefetchIncompleteListgroupNotSynced(t *testing.T) {
 	const group = "test.alpha"
 	for _, tc := range incompleteListgroupFaults {
@@ -176,6 +196,7 @@ func TestPrefetchIncompleteListgroupNotSynced(t *testing.T) {
 			e.writeConf()
 			out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput()
 			t.Logf("faulty upstream: updatenews -g: %v\n%s", err, out)
+			wantFaultyAttempt(t, e, tc.reaches)
 
 			wantSyncedWithout(t, e, group, faulty)
 		})
@@ -363,6 +384,118 @@ func TestUpdatenewsIncompleteListgroupNoStamp(t *testing.T) {
 			if n := e.Upstream.Count("LISTGROUP"); n == 0 {
 				t.Errorf("working upstream: no LISTGROUP: updatenews %s marked the "+
 					"chunk after an incomplete LISTGROUP", mode)
+			}
+		})
+	}
+}
+
+// TestCachedListgroupRefusedSameSession: LISTGROUP refused with 403 once,
+// in one client session (one connection to the upstream): after the
+// retry pause, the same session's next synchronization asks for the list
+// again and removes the article the news server deleted. Any reply but
+// 211 switched LISTGROUP off for the rest of the session, so that
+// synchronization skipped the list and marked the range for the whole
+// group timeout.
+func TestCachedListgroupRefusedSameSession(t *testing.T) {
+	const group = "test.alpha"
+	e := newEnv(t)
+	e.GroupTimeout = retryPauseTimeout
+	e.addArticles(group, 3)
+
+	// the chunk, cached and synchronized
+	c := e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	wantNumbers(t, "first XOVER 1-3", xover(t, c, 1, 3), 1, 2, 3)
+	c.Cmd("QUIT")
+
+	if !e.Store.RemoveArticle(group, 2) {
+		t.Fatal("remove article 2 upstream")
+	}
+	// the first synchronization's timeout runs out
+	time.Sleep((retryPauseTimeout+1)*time.Second + 100*time.Millisecond)
+
+	// one 403 per connection, then the normal reply
+	upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+		Override:      map[string][]string{"LISTGROUP": {"403 not now"}},
+		OverrideTimes: map[string]int{"LISTGROUP": 1},
+	}})
+	start := time.Now()
+	c = e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatalf("GROUP: %q", line)
+	}
+	wantNumbers(t, "LISTGROUP refused: XOVER 1-3 (from the cache)", xover(t, c, 1, 3), 1, 2, 3)
+	end := time.Now()
+	if n := e.Upstream.Count("LISTGROUP"); n != 1 {
+		t.Fatalf("LISTGROUP refused: %d LISTGROUP, want 1", n)
+	}
+
+	// after the pause, the same session
+	time.Sleep(time.Until(end.Add((retryPause+1)*time.Second + 100*time.Millisecond)))
+	wantNumbers(t, "after the pause: XOVER 1-3 (article 2 deleted upstream)",
+		xover(t, c, 1, 3), 1, 3)
+	if code, line := c.Cmd("STAT 2"); code != 423 {
+		t.Errorf("after the pause: STAT 2 (deleted upstream): %q, want 423", line)
+	}
+	c.Cmd("QUIT")
+	if n := e.Upstream.Count("LISTGROUP"); n != 2 {
+		t.Errorf("%d LISTGROUP, want 2: the 403 switched LISTGROUP off "+
+			"for the session", n)
+	}
+	// (the 403 comes once per connection: a second one would get it
+	// again)
+	if n := e.Upstream.Accepted(); n != 1 {
+		t.Fatalf("inconclusive: %d connections to the upstream, want 1", n)
+	}
+	// (the faulty synchronization's mark for the whole timeout would
+	// still count here)
+	if d := time.Since(start); d+time.Second >= retryPauseTimeout*time.Second {
+		t.Fatalf("inconclusive: %v from the refused LISTGROUP to the check, "+
+			"not within the group timeout (%d s)", d, retryPauseTimeout)
+	}
+}
+
+// TestCachedListgroupRefusalKeepsListgroup: a refusal of LISTGROUP that
+// doesn't say it is unsupported (403, 502) leaves it on for the session:
+// the next group's synchronization asks for its list. Only 500, 501 or a
+// positive reply other than 211 switch it off. (Any reply but 211 did.)
+func TestCachedListgroupRefusalKeepsListgroup(t *testing.T) {
+	for _, tc := range []struct {
+		name, reply string
+		stayson     bool
+	}{
+		{"403", "403 not now", true},
+		{"502", "502 not for you", true},
+		{"500", "500 unknown command", false},
+		{"501", "501 syntax error", false},
+		{"odd-positive", "200 not a reply to LISTGROUP", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addArticles("test.alpha", 3)
+			e.addArticles("test.beta", 3)
+			// the reply once per connection, then the normal one
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				Override:      map[string][]string{"LISTGROUP": {tc.reply}},
+				OverrideTimes: map[string]int{"LISTGROUP": 1},
+			}})
+			c := e.session()
+			for _, g := range []string{"test.alpha", "test.beta"} {
+				if code, line := c.Cmd("GROUP %s", g); code != 211 {
+					t.Fatalf("GROUP %s: %q", g, line)
+				}
+				wantNumbers(t, "XOVER 1-3 in "+g, xover(t, c, 1, 3), 1, 2, 3)
+			}
+			c.Cmd("QUIT")
+			want := 1
+			if tc.stayson {
+				want = 2
+			}
+			if n := e.Upstream.Count("LISTGROUP"); n != want {
+				t.Errorf("%d LISTGROUP, want %d (LISTGROUP on after %q: %v)",
+					n, want, tc.reply, tc.stayson)
 			}
 		})
 	}

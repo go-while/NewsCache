@@ -70,7 +70,7 @@ class CNewsgroup:public NVNewsgroup {
 	// the retry pause after an incomplete list (see CNewsgroup.cc)
 	nvtime_t retry_pause(void);
 	bool counts(const SyncEnt & e, nvtime_t now);
-	void setretrysync(artnum_t c, artnum_t through);
+	void setretrysync(artnum_t c, artnum_t through, bool full);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the
 	// news server refused or failed): the caller serves the chunk from

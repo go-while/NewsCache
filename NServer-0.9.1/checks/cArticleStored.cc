@@ -362,7 +362,9 @@ static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
 		CHECK(g.synced_time() == 0);
 	}
 	{
-		// retry entries off (updatenews): the chunk stays unmarked
+		// retry entries off (updatenews -o): no entry, and a whole one
+		// that still counted is cleared, so the next request
+		// synchronizes the chunk (it was kept)
 		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryoff");
 		g.setretrystamps(false);
 		g.setsize(1, 100);
@@ -370,6 +372,35 @@ static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
 		CHECK(g.snapshot());
 		g.finish_unlisted();
 		CHECK(g.synced_time() == 0);
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.finish();
+		CHECK(g.synced_time() == now && g.synced_through() == 100);
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// Incomplete increments within the pause: the retry entry
+		// reaches further but keeps its time, so it stops counting
+		// when the first pause ends (each increment wrote a new time,
+		// and the full retry could be put off pause after pause).
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrysteps");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		nvtime_t t = nvtime(NULL) - 30;
+		g.put_retry(t, 60);
+		CHECK(g.range_now(61, 100));
+		CHECK(!g.pending.full && g.pending.from == 61 && g.pending.top == 100);
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() == t && g.synced_through() == 100);
+		g.setsize(1, 120);
+		g.grow(1, 120);
+		CHECK(g.range_now(101, 120));
+		CHECK(!g.pending.full && g.pending.from == 101 && g.pending.top == 120);
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() == t && g.synced_through() == 120);
+		CHECK(g.synced_at(120, t + r));
+		CHECK(!g.synced_at(120, t + r + 1));
 	}
 	{
 		// a timeout longer than the clock's time: a retry entry of
