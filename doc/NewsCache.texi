@@ -683,20 +683,27 @@ runs out, while NewsCache sets it up (at the
 greeting, or at @code{MODE READER}, @code{STARTTLS}, @code{AUTHINFO},
 @code{COMPRESS} or @code{LIST OVERVIEW.FMT}) is made again too, up to
 @code{Retries} times, and so is one where @code{MODE READER} gets
-@samp{400}. A refusal at the greeting, @code{STARTTLS} or
+@samp{400}, or where @code{MODE READER} gets @samp{503} or @code{LIST
+OVERVIEW.FMT} gets @samp{400} or @samp{503} with the connection
+already closed behind it when the reply is read. A refusal at the greeting, @code{STARTTLS} or
 @code{AUTHINFO} (a @samp{400} there too) fails like a connection that
 was refused, and isn't retried; @code{COMPRESS} refused leaves the
 connection uncompressed. Only @samp{500}, @samp{501} or an unexpected
 positive reply to @code{MODE READER} or @code{LIST OVERVIEW.FMT}, or a
-@samp{503} to @code{MODE READER}, turns that command off for the
+@samp{503} to @code{MODE READER} on an open connection, turns that
+command off for the
 server for the rest of the client session or @command{updatenews} run
 (after a positive reply, which may come with lines that aren't for
-NewsCache, the connection is made again without it). Any other refusal
-of @code{MODE READER} (such as @samp{403}, @samp{502}, or @samp{480}
-without a login) gives up that connection like one that couldn't be
-made. Any other reply to @code{LIST OVERVIEW.FMT}, @samp{400} and
-@samp{503} too, leaves the standard overview format for that
-connection; if the server closed it, the next command makes a new one.
+NewsCache, the connection is made again without it). With
+@code{starttls}, a @samp{483} to @code{MODE READER} (encryption
+required) sends it again after @code{STARTTLS}. Any other refusal of
+@code{MODE READER} (such as @samp{403}, @samp{502}, @samp{480} without
+a login, or @samp{483} without @code{starttls}) gives up that
+connection like one that couldn't be made. Any other reply to
+@code{LIST OVERVIEW.FMT}, @samp{400} and @samp{503} on an open
+connection too, leaves the standard overview format for that
+connection; if the server closes it a moment later, the next command
+fails or makes a new connection.
 The next connection sends the command again. A TLS handshake that fails (after the
 @samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
 connection that couldn't be made: a connection that can't be made at

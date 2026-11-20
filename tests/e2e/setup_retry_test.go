@@ -41,7 +41,8 @@ var setupServerLines = fmt.Sprintf("    Retries %d", setupRetries)
 // two seconds later by these lines (a block that comes after NewsCache has
 // sent its next command). With needReader it is a mode-switching server: a
 // GROUP on a connection without an accepted MODE READER gets "401
-// MODE-READER" (RFC 3977 3.2.1) and is counted in groupNoReader.
+// MODE-READER" (RFC 3977 3.2.1) and is counted in groupNoReader. With
+// tlsReader, MODE READER before STARTTLS gets "483 encryption required".
 type setupServer struct {
 	at            string
 	cut           string
@@ -52,6 +53,7 @@ type setupServer struct {
 	closeAll      bool
 	lateBlock     []string
 	needReader    bool
+	tlsReader     bool
 	left          atomic.Int32
 	closeGroup    atomic.Int32
 	closePost     atomic.Int32
@@ -78,6 +80,23 @@ func (s *setupServer) sent(id int, low string) bool {
 	defer s.mu.Unlock()
 	for _, l := range s.conns[id] {
 		if l == low {
+			return true
+		}
+	}
+	return false
+}
+
+// sentAfter tells whether connection id sent the line then after the line
+// first.
+func (s *setupServer) sentAfter(id int, first, then string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := false
+	for _, l := range s.conns[id] {
+		switch {
+		case l == first:
+			seen = true
+		case seen && l == then:
 			return true
 		}
 	}
@@ -160,6 +179,8 @@ func (s *setupServer) serve(c *fakeserver.Conn) {
 			return
 		}
 		switch {
+		case low == "mode reader" && s.tlsReader && !c.TLS():
+			err = c.WriteLines("483 encryption required")
 		case low == "mode reader":
 			reader = true
 			err = c.WriteLines(setupStatus[low])
@@ -559,6 +580,7 @@ func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
 		{"mode reader 403", "plain", "mode reader", []string{"403 not now"}, false},
 		{"mode reader 502", "plain", "mode reader", []string{"502 reading service unavailable"}, false},
 		{"mode reader 480", "plain", "mode reader", []string{"480 authentication required"}, false},
+		{"mode reader 483 without starttls", "plain", "mode reader", []string{"483 encryption required"}, false},
 		{"mode reader after login 403", "auth", "mode reader", []string{"480 log in first", "403 not now"}, false},
 		{"list overview.fmt 403", "plain", "list overview.fmt", []string{"403 not now"}, true},
 		{"list overview.fmt 480", "plain", "list overview.fmt", []string{"480 authentication required"}, true},
@@ -601,9 +623,12 @@ func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
 // NewsCache took it as "not supported" and turned the command off for the
 // rest of the process: the next connection went without it. A 400 to MODE
 // READER now counts as a closed connection: a new one is made (Retries).
-// After the reply to LIST OVERVIEW.FMT the connection is used with the
+// A 400 or 503 to LIST OVERVIEW.FMT does so when the close is already
+// there as the reply is read; otherwise the connection is used with the
 // standard format, and the client's command finds it closed and makes a
-// new one. Either way the second connection sends the command again.
+// new one. Either way (no group is selected yet, so connect() sends no
+// GROUP of its own) there are two connections, and the second sends the
+// command again.
 func TestUpstreamSetupReply400Reconnects(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, at string
@@ -807,6 +832,43 @@ func TestUpstreamModeSwitchingRefusal(t *testing.T) {
 	}
 	if n := s.groupNoReader.Load(); n != 0 {
 		t.Errorf("%d GROUP commands reached the server without MODE READER on their connection, want none", n)
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamModeReader483BeforeTLS: with Options starttls, a news server
+// that wants TLS before MODE READER answers it with 483 (NewsCache sends
+// MODE READER before STARTTLS). NewsCache turned MODE READER off at the
+// 483 and never sent it on a connection again. Now it is sent again after
+// STARTTLS, on the same connection, and on every later one. (Without
+// Options starttls a 483 is a refusal: see "mode reader 483 without
+// starttls" in TestUpstreamSetupRefusedNotTurnedOff.)
+func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
+	s := &setupServer{tlsReader: true}
+	e := setupEnv(t, s, "starttls", true)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 483 to MODE READER before STARTTLS: %q, want 211", line)
+	}
+	if n := s.Accepted(); n != 1 {
+		t.Errorf("%d connections to the news server, want 1", n)
+	}
+	if !s.sentAfter(1, "starttls", "mode reader") {
+		t.Errorf("no MODE READER after STARTTLS on the first connection")
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	if n < 2 {
+		t.Fatalf("%d connections to the news server, want a new one", n)
+	}
+	for id := 2; id <= n; id++ {
+		if !s.sentAfter(id, "starttls", "mode reader") {
+			t.Errorf("connection %d of %d sent no MODE READER after STARTTLS: the 483 turned it off", id, n)
+		}
 	}
 	quitSession(t, p, c)
 }
