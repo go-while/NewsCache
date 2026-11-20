@@ -75,13 +75,24 @@ struct ChunkRangeProbe:public CNewsgroup {
 		return ok;
 	}
 	void add_over(const string &line) { pending.records.push_back(line); }
-	void finish() { storechunk(pending, true); }
+	void finish() { storechunk(pending, fetch_whole); }
+	// the fetch completed, but LISTGROUP didn't come whole
+	void finish_unlisted() { storechunk(pending, fetch_unlisted); }
+	// the fetch failed half way
+	void finish_failed() { storechunk(pending, fetch_failed); }
 	bool synced_to(artnum_t n) { return synced(0, n, 100); }
+	bool synced_at(artnum_t n, nvtime_t now) { return synced(0, n, now); }
 	artnum_t synced_through() {
 		NVLock guard(*this, NVcontainer::ShrdLock);
 		SyncEnt ent;
 		getsync(0, &ent);
 		return ent.time ? ent.through : 0;
+	}
+	nvtime_t synced_time() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt ent;
+		getsync(0, &ent);
+		return ent.time;
 	}
 };
 
@@ -160,6 +171,93 @@ static void chunk_expired_then_restored(const string &dir, OverviewFmt &fmt)
 	g.setsize(1, 100);
 	g.grow(1, 100);
 	CHECK(!g.synced_to(39));
+}
+
+// A fetch whose LISTGROUP didn't come whole (fetch_unlisted) stores what
+// came, removes nothing, and marks the chunk only for the retry pause,
+// R = min(60, timeout / 4): the stamp is back-dated to now - timeout + R,
+// so synced() accepts it for R more seconds (it marked the chunk for the
+// whole timeout, and without the pause every command synchronized the
+// chunk again while the news server kept failing). A failed fetch doesn't
+// mark it; a newer stamp is kept as it is; a timeout under 4 s (R = 0),
+// or one longer than the clock's time, gives no stamp.
+static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
+{
+	const nvtime_t ttl = 3600, r = 60;	// (ChunkRangeProbe's timeout)
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretry");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.add_over("10\tsubject\tfrom@x\tdate\t<retry@x>\t\t100\t5");
+		nvtime_t t0 = nvtime(NULL);
+		g.finish_unlisted();
+		nvtime_t t1 = nvtime(NULL);
+		CHECK(g.hasrecord(10));
+		CHECK(g.synced_through() == 100);
+		nvtime_t t = g.synced_time();
+		CHECK(t0 - ttl + r <= t && t <= t1 - ttl + r);
+		CHECK(g.synced_at(100, t1));
+		CHECK(g.synced_at(100, t0 + r));
+		CHECK(!g.synced_at(100, t1 + r + 1));
+	}
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryfail");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.add_over("10\tsubject\tfrom@x\tdate\t<retryfail@x>\t\t100\t5");
+		g.finish_failed();
+		CHECK(g.hasrecord(10));
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// a whole synchronization's stamp of now, through 60: kept
+		// (neither its time nor how far it reaches changes)
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrynewer");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.pending.top = 60;
+		g.finish();
+		CHECK(g.synced_time() == now && g.synced_through() == 60);
+		g.pending.top = 100;
+		g.finish_unlisted();
+		CHECK(g.synced_time() == now && g.synced_through() == 60);
+	}
+	{
+		// an older stamp (time 100, from snapshot) is replaced
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryolder");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish();
+		CHECK(g.synced_time() == 100);
+		nvtime_t t0 = nvtime(NULL);
+		g.finish_unlisted();
+		CHECK(g.synced_time() >= t0 - ttl + r);
+		CHECK(g.synced_through() == 100);
+	}
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryshort");
+		g.setttl(3);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrylong");
+		g.setttl(nvtime(NULL) + 1000);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
 }
 
 #ifdef NEWSCACHE_TEST_DROPBAD_RACE
@@ -340,6 +438,7 @@ int main(void)
 	chunk_range_change(dir, fmt);
 	chunk_range_overlap(dir, fmt);
 	chunk_expired_then_restored(dir, fmt);
+	chunk_retry_pause(dir, fmt);
 	note_older_then_free(dir, fmt);
 
 	if (failures) {

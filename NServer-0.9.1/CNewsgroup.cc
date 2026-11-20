@@ -134,6 +134,19 @@ ChunkFetchLock::~ChunkFetchLock()
 	while (fcntl(fetch_fd, F_SETLK, &lk) != 0 && errno == EINTR)
 		;
 }
+
+// s without its CR and LF (a news server's reply in a log line)
+std::string without_crlf(const std::string & s)
+{
+	std::string r;
+
+	r.reserve(s.size());
+	for (std::string::size_type i = 0; i < s.size(); i++) {
+		if (s[i] != '\r' && s[i] != '\n')
+			r += s[i];
+	}
+	return r;
+}
 }
 
 CNewsgroup::~CNewsgroup()
@@ -157,10 +170,11 @@ RNewsgroup *CNewsgroup::pass(void)
  * of it or couldn't be set up, a 403 or another refusal that doesn't say
  * "unsupported"): every number is set too, since a number missing from a
  * partial list is no sign that its article is gone, and the caller must
- * not mark the range as synchronized, so the next synchronization asks
- * again and removes what the news server deleted. Deleted articles stayed
- * in the spool for one group timeout. A ReplyLimitError goes on to the
- * caller.
+ * not mark the range as synchronized for the group's timeout, only for
+ * the short retry pause (see retry_stamp), so a later synchronization
+ * asks again and removes what the news server deleted. (The range was
+ * marked for the whole timeout, and deleted articles stayed in the spool
+ * that long.) A ReplyLimitError goes on to the caller.
  */
 bool CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 {
@@ -176,8 +190,8 @@ bool CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 			return true;
 		}
 		slog.p(Logger::Error) << name() << ": LISTGROUP " << f << "-"
-		    << l << " failed (" << rs._got << "), not marked as "
-		    << "synchronized\n";
+		    << l << " failed (" << without_crlf(rs._got)
+		    << "), nothing removed, not marked for the group timeout\n";
 		return false;
 	} catch(const ReplyLimitError &) {
 		// A limit is not an unsupported LISTGROUP: do not mark an
@@ -187,14 +201,16 @@ bool CNewsgroup::listgroup(char *lstgrp, artnum_t f, artnum_t l)
 		// (the connection broke in the middle of the list)
 		memset(lstgrp, 1, l - f + 1);
 		slog.p(Logger::Error) << name() << ": LISTGROUP " << f << "-"
-		    << l << " failed (" << e._errtext << "), not marked as "
-		    << "synchronized\n";
+		    << l << " failed (" << without_crlf(e._errtext)
+		    << "), nothing removed, not marked for the group timeout\n";
 		return false;
 	} catch(...) {
 		slog.p(Logger::Error)
 		    << "UNEXPECTED EXCEPTION WHILE ISSUEING LISTGROUP\n"
 		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
-		// (left at 0, every cached article of the range was deleted)
+		// Every number set, as for the other failures. This path used
+		// to leave lstgrp at 0, which read as "the server has none of
+		// them", and every cached article of the range was deleted.
 		memset(lstgrp, 1, l - f + 1);
 		return false;
 	}
@@ -269,11 +285,59 @@ bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
 	GroupLock guard(*this, NVcontainer::ShrdLock);
 
 	getsync(c, &e);
-	// (a time still to come is stale: the clock was put back; now is
-	// from before the wait for the fetch lock, and the session that had
-	// it stamped the chunk later, so the clock is read again for that)
+	// (a time still to come is stale: the clock was put back; the clock
+	// is read again for that, since another process may have stamped
+	// the chunk after now was taken)
 	return e.time && e.time <= nvtime(NULL) && e.time + _TTLGroup >= now &&
 	    e.through >= l;
+}
+
+/*
+ * The retry pause. A synchronization that completed, but whose LISTGROUP
+ * didn't come whole (see listgroup), removes nothing and isn't marked for
+ * the group's timeout. Left unmarked, the chunk would be synchronized
+ * again by every command while the news server keeps failing (an outage,
+ * a middlebox that cuts LISTGROUP off), and the sessions waiting for the
+ * chunk's fetch lock would each wait for the server in turn. So it counts
+ * as synchronized for R more seconds, a quarter of the group's timeout
+ * and at most 60: the stamp is back-dated to now - timeout + R, which
+ * synced() accepts until now + R. Returns that time, or 0 for no stamp:
+ * R is 0 (a timeout under 4 s; a stamp of now would still count for the
+ * rest of this second), or the clock is too early for the subtraction.
+ */
+nvtime_t CNewsgroup::retry_stamp(nvtime_t now)
+{
+	nvtime_t r = _TTLGroup / 4;
+
+	if (r > 60)
+		r = 60;
+	// (r <= _TTLGroup / 4: _TTLGroup - r doesn't wrap, and the stamp
+	// is above 0)
+	if (r == 0 || now <= _TTLGroup - r)
+		return 0;
+	return now - (_TTLGroup - r);
+}
+
+/*
+ * Marks chunk c, through the numbers the fetch covered, with the retry
+ * stamp of the current time (under the exclusive lock). A stamp no older
+ * than that one, which counts at least as long as the pause, is kept as
+ * it is (its time and how far it reaches): a whole synchronization that
+ * another process stored meanwhile isn't cut short by a failed list, nor
+ * is its range extended.
+ */
+void CNewsgroup::setretrysync(artnum_t c, artnum_t through)
+{
+	nvtime_t now = nvtime(NULL), t = retry_stamp(now);
+	SyncEnt e;
+
+	if (!t)
+		return;
+	getsync(c, &e);
+	// (a time still to come is stale, as in synced())
+	if (e.time >= t && e.time <= now)
+		return;
+	setsync(c, t, through);
 }
 
 /*
@@ -337,7 +401,7 @@ class OverCollector:public RNewsgroup {
  * the server connection throws (cf keeps what came before). false: the
  * news server's list didn't come whole (see listgroup): the records are
  * fetched as without LISTGROUP, nothing may be removed, and the chunk
- * must not be marked as synchronized.
+ * gets only the retry pause (see retry_stamp), not the group's timeout.
  */
 bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 {
@@ -408,10 +472,12 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  * again here: records go only where the index still is and has none, a
  * number the server no longer lists goes only if it is still there, and
  * the chunk is marked synchronized only as far as the fetch covered it.
- * complete = false: the fetch failed half way; what came is stored, but
- * the chunk isn't marked.
+ * fetch_unlisted: the fetch completed, but the news server's list didn't
+ * come whole; what came is stored, and the chunk gets the retry stamp
+ * (see retry_stamp). fetch_failed: the fetch failed half way; what came
+ * is stored, but the chunk isn't marked (its index may lack records).
  */
-void CNewsgroup::storechunk(ChunkFetch & cf, bool complete)
+void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 {
 	// (as in readoverdb: the history entries are added in one go per
 	// shard, after the group's lock is given back)
@@ -453,7 +519,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, bool complete)
 				break;
 		}
 	}
-	if (!complete) {
+	if (result == fetch_failed) {
 		if (!cf.records.empty())
 			setmtime(cf.now);
 		return;
@@ -467,14 +533,23 @@ void CNewsgroup::storechunk(ChunkFetch & cf, bool complete)
 			first = arrfst;
 		if (_ghave && first < _gfirst)
 			first = _gfirst;
-		if (first >= cf.from)
-			setsync(cf.c, cf.now, top);
+		if (first >= cf.from) {
+			if (result == fetch_unlisted)
+				setretrysync(cf.c, top);
+			else
+				setsync(cf.c, cf.now, top);
+		}
 	} else if (e.through + 1 >= cf.from && top > e.through) {
 		// The new numbers above the synchronized ones; unless a lower
 		// last number cut the synchronized part below where this
 		// fetch began meanwhile (the numbers in between weren't
-		// fetched)
-		setsync(cf.c, e.time, top);
+		// fetched). e.time is kept: if it is a retry stamp (back-dated,
+		// see retry_stamp), the chunk's next full synchronization only
+		// comes sooner, as it should after an incomplete list.
+		if (result == fetch_unlisted)
+			setretrysync(cf.c, top);
+		else
+			setsync(cf.c, e.time, top);
 	}
 	setmtime(cf.now);
 }
@@ -532,6 +607,11 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 	// group's database isn't locked while the news server is asked: the
 	// sessions that only read the group go on meanwhile.
 	ChunkFetchLock fetching(_FetchLockFile, name(), cf.c);
+	// The clock again, after the wait: a retry stamp (see retry_stamp)
+	// that ran out meanwhile no longer counts, and one the session ahead
+	// stored does. chunkrange and the stamp after the fetch take this
+	// time too.
+	cf.now = nvtime(NULL);
 	if (synced(cf.c, l, cf.now))
 		return true;
 	if (!*refreshed) {
@@ -548,28 +628,30 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 	// the news server, which gives the records, or a 403 (the
 	// connection closed after part of a list) when it fails again.
 	try {
-		// false: the news server's list didn't come whole. The
-		// records the index lacked were fetched as without LISTGROUP,
-		// so it holds every article the server has (and perhaps some
-		// it deleted): it is served, but the chunk stays
-		// unsynchronized, and the next request synchronizes it again
-		// (and removes what the server deleted)
-		bool whole = true;
+		// fetch_unlisted: the news server's list didn't come whole.
+		// The records the index lacked were fetched as without
+		// LISTGROUP, so it holds every article the server has (and
+		// perhaps some it deleted): it is served, nothing is removed,
+		// and the chunk counts as synchronized only for the retry
+		// pause, after which a request synchronizes it again (and
+		// removes what the server deleted)
+		FetchResult result = fetch_whole;
 		if (cf.from <= cf.top) {
 			try {
 #ifdef NEWSCACHE_TEST_FRESHEN_FAULT
 				test_freshen_fault();
 #endif
-				whole = fetchchunk(cf);
+				if (!fetchchunk(cf))
+					result = fetch_unlisted;
 			}
 			catch(...) {
 				// what came before the failure is kept, as when
 				// the records were stored as they came
-				storechunk(cf, false);
+				storechunk(cf, fetch_failed);
 				throw;
 			}
 		}
-		storechunk(cf, whole);
+		storechunk(cf, result);
 	}
 	catch(const CorruptDBError &) {
 		// NVcontainer has moved the database aside and started a new
@@ -959,7 +1041,7 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 	size_t szdata;
 	artnum_t f, top;
 	// false: the list didn't come whole (all set: nothing is removed),
-	// and the chunk isn't marked as synchronized below
+	// and the chunk gets only the retry stamp below
 	bool whole = listgroup(&lstgrp[0], a, b);
 	{
 		// what the spool has now (checked again before each change)
@@ -1019,9 +1101,18 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		first = arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
-	if (whole && a <= first && first <= top &&
-	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
-		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
+	if (a <= first && first <= top) {
+		if (!whole) {
+			// The list didn't come whole, but the prefetch got here:
+			// the retry pause, as after a client's synchronization
+			// (see retry_stamp). (An exception above, from an article
+			// the server failed to send, leaves the chunk unmarked.)
+			// Also when the failure switched LISTGROUP off: it says
+			// nothing about the server's support.
+			setretrysync(a / OVERVIEW_CHUNK, top);
+		} else if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
+			setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
+	}
 	setmtime(nvtime(NULL));
 }
 

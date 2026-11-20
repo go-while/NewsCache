@@ -39,10 +39,11 @@ static int failures = 0;
 } while (0)
 
 // prefetchchunk (updatenews -g) with a news server that lists every number
-// of the range (listing_server), or one that can't be reached (then
-// LISTGROUP fails: every number counts as listed, and the chunk isn't
-// marked); retrievearticle finds nothing (and can change the group
-// meanwhile, as another session would).
+// of the range (ListingServer), or one that can't be reached (then
+// LISTGROUP fails: every number counts as listed, and the chunk gets only
+// the retry stamp); retrievearticle finds nothing (and can change the
+// group meanwhile, as another session would, or throw, as for an article
+// the server failed to send).
 struct PrefetchProbe:public CNewsgroup {
 	void (*on_fetch) (void *);
 	void *arg;
@@ -67,13 +68,23 @@ struct PrefetchProbe:public CNewsgroup {
 	}
 	// chunk c's entry, if it says synchronized
 	bool marked(artnum_t c, artnum_t * through) {
+		return stamp(c, through) != 0;
+	}
+	// chunk c's synchronization time (0: none) and how far it reaches
+	nvtime_t stamp(artnum_t c, artnum_t * through) {
 		NVLock guard(*this, NVcontainer::ShrdLock);
 		SyncEnt e;
 		getsync(c, &e);
 		*through = e.through;
-		return e.time != 0;
+		return e.time;
 	}
 };
+
+// an article the news server failed to send (the connection broke)
+static void fail_fetch(void *)
+{
+	throw SystemError("the connection broke", -1, ERROR_LOCATION);
+}
 
 struct MoveUp {
 	PrefetchProbe *other;
@@ -129,6 +140,9 @@ struct ListingServer {
 		child = fork();
 		if (child == 0) {
 			signal(SIGPIPE, SIG_IGN);
+			// (SIGALRM's default action ends the child if the
+			// check crashed and never killed it)
+			alarm(300);
 			for (;;) {
 				int c = accept(l, NULL, NULL);
 				if (c < 0)
@@ -281,19 +295,59 @@ static void prefetch_sync(void)
 		CHECK(!(mk && through < 150));
 	}
 	// [a,b] from the chunk's start, but LISTGROUP failed (the server
-	// can't be reached): nothing is removed, and the chunk isn't
-	// marked, so the next synchronization asks again (it was marked)
+	// can't be reached): nothing is removed, and the chunk counts as
+	// synchronized only for the retry pause, min(60, timeout / 4) = 60
+	// seconds: its stamp is back-dated to now - 3600 + 60 (it was marked
+	// for the whole timeout), so the next synchronization after the
+	// pause asks again
+	MPList down;
+	MPListEntry d = e;
+	d.servicename = closed_port();
+	down.entries.push_back(d);
+	RServer rsd(&down);
 	{
-		MPList down;
-		MPListEntry d = e;
-		d.servicename = closed_port();
-		down.entries.push_back(d);
-		RServer rsd(&down);
 		PrefetchProbe g(&rsd, &fmt, dir.c_str(), "test.prefetch.down");
 		g.setsize(1, 30000);
 		g.grow(10000, 30000);
+		nvtime_t t0 = nvtime(NULL);
 		g.prefetch(10000, 19999);
+		nvtime_t t1 = nvtime(NULL);
+		nvtime_t t = g.stamp(1, &through);
+		CHECK(t0 - 3600 + 60 <= t && t <= t1 - 3600 + 60);
+		CHECK(through == 19999);
+	}
+	// the same, but an article fails to come (the prefetch throws): the
+	// chunk isn't marked at all
+	{
+		PrefetchProbe g(&rsd, &fmt, dir.c_str(), "test.prefetch.fail");
+		g.setsize(1, 30000);
+		g.grow(10000, 30000);
+		g.on_fetch = fail_fetch;
+		bool threw = false;
+		try {
+			g.prefetch(10000, 19999);
+		}
+		catch(const Error &) {
+			threw = true;
+		}
+		CHECK(threw);
 		CHECK(!g.marked(1, &through));
+	}
+	// a whole synchronization's stamp is kept after a failed list
+	// (neither its time nor how far it reaches changes)
+	{
+		PrefetchProbe g(&rs, &fmt, dir.c_str(), "test.prefetch.newer");
+		g.setsize(1, 30000);
+		g.grow(10000, 30000);
+		g.prefetch(10000, 14999);
+		nvtime_t t = g.stamp(1, &through);
+		CHECK(t != 0 && through == 14999);
+		PrefetchProbe gd(&rsd, &fmt, dir.c_str(), "test.prefetch.newer");
+		gd.setsize(1, 30000);
+		gd.grow(10000, 30000);
+		gd.prefetch(10000, 19999);
+		artnum_t through2;
+		CHECK(gd.stamp(1, &through2) == t && through2 == 14999);
 	}
 }
 
@@ -319,6 +373,9 @@ static long long chunks(artnum_t f, artnum_t l, long long max)
 
 int main()
 {
+	// (a write to a check's news server that has gone would end the
+	// check: sockstream doesn't handle SIGPIPE)
+	signal(SIGPIPE, SIG_IGN);
 	CHECK(next_chunk(0) == OVERVIEW_CHUNK);
 	CHECK(next_chunk(OVERVIEW_CHUNK - 1) == OVERVIEW_CHUNK);
 	CHECK(next_chunk(OVERVIEW_CHUNK) == 2 * OVERVIEW_CHUNK);

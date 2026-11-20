@@ -50,13 +50,24 @@ class CNewsgroup:public NVNewsgroup {
 		std::vector < std::string > records;	// the overview records
 	};
 
+	// How a chunk's fetch ended, for storechunk()
+	enum FetchResult {
+		fetch_whole,	// with the news server's whole list (or the
+				// server doesn't do LISTGROUP)
+		fetch_unlisted,	// completed, but the list didn't come whole
+		fetch_failed	// failed half way (an exception)
+	};
+
 	void sUpdateGroupInfo(void);
 	// false: the list didn't come whole (see CNewsgroup.cc)
 	bool listgroup(char *lstgrp, artnum_t f, artnum_t l);
 	bool synced(artnum_t c, artnum_t l, nvtime_t now);
 	bool chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf);
 	bool fetchchunk(ChunkFetch & cf);
-	void storechunk(ChunkFetch & cf, bool complete);
+	void storechunk(ChunkFetch & cf, FetchResult result);
+	// the retry pause after an incomplete list (see CNewsgroup.cc)
+	nvtime_t retry_stamp(nvtime_t now);
+	void setretrysync(artnum_t c, artnum_t through);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the
 	// news server refused or failed): the caller serves the chunk from
