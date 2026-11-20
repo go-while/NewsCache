@@ -554,6 +554,11 @@ func TestCorruptDBDuringFetch(t *testing.T) {
 	if l.at(b, entry) == 0 {
 		t.Fatalf("%s: article 3 has no index entry (%s)", db, l)
 	}
+	// the index the first session built ends at 10 (as the old scan for
+	// the index required)
+	if idx := l.at(b, l.userdataOff()); l.at(b, idx+l.word) != 10 {
+		t.Fatalf("%s: index ends at %d, want 10 (%s)", db, l.at(b, idx+l.word), l)
+	}
 	t.Logf("%s: index entry of 3 at %d broken, NVcontainer layout: %s", db, entry, l)
 	for i := uint64(0); i < l.word; i++ {
 		b[entry+i] = 0xff
