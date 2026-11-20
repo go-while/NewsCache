@@ -1301,7 +1301,8 @@ func TestPostPostingHost(t *testing.T) {
 // header. One POST at MaxPostSize with 40,000 of them behind 1 MiB of
 // other header text cost about 8*10^10 byte steps in the session's
 // process (tens of seconds to minutes of CPU, no news server needed);
-// removed in one pass it is a few milliseconds. The article reaches the
+// removed in one pass it is well under a second (74 ms measured for the
+// whole POST, transfer included). The article reaches the
 // upstream with exactly the generated header, at the end of the head,
 // and every other byte as the client sent it: the other headers (folded
 // ones and look-alike names too), their order, and the body, which has

@@ -278,8 +278,10 @@ static bool removeOneByOne(Article & a, const char *fld)
 
 // removefields drops every header of the name (any case) with its
 // continuation lines and keeps every other byte; it gives what one
-// setfield(fld, "") per header gave, and throws where that threw (the
-// text unchanged then). want NULL: it throws.
+// setfield(fld, "") per header gave (asBefore; not when only such
+// headers come before the empty line: that loop went on into the body)
+// and throws where that threw (the text unchanged then). want NULL: it
+// throws.
 int checkRemoveFields(void)
 {
 	static const char fld[] = "X-NNTP-Posting-Host:";
@@ -346,6 +348,13 @@ int checkRemoveFields(void)
 			cout << "checkRemoveFields: case " << i << " gives \""
 			    << a.GetText() << "\"" << (threw ? " (threw)" : "")
 			    << ", want \"" << cases[i].want << "\"\n";
+			e++;
+		}
+		// c_str() is the pointer the parsers read (find_field): it must
+		// follow the new text, not the freed old one
+		if (std::string(a.c_str()) != a.GetText()) {
+			cout << "checkRemoveFields: case " << i
+			    << ": c_str() doesn't match the text after removefields\n";
 			e++;
 		}
 		if (!cases[i].asBefore)

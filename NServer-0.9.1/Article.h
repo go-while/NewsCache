@@ -114,7 +114,10 @@ class Article {
 	 * Remove every header ifld (including `:'), with its continuation
 	 * lines, in one pass over the head; the rest of the text stays as it
 	 * is. The same result as setfield(ifld, "") until has_field(ifld) is
-	 * false, in linear time.
+	 * false, in linear time, as long as the head keeps a line that isn't
+	 * ifld (POST's From, Subject, Newsgroups): when only ifld lines come
+	 * before the empty line, that loop went on into the body, while this
+	 * stops at the end of the head.
 	 * \throw InvalidArticleError where find_field throws (the text is
 	 * 	unchanged then).
 	 */
