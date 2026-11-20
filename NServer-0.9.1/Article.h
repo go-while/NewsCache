@@ -110,6 +110,16 @@ class Article {
 
 	void setfield(const char *ifld, const char *field_data);
 
+	/*
+	 * Remove every header ifld (including `:'), with its continuation
+	 * lines, in one pass over the head; the rest of the text stays as it
+	 * is. The same result as setfield(ifld, "") until has_field(ifld) is
+	 * false, in linear time.
+	 * \throw InvalidArticleError where find_field throws (the text is
+	 * 	unchanged then).
+	 */
+	void removefields(const char *ifld);
+
 	std::ostream & write(std::ostream & os, int flags = Head | Body);
 
 	friend std::ostream & operator<<(std::ostream & os, Article & art);

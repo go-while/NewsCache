@@ -2013,9 +2013,11 @@ int RServer::post(Article * article)
 	//FIXME! new field that shows the cache-posting-chain
 	if (nntp_posting_host[0]) {
 		// Every X-NNTP-Posting-Host of the client goes, not only the
-		// first: a second one stayed next to ours.
-		while (article->has_field("X-NNTP-Posting-Host:"))
-			article->setfield("X-NNTP-Posting-Host:", "");
+		// first: a second one stayed next to ours. All in one pass:
+		// removing them one at a time scanned the head again for each
+		// one, so many of them behind a large header cost seconds to
+		// minutes of CPU for one POST.
+		article->removefields("X-NNTP-Posting-Host:");
 		// The header line is sent as it is: a CR or LF in the host
 		// would end it, or the article ("\r\n.\r\n"), and the news
 		// server would read the rest as commands. NewsCache checks the
