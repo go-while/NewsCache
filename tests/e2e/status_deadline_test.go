@@ -26,10 +26,10 @@ import (
 // longer than its deadline.
 
 const (
-	statusReadTimeout = 3 // ReadTimeout of the upstream, seconds
+	statusReadTimeout = 4 // ReadTimeout of the upstream, seconds
 	statusLineSeconds = 2 // STATUS_LINE_SECONDS of the short-limit build
 	statusRetries     = 1 // Retries of the upstream
-	statusDripGap     = 1500 * time.Millisecond
+	statusDripGap     = 1000 * time.Millisecond // a quarter of ReadTimeout
 
 	// one status line's deadline
 	statusDeadline = (statusReadTimeout + statusLineSeconds) * time.Second
@@ -57,7 +57,7 @@ const (
 func skipUnlessShortReplyLimits(t *testing.T) {
 	t.Helper()
 	if os.Getenv("NEWSCACHE_SHORT_REPLY_LIMITS") != "1" {
-		t.Skip("requires a NEWSCACHE_TEST_SHORT_REPLY_LIMITS build")
+		t.Skip("requires a short-limits build (-DNEWSCACHE_TEST_SHORT_REPLY_LIMITS) and NEWSCACHE_SHORT_REPLY_LIMITS=1")
 	}
 }
 
@@ -302,8 +302,11 @@ func TestUpstreamDrippedGroupStatus(t *testing.T) {
 
 // TestUpstreamDrippedPostStatus: the news server's reply to the posted
 // article dripped a byte at a time ends at its deadline. The client is past
-// its 340 and has sent the article: the post goes to the spool queue (sent
-// again by updatenews) and the client gets 240, soon. Plain, TLS and
+// its 340 and has sent the article. Here every attempt drips its reply, so
+// when the retries are used up the post goes to the spool queue (sent again
+// by updatenews) and the client gets 240, soon. (A server that kept the
+// first copy and refuses the resent one with 441 gives the client that 441
+// instead; this fake answers every POST the same way.) Plain, TLS and
 // COMPRESS.
 func TestUpstreamDrippedPostStatus(t *testing.T) {
 	skipUnlessShortReplyLimits(t)

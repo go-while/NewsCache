@@ -511,7 +511,11 @@ Local address used for connections to this upstream server. It must be a numeric
 How often NewsCache connects to this server again when the connection
 breaks during a command (the server closes it, answers 400,
 ReadTimeout runs out, or a status line takes longer than ReadTimeout
-plus 60 seconds), and sends the command again. If that fails
+plus 60 seconds), and sends the command again; a reply to a command of
+the connection set-up (MODE READER, STARTTLS, AUTHINFO, COMPRESS) that
+takes that long fails the command at once, as a closed connection
+during the set-up does. Every attempt, and every connection set-up
+within it, can wait up to that limit. If that fails
 too, the client gets an error. The default is 3, the range 0 to 100; 0
 gives up at once. A 503 counts only when the server has closed the
 connection right behind it (old INN sent "503 Timeout" on an idle
