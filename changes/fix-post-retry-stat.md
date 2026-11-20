@@ -13,4 +13,7 @@ Bug fixes:
   gets 240) and updatenews posts it later, again after a STAT. An article
   without a Message-ID (dontgenmsgid) can't be asked for: it is still
   sent again, so it arrives at least once and the server may have it
-  twice.
+  twice. A news server that answers the STAT before the first copy shows
+  there (430) still gets the article again and may refuse it with 441.
+  The STAT has its own Retries, so a post that keeps losing its
+  connection can take longer before it is queued.
