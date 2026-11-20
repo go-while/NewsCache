@@ -1975,44 +1975,61 @@ void RServer::post(MPListEntry * srvr, Article * article)
 	setserver(srvr);	// clears current group selection
 	connect();
 
-	// Before posting an article, we should check whether the article
-	// exists already on the upstream news server. (Since the post
-	// command does not indicate duplicates, we have to check this
-	// manually beforehand.
-
+	string msgid;
+	bool have_msgid = true;
 	try {
-		resp = article->getfield("message-id:");
-		// not a fixed buffer, see RServer::article(id)
-		cmd = "stat " + resp + "\r\n";
-		resp = issue(cmd.c_str(), NULL);
-		p = resp.c_str();
-		if (strncmp(p, "223", 3) == 0) {
-			throw DuplicateArticleError("Response 223",
-						    ERROR_LOCATION);
-		} else if (strncmp(p, "430", 3) != 0) {
-			if (strncmp(p, "423", 3) == 0) {
-				// some broken newsservers (like
-				// groups.gandi.net) appear to return
-				// 423 instead of 430 - log it and
-				// carry on
-				slog.p(Logger::Notice)
-				    <<
-				    "illegal response code to <stat <id>> request\n"
-				    << p;
-			} else {
-				string c(cmd), e("223|430");
-				reply_unexpected(resp);
-				throw ResponseError(c, e, resp);
-			}
-		}
+		msgid = article->getfield("message-id:");
 	}
 	catch(const NoSuchFieldError &) {
+		have_msgid = false;
 		VERB(slog.
 		     p(Logger::
 		       Debug) << "RServer::post message-id not found\n");
 	}
 
+	// true once the article was sent and its reply lost
+	bool resend = false;
 	for (int i = _CurrentServer->retries + 1;;) {
+		// Before posting an article, we check whether the news server
+		// has it already: POST doesn't tell a duplicate apart from
+		// other refusals (441). Again before each resend: when the
+		// reply to the article was lost, the first copy may have
+		// arrived, and the second got 441, so the client was told the
+		// article was refused (postspooled moved it to .badArticles).
+		// A STAT that fails (no reply, an unexpected one) says nothing
+		// about the article: the error goes to the caller, which
+		// queues it in the spool. Without a Message-ID there is no way
+		// to ask, and the article is sent again (at least once).
+		if (have_msgid) {
+			// not a fixed buffer, see RServer::article(id)
+			cmd = "stat " + msgid + "\r\n";
+			resp = issue(cmd.c_str(), NULL);
+			p = resp.c_str();
+			if (strncmp(p, "223", 3) == 0) {
+				if (resend)
+					slog.p(Logger::Notice) << "news server "
+					    << _CurrentServer->hostname << " has "
+					    << msgid << " already, the reply to it "
+					    "was lost: not sent again\n";
+				throw DuplicateArticleError("Response 223",
+							    ERROR_LOCATION);
+			} else if (strncmp(p, "430", 3) != 0) {
+				if (strncmp(p, "423", 3) == 0) {
+					// some broken newsservers (like
+					// groups.gandi.net) appear to return
+					// 423 instead of 430 - log it and
+					// carry on
+					slog.p(Logger::Notice)
+					    <<
+					    "illegal response code to <stat <id>> request\n"
+					    << p;
+				} else {
+					string c(cmd), e("223|430");
+					reply_unexpected(resp);
+					throw ResponseError(c, e, resp);
+				}
+			}
+		}
 		resp = issue("post\r\n", NULL);
 		p = resp.c_str();
 		if (strncmp(p, "340", 3) != 0) {
@@ -2054,6 +2071,7 @@ void RServer::post(MPListEntry * srvr, Article * article)
 					throw;
 			}
 		}
+		resend = true;
 	}
 
 	p = resp.c_str();
