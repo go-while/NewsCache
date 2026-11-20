@@ -564,3 +564,118 @@ func TestHistorySpoolSize(t *testing.T) {
 		}
 	})
 }
+
+// TestMessageIDOddNewsgroupsHeader: an article in the spool under a group
+// the client may read is served by message-ID even when its Newsgroups
+// header can't give the right: a control byte in it, as on a real
+// server ("bc.politics,\x07can.politics,\x07..."), or no group the client
+// may read. The same article was readable by number. NewsCache answered 502 (live test, 2026-11-20).
+// In a group the client may not read, the header still decides. (No case
+// without a Newsgroups header: the fake server adds one when it serves
+// the article.)
+func TestMessageIDOddNewsgroupsHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ngs  []string
+	}{
+		// as in the live test's article: a BEL after each comma
+		{"bel", []string{"Newsgroups: test.alpha,\x07test.uncarried\x07"}},
+		{"vtab", []string{"Newsgroups: test.alpha,test.uncarried\v"}},
+		// a valid header naming no group the restricted client may read
+		{"othergroups", []string{"Newsgroups: test.uncarried"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := historyEnv(t)
+			e.addArticles("test.other", 1)
+			e.Store.AddGroup("test.alpha", "alpha")
+			e.Store.AddGroup("test.secret", "secret")
+			const id = "<odd.newsgroups@upstream.test>"
+			const secretID = "<odd.secret@upstream.test>"
+			add := func(group, mid string) {
+				h := []string{"From: poster@upstream.test", "Subject: odd Newsgroups header", "Message-ID: " + mid}
+				e.Store.AddArticle(group, fakeserver.Article{
+					Number:    1,
+					MessageID: mid,
+					Headers:   append(h, tc.ngs...),
+					Body:      []string{"body of the odd article"},
+				})
+			}
+			add("test.alpha", id)
+			add("test.secret", secretID)
+			// a client that may read everything puts both into the spool
+			c := e.session()
+			for _, g := range []string{"test.alpha", "test.secret"} {
+				c.Cmd("GROUP %s", g)
+				if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+					t.Fatalf("ARTICLE 1 in %s: %q", g, line)
+				}
+				c.ReadDotLines()
+			}
+			c.Cmd("GROUP test.other")
+			for _, tc2 := range []struct {
+				cmd  string
+				code int
+			}{{"ARTICLE", 220}, {"HEAD", 221}, {"BODY", 222}} {
+				code, line := c.Cmd("%s %s", tc2.cmd, id)
+				if code != tc2.code {
+					t.Errorf("%s %s from test.other: %q, want %d", tc2.cmd, id, line, tc2.code)
+					continue
+				}
+				c.ReadDotLines()
+			}
+			for _, tc2 := range []struct {
+				cmd  string
+				code int
+			}{{"XHDR subject " + id, 221}, {"HDR subject " + id, 225}, {"XPAT subject " + id + " *", 221}} {
+				code, line := c.Cmd("%s", tc2.cmd)
+				if code != tc2.code {
+					t.Errorf("%s from test.other: %q, want %d", tc2.cmd, line, tc2.code)
+					continue
+				}
+				if got := c.ReadDotLines(); len(got) != 1 || !strings.Contains(got[0], "odd Newsgroups header") {
+					t.Errorf("%s: %q", tc2.cmd, got)
+				}
+			}
+			c.Cmd("QUIT")
+
+			before := upstreamByID(e, id)
+			c2 := e.session()
+			if code, line := c2.Cmd("ARTICLE %s", id); code != 220 {
+				t.Errorf("ARTICLE %s in a new session: %q, want 220", id, line)
+			} else if lines := c2.ReadDotLines(); !containsLine(lines, "body of the odd article") {
+				t.Errorf("ARTICLE %s: %q", id, lines)
+			}
+			c2.Cmd("QUIT")
+			if n := upstreamByID(e, id); n != before {
+				t.Errorf("upstream got %d requests for %s, want the spool's copy", n-before, id)
+			}
+
+			// a client that may not read test.secret: the header decides,
+			// and it gives no right
+			e.AccessList = `AccessList {
+  Client stdin {
+    allow read
+    List *
+    Read test.alpha,test.other
+    Authentication none
+  }
+  Default {
+    allow none
+  }
+}`
+			c3 := e.session()
+			if code, line := c3.Cmd("ARTICLE %s", secretID); code != 502 {
+				if code == 220 {
+					c3.ReadDotLines()
+				}
+				t.Errorf("ARTICLE %s (only in test.secret): %q, want 502", secretID, line)
+			}
+			if code, line := c3.Cmd("ARTICLE %s", id); code != 220 {
+				t.Errorf("ARTICLE %s (in test.alpha) with Read test.alpha: %q, want 220", id, line)
+			} else {
+				c3.ReadDotLines()
+			}
+			c3.Cmd("QUIT")
+		})
+	}
+}

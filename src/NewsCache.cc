@@ -1484,9 +1484,12 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
  * The article with message-ID id from the spool. If the spool has only
  * its overview record, it is fetched by number from the news server and
  * stored, so an article crossposted to several groups is fetched once.
- * Returns 0 if the spool doesn't have it (or the fetch failed).
+ * Returns 0 if the spool doesn't have it (or the fetch failed). On
+ * success *readable tells whether the group it was found in is one the
+ * client may read.
  */
-static int spool_article(ClientData * clt, const char *id, Article & a)
+static int spool_article(ClientData * clt, const char *id, Article & a,
+			 bool * readable)
 {
 	string group, over;
 	artnum_t nbr;
@@ -1509,8 +1512,11 @@ static int spool_article(ClientData * clt, const char *id, Article & a)
 			p = nvg->NVNewsgroup::getarticle(nbr);
 		if (p) {
 			ok = p->getfield("Message-ID:") == id;
-			if (ok)	// (no operator=: _ctext points into _text)
+			if (ok) {	// (no operator=: _ctext points into _text)
 				a.settext(p->GetText());
+				*readable = clt->access_entry->read.
+				    matches(group.c_str()) > 0;
+			}
 		}
 	}
 	catch(...) {
@@ -1569,9 +1575,12 @@ static int may_read_xref(ClientData * clt, const string & over)
  */
 static int fetch_readable(ClientData * clt, const char *id, Article & a)
 {
+	bool readable = false;
 	try {
-		if (!spool_article(clt, id, a))
+		if (!spool_article(clt, id, a, &readable)) {
+			readable = false;
 			clt->srvr->article(id, &a);
+		}
 	}
 	catch(const NoSuchArticleError & nsae) {
 		(*clt->co) << "430 no such article id found\r\n";
@@ -1584,7 +1593,15 @@ static int fetch_readable(ClientData * clt, const char *id, Article & a)
 		e.print();
 		return -1;
 	}
+	// Found in the spool under a group the client may read: as readable
+	// as by number there (GROUP, ARTICLE n), whatever its Newsgroups
+	// header looks like (some old articles have control bytes in it).
+	// Otherwise the Newsgroups header decides.
+	if (readable)
+		return 0;
 	if (!may_read_article(clt, a)) {
+		slog.p(Logger::Notice) << clt->client_logname << " refused "
+		    << id << ": its Newsgroups header gives no read right\n";
 		access_denied(clt);
 		return -1;
 	}
@@ -1915,8 +1932,9 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 	if (argv[1][0] == '<') {
 		// The spool's overview record is enough when its Xref names a
 		// group the client may read (Xref's groups are among the
-		// article's Newsgroups). Otherwise decide as ARTICLE does, from
-		// the Newsgroups header: Xref may list fewer groups.
+		// article's Newsgroups). Otherwise decide as ARTICLE does
+		// (fetch_readable: the spool's readable group, else the
+		// Newsgroups header): Xref may list fewer groups.
 		string group, over;
 		artnum_t nbr;
 		if (spool_locate(clt, argv[1], group, nbr, over) &&

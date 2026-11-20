@@ -846,11 +846,12 @@ message-ID, and the message-ID forms of @code{XHDR}, @code{XPAT} and
 article's overview record, the article is fetched by number and stored,
 so an article crossposted to several groups is fetched only once. In
 offline mode, or with the news server down, articles in the spool can be
-read by message-ID too. The @code{Read} list of the client applies as
-for articles from the news server: the article must be in a group of its
-@samp{Newsgroups} header the client may read, and an article is not
-fetched by number into a group the client may not read (it is fetched by
-message-ID then).
+read by message-ID too. The @code{Read} list of the client applies: an
+article the spool holds in a group the client may read is served, as it
+would be by number there; otherwise, and for articles from the news
+server, the article must be in a group of its @samp{Newsgroups} header
+the client may read. An article is not fetched by number into a group
+the client may not read (it is fetched by message-ID then).
 
 The history is filled when overview records and articles are stored,
 and when an article is read from the spool (so a spool of an older
