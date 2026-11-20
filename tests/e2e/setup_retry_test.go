@@ -839,10 +839,11 @@ func TestUpstreamModeSwitchingRefusal(t *testing.T) {
 // TestUpstreamModeReader483BeforeTLS: with Options starttls, a news server
 // that wants TLS before MODE READER answers it with 483 (NewsCache sends
 // MODE READER before STARTTLS). NewsCache turned MODE READER off at the
-// 483 and never sent it on a connection again. Now it is sent again after
-// STARTTLS, on the same connection, and on every later one. (Without
-// Options starttls a 483 is a refusal: see "mode reader 483 without
-// starttls" in TestUpstreamSetupRefusedNotTurnedOff.)
+// 483 and never sent it on a connection again. Now the connection goes on
+// without it (MODE READER isn't sent after STARTTLS: RFC 3977 5.3.2), and
+// the next connection sends it again, before STARTTLS. (Without Options
+// starttls a 483 is a refusal: see "mode reader 483 without starttls" in
+// TestUpstreamSetupRefusedNotTurnedOff.)
 func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
 	s := &setupServer{tlsReader: true}
 	e := setupEnv(t, s, "starttls", true)
@@ -854,8 +855,8 @@ func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
 	if n := s.Accepted(); n != 1 {
 		t.Errorf("%d connections to the news server, want 1", n)
 	}
-	if !s.sentAfter(1, "starttls", "mode reader") {
-		t.Errorf("no MODE READER after STARTTLS on the first connection")
+	if s.sentAfter(1, "starttls", "mode reader") {
+		t.Errorf("MODE READER sent after STARTTLS (RFC 3977 5.3.2 forbids it)")
 	}
 	s.closeGroup.Store(1)
 	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
@@ -866,8 +867,11 @@ func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
 		t.Fatalf("%d connections to the news server, want a new one", n)
 	}
 	for id := 2; id <= n; id++ {
-		if !s.sentAfter(id, "starttls", "mode reader") {
-			t.Errorf("connection %d of %d sent no MODE READER after STARTTLS: the 483 turned it off", id, n)
+		if !s.sentAfter(id, "mode reader", "starttls") {
+			t.Errorf("connection %d of %d sent no MODE READER before STARTTLS: the 483 turned it off", id, n)
+		}
+		if s.sentAfter(id, "starttls", "mode reader") {
+			t.Errorf("connection %d of %d sent MODE READER after STARTTLS", id, n)
 		}
 	}
 	quitSession(t, p, c)

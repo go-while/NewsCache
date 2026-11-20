@@ -501,12 +501,28 @@ void RServer::connect()
 			} else if (NNTP_ISCODE(resp.c_str(), "483")
 				   && (_CurrentServer->flags &
 				       MPListEntry::F_STARTTLS)) {
-				// the server wants TLS first (483, RFC 3977
-				// 3.2.1): again after STARTTLS. Without
-				// Options starttls a 483 is a refusal below:
-				// never plain text instead, and MODE READER
-				// stays on.
-				mode_reader_after_login = 1;
+				// The server wants TLS first (483, RFC 3977
+				// 3.2.1). MODE READER isn't sent again after
+				// STARTTLS: "The client MUST NOT issue MODE
+				// READER more than once in a session or after
+				// any security or privacy commands are issued"
+				// (RFC 3977 5.3.2). This connection goes on
+				// without it, STARTTLS follows; MODE READER
+				// stays on, and the next connection sends it
+				// again. Without Options starttls a 483 is a
+				// refusal below (never plain text instead).
+				// (Logged once per process.)
+				static bool mode_reader_483_logged = false;
+				if (!mode_reader_483_logged) {
+					mode_reader_483_logged = true;
+					slog.p(Logger::Warning) << "news server "
+					    << _CurrentServer->hostname
+					    << " wants TLS before MODE READER ("
+					    << resp << "), going on without it on "
+					       "the connection; logged once, MODE "
+					       "READER is sent again on each new "
+					       "connection\n";
+				}
 			} else if (resp[0] == '2' && resp[1] == '0'
 			    && (resp[2] == '0' || resp[2] == '1')) {
 				grt = resp;
@@ -588,8 +604,7 @@ void RServer::connect()
 				RSERVER_CONNECT_CHECK_CONNECTION
 				    ("Cannot read data from %s:%s");
 			} else {
-				// (a 480 again after the login, or a 483
-				// after STARTTLS, too)
+				// (a 480 again after the login, too)
 				mode_reader_refused(_CurrentServer, resp);
 			}
 		}

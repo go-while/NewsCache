@@ -526,7 +526,8 @@ READER on an open connection, turns that command off for the server for the rest
 client session or updatenews run (after a positive reply, which may
 come with lines that aren't for NewsCache, the connection is made
 again without it). With starttls, a 483 to MODE READER (encryption
-required) sends it again after STARTTLS. Any other refusal of MODE
+required) leaves it out on that connection (RFC 3977 doesn't allow it
+after STARTTLS); the next connection sends it again. Any other refusal of MODE
 READER (such as 403, 502, 480 without a login, or 483 without
 starttls) gives up that connection like one that couldn't be made. Any
 other reply to LIST OVERVIEW.FMT, 400 and 503 on an open connection

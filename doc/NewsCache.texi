@@ -696,7 +696,8 @@ server for the rest of the client session or @command{updatenews} run
 (after a positive reply, which may come with lines that aren't for
 NewsCache, the connection is made again without it). With
 @code{starttls}, a @samp{483} to @code{MODE READER} (encryption
-required) sends it again after @code{STARTTLS}. Any other refusal of
+required) leaves it out on that connection (RFC 3977 doesn't allow it
+after @code{STARTTLS}); the next connection sends it again. Any other refusal of
 @code{MODE READER} (such as @samp{403}, @samp{502}, @samp{480} without
 a login, or @samp{483} without @code{starttls}) gives up that
 connection like one that couldn't be made. Any other reply to
