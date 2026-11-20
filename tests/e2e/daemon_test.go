@@ -2253,6 +2253,10 @@ func TestPOSTSIGTERMDuringArticle(t *testing.T) {
 			if err := s.c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"); err != nil {
 				t.Fatal(err)
 			}
+			// let the session get into the article read (the stop must
+			// cut that read short, not meet the check before it; the log
+			// line below tells the two apart in a file-log build)
+			time.Sleep(300 * time.Millisecond)
 			s.signal(t, syscall.SIGTERM)
 			lines, err := s.c.ExpectClosed(10 * time.Second)
 			if err != nil {
@@ -2263,6 +2267,9 @@ func TestPOSTSIGTERMDuringArticle(t *testing.T) {
 			}
 			if !s.ended(5 * time.Second) {
 				t.Error("the session process still runs 5 s after it closed the connection")
+			}
+			if !logHas(e, "POST: stopped by a signal while reading the article") {
+				t.Error("the stop did not cut the article read short (no \"while reading the article\" in the log): this run didn't exercise the interrupted read")
 			}
 			if n := len(spooledIn(t, e, ".artSpool")); n != 0 {
 				t.Errorf("%d articles in the spool, want none", n)

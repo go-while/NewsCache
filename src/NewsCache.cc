@@ -2919,7 +2919,7 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			alarmed = 1;
 			alarm(1);
 			slog.p(Logger::Notice) << clt->client_logname
-			    << " POST: stopped by a signal, not posted\n";
+			    << " POST: stopped by a signal before the article, not posted\n";
 			return -1;
 		}
 		int r = read_post_article(*clt->ci, text,
@@ -2935,7 +2935,7 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 			// service discontinued" (this answered "service
 			// timed out!" and logged a ClientTimeout).
 			slog.p(Logger::Notice) << clt->client_logname
-			    << " POST: stopped by a signal, not posted\n";
+			    << " POST: stopped by a signal while reading the article, not posted\n";
 			return -1;
 		}
 		if (r < 0 && alarmed) {
