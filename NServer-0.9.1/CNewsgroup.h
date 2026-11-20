@@ -57,8 +57,9 @@ class CNewsgroup:public NVNewsgroup {
 	void fetchchunk(ChunkFetch & cf);
 	void storechunk(ChunkFetch & cf, bool complete);
 	void prefetchchunk(artnum_t a, artnum_t b);
-	// false when the records couldn't be stored (disk full): the
-	// caller serves the chunk from the news server instead
+	// false when the chunk couldn't be synchronized (disk full, the
+	// news server refused or failed): the caller serves the chunk from
+	// the news server instead. A CorruptDBError goes on to the caller.
 	bool freshen(artnum_t f, artnum_t l, int *refreshed);
 	// cover(), with an index that can't grow (disk full) taken as
 	// "not covered": the numbers are passed on from the news server

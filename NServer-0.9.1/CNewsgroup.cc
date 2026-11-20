@@ -2,6 +2,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef NEWSCACHE_TEST_FRESHEN_FAULT
+#include <new>
+#include <stdlib.h>
+#endif
 
 #include "CNewsgroup.h"
 #include "RNewsgroup.h"
@@ -464,6 +468,22 @@ artnum_t CNewsgroup::cover_safe(artnum_t f, artnum_t l)
 	}
 }
 
+#ifdef NEWSCACHE_TEST_FRESHEN_FAULT
+// Compiled test fixture: the process's first chunk fetch throws
+// std::bad_alloc, an exception that isn't an Error (as from a reply too
+// big for the memory), when NEWSCACHE_TEST_FRESHEN_BAD_ALLOC is set
+// (tests/e2e TestCachedRefreshUnexpectedException).
+static void test_freshen_fault(void)
+{
+	static bool done = false;
+
+	if (done || !getenv("NEWSCACHE_TEST_FRESHEN_BAD_ALLOC"))
+		return;
+	done = true;
+	throw std::bad_alloc();
+}
+#endif
+
 bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 {
 	ChunkFetch cf;
@@ -490,9 +510,18 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 	}
 	if (!chunkrange(f, l, cf))
 		return true;
+	// Every failure below leaves the chunk unsynchronized, so the index
+	// can't tell which of its records are missing: true would print
+	// what it holds as the complete list (ending with ".") and answer
+	// 423 for articles the news server has. false lets the caller ask
+	// the news server, which gives the records, or a 403 (the
+	// connection closed after part of a list) when it fails again.
 	try {
 		if (cf.from <= cf.top) {
 			try {
+#ifdef NEWSCACHE_TEST_FRESHEN_FAULT
+				test_freshen_fault();
+#endif
 				fetchchunk(cf);
 			}
 			catch(...) {
@@ -504,6 +533,12 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 		}
 		storechunk(cf, true);
 	}
+	catch(const CorruptDBError &) {
+		// NVcontainer has moved the database aside and started a new
+		// one: the command loop drops the group and runs the command
+		// once more (updatenews: the prefetch), which fills it again
+		throw;
+	}
 	catch(SystemError & ex) {
 		// (disk full) the chunk's records may be missing
 		slog.p(Logger::Error) << "updating the overview database failed("
@@ -511,13 +546,17 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 		return false;
 	}
 	catch(Error & ex) {
+		// (502 or 412 to OVER, neither OVER nor XOVER, ...)
 		slog.p(Logger::Error) << "updating the overview database failed("
 		    << name() << "): " << ex._errtext << "\n";
+		return false;
 	}
 	catch(...) {
+		// (std::bad_alloc, ...)
 		slog.p(Logger::Error)
 		    << "UNEXPECTED EXCEPTION WHILE UPDATING OVERVIEW DATABASE\n"
 		    << "PLEASE REPORT THIS AT https://github.com/go-while/NewsCache/issues\n";
+		return false;
 	}
 	return true;
 }
@@ -632,7 +671,8 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 		if (b > l)
 			b = l;
 		if (!freshen(a, b, &refreshed)) {
-			// not stored (disk full): from the news server
+			// not synchronized (the refresh failed, or the disk is
+			// full): from the news server
 			print_passed(os, what, header, a, b, pat);
 		} else {
 			// The index can move up meanwhile (another session's
