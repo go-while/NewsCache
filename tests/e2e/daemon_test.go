@@ -2086,6 +2086,194 @@ func TestSIGTERMSignalWindow(t *testing.T) {
 	}
 }
 
+// postSession is one client session for the POST stop tests: an inetd
+// process (newscache -i), or a foreground daemon (newscache -n) and its
+// child for this client. A signal goes to the session process only; the
+// daemon keeps running.
+type postSession struct {
+	c   *client.Conn
+	p   *proc.Process // the inetd process, or the daemon
+	pid int           // the daemon's session process; 0 in inetd mode
+}
+
+func startPostSession(t *testing.T, e *env, daemon bool, extra ...string) *postSession {
+	t.Helper()
+	e.writeConf()
+	if !daemon {
+		o := e.procOpts("-i")
+		o.Env = append(o.Env, extra...)
+		p := proc.StartStdio(t, o)
+		c := client.New(t, p.Conn())
+		if _, err := c.ReadGreeting(); err != nil {
+			t.Fatal(err)
+		}
+		return &postSession{c: c, p: p}
+	}
+	o := e.procOpts("-n")
+	o.Env = append(o.Env, extra...)
+	p := proc.StartTCP(t, o, e.Listen)
+	s := &postSession{c: e.dial(), p: p}
+	// Once the sessions of StartTCP's probes have ended (they send QUIT),
+	// the session of this client is the daemon's only child.
+	waitFor(t, "the session process", func() bool {
+		pids := childPids(t, p.Pid())
+		if len(pids) != 1 {
+			return false
+		}
+		s.pid = pids[0]
+		return true
+	})
+	t.Cleanup(func() {
+		if running(s.pid) {
+			syscall.Kill(s.pid, syscall.SIGKILL)
+		}
+	})
+	return s
+}
+
+func (s *postSession) signal(t *testing.T, sig syscall.Signal) {
+	t.Helper()
+	var err error
+	if s.pid != 0 {
+		err = syscall.Kill(s.pid, sig)
+	} else {
+		err = s.p.Signal(sig)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ended tells whether the session process has ended within d.
+func (s *postSession) ended(d time.Duration) bool {
+	if s.pid == 0 {
+		select {
+		case <-s.p.Done():
+			return true
+		case <-time.After(d):
+			return false
+		}
+	}
+	deadline := time.Now().Add(d)
+	for running(s.pid) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return true
+}
+
+func serviceDiscontinued(line string) bool {
+	return strings.HasPrefix(line, "400 ") && strings.Contains(line, "service discontinued")
+}
+
+// TestPOSTSignalWindow: a compiled-only hook raises SIGTERM in a POST,
+// after the command loop's last look at the stop flag: before the 340 is
+// sent ("post-340"; in a daemon session that send then fails, as when the
+// signal cuts short a send to a client that doesn't read) or right after
+// it, before the alarm for the article is set up ("post-alarm"). That
+// set-up cleared the signal's mark and replaced its alarm every second:
+// the session waited for the article until ClientTimeout (600 s here),
+// with ClientTimeout 0 for as long as the client kept the connection,
+// after the daemon had stopped. It must end within a few seconds, with
+// "400 ... service discontinued" after the 340; the client sends nothing
+// after the POST line.
+func TestPOSTSignalWindow(t *testing.T) {
+	if os.Getenv("NEWSCACHE_SIGNAL_WINDOW_TEST") != "1" {
+		t.Skip("requires a NEWSCACHE_TEST_SIGNAL_WINDOW build")
+	}
+	for _, mode := range []string{"inetd", "daemon"} {
+		for _, point := range []string{"post-340", "post-alarm"} {
+			for _, timeout := range []int{0, 600} {
+				t.Run(fmt.Sprintf("%s/%s/ClientTimeout %d", mode, point, timeout), func(t *testing.T) {
+					daemon := mode == "daemon"
+					if daemon && runtime.GOOS != "linux" {
+						t.Skip("finds the session process in /proc")
+					}
+					e := newEnv(t)
+					e.ClientTimeout = timeout
+					s := startPostSession(t, e, daemon, "NEWSCACHE_TEST_SIGTERM_BEFORE="+point)
+					if err := s.c.Send("POST\r\n"); err != nil {
+						t.Fatal(err)
+					}
+					lines, err := s.c.ExpectClosed(10 * time.Second)
+					if err != nil {
+						t.Fatalf("the session still waits for the article 10 s after the signal: %v", err)
+					}
+					if !s.ended(5 * time.Second) {
+						t.Fatal("the session process still runs 5 s after it closed the connection")
+					}
+					hook := "test hook: SIGTERM in POST before " + point
+					for deadline := time.Now().Add(5 * time.Second); !strings.Contains(s.p.Stderr(), hook); {
+						if time.Now().After(deadline) {
+							t.Fatal("test hook did not run; this was not the signal-window case")
+						}
+						time.Sleep(20 * time.Millisecond)
+					}
+					if daemon && point == "post-340" {
+						// The 340's send failed on the signal (the
+						// session then ends without the goodbye, as
+						// after any failed send); what was buffered may
+						// still go out when the connection closes.
+						for _, l := range lines {
+							if !strings.HasPrefix(l, "340") && !serviceDiscontinued(l) {
+								t.Errorf("after the signal the client got %q, want at most the 340 and 400 service discontinued", lines)
+								break
+							}
+						}
+					} else if len(lines) != 2 || !strings.HasPrefix(lines[0], "340") || !serviceDiscontinued(lines[1]) {
+						t.Errorf("after the signal the client got %q, want the 340 and then 400 service discontinued", lines)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestPOSTSIGTERMDuringArticle: SIGTERM while a POST waits for the rest of
+// its article ends the session at once with "400 ... service
+// discontinued", nothing posted. It answered "400 ... service timed out!"
+// and logged "ClientTimeout reached" (ClientTimeout is 600 s here).
+func TestPOSTSIGTERMDuringArticle(t *testing.T) {
+	for _, mode := range []string{"inetd", "daemon"} {
+		t.Run(mode, func(t *testing.T) {
+			daemon := mode == "daemon"
+			if daemon && runtime.GOOS != "linux" {
+				t.Skip("finds the session process in /proc")
+			}
+			e := newEnv(t)
+			e.ClientTimeout = 600
+			e.addArticles("test.alpha", 1)
+			s := startPostSession(t, e, daemon)
+			if code, line := s.c.Cmd("POST"); code != 340 {
+				t.Fatalf("POST: %q, want 340", line)
+			}
+			// part of the article; the rest never comes
+			if err := s.c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			s.signal(t, syscall.SIGTERM)
+			lines, err := s.c.ExpectClosed(10 * time.Second)
+			if err != nil {
+				t.Fatalf("the session still runs 10 s after SIGTERM: %v", err)
+			}
+			if len(lines) != 1 || !serviceDiscontinued(lines[0]) {
+				t.Errorf("after SIGTERM during the article the client got %q, want only 400 service discontinued", lines)
+			}
+			if !s.ended(5 * time.Second) {
+				t.Error("the session process still runs 5 s after it closed the connection")
+			}
+			if n := len(spooledIn(t, e, ".artSpool")); n != 0 {
+				t.Errorf("%d articles in the spool, want none", n)
+			}
+			if n := e.Upstream.Count("POST"); n != 0 {
+				t.Errorf("%d POSTs reached the news server, want none", n)
+			}
+		})
+	}
+}
+
 // TestSIGTERMDuringCommandDaemon: a daemon session stopped with SIGTERM
 // while a command waits for the news server still sends that command's
 // reply and then "400 ... service discontinued". The signal sets alarmed,

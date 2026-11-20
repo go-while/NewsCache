@@ -2856,6 +2856,27 @@ static const char *repeated_post_header(const string &text)
 	return NULL;
 }
 
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+// Compiled test fixture only: SIGTERM once in a POST, after the command
+// loop's last look at Xsignal, at the point NEWSCACHE_TEST_SIGTERM_BEFORE
+// names: "post-340" before the 340 is sent, "post-alarm" after it, right
+// before the alarm for the article is set up.
+static void test_post_signal_window(const char *point)
+{
+	static bool done = false;
+	const char *hook = getenv("NEWSCACHE_TEST_SIGTERM_BEFORE");
+	if (done || !hook || strcmp(hook, point) != 0)
+		return;
+	done = true;
+	static const char marker[] = "test hook: SIGTERM in POST before ";
+	ssize_t w = write(STDERR_FILENO, marker, sizeof(marker) - 1);
+	w = write(STDERR_FILENO, point, strlen(point));
+	w = write(STDERR_FILENO, "\n", 1);
+	(void) w;
+	raise(SIGTERM);
+}
+#endif
+
 int ns_post(ClientData * clt, int argc, char *argv[])
 {
 	VERB(slog.p(Logger::Debug) << "NewsCache::ns_post\n");
@@ -2868,9 +2889,15 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 
 	try {
 		// request article to be posted
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+		test_post_signal_window("post-340");
+#endif
 		(*clt->co) << "340 send article to be posted.\r\n";
 		clt->co->flush();
 		string text;
+#ifdef NEWSCACHE_TEST_SIGNAL_WINDOW
+		test_post_signal_window("post-alarm");
+#endif
 		// The command loop's alarm ended with the command line. Without
 		// one here only the per-read timeout applied, which every byte
 		// restarts: a client sending a byte now and then held the
@@ -2878,9 +2905,38 @@ int ns_post(ClientData * clt, int argc, char *argv[])
 		// article gets ClientTimeout.
 		alarmed = 0;
 		alarm(Cfg.ClientTimeout);
+		// A SIGTERM or SIGINT since the command loop last looked at
+		// Xsignal (during the 340's send, say, which it cuts short)
+		// marked itself in alarmed and armed an alarm every second
+		// (see catchsignal); the two lines above cleared the mark and
+		// replaced that alarm, and the session waited for the article
+		// until ClientTimeout (with ClientTimeout 0 as long as the
+		// client kept the connection) after the daemon had stopped.
+		// Checked after alarm(), as in connect: a signal from here on
+		// keeps its mark and its alarm. The command loop says goodbye.
+		if (Xsignal != -1) {
+			alarmed = 1;
+			alarm(1);
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: stopped by a signal, not posted\n";
+			return -1;
+		}
 		int r = read_post_article(*clt->ci, text,
 					  (size_t) Cfg.MaxPostSize);
 		alarm(0);
+		// (after alarm(0), for a signal during the read: its alarm
+		// every second goes on, see catchsignal)
+		if (Xsignal != -1)
+			alarm(1);
+		if (r < 0 && Xsignal != -1) {
+			// Stopped while it waited for the article: not a
+			// ClientTimeout. The command loop sends "400 ...
+			// service discontinued" (this answered "service
+			// timed out!" and logged a ClientTimeout).
+			slog.p(Logger::Notice) << clt->client_logname
+			    << " POST: stopped by a signal, not posted\n";
+			return -1;
+		}
 		if (r < 0 && alarmed) {
 			alarmed = 0;
 			slog.p(Logger::Notice) << clt->client_logname
