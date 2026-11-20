@@ -181,13 +181,14 @@ func TestOverUnsupportedTurnsOff(t *testing.T) {
 			}
 			xoverAsked(t, e, c, "XOVER 1-3", 1, 3, 1, 2, 3)
 			wantOverCounts(t, e, "XOVER 1-3", 1, 1)
-			xoverAsked(t, e, c, "XOVER 1-3 again", 1, 3, 1, 2, 3)
-			wantOverCounts(t, e, "XOVER 1-3 again", 1, 2)
+			// (the same range again is answered from the session's copy
+			// of the chunk, without the upstream: another group shows
+			// what the next request asks for)
 			if code, line := c.Cmd("GROUP test.beta"); code != 211 {
 				t.Fatalf("GROUP test.beta: %q", line)
 			}
 			xoverAsked(t, e, c, "XOVER 1-2 in test.beta", 1, 2, 1, 2)
-			wantOverCounts(t, e, "XOVER 1-2 in test.beta", 1, 3)
+			wantOverCounts(t, e, "XOVER 1-2 in test.beta", 1, 2)
 			c.Cmd("QUIT")
 		})
 	}
