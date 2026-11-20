@@ -36,6 +36,11 @@ namespace {
 struct Corrupt {
 };
 
+// A history record copied out of a shard for prune.
+struct PruneRec {
+	string msgid, locs;
+};
+
 class Shard:public NVHash {
   public:
 	string path;
@@ -96,19 +101,21 @@ class Shard:public NVHash {
 		return NULL;
 	}
 
-	// Calls f(msgid, locations, arg) for every record (not the format
-	// record), checking the links like sfind. Needs a lock.
-	void each(void (*f) (const string &, const string &, void *),
-		  void *arg) {
+	// Copies the records (not the format record) of whole buckets, from
+	// bucket b on, into out until it holds at least limit records, and
+	// returns the first bucket not copied (BUCKETS at the end). Checks
+	// the links like sfind. Needs a lock.
+	int collect(int b, size_t limit, vector < PruneRec > &out) {
 		if (!hashtab || hashsz != History::BUCKETS)
 			throw Corrupt();
-		size_t max = mem_sz / sizeof(Record), n = 0;
-		for (int b = 0; b < History::BUCKETS; b++) {
+		size_t max = mem_sz / sizeof(Record);
+		for (; b < History::BUCKETS && out.size() < limit; b++) {
 			nvoff_t t = hashtab[b];
 			if (!t)
 				continue;
 			check(t);
 			Record *tail = o2r(t), *prev = tail, *r;
+			size_t n = 0;
 			do {
 				check(prev->next);
 				r = o2r(prev->next);
@@ -116,15 +123,18 @@ class Shard:public NVHash {
 					const char *id = r->datap() + 16,
 					    *e = r->datap() + r->szdata;
 					size_t idl = strnlen(id, e - id);
-					if (idl > 0 && id + idl < e)
-						f(string(id, idl), locations(r),
-						  arg);
+					if (idl > 0 && id + idl < e) {
+						out.push_back(PruneRec());
+						out.back().msgid.assign(id, idl);
+						out.back().locs = locations(r);
+					}
 				}
 				prev = r;
 				if (++n > max)
 					throw Corrupt();
 			} while (r != tail);
 		}
+		return b;
 	}
 
 	// The locations string of a record ("" if it has none).
@@ -613,86 +623,108 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 		Shard *s = shard(n);
 		if (!s)
 			continue;
-		// Collect first, then apply: the records move when changed.
-		PruneCtx ctx;
-		ctx.keep = keep;
-		ctx.arg = arg;
-		try {
-			s->lock(NVcontainer::ShrdLock);
+		/*
+		 * A slice of whole buckets at a time: a session that stores
+		 * into this shard (holding its group's lock meanwhile) waits
+		 * for one slice, not for the walk of the whole shard. Between
+		 * the slices the shard may change and be mapped anew, so only
+		 * copies are kept across locks. A record stays in its bucket
+		 * when it changes, so each one is read once, as it is when its
+		 * bucket is read.
+		 */
+		bool ok = true;
+		for (int b = 0; ok && b < BUCKETS;) {
+			vector < PruneRec > recs;
 			try {
-				s->each(prune_one, &ctx);
+				s->lock(NVcontainer::ShrdLock);
+				try {
+					b = s->collect(b, PRUNE_SLICE, recs);
+				}
+				catch(...) {
+					s->lock(NVcontainer::UnLock);
+					throw;
+				}
+				s->lock(NVcontainer::UnLock);
+			}
+			catch(Corrupt &) {
+				reset_shard(*s, "is damaged", true);
+				break;
 			}
 			catch(...) {
-				s->lock(NVcontainer::UnLock);
-				throw;
+				reset_shard(*s, "failed", false);
+				break;
 			}
-			s->lock(NVcontainer::UnLock);
-		}
-		catch(Corrupt &) {
-			reset_shard(*s, "is damaged", true);
-			continue;
-		}
-		catch(...) {
-			reset_shard(*s, "failed", false);
-			continue;
-		}
-		vector < Op > &ops = ctx.ops;
+			// Parsed and checked without the lock (keep may stat).
+			PruneCtx ctx;
+			ctx.keep = keep;
+			ctx.arg = arg;
+			for (size_t i = 0; i < recs.size(); i++)
+				prune_one(recs[i].msgid, recs[i].locs, &ctx);
+			vector < Op > &ops = ctx.ops;
+			if (ops.empty())
+				continue;
 #ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
-		// Test-only barrier after the shared-lock snapshot, before applying.
-		if (!ops.empty()) {
-			const char *ready = getenv("NEWSCACHE_TEST_PRUNE_READY_FD");
-			const char *go = getenv("NEWSCACHE_TEST_PRUNE_GO_FD");
-			if (ready && go) {
-				char byte = 'x';
-				if (write(atoi(ready), &byte, 1) != 1 ||
-				    read(atoi(go), &byte, 1) != 1)
-					_exit(99);
-				unsetenv("NEWSCACHE_TEST_PRUNE_READY_FD");
-				unsetenv("NEWSCACHE_TEST_PRUNE_GO_FD");
-			}
-		}
-#endif
-		// A group or its location may have been recreated after collection.
-		// Recheck both while holding the shard exclusively: a concurrent
-		// history writer then either happened before this check or will add
-		// its location after the removal.
-		try {
-			s->lock(NVcontainer::ExclLock);
-			try {
-				for (size_t i = 0; i < ops.size(); i++) {
-					const Op &op = ops[i];
-					unsigned char dg[16];
-					int sh, b;
-					route(op.msgid.c_str(), dg, &sh, &b);
-					Shard::Record *r = s->sfind(b, dg, op.msgid.c_str(), NULL);
-					if (!r)
-						continue;
-					vector < Location > v = parse(s->locations(r));
-					bool same = false;
-					for (size_t j = 0; j < v.size(); j++)
-						if (v[j].group == op.group && v[j].nbr == op.nbr) {
-							same = true;
-							break;
-						}
-					if (same && !keep(op.group, arg)) {
-						apply(*s, b, dg, op);
-						dropped++;
-					}
+			// Test-only barrier after the shared-lock snapshot, before applying.
+			{
+				const char *ready = getenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+				const char *go = getenv("NEWSCACHE_TEST_PRUNE_GO_FD");
+				if (ready && go) {
+					char byte = 'x';
+					if (write(atoi(ready), &byte, 1) != 1 ||
+					    read(atoi(go), &byte, 1) != 1)
+						_exit(99);
+					unsetenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+					unsetenv("NEWSCACHE_TEST_PRUNE_GO_FD");
 				}
 			}
-			catch(...) {
+#endif
+			// A group or its location may have been recreated after
+			// collection. Recheck both while holding the shard
+			// exclusively: a concurrent history writer then either
+			// happened before this check or will add its location
+			// after the removal.
+			try {
+				s->lock(NVcontainer::ExclLock);
+				try {
+					for (size_t i = 0; i < ops.size(); i++) {
+						const Op &op = ops[i];
+						unsigned char dg[16];
+						int sh, rb;
+						route(op.msgid.c_str(), dg, &sh, &rb);
+						Shard::Record *r =
+						    s->sfind(rb, dg, op.msgid.c_str(), NULL);
+						if (!r)
+							continue;
+						vector < Location > v = parse(s->locations(r));
+						bool same = false;
+						for (size_t j = 0; j < v.size(); j++)
+							if (v[j].group == op.group &&
+							    v[j].nbr == op.nbr) {
+								same = true;
+								break;
+							}
+						if (same && !keep(op.group, arg)) {
+							apply(*s, rb, dg, op);
+							dropped++;
+						}
+					}
+				}
+				catch(...) {
+					s->lock(NVcontainer::UnLock);
+					throw;
+				}
 				s->lock(NVcontainer::UnLock);
-				throw;
 			}
-			s->lock(NVcontainer::UnLock);
-		}
-		catch(Corrupt &) {
-			reset_shard(*s, "is damaged", true);
-		}
-		catch(Error & e) {
-			slog.p(Logger::Error) << "history: " << s->path << ": "
-			    << e._errtext << "\n";
-			reset_shard(*s, "failed", false);
+			catch(Corrupt &) {
+				reset_shard(*s, "is damaged", true);
+				ok = false;
+			}
+			catch(Error & e) {
+				slog.p(Logger::Error) << "history: " << s->path << ": "
+				    << e._errtext << "\n";
+				reset_shard(*s, "failed", false);
+				ok = false;
+			}
 		}
 	}
 	return dropped;

@@ -198,6 +198,104 @@ static void note_after_concurrent_change(bool add)
 	History::remove(id, "g.note", add ? 8 : 7);
 }
 
+// For prune_lets_writer_in: the pruner's keep. At the first location of
+// the big shard it tells the test and waits until the test has stored
+// into that shard (or 10 s, if the shard stays locked).
+static int slice_ready = -1, slice_go = -1;
+static bool slice_started, slice_go_seen, slice_late_seen;
+
+static bool slice_keep(const string & group, void *)
+{
+	if (group == "g.big" && !slice_started) {
+		slice_started = true;
+		char byte = 'x';
+		struct pollfd p = {slice_go, POLLIN, 0};
+		slice_go_seen = write(slice_ready, &byte, 1) == 1 &&
+		    poll(&p, 1, 10000) == 1 && read(slice_go, &byte, 1) == 1;
+	}
+	if (group == "g.late")
+		slice_late_seen = true;
+	return true;
+}
+
+// newscacheclean's prune and a session storing into the shard it walks:
+// the session (which waits holding its group's lock) gets the shard
+// between two slices of the walk, not only after the whole shard.
+// The store goes to one of the shard's last buckets, so a walk in slices
+// reads it later and passes it to keep.
+static void prune_lets_writer_in(void)
+{
+	const int big = 12;
+	unsigned char dg[16];
+	int sh, b;
+	{
+		HistoryBatch hb;
+		int found = 0;
+		for (int i = 0; found < 3 * History::PRUNE_SLICE; i++) {
+			char id[64];
+			snprintf(id, sizeof(id), "<big%d@check>", i);
+			History::route(id, dg, &sh, &b);
+			if (sh == big)
+				History::add(id, "g.big", ++found);
+		}
+	}
+	string late;
+	for (int i = 0; late.empty(); i++) {
+		char id[64];
+		snprintf(id, sizeof(id), "<late%d@check>", i);
+		History::route(id, dg, &sh, &b);
+		if (sh == big && b >= History::BUCKETS - History::BUCKETS / 8)
+			late = id;
+	}
+	int ready[2], go[2];
+	if (pipe(ready) != 0) { failures++; return; }
+	if (pipe(go) != 0) { close(ready[0]); close(ready[1]); failures++; return; }
+	pid_t child = fork();
+	if (child < 0) {
+		close(ready[0]); close(ready[1]); close(go[0]); close(go[1]);
+		failures++;
+		return;
+	}
+	if (child == 0) {
+		close(ready[0]); close(go[1]);
+		slice_ready = ready[1];
+		slice_go = go[0];
+		long dropped = History::prune(slice_keep, NULL);
+		_exit(!slice_go_seen ? 1 : !slice_late_seen ? 2 :
+		      dropped != 0 ? 3 : 0);
+	}
+	close(ready[1]); close(go[0]);
+	// the pruner may be gone when the go byte is written
+	void (*oldpipe) (int) = signal(SIGPIPE, SIG_IGN);
+	struct pollfd p = {ready[0], POLLIN, 0};
+	char byte;
+	if (poll(&p, 1, 10000) != 1 || read(ready[0], &byte, 1) != 1) {
+		cerr << "prune did not reach the big shard\n";
+		failures++;
+		kill(child, SIGKILL);
+	} else {
+		// waits for the shard's lock
+		History::add(late.c_str(), "g.late", 1);
+		if (write(go[1], "x", 1) != 1) {
+			// (the pruner has finished already)
+		}
+	}
+	close(ready[0]); close(go[1]);
+	int status = -1;
+	CHECK(waitpid(child, &status, 0) == child);
+	signal(SIGPIPE, oldpipe);
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+		cerr << "prune and writer: " << (code == 1 ?
+		    "the writer waited for the walk of the whole shard" :
+		    code == 2 ? "the walk did not see a later store" :
+		    code == 3 ? "prune dropped kept locations" :
+		    "pruner failed") << "\n";
+		failures++;
+	}
+	CHECK(locs(late.c_str()) == "g.late:1");
+}
+
 int main(int argc, char **argv)
 {
 	// Test-only inspection for the cleaner end-to-end test. Using the
@@ -384,6 +482,7 @@ int main(int argc, char **argv)
 	stale_prune(dir, false, true);
 	stale_prune(dir, false, false);
 #endif
+	prune_lets_writer_in();
 
 	// a damaged shard: moved aside, lookups find nothing, then it works
 	string id5 = id_for_shard(5, 1);

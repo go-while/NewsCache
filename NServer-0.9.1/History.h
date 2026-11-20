@@ -37,6 +37,10 @@ class History {
 	// Pending adds and removes are applied when this many are queued,
 	// also inside begin() ... commit(), to bound the memory.
 	enum { FLUSH_OPS = 10000 };
+	// prune reads a shard in slices of about this many records (whole
+	// buckets), one shard lock each, so that writers get the shard
+	// between slices.
+	enum { PRUNE_SLICE = 4096 };
 
 	struct Location {
 		std::string group;
@@ -71,9 +75,10 @@ class History {
 	/*
 	 * Drops every location for which keep(group, arg) is false, and
 	 * records without locations (newscacheclean: groups whose database
-	 * is gone). keep may be called again under the shard's exclusive lock
-	 * and must not cache a false answer or take a history lock. Returns the
-	 * number of locations actually dropped.
+	 * is gone). keep is called without a lock, and again under the
+	 * shard's exclusive lock for a location to drop; it must not cache a
+	 * false answer or take a history lock. Returns the number of
+	 * locations actually dropped.
 	 */
 	static long prune(bool (*keep) (const std::string & group, void *arg),
 			  void *arg);
