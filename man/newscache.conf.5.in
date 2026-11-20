@@ -530,7 +530,12 @@ gives up at once. A 503 counts only when the server has closed the
 connection right behind it (old INN sent "503 Timeout" on an idle
 connection); otherwise it is an ordinary error reply. A
 connection that can't be made at all (refused, timed out, a failed TLS
-handshake) isn't retried within its set-up.
+handshake) isn't retried within its set-up. When the connection breaks
+after a posted article, before the server's reply to it, NewsCache asks
+the server with STAT on the new connection whether it has the article
+(by its Message-ID) and sends it again only if it hasn't; if that STAT
+fails too, the article is queued in the spool (see dontgenmsgid for an
+article without a Message-ID).
 .IP "ConnectTimeout \fIseconds\fR"
 Give up a connection attempt to this server after this many seconds.
 The limit applies to each address of the server's name in turn (an IPv6
@@ -597,7 +602,10 @@ NewsCache gives a posted article without a Message-ID header one of its
 own (see Hostname). With dontgenmsgid, an article that goes only to
 this server is passed on without one, and the server makes it. An
 article that goes to several servers always gets one, so that it isn't
-posted twice under different IDs.
+posted twice under different IDs. NewsCache can't ask the server whether
+it has an article without a Message-ID: when the connection breaks after
+such an article, before the server's reply, the article is sent again,
+and the server may have it twice.
 .RE
 .IP
 With ssl or starttls, NewsCache verifies the server's certificate during the TLS handshake: it must chain to a trusted CA, be valid now and match the host name (or IP address) in the Server line, which is also sent as SNI. Otherwise the connection fails and the error is logged.

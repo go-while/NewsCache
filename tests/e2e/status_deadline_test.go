@@ -305,9 +305,9 @@ func TestUpstreamDrippedGroupStatus(t *testing.T) {
 // its 340 and has sent the article. Here every attempt drips its reply, so
 // when the retries are used up the post goes to the spool queue (sent again
 // by updatenews) and the client gets 240, soon. (A server that kept the
-// first copy and refuses the resent one with 441 gives the client that 441
-// instead; this fake answers every POST the same way.) Plain, TLS and
-// COMPRESS.
+// first copy answers the STAT before the resend with 223, and the client
+// gets 240 without a second copy; this fake answers 430 to every STAT.)
+// Plain, TLS and COMPRESS.
 func TestUpstreamDrippedPostStatus(t *testing.T) {
 	skipUnlessShortReplyLimits(t)
 	for _, mode := range []string{"plain", "tls", "compress"} {

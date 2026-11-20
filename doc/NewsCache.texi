@@ -693,7 +693,14 @@ up to @code{Retries} + 1 times for each connection NewsCache makes, so
 up to (@code{Retries} + 1) x (@code{Retries} + 1) times for a command
 such as @code{GROUP} (the first connection and up to @code{Retries} new
 ones), more for a @code{POST} (its steps make new connections on their
-own) or when the server asks for the login again (@samp{480}). @code{Retries} is an option of a
+own) or when the server asks for the login again (@samp{480}). When
+the connection breaks after a posted article, before the server's reply
+to it, NewsCache asks the server with @code{STAT} on the new connection
+whether it has the article (by its Message-ID) and sends it again only
+if it hasn't; if that @code{STAT} fails too, the article is queued in
+the spool. An article without a Message-ID (@code{dontgenmsgid}) can't
+be asked for and is sent again, so the server may have it twice.
+@code{Retries} is an option of a
 @code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout
 @cdindex ConnectTimeout
@@ -763,7 +770,9 @@ NewsCache opens a new connection instead;
 @code{not-setpostflag}, @code{setpostflag}; @code{not-cached},
 @code{cached}; @code{dontgenmsgid}---don't give an article posted only
 to this server a Message-ID when it has none (NewsCache makes one
-otherwise, and always for an article that goes to several servers).
+otherwise, and always for an article that goes to several servers);
+such an article is sent again when the reply to it is lost, see
+@code{Retries}.
 @item Commands
 This option indicates which commands are (or are not) supported by the
 upstream news server. Some versions of the netscape collabra server do
