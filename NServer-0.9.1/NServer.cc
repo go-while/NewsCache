@@ -281,19 +281,24 @@ void RServer::init(MPList * serverlist)
  * used to turn the command off for the rest of the process. For LIST
  * OVERVIEW.FMT (optional) a 400 counts only when the server did close: on
  * a connection that stays open it is a refusal like a 403, and connect()
- * goes on with the standard format. The end of the stream is seen only if
- * it is there when the reply has been read (poll without waiting, as in
- * issue()): one that comes a moment later leaves a 503 unsupported, and a
- * 400 to LIST OVERVIEW.FMT a refusal; the next command then finds the
- * connection closed and makes a new one.
+ * goes on with the standard format. The end of the stream may come a
+ * moment after the reply: checked at that one instant (as issue() still
+ * does, with input_pending()), a 503 followed by a close was taken as
+ * "unsupported" now and then, and the command turned off for the process.
+ * So connect() waits up to SETUP_CLOSE_MS for it; such replies at set-up
+ * are rare, and a 503 that is "unsupported" costs the wait once, as the
+ * command is then turned off.
  */
+#define SETUP_CLOSE_MS 250
+
 static bool setup_reply_closes(const string & resp, sockstream * s,
 			       bool optional)
 {
 	const bool r400 = resp.compare(0, 3, "400") == 0;
 	if (r400 && !optional)
 		return true;
-	return (r400 || resp.compare(0, 3, "503") == 0) && s->input_pending();
+	return (r400 || resp.compare(0, 3, "503") == 0) &&
+	    s->closes_within(SETUP_CLOSE_MS);
 }
 
 #define RSERVER_CONNECT_CHECK_CLOSING(cmd, optional) \

@@ -541,6 +541,33 @@ bool sockstream::input_pending()
   return poll(&p, 1, 0) > 0;
 }
 
+bool sockstream::closes_within(int ms)
+{
+  if (rdbuf()->in_avail() > 0)
+    return false;
+  const int fd = _buf.fd();
+  if (fd < 0)
+    return true;
+  struct pollfd p;
+  p.fd = fd;
+  p.events = POLLIN;
+  p.revents = 0;
+  // (a signal ends the wait early: then it counts as open)
+  if (poll(&p, 1, ms) <= 0)
+    return false;
+  if (_ssl)
+    return true;
+  // look at the next byte without taking it: none (the end of the
+  // stream) or an error is the close
+  char c;
+  const ssize_t n = recv(fd, &c, 1, MSG_PEEK | MSG_DONTWAIT);
+  if (n == 0)
+    return true;
+  if (n < 0)
+    return errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR;
+  return false;
+}
+
 
 int sockstream::sockstreambuf::overflow(int c)
 {

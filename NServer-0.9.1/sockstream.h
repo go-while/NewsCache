@@ -380,6 +380,13 @@ class sockstream
   // command, so this means that it has closed the connection.
   bool input_pending();
 
+  // Whether the peer closes the connection within ms milliseconds: the
+  // end of the stream (or an error such as a reset) comes. Data that
+  // comes, or bytes already buffered, mean it is open. Over TLS the bytes
+  // of a close_notify can't be told from data without reading them, so
+  // anything that comes counts as the close there, as in input_pending().
+  bool closes_within(int ms);
+
 #if defined(HAVE_GNUTLS)
   // Hands the socket to a new TLS stream and runs the handshake. Returns
   // NULL if there is nothing to upgrade; otherwise check connected() on
