@@ -24,7 +24,8 @@ import (
 // updatenews -g marked the chunk the same way. Now such a chunk is marked
 // only for a short retry pause, a quarter of the group timeout and at most
 // a minute (none for a timeout under 4 s, as in the first two tests), and
-// the next synchronization after it removes the article.
+// the next synchronization after it removes the article. updatenews (-g,
+// -o) writes no retry stamp: such a chunk stays unmarked there.
 
 // listgroupSyncTimeout is the group timeout of these tests: long enough
 // for the session after the faulty one to fall inside it, short enough to
@@ -286,42 +287,72 @@ func TestCachedIncompleteListgroupRetryPause(t *testing.T) {
 	})
 }
 
-// TestPrefetchIncompleteListgroupRetryPause: the same for updatenews -g.
-func TestPrefetchIncompleteListgroupRetryPause(t *testing.T) {
+// TestUpdatenewsIncompleteListgroupNoStamp: updatenews -g and -o leave
+// a chunk whose LISTGROUP was cut off unmarked, also with a long group
+// timeout: the next session synchronizes it and no longer lists the
+// article the news server deleted. updatenews runs with a group timeout of
+// its own (60 s), so a retry stamp it wrote (now - 45 s) counted as
+// synchronized for almost the whole timeout in the sessions (3600 s
+// here), as did the mark for the whole timeout before.
+func TestUpdatenewsIncompleteListgroupNoStamp(t *testing.T) {
 	const group = "test.alpha"
-	e := newEnv(t)
-	e.GroupTimeout = retryPauseTimeout
-	e.addArticles(group, 3)
-	prefetch := filepath.Join(e.Dir, "prefetch")
-	if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	e.Extra = "PrefetchFile " + prefetch
-	e.writeConf()
-	bin := updatenewsBin(t, e)
+	for _, mode := range []string{"-g", "-o"} {
+		t.Run(mode, func(t *testing.T) {
+			e := newEnv(t)
+			e.GroupTimeout = 3600
+			e.addArticles(group, 3)
+			prefetch := filepath.Join(e.Dir, "prefetch")
+			if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e.Extra = "PrefetchFile " + prefetch
+			bin := updatenewsBin(t, e)
 
-	// the articles, prefetched and the chunk synchronized
-	if out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput(); err != nil {
-		dumpUpdatenewsFailure(t, e, string(out))
-		t.Fatalf("updatenews -g: %v", err)
-	}
-	if n := e.Upstream.Count("ARTICLE"); n < 3 {
-		t.Fatalf("updatenews -g fetched %d articles, want 3", n)
-	}
+			// The articles, prefetched without a mark: the upstream
+			// doesn't support LISTGROUP (500), and updatenews -g marks
+			// a chunk only after a LISTGROUP. (Any mark would count
+			// for the whole hour in the sessions.)
+			upstreamWith(t, e, fakeserver.Options{Faults: fakeserver.Faults{
+				Override: map[string][]string{"LISTGROUP": {"500 unsupported"}},
+			}})
+			e.writeConf()
+			if out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput(); err != nil {
+				dumpUpdatenewsFailure(t, e, string(out))
+				t.Fatalf("updatenews -g: %v", err)
+			}
+			if n := e.Upstream.Count("ARTICLE"); n < 3 {
+				t.Fatalf("updatenews -g fetched %d articles, want 3", n)
+			}
 
-	if !e.Store.RemoveArticle(group, 2) {
-		t.Fatal("remove article 2 upstream")
-	}
-	time.Sleep((retryPauseTimeout+1)*time.Second + 100*time.Millisecond)
+			if !e.Store.RemoveArticle(group, 2) {
+				t.Fatal("remove article 2 upstream")
+			}
 
-	wantRetryPause(t, e, group, func() {
-		// (its exit status is not what this test is about)
-		upstreamWith(t, e, fakeserver.Options{Faults: cutOffListgroup})
-		e.writeConf()
-		out, err := exec.Command(bin, "-c", e.Conf, "-g").CombinedOutput()
-		t.Logf("faulty upstream: updatenews -g: %v\n%s", err, out)
-		if n := e.Upstream.Count("LISTGROUP"); n == 0 {
-			t.Fatal("faulty upstream: updatenews -g sent no LISTGROUP")
-		}
-	})
+			// the run with the cut-off LISTGROUP (its exit status is
+			// not what this test is about)
+			upstreamWith(t, e, fakeserver.Options{Faults: cutOffListgroup})
+			e.writeConf()
+			out, err := exec.Command(bin, "-c", e.Conf, mode).CombinedOutput()
+			t.Logf("faulty upstream: updatenews %s: %v\n%s", mode, err, out)
+			if n := e.Upstream.Count("LISTGROUP"); n == 0 {
+				t.Fatalf("faulty upstream: updatenews %s sent no LISTGROUP", mode)
+			}
+
+			upstreamWith(t, e, fakeserver.Options{})
+			c := e.session()
+			if code, line := c.Cmd("GROUP %s", group); code != 211 {
+				t.Fatalf("working upstream: GROUP: %q", line)
+			}
+			wantNumbers(t, "working upstream: XOVER 1-3 (article 2 deleted upstream)",
+				xover(t, c, 1, 3), 1, 3)
+			if code, line := c.Cmd("STAT 2"); code != 423 {
+				t.Errorf("working upstream: STAT 2 (deleted upstream): %q, want 423", line)
+			}
+			c.Cmd("QUIT")
+			if n := e.Upstream.Count("LISTGROUP"); n == 0 {
+				t.Errorf("working upstream: no LISTGROUP: updatenews %s marked the "+
+					"chunk after an incomplete LISTGROUP", mode)
+			}
+		})
+	}
 }

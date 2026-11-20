@@ -302,13 +302,17 @@ bool CNewsgroup::synced(artnum_t c, artnum_t l, nvtime_t now)
  * as synchronized for R more seconds, a quarter of the group's timeout
  * and at most 60: the stamp is back-dated to now - timeout + R, which
  * synced() accepts until now + R. Returns that time, or 0 for no stamp:
- * R is 0 (a timeout under 4 s; a stamp of now would still count for the
- * rest of this second), or the clock is too early for the subtraction.
+ * retry stamps are off (updatenews: its group timeout isn't the one the
+ * sessions read the stamp with, see setretrystamps), R is 0 (a timeout
+ * under 4 s; a stamp of now would still count for the rest of this
+ * second), or the clock is too early for the subtraction.
  */
 nvtime_t CNewsgroup::retry_stamp(nvtime_t now)
 {
 	nvtime_t r = _TTLGroup / 4;
 
+	if (!_RetryStamps)
+		return 0;
 	if (r > 60)
 		r = 60;
 	// (r <= _TTLGroup / 4: _TTLGroup - r doesn't wrap, and the stamp
@@ -1041,7 +1045,9 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 	size_t szdata;
 	artnum_t f, top;
 	// false: the list didn't come whole (all set: nothing is removed),
-	// and the chunk gets only the retry stamp below
+	// and the chunk isn't marked as synchronized below (no retry pause:
+	// updatenews's group timeout isn't the sessions', see
+	// setretrystamps)
 	bool whole = listgroup(&lstgrp[0], a, b);
 	{
 		// what the spool has now (checked again before each change)
@@ -1101,18 +1107,9 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		first = arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
-	if (a <= first && first <= top) {
-		if (!whole) {
-			// The list didn't come whole, but the prefetch got here:
-			// the retry pause, as after a client's synchronization
-			// (see retry_stamp). (An exception above, from an article
-			// the server failed to send, leaves the chunk unmarked.)
-			// Also when the failure switched LISTGROUP off: it says
-			// nothing about the server's support.
-			setretrysync(a / OVERVIEW_CHUNK, top);
-		} else if (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP)
-			setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
-	}
+	if (whole && a <= first && first <= top &&
+	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
+		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
 	setmtime(nvtime(NULL));
 }
 

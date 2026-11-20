@@ -632,6 +632,10 @@ class CServer
 	bool first_fill_failed_recently();
 	void note_first_fill_failed();
 
+	// the groups' retry stamps after an incomplete LISTGROUP (see
+	// CNewsgroup::retry_stamp); off in updatenews
+	bool _retry_stamps;
+
 	int active_valid()
 	{
 		unsigned long tm;
@@ -681,6 +685,11 @@ class CServer
 	void setttl(time_t ttl_list, time_t ttl_desc) {
 		_TTLActive = ttl_list;
 		_TTLDesc = ttl_desc;
+	}
+	// false: the groups write no retry stamps (updatenews, whose group
+	// timeout isn't the one the sessions read the stamps with)
+	void setretrystamps(bool on) {
+		_retry_stamps = on;
 	}
 
 	// News retrieval functions

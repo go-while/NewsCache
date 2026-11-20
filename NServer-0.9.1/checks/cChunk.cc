@@ -40,10 +40,10 @@ static int failures = 0;
 
 // prefetchchunk (updatenews -g) with a news server that lists every number
 // of the range (ListingServer), or one that can't be reached (then
-// LISTGROUP fails: every number counts as listed, and the chunk gets only
-// the retry stamp); retrievearticle finds nothing (and can change the
-// group meanwhile, as another session would, or throw, as for an article
-// the server failed to send).
+// LISTGROUP fails: every number counts as listed, and the chunk isn't
+// marked, not even with a retry stamp); retrievearticle finds nothing
+// (and can change the group meanwhile, as another session would, or
+// throw, as for an article the server failed to send).
 struct PrefetchProbe:public CNewsgroup {
 	void (*on_fetch) (void *);
 	void *arg;
@@ -295,11 +295,10 @@ static void prefetch_sync(void)
 		CHECK(!(mk && through < 150));
 	}
 	// [a,b] from the chunk's start, but LISTGROUP failed (the server
-	// can't be reached): nothing is removed, and the chunk counts as
-	// synchronized only for the retry pause, min(60, timeout / 4) = 60
-	// seconds: its stamp is back-dated to now - 3600 + 60 (it was marked
-	// for the whole timeout), so the next synchronization after the
-	// pause asks again
+	// can't be reached): nothing is removed, and the chunk isn't
+	// marked, so the next synchronization asks again (it was marked).
+	// No retry stamp either: updatenews's group timeout (60 s) isn't the
+	// one the sessions would read it with.
 	MPList down;
 	MPListEntry d = e;
 	d.servicename = closed_port();
@@ -309,12 +308,8 @@ static void prefetch_sync(void)
 		PrefetchProbe g(&rsd, &fmt, dir.c_str(), "test.prefetch.down");
 		g.setsize(1, 30000);
 		g.grow(10000, 30000);
-		nvtime_t t0 = nvtime(NULL);
 		g.prefetch(10000, 19999);
-		nvtime_t t1 = nvtime(NULL);
-		nvtime_t t = g.stamp(1, &through);
-		CHECK(t0 - 3600 + 60 <= t && t <= t1 - 3600 + 60);
-		CHECK(through == 19999);
+		CHECK(!g.marked(1, &through));
 	}
 	// the same, but an article fails to come (the prefetch throws): the
 	// chunk isn't marked at all
@@ -334,7 +329,8 @@ static void prefetch_sync(void)
 		CHECK(!g.marked(1, &through));
 	}
 	// a whole synchronization's stamp is kept after a failed list
-	// (neither its time nor how far it reaches changes)
+	// (neither its time nor how far it reaches changes, and it isn't
+	// cleared)
 	{
 		PrefetchProbe g(&rs, &fmt, dir.c_str(), "test.prefetch.newer");
 		g.setsize(1, 30000);

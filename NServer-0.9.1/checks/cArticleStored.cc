@@ -180,7 +180,8 @@ static void chunk_expired_then_restored(const string &dir, OverviewFmt &fmt)
 // whole timeout, and without the pause every command synchronized the
 // chunk again while the news server kept failing). A failed fetch doesn't
 // mark it; a newer stamp is kept as it is; a timeout under 4 s (R = 0),
-// or one longer than the clock's time, gives no stamp.
+// or one longer than the clock's time, gives no stamp, and so do groups
+// with retry stamps off (updatenews).
 static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
 {
 	const nvtime_t ttl = 3600, r = 60;	// (ChunkRangeProbe's timeout)
@@ -243,6 +244,17 @@ static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
 	{
 		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryshort");
 		g.setttl(3);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// retry stamps off (updatenews -o, whose group timeout isn't
+		// the sessions'): the chunk stays unmarked
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryoff");
+		g.setretrystamps(false);
 		g.setsize(1, 100);
 		g.grow(1, 100);
 		CHECK(g.snapshot());

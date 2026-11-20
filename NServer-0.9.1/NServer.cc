@@ -2280,6 +2280,7 @@ CServer::CServer(const char *spooldir, MPList * serverlist)
 	_refresh_fd = -1;
 	_refresh_locked = false;
 	_active_missing = false;
+	_retry_stamps = true;
 	VERB(slog.
 	     p(Logger::
 	       Debug) << "CServer::CServer(" << spooldir <<
@@ -2755,6 +2756,7 @@ Newsgroup *CServer::getgroup_once(const char *name)
 		throw;
 	}
 	grp->setttl(mpe->groupTimeout);
+	grp->setretrystamps(_retry_stamps);
 	return grp;
 }
 

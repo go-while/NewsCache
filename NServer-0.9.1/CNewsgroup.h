@@ -24,6 +24,8 @@ class RNewsgroup;
 class CNewsgroup:public NVNewsgroup {
   protected:
 	nvtime_t _TTLGroup;
+	// false: no retry stamps (see retry_stamp in CNewsgroup.cc)
+	bool _RetryStamps;
 	RServer *_RServer;
 	// for numbers outside the index; holds one chunk of overview records
 	RNewsgroup *_pass;
@@ -90,7 +92,8 @@ class CNewsgroup:public NVNewsgroup {
   public:
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
 		   const char *spooldir, const char *name)
-	: NVNewsgroup(fmt, spooldir, name), _TTLGroup(0), _RServer(nsrvr),
+	: NVNewsgroup(fmt, spooldir, name), _TTLGroup(0), _RetryStamps(true),
+	  _RServer(nsrvr),
 	  _pass(NULL), _FetchLockFile(std::string(spooldir) + "/.fetch.lock")
 	{
 	}
@@ -98,6 +101,11 @@ class CNewsgroup:public NVNewsgroup {
 
 	virtual void setttl(nvtime_t grp) {
 		_TTLGroup = grp;
+	}
+	// false: an incomplete LISTGROUP leaves the chunk unmarked, without
+	// the retry pause (updatenews)
+	void setretrystamps(bool on) {
+		_RetryStamps = on;
 	}
 
 	virtual void setsize(artnum_t f, artnum_t l);

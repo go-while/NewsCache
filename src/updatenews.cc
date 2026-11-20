@@ -282,6 +282,12 @@ void update(void)
 	int wi = opt_workers ? 0 : -1;
 
 	cs.setttl(Cfg.ttl_list, Cfg.ttl_desc);
+	// No retry stamps after an incomplete LISTGROUP (-o): the group
+	// timeout here is 60 s (see main), and a session would read a stamp
+	// back-dated by it with its own timeout, for longer or shorter than
+	// the pause. A run makes one pass per group, with no sessions
+	// waiting for it in turn: the chunk stays unmarked.
+	cs.setretrystamps(false);
 	cs.setmaxarticlesize(Cfg.MaxArticleSize);
 
 	slog.p(Logger::Info) << "posting spooled articles\n";

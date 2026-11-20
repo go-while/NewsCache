@@ -6,9 +6,10 @@ Bug fixes:
   assumed the server had every article of the range, and still marked
   the range as synchronized. Articles the news server had deleted stayed
   listed (XOVER, STAT, ARTICLE from the spool) for another group timeout.
-  updatenews -g marked the range the same way. Such a range now counts
-  as synchronized only for a short pause, a quarter of the group timeout
-  and at most a minute: what came is stored and served, nothing is
-  removed, and the first request after the pause synchronizes the range
-  again, which removes the deleted articles. So a news server that keeps
-  failing is asked once per pause, not on every request.
+  updatenews -g and -o marked the range the same way. In a client
+  session such a range now counts as synchronized only for a short
+  pause, a quarter of the group timeout and at most a minute: what came
+  is stored and served, nothing is removed, and the first request after
+  the pause synchronizes the range again, which removes the deleted
+  articles. So a news server that keeps failing is asked once per
+  pause, not on every request. updatenews leaves such a range unmarked.
