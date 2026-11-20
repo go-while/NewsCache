@@ -687,11 +687,13 @@ refused) isn't retried. A TLS handshake that fails (after the
 @samp{382} to @code{STARTTLS}, or with @code{ssl}) counts as a
 connection that couldn't be made: a connection that can't be made at
 all (refused, timed out, a failed TLS handshake) isn't retried within
-its set-up. With a login (@code{User} and @code{Password}) each new
-connection logs in again, so a server that closes at @code{AUTHINFO}
-gets the login up to (@code{Retries} + 1) x (@code{Retries} + 1) times
-for one command (@code{Retries} + 1 set-ups for the first connection,
-and as many for each of up to @code{Retries} new connections). @code{Retries} is an option of a
+its set-up. With a login (@code{User} and @code{Password}) each set-up
+logs in again: a server that closes at @code{AUTHINFO} gets the login
+up to @code{Retries} + 1 times for each connection NewsCache makes, so
+up to (@code{Retries} + 1) x (@code{Retries} + 1) times for a command
+such as @code{GROUP} (the first connection and up to @code{Retries} new
+ones), more for a @code{POST} (its steps make new connections on their
+own) or when the server asks for the login again (@samp{480}). @code{Retries} is an option of a
 @code{Server} entry; at the top level of the file it is an error.
 @item ConnectTimeout
 @cdindex ConnectTimeout

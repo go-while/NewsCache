@@ -518,16 +518,19 @@ AUTHINFO, COMPRESS or LIST OVERVIEW.FMT) is made again too, up to
 Retries times; a refusal there (a login or STARTTLS refused) isn't
 retried. A TLS handshake that fails (after the 382 to STARTTLS, or with
 ssl) counts as a connection that couldn't be made. With a login (User
-and Password) each new connection logs in again, so a server that
-closes at AUTHINFO gets the login up to (Retries + 1) x (Retries + 1)
-times for one command (Retries + 1 set-ups for the first connection,
-and as many for each of up to Retries new connections). Every attempt, and every connection set-up within it,
-can wait up to that limit. If that fails
+and Password) each set-up logs in again: a server that closes at
+AUTHINFO gets the login up to Retries + 1 times for each connection
+NewsCache makes, so up to (Retries + 1) x (Retries + 1) times for a
+command such as GROUP (the first connection and up to Retries new
+ones), more for a POST (its steps make new connections on their own)
+or when the server asks for the login again (480). Every attempt, and
+every connection set-up within it, can wait up to that limit. If that fails
 too, the client gets an error. The default is 3, the range 0 to 100; 0
 gives up at once. A 503 counts only when the server has closed the
 connection right behind it (old INN sent "503 Timeout" on an idle
-connection); otherwise it is an ordinary error reply. A first
-connection that fails isn't retried.
+connection); otherwise it is an ordinary error reply. A
+connection that can't be made at all (refused, timed out, a failed TLS
+handshake) isn't retried within its set-up.
 .IP "ConnectTimeout \fIseconds\fR"
 Give up a connection attempt to this server after this many seconds.
 The limit applies to each address of the server's name in turn (an IPv6
