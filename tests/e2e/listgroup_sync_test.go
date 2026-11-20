@@ -32,6 +32,15 @@ import (
 // wait out once (after the first synchronization).
 const listgroupSyncTimeout = 3
 
+// listgroupSyncServerLines: no retries of a connection the upstream closed
+// during set-up (closed-after-greeting). connect() retries it Retries
+// times, a second apart, inside issue()'s reconnects, which with the
+// default 3 made the faulty phase take longer than the group timeout (the
+// check reported it as inconclusive). The faulty synchronization fails the
+// same way with one attempt: on main the failed connect still marked the
+// chunk.
+const listgroupSyncServerLines = "    Retries 0"
+
 // incompleteListgroupFaults: the upstream faults that leave the
 // synchronization's LISTGROUP incomplete (the deleted article is 2 of 1-3).
 var incompleteListgroupFaults = []struct {
@@ -88,6 +97,7 @@ func TestCachedIncompleteListgroupNotSynced(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
 			e.GroupTimeout = listgroupSyncTimeout
+			e.ServerLines = listgroupSyncServerLines
 			e.addArticles(group, 3)
 
 			// the chunk, cached and synchronized
@@ -135,6 +145,7 @@ func TestPrefetchIncompleteListgroupNotSynced(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
 			e.GroupTimeout = listgroupSyncTimeout
+			e.ServerLines = listgroupSyncServerLines
 			e.addArticles(group, 3)
 			prefetch := filepath.Join(e.Dir, "prefetch")
 			if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
