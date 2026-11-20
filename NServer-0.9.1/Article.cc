@@ -382,6 +382,88 @@ void Article::setfield(const char *ifld, const char *field_data)
 	_ctext = _text.c_str();
 }
 
+// Removes every header ifld with its continuation lines in one pass. The
+// head is walked line by line as find_field walks it (the first line is
+// compared even when it is empty; any later empty line ends the head),
+// and a header goes with the lines setfield(ifld, "") takes along. Calling
+// setfield until has_field was false scanned the text from its start and
+// moved everything behind the header for each one: a POST with tens of
+// thousands of X-NNTP-Posting-Host headers behind a large header cost
+// seconds to minutes of CPU. The text is copied once, without the
+// removed headers, and only when there was one.
+void Article::removefields(const char *ifld)
+{
+	const char *p, *q, *fld, *keep;
+	string rest;
+	bool first = true, removed = false;
+
+	q = keep = _ctext;
+	for (;;) {
+		if (!first && (*q == '\r' || *q == '\n'))
+			break;	// the empty line that ends the head
+		first = false;
+		p = ifld;
+		fld = q;
+		while (*p && tolower((unsigned char) *p) ==
+		       tolower((unsigned char) *q)) {
+			p++;
+			q++;
+		}
+		if (*p == '\0') {
+			// the header and its continuation lines, as setfield
+			for (;;) {
+				while (*q && *q != '\n')
+					q++;
+				if (!*q)
+					break;
+				q++;
+				if (*q != ' ' && *q != '\t')
+					break;	// no continuation line
+			}
+			if (!removed) {
+				rest.reserve(_text.length());
+				removed = true;
+			}
+			rest.append(keep, fld - keep);
+			keep = q;
+			continue;
+		}
+
+		// not this header: on to the next line, as find_field
+		while (*q && *q != '\r' && *q != '\n')
+			q++;
+		if (!*q) {
+			VERB(slog.
+			     p(Logger::
+			       Error) <<
+			     "Article::removefields: unterminated header, no body\n");
+			throw
+			    InvalidArticleError
+			    ("unterminated header, no body",
+			     ERROR_LOCATION);
+		}
+		if (*q == '\r' && *(q + 1) == '\n') {
+			q += 2;
+		} else if (*q == '\n') {
+			++q;
+		} else {
+			VERB(slog.
+			     p(Logger::
+			       Error) <<
+			     "Article::removefields: line not terminated with CRLF\n");
+			throw
+			    InvalidArticleError
+			    ("line not terminated with CRLF/LF",
+			     ERROR_LOCATION);
+		}
+	}
+	if (!removed)
+		return;
+	rest.append(keep, _text.length() - (keep - _ctext));
+	_text.swap(rest);
+	_ctext = _text.c_str();
+}
+
 ostream & Article::write(ostream & os, int flags)
 {
 	const char *p, *q;

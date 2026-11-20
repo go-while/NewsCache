@@ -1295,6 +1295,112 @@ func TestPostPostingHost(t *testing.T) {
 	}
 }
 
+// TestPostPostingHostLinear: the client's X-NNTP-Posting-Host headers
+// were removed one at a time, and each removal scanned the head from its
+// start (has_field, then setfield) and moved everything behind the
+// header. One POST at MaxPostSize with 40,000 of them behind 1 MiB of
+// other header text cost about 8*10^10 byte steps in the session's
+// process (tens of seconds to minutes of CPU, no news server needed);
+// removed in one pass it is well under a second (74 ms measured for the
+// whole POST, transfer included). The article reaches the
+// upstream with exactly the generated header, at the end of the head,
+// and every other byte as the client sent it: the other headers (folded
+// ones and look-alike names too), their order, and the body, which has
+// a line that looks like the header.
+func TestPostPostingHostLinear(t *testing.T) {
+	const maxPost = 2 << 20
+	const cycles = 10000 // 4 headers each
+	const limit = 5 * time.Second
+	e := newEnv(t)
+	e.Extra = fmt.Sprintf("MaxPostSize %d", maxPost)
+	e.addArticles("test.alpha", 1)
+	e.standalone()
+
+	var art, kept strings.Builder
+	keep := func(s string) {
+		art.WriteString(s)
+		kept.WriteString(s)
+	}
+	keep("Message-ID: <posting-host-linear@client.test>\r\n")
+	keep("From: Poster <poster@client.test>\r\n")
+	keep("Newsgroups: test.alpha\r\n")
+	keep("Subject: many X-NNTP-Posting-Host headers\r\n")
+	// 1 MiB of one folded header (lines of 1024 bytes) in front of them
+	keep("X-Pad: start\r\n")
+	pad := "\t" + strings.Repeat("p", 1021) + "\r\n"
+	for i := 0; i < 1024; i++ {
+		keep(pad)
+	}
+	for i := 0; i < cycles; i++ {
+		if i%1000 == 500 {
+			keep(fmt.Sprintf("X-Keep-%d: between them\r\n", i))
+			keep("X-NNTP-Posting-Hostile: another header\r\n")
+			keep("X-NNTP-Posting-Host-2: another header\r\n")
+		}
+		art.WriteString("X-NNTP-Posting-Host: a\r\n")
+		art.WriteString("x-nntp-posting-host: b\r\n")
+		art.WriteString("X-Nntp-Posting-Host: c\r\n\td\r\n")
+		art.WriteString("X-NNTP-POSTING-HOST:e\r\n")
+	}
+	keep("Organization: after them\r\n")
+	head := kept.String()
+	body := "\r\nbody line\r\nX-NNTP-Posting-Host: in the body\r\n..dot\r\n"
+	art.WriteString(body)
+	text := art.String()
+	if len(text) > maxPost || len(text) < maxPost*9/10 {
+		t.Fatalf("test article has %d bytes, want just under MaxPostSize %d", len(text), maxPost)
+	}
+
+	c := e.dial()
+	// long enough for the quadratic removal to finish, so that its
+	// time shows in the error
+	c.Deadline = 3 * time.Minute
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	start := time.Now()
+	if err := c.Send(text + ".\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	code, line, err := c.ReadStatus()
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("POST with %d X-NNTP-Posting-Host headers: no reply after %v: %v", 4*cycles, elapsed, err)
+	}
+	if code != 240 {
+		t.Fatalf("POST with %d X-NNTP-Posting-Host headers: %q, want 240", 4*cycles, line)
+	}
+	t.Logf("POST of %d bytes with %d X-NNTP-Posting-Host headers: 240 after %v", len(text), 4*cycles, elapsed)
+	if elapsed > limit {
+		t.Errorf("POST with %d X-NNTP-Posting-Host headers took %v, want under %v (linear: well under a second)",
+			4*cycles, elapsed, limit)
+	}
+	c.TryCmd("QUIT")
+
+	raw := e.Upstream.ArticlesRaw()
+	if len(raw) != 1 {
+		t.Fatalf("upstream received %d articles, want 1", len(raw))
+	}
+	got := string(raw[0])
+	if !strings.HasPrefix(got, head) {
+		i := 0
+		for i < len(got) && i < len(head) && got[i] == head[i] {
+			i++
+		}
+		t.Fatalf("head upstream differs at byte %d of %d: %q, want %q", i, len(got),
+			got[i:min(len(got), i+80)], head[i:min(len(head), i+80)])
+	}
+	gen, after, _ := strings.Cut(got[len(head):], "\r\n")
+	if host, ok := strings.CutPrefix(gen, "X-NNTP-Posting-Host: "); !ok || host == "" ||
+		strings.ContainsAny(host, " \t") {
+		t.Errorf("after the other headers %q, want the one generated X-NNTP-Posting-Host header", gen[:min(len(gen), 200)])
+	}
+	if after != body {
+		t.Errorf("rest of the article upstream %q, want the empty line and the body %q",
+			after[:min(len(after), 200)], body)
+	}
+}
+
 // TestUpstreamCutOffArticle: the upstream closes the connection in the
 // middle of an article. The client must not get the cut-off article as if
 // it were complete, and it must not be stored: the next request goes

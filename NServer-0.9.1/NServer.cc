@@ -362,6 +362,9 @@ void RServer::connect()
 #endif
 
 	for (;;) {
+		// (each attempt asks again: the last one may have broken
+		// after a 480 to MODE READER)
+		mode_reader_after_login = 0;
 		slog.p(Logger::Debug) << "RServer::connect: Connecting to " <<
 		  _CurrentServer->hostname << " to servicename " <<
 		  _CurrentServer->servicename << "\n";
@@ -479,8 +482,11 @@ void RServer::connect()
 		}
 #endif
 
-		if (_CurrentServer->user[0])
+		if (_CurrentServer->user[0]) {
 			authenticate();
+			RSERVER_CONNECT_CHECK_CONNECTION
+			    ("Cannot read data from %s:%s");
+		}
 
 		if (mode_reader_after_login) {
 			resp = issue("mode reader\r\n", NULL);
@@ -734,9 +740,9 @@ bool RServer::reply_unexpected(const string & resp)
  * ReadTimeout). Past that the connection is aborted (no QUIT, no flush to
  * a peer that isn't answering) and the stream is bad, as when the server
  * closed it, so the callers retry (Retries) or fail as for a lost
- * connection. The part of the line that came is dropped: in connect() an
- * issue() hands the reply on even from a bad stream, and a cut "211 n f l"
- * from the GROUP of the set-up was taken for the group's numbers.
+ * connection. The part of the line that came is dropped (and issue() in
+ * connect() hands on nothing from a bad stream): a cut "211 n f l" from the
+ * GROUP of the set-up was taken for the group's numbers.
  * ReadTimeout 0 stays "no timeout at all".
  */
 int RServer::readstatus(string & line, int keepnl)
@@ -859,6 +865,10 @@ void RServer::authenticate()
 		throw;
 	}
 	_authenticating = 0;
+	// The connection broke while connect() set it up: no reply, no
+	// refusal; connect() sees the bad stream and connects again.
+	if (_connecting && !_pServerStream->good())
+		return;
 	if (resp[0] != '2') {
 		string c("_authenticate_"), e("[23]..");
 		delete _pServerStream;
@@ -928,9 +938,19 @@ string RServer::issue(const char *command, const char *expresp)
 			log_compress_error();
 		}
 		if (_connecting) {
-			if (!_pServerStream->good())
+			if (!_pServerStream->good()) {
+				// The connection broke (closed, ReadTimeout, the
+				// status line's deadline): there is no reply, and a
+				// part of a line that came before is none either.
+				// connect() sees the bad stream and connects again
+				// (Retries). The ResponseError thrown below for a
+				// missing reply skipped that, and the command
+				// failed on one dropped set-up; a cut "211 n f l"
+				// was taken as the set-up GROUP's numbers.
 				slog.p(Logger::Warning) << "RServer::issue: no "
 				    "connection to news server while connecting\n";
+				return string();
+			}
 			break;
 		} else if (!_pServerStream->good()) {
 			slog.
@@ -977,11 +997,17 @@ string RServer::issue(const char *command, const char *expresp)
 		// to reconnect to the server and reissue the command.
 		for (;;) {
 			i--;
-			if (i == 0)
+			if (i == 0) {
+				// The broken connection goes: with Retries 0 it
+				// stayed, is_connected() was true, and every later
+				// command of the session was sent on it and failed
+				// without a new connection.
+				disconnect();
 				throw
 				    SystemError
 				    ("maximum number of retries reached",
 				     -1, ERROR_LOCATION);
+			}
 			disconnect();
 			try {
 				connect();
@@ -1733,13 +1759,22 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 	char buf[513];
 	string resp;
 	const char *p;
-	const char *fmt = "over %llu-%llu\r\n";
+	const char *fmt;
+	// OVER refused here with a reply that doesn't say it is unsupported
+	// (403, 480 without a login, a rate limit; see reply_unsupported):
+	// XOVER is tried instead, for this request only. Each command is
+	// sent at most once per call.
+	bool over_refused = false;
+	string refused_cmd, refused;
 
 	selectgroup(ng->name());
 	for (;;) {
-		if (!(_CurrentServer->nntpflags & MPListEntry::F_OVER))
-			fmt = "xover %llu-%llu\r\n";
-		if (!(_CurrentServer->nntpflags & MPListEntry::F_XOVER)) {
+		const bool over = (_CurrentServer->nntpflags & MPListEntry::F_OVER)
+		    && !over_refused;
+		fmt = over ? "over %llu-%llu\r\n" : "xover %llu-%llu\r\n";
+		if (!over && !(_CurrentServer->nntpflags & MPListEntry::F_XOVER)) {
+			if (over_refused)
+				throw ResponseError(refused_cmd, "224", refused);
 			slog.
 			    p(Logger::
 			      Critical) <<
@@ -1800,11 +1835,45 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		// reason to try XOVER instead of OVER, or to give up.
 		if (NNTP_ISCODE(p, "423") || NNTP_ISCODE(p, "420"))
 			return 0;
-		// Anything else: the other command is tried, as before. A
-		// positive reply other than 224 may come with a block, so its
-		// connection is closed first; the next try makes a new one.
+		// Anything else: the other command is tried. A positive reply
+		// other than 224 may come with a block, so its connection is
+		// closed first; the next try makes a new one.
 		reply_unexpected(resp);
-		if (fmt[0] == 'o')
+		if (!reply_unsupported(resp)) {
+			// Not now (403, 480 without a login, ...): this request
+			// fails, unless XOVER gives the records, but OVER and
+			// XOVER stay on for the next one. They were turned off
+			// for the rest of the process: after a 403 to OVER and
+			// one to XOVER every later request failed with "neither
+			// OVER nor XOVER" without asking the server (updatenews:
+			// every later group of the run).
+			if (!over) {
+				string c(buf), e("224");
+				throw ResponseError(c, e, resp);
+			}
+			// (logged once per process, a client session or an
+			// updatenews run: a server that refuses OVER for good
+			// costs one refused OVER per request, which this line
+			// shows without a line for each)
+			static bool over_refused_logged = false;
+			if (!over_refused_logged) {
+				over_refused_logged = true;
+				slog.p(Logger::Notice) << "news server "
+				    << _CurrentServer->hostname
+				    << " refused OVER (" << resp << ")"
+				    << ((_CurrentServer->nntpflags &
+					 MPListEntry::F_XOVER) ?
+					", XOVER instead" : "")
+				    << "; logged once, OVER is asked again\n";
+			}
+			over_refused = true;
+			refused_cmd = buf;
+			refused = resp;
+			continue;
+		}
+		// (500, 501, 503, a positive reply: not supported, for the
+		// rest of the process)
+		if (over)
 			_CurrentServer->nntpflags &= ~MPListEntry::F_OVER;
 		else
 			_CurrentServer->nntpflags &= ~MPListEntry::F_XOVER;
@@ -1967,11 +2036,14 @@ void RServer::post(MPListEntry * srvr, Article * article)
 		    "lost connection to news server unexpectedly\n";
 		for (;;) {
 			i--;
-			if (i == 0)
+			if (i == 0) {
+				// (as in issue(): the broken connection goes)
+				disconnect();
 				throw
 				    SystemError
 				    ("maximum number of retries reached while trying to post an article",
 				     -1, ERROR_LOCATION);
+			}
 			disconnect();
 			try {
 				connect();
@@ -2069,9 +2141,11 @@ int RServer::post(Article * article)
 	//FIXME! new field that shows the cache-posting-chain
 	if (nntp_posting_host[0]) {
 		// Every X-NNTP-Posting-Host of the client goes, not only the
-		// first: a second one stayed next to ours.
-		while (article->has_field("X-NNTP-Posting-Host:"))
-			article->setfield("X-NNTP-Posting-Host:", "");
+		// first: a second one stayed next to ours. All in one pass:
+		// removing them one at a time scanned the head again for each
+		// one, so many of them behind a large header cost seconds to
+		// minutes of CPU for one POST.
+		article->removefields("X-NNTP-Posting-Host:");
 		// The header line is sent as it is: a CR or LF in the host
 		// would end it, or the article ("\r\n.\r\n"), and the news
 		// server would read the rest as commands. NewsCache checks the

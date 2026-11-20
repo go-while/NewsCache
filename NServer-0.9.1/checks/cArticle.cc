@@ -261,6 +261,116 @@ int checkWriteBody(void)
 	return e ? -1 : 0;
 }
 
+// The way RServer::post removed the client's X-NNTP-Posting-Host headers
+// before removefields: one setfield per header, each from the start.
+// Returns false when it threw.
+static bool removeOneByOne(Article & a, const char *fld)
+{
+	try {
+		while (a.has_field(fld))
+			a.setfield(fld, "");
+	}
+	catch(const InvalidArticleError &) {
+		return false;
+	}
+	return true;
+}
+
+// removefields drops every header of the name (any case) with its
+// continuation lines and keeps every other byte; it gives what one
+// setfield(fld, "") per header gave (asBefore; not when only such
+// headers come before the empty line: that loop went on into the body)
+// and throws where that threw (the text unchanged then). want NULL: it
+// throws.
+int checkRemoveFields(void)
+{
+	static const char fld[] = "X-NNTP-Posting-Host:";
+	static const struct {
+		const char *text;
+		const char *want;
+		bool asBefore;	// the same as removeOneByOne
+	} cases[] = {
+		// none there
+		{"From: a\r\nSubject: s\r\n\r\nbody\r\n",
+		 "From: a\r\nSubject: s\r\n\r\nbody\r\n", true},
+		// first line, any case, folded, next to each other, look-alike
+		// names, the last header; the body stays
+		{"X-NNTP-Posting-Host: a\r\nFrom: a\r\n"
+		 "x-nntp-posting-host: b\r\n\tfolded\r\n  more\r\n"
+		 "X-NNTP-Posting-Hostile: keep\r\nX-Nntp-Posting-Host:c\r\n"
+		 "X-NNTP-POSTING-HOST: d\r\nX-NNTP-Posting-Host-2: keep\r\n"
+		 "Subject: s\r\n folded subject\r\nX-NNTP-Posting-Host: e\r\n"
+		 "\r\nX-NNTP-Posting-Host: body\r\n\tbody\r\n",
+		 "From: a\r\nX-NNTP-Posting-Hostile: keep\r\n"
+		 "X-NNTP-Posting-Host-2: keep\r\n"
+		 "Subject: s\r\n folded subject\r\n"
+		 "\r\nX-NNTP-Posting-Host: body\r\n\tbody\r\n", true},
+		// LF line ends
+		{"From: a\nX-NNTP-Posting-Host: a\n b\nSubject: s\n\nbody\n",
+		 "From: a\nSubject: s\n\nbody\n", true},
+		// an empty one with a blank continuation line
+		{"X-NNTP-Posting-Host:\r\n \r\nNewsgroups: x\r\n\r\nb\r\n",
+		 "Newsgroups: x\r\n\r\nb\r\n", true},
+		// no empty line after the head
+		{"From: a\r\nSubject: s\r\n", NULL, true},
+		{"From: a\r\nX-NNTP-Posting-Host: x\r\n \r\n", NULL, true},
+		// a CR outside CRLF in the head
+		{"From: a\rb\r\nX-NNTP-Posting-Host: x\r\n\r\nbody\r\n", NULL, true},
+		// an empty first line: the lines after it are read as the head,
+		// as find_field reads them
+		{"\r\nX-NNTP-Posting-Host: x\r\nFrom: a\r\n\r\nbody\r\n",
+		 "\r\nFrom: a\r\n\r\nbody\r\n", true},
+		// a head of nothing else: the body stays (one setfield at a
+		// time went on into the body here, and threw)
+		{"X-NNTP-Posting-Host: x\r\n\r\nX-NNTP-Posting-Host: body\r\n",
+		 "\r\nX-NNTP-Posting-Host: body\r\n", false},
+	};
+	int e = 0;
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		Article a, b;
+		a.settext(cases[i].text);
+		b.settext(cases[i].text);
+		bool threw = false;
+		try {
+			a.removefields(fld);
+		}
+		catch(const InvalidArticleError &) {
+			threw = true;
+		}
+		if (cases[i].want == NULL) {
+			if (!threw || a.GetText() != cases[i].text) {
+				cout << "checkRemoveFields: case " << i
+				    << ": no exception, or the text changed: \""
+				    << a.GetText() << "\"\n";
+				e++;
+			}
+		} else if (threw || a.GetText() != cases[i].want) {
+			cout << "checkRemoveFields: case " << i << " gives \""
+			    << a.GetText() << "\"" << (threw ? " (threw)" : "")
+			    << ", want \"" << cases[i].want << "\"\n";
+			e++;
+		}
+		// c_str() is the pointer the parsers read (find_field): it must
+		// follow the new text, not the freed old one
+		if (std::string(a.c_str()) != a.GetText()) {
+			cout << "checkRemoveFields: case " << i
+			    << ": c_str() doesn't match the text after removefields\n";
+			e++;
+		}
+		if (!cases[i].asBefore)
+			continue;
+		bool ok = removeOneByOne(b, fld);
+		if (ok == threw || (ok && b.GetText() != a.GetText())) {
+			cout << "checkRemoveFields: case " << i
+			    << " differs from one setfield per header: \""
+			    << b.GetText() << "\"" << (ok ? "" : " (threw)")
+			    << "\n";
+			e++;
+		}
+	}
+	return e ? -1 : 0;
+}
+
 int main(int argc, char *argv[])
 {
 	const char *const *al = articleList;
@@ -315,6 +425,12 @@ int main(int argc, char *argv[])
 		ef++;
 	} else {
 		cout << "checkWriteBody() succeeded\n";
+	}
+	if ((e = checkRemoveFields()) < 0) {
+		cout << "checkRemoveFields() failed with: " << e << endl;
+		ef++;
+	} else {
+		cout << "checkRemoveFields() succeeded\n";
 	}
 	if (ef == 0) {
 		cout << "cArticle: all tests succeeded\n";

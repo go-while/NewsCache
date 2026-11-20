@@ -382,6 +382,21 @@ class UpstreamReplyError:public Error {
 	explicit UpstreamReplyError(const std::string & text):Error(text) { }
 };
 
+// Whether a reply that isn't the one a command expects says that the
+// server doesn't support the command: 500, 501 or 503 (RFC 3977 3.2.1; a
+// 503 with the end of the connection behind it was taken for a close by
+// RServer::issue, which sent the command again), or a positive reply the
+// command doesn't expect: the command can't be framed with that server
+// (RServer::reply_unexpected closed the connection). Other replies, such
+// as 400, 403, 480 or 502, are failures of the request, not of the
+// command.
+inline bool reply_unsupported(const std::string & got)
+{
+	return got.compare(0, 3, "500") == 0 || got.compare(0, 3, "501") == 0 ||
+	    got.compare(0, 3, "503") == 0 ||
+	    (!got.empty() && got[0] >= '1' && got[0] <= '3');
+}
+
 // Only an unsupported LISTGROUP (or its range form) permits an overview
 // fallback. Other replies, such as 400 or 502, are upstream failures. A
 // positive reply other than 211 counts as unsupported: LISTGROUP can't be
@@ -392,9 +407,7 @@ inline bool listgroup_unsupported(const ResponseError & e)
 {
 	if (e._command.compare(0, 9, "listgroup") != 0)
 		return false;
-	return e._got == "not supported" || e._got.compare(0, 3, "500") == 0 ||
-	    e._got.compare(0, 3, "501") == 0 || e._got.compare(0, 3, "503") == 0 ||
-	    (!e._got.empty() && e._got[0] >= '1' && e._got[0] <= '3');
+	return e._got == "not supported" || reply_unsupported(e._got);
 }
 
 #endif
