@@ -69,6 +69,11 @@ func testUpstreamOverFailsAfterFirstChunk(t *testing.T, command, options string)
 		if line == ".\r\n" {
 			t.Fatal("upstream failure after the first chunk ended as success")
 		}
+		// a status line after the partial list (e.g. "403 ...") would be
+		// read as a record by the client: the connection must just close
+		if len(line) >= 4 && line[3] == ' ' && line[0] >= '1' && line[0] <= '5' {
+			t.Fatalf("status line after the partial list: %q", line)
+		}
 	}
 }
 

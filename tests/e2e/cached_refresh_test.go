@@ -43,6 +43,7 @@ func TestCachedRefreshRefused(t *testing.T) {
 		override map[string][]string
 	}{
 		{"502", map[string][]string{"OVER": {"502 upstream denied"}}},
+		{"412", map[string][]string{"OVER": {"412 no newsgroup selected"}}},
 		{"403-over-and-xover", map[string][]string{"OVER": {"403 internal fault"},
 			"XOVER": {"403 internal fault"}}},
 	} {

@@ -4,6 +4,7 @@
 #include <unistd.h>
 #ifdef NEWSCACHE_TEST_FRESHEN_FAULT
 #include <new>
+#include <stdlib.h>
 #endif
 
 #include "CNewsgroup.h"
@@ -670,7 +671,8 @@ void CNewsgroup::print(ostream & os, int what, const char *header,
 		if (b > l)
 			b = l;
 		if (!freshen(a, b, &refreshed)) {
-			// not stored (disk full): from the news server
+			// not synchronized (the refresh failed, or the disk is
+			// full): from the news server
 			print_passed(os, what, header, a, b, pat);
 		} else {
 			// The index can move up meanwhile (another session's
