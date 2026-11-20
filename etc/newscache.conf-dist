@@ -257,7 +257,9 @@ AccessList {
 # ReadTimeout:
 #   Give up a connection when the server sends (or accepts) nothing for
 #   this many seconds (each read and write, not a whole reply; default
-#   300, 0 = wait for ever)
+#   300, 0 = wait for ever). A status line (the greeting, the first line
+#   of a reply) must arrive whole within ReadTimeout + 60 seconds; with
+#   ReadTimeout 0 it has no limit either.
 # Options:
 #   (not-)offline, semioffline ... retrieve nothing/everything/articles
 #   (not-)setpostflag ... set postflag to n in the active database, if

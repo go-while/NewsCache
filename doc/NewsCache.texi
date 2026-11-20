@@ -671,7 +671,8 @@ NewsCache connects to it again and issues the command again, up to
 @code{Retries} times (3 by default, 0 to 100); then it gives up and the
 client gets an error. A reply of @samp{400} counts as a closed
 connection, and so does a connection on which @code{ReadTimeout} ran
-out; @samp{503} (``feature not supported'' in RFC 3977) only when the
+out or a status line took longer than @code{ReadTimeout} plus 60
+seconds; @samp{503} (``feature not supported'' in RFC 3977) only when the
 server has closed the connection behind it, as old INN versions did
 with @samp{503 Timeout} on an idle connection. Otherwise a @samp{503}
 is an ordinary error reply and isn't sent again. A first connection
@@ -692,8 +693,11 @@ an open connection, in seconds; the default is 300, 0 waits for ever.
 It applies to each read and write, not to a whole reply, so a large
 article on a slow line is fine (a whole article has a limit of its own:
 two minutes plus @code{MaxArticleSize} at 4 KB/s, so a server that sends
-a byte at a time can't hold the session for hours). A server that stops
-answering ends the
+a byte at a time can't hold the session for hours). A status line (the
+greeting, the first line of a reply, the reply to a posted article) must
+arrive whole within @code{ReadTimeout} plus 60 seconds, for the same
+reason; with @code{ReadTimeout} 0 it has no limit either. A server that
+stops answering ends the
 connection after this time; NewsCache connects again (up to
 @code{Retries} times) and otherwise answers the client with 403. Without
 it, a session waited for good, holding the group's or the active list's
