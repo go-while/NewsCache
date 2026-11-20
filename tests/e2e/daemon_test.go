@@ -2253,9 +2253,12 @@ func TestPOSTSIGTERMDuringArticle(t *testing.T) {
 			if err := s.c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\n"); err != nil {
 				t.Fatal(err)
 			}
-			// let the session get into the article read (the stop must
-			// cut that read short, not meet the check before it; the log
-			// line below tells the two apart in a file-log build)
+			// let the session get into the article read: the stop must
+			// end the read (the "r < 0 && Xsignal" branch after it), not
+			// meet the check before it. The log line below tells the two
+			// apart in a file-log build. (A stop that lands just before
+			// the read starts waiting takes the same branch, which is
+			// what this test covers; the wait only orders the two.)
 			time.Sleep(300 * time.Millisecond)
 			s.signal(t, syscall.SIGTERM)
 			lines, err := s.c.ExpectClosed(10 * time.Second)
@@ -2268,8 +2271,16 @@ func TestPOSTSIGTERMDuringArticle(t *testing.T) {
 			if !s.ended(5 * time.Second) {
 				t.Error("the session process still runs 5 s after it closed the connection")
 			}
-			if !logHas(e, "POST: stopped by a signal while reading the article") {
-				t.Error("the stop did not cut the article read short (no \"while reading the article\" in the log): this run didn't exercise the interrupted read")
+			mode, err := logMode(e.Bin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// a file-log build must have the line; a syslog build has
+			// nothing to check here
+			if log, skip, err := readLogFile(mode, filepath.Join(e.LogDir, "newscache.log")); err != nil {
+				t.Fatal(err)
+			} else if !skip && !strings.Contains(log, "POST: stopped by a signal while reading the article") {
+				t.Errorf("the stop did not end the article read (no \"while reading the article\" in the log): this run didn't take the read's stop branch:\n%s", log)
 			}
 			if n := len(spooledIn(t, e, ".artSpool")); n != 0 {
 				t.Errorf("%d articles in the spool, want none", n)
