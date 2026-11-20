@@ -14,14 +14,23 @@ import (
 // upstream OVER fails. No normal dot terminator may follow that partial list.
 func TestUpstreamOverFailsAfterFirstChunk(t *testing.T) {
 	for _, command := range []string{"OVER", "XOVER"} {
-		t.Run(command, func(t *testing.T) { testUpstreamOverFailsAfterFirstChunk(t, command) })
+		t.Run(command, func(t *testing.T) { testUpstreamOverFailsAfterFirstChunk(t, command, "not-cached") })
 	}
 }
 
-func testUpstreamOverFailsAfterFirstChunk(t *testing.T, command string) {
+// The same in a cached group (the default): the second chunk's refresh
+// failed on the 502, and that chunk was printed from the index, without
+// its record, and the list ended with "." as if it were complete.
+func TestCachedOverFailsAfterFirstChunk(t *testing.T) {
+	for _, command := range []string{"OVER", "XOVER"} {
+		t.Run(command, func(t *testing.T) { testUpstreamOverFailsAfterFirstChunk(t, command, "") })
+	}
+}
+
+func testUpstreamOverFailsAfterFirstChunk(t *testing.T, command, options string) {
 	t.Helper()
 	e := newEnv(t)
-	e.ServerOptions = "not-cached"
+	e.ServerOptions = options
 	e.Store.AddGroup("test.alpha", "two overview chunks")
 	for _, n := range []int64{9999, 10000} {
 		e.Store.AddArticle("test.alpha", groupArticle("test.alpha", n, []string{"body"}))
