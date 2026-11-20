@@ -41,7 +41,7 @@ static int failures = 0;
 // prefetchchunk (updatenews -g) with a news server that lists every number
 // of the range (ListingServer), or one that can't be reached (then
 // LISTGROUP fails: every number counts as listed, and the chunk isn't
-// marked, not even with a retry stamp); retrievearticle finds nothing
+// marked, not even with a retry entry); retrievearticle finds nothing
 // (and can change the group meanwhile, as another session would, or
 // throw, as for an article the server failed to send).
 struct PrefetchProbe:public CNewsgroup {
@@ -297,8 +297,7 @@ static void prefetch_sync(void)
 	// [a,b] from the chunk's start, but LISTGROUP failed (the server
 	// can't be reached): nothing is removed, and the chunk isn't
 	// marked, so the next synchronization asks again (it was marked).
-	// No retry stamp either: updatenews's group timeout (60 s) isn't the
-	// one the sessions would read it with.
+	// No retry entry either: updatenews writes none.
 	MPList down;
 	MPListEntry d = e;
 	d.servicename = closed_port();

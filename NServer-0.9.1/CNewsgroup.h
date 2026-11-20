@@ -24,7 +24,7 @@ class RNewsgroup;
 class CNewsgroup:public NVNewsgroup {
   protected:
 	nvtime_t _TTLGroup;
-	// false: no retry stamps (see retry_stamp in CNewsgroup.cc)
+	// false: no retry entries (see retry_pause in CNewsgroup.cc)
 	bool _RetryStamps;
 	RServer *_RServer;
 	// for numbers outside the index; holds one chunk of overview records
@@ -68,7 +68,8 @@ class CNewsgroup:public NVNewsgroup {
 	bool fetchchunk(ChunkFetch & cf);
 	void storechunk(ChunkFetch & cf, FetchResult result);
 	// the retry pause after an incomplete list (see CNewsgroup.cc)
-	nvtime_t retry_stamp(nvtime_t now);
+	nvtime_t retry_pause(void);
+	bool counts(const SyncEnt & e, nvtime_t now);
 	void setretrysync(artnum_t c, artnum_t through);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the
@@ -103,7 +104,8 @@ class CNewsgroup:public NVNewsgroup {
 		_TTLGroup = grp;
 	}
 	// false: an incomplete LISTGROUP leaves the chunk unmarked, without
-	// the retry pause (updatenews)
+	// a retry entry (updatenews: one pass per group, no sessions waiting
+	// for its fetches in turn)
 	void setretrystamps(bool on) {
 		_RetryStamps = on;
 	}

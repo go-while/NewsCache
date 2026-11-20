@@ -25,7 +25,7 @@ import (
 // only for a short retry pause, a quarter of the group timeout and at most
 // a minute (none for a timeout under 4 s, as in the first two tests), and
 // the next synchronization after it removes the article. updatenews (-g,
-// -o) writes no retry stamp: such a chunk stays unmarked there.
+// -o) writes no retry entry: such a chunk stays unmarked there.
 
 // listgroupSyncTimeout is the group timeout of these tests: long enough
 // for the session after the faulty one to fall inside it, short enough to
@@ -290,10 +290,10 @@ func TestCachedIncompleteListgroupRetryPause(t *testing.T) {
 // TestUpdatenewsIncompleteListgroupNoStamp: updatenews -g and -o leave
 // a chunk whose LISTGROUP was cut off unmarked, also with a long group
 // timeout: the next session synchronizes it and no longer lists the
-// article the news server deleted. updatenews runs with a group timeout of
-// its own (60 s), so a retry stamp it wrote (now - 45 s) counted as
-// synchronized for almost the whole timeout in the sessions (3600 s
-// here), as did the mark for the whole timeout before.
+// article the news server deleted. (updatenews marked it for the whole
+// timeout; and a back-dated retry stamp it wrote, now - 45 s under its
+// own group timeout of 60 s, counted for almost the whole 3600 s in the
+// sessions.)
 func TestUpdatenewsIncompleteListgroupNoStamp(t *testing.T) {
 	const group = "test.alpha"
 	for _, mode := range []string{"-g", "-o"} {

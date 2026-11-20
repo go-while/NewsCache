@@ -131,6 +131,9 @@ NVNewsgroup::SyncHdr *NVNewsgroup::synchdr(void)
 	return h;
 }
 
+// (the definition for a compiler before C++17)
+const uint64_t NVNewsgroup::SYNC_RETRY;
+
 // The synchronization entry of chunk c (numbers c*OVERVIEW_CHUNK...);
 // returns 0 and a zero entry if there is none.
 int NVNewsgroup::getsync(artnum_t c, SyncEnt * e)
@@ -145,7 +148,7 @@ int NVNewsgroup::getsync(artnum_t c, SyncEnt * e)
 	return 0;
 }
 
-void NVNewsgroup::setsync(artnum_t c, nvtime_t time, artnum_t through)
+void NVNewsgroup::setsync(artnum_t c, uint64_t time, artnum_t through)
 {
 	SyncHdr *h = synchdr();
 
