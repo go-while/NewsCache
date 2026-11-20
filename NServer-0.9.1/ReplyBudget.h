@@ -21,6 +21,7 @@ static const unsigned int ACTIVE_RETRY_SECONDS = 2;
 static const unsigned int ARTICLE_REPLY_SECONDS = 2;
 static const unsigned int ARTICLE_REPLY_BYTES_PER_SECOND = 1U << 30;
 static const unsigned int OVERVIEW_FMT_SECONDS = 2;
+static const unsigned int STATUS_LINE_SECONDS = 2;
 #else
 // Full provider active lists normally contain far fewer than one million
 // groups; these limits leave ample headroom without allowing unlimited input.
@@ -41,7 +42,27 @@ static const unsigned int ARTICLE_REPLY_SECONDS = 2 * 60;
 static const unsigned int ARTICLE_REPLY_BYTES_PER_SECOND = 4096;
 // LIST OVERVIEW.FMT is a few dozen short lines.
 static const unsigned int OVERVIEW_FMT_SECONDS = 30;
+// A status line (the greeting, the reply to a command, POST's 240) is one
+// line of at most 512 bytes (RFC 3977 3.1) that a real server sends in one
+// piece once it has done what the command asks. ReadTimeout bounds each
+// wait for data, not the line: a server that sent a byte just before each
+// ReadTimeout ran out kept one line going for up to NNTP_MAXLINE times
+// ReadTimeout. The whole line gets ReadTimeout (the server's time to act
+// and start its answer) plus this, see status_line_seconds.
+static const unsigned int STATUS_LINE_SECONDS = 60;
 #endif
+
+// Seconds a whole status line may take with this ReadTimeout: 0 (no
+// deadline) for ReadTimeout 0, which means no timeout at all. (ReadTimeout
+// is at most 86400 in the configuration; the sum is checked anyway.)
+inline unsigned int status_line_seconds(unsigned int read_timeout)
+{
+	if (!read_timeout)
+		return 0;
+	if (read_timeout > UINT_MAX - STATUS_LINE_SECONDS)
+		return UINT_MAX;
+	return read_timeout + STATUS_LINE_SECONDS;
+}
 
 static const uint64_t OVERVIEW_FMT_ROWS = 1000;
 static const uint64_t OVERVIEW_FMT_BYTES = 1024 * 1024;

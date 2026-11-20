@@ -263,6 +263,14 @@ class RServer:virtual public NServer {
 			  uint64_t limit, bool *cut);
 
 	/**
+	* Reads a status line of the news server (the greeting, the reply
+	* to a command, POST's 240) within ReadTimeout + STATUS_LINE_SECONDS.
+	* Past that the connection is closed: the stream is bad and the
+	* line empty, as when nothing came. Returns what nlreadline returns.
+	*/
+	int readstatus(std::string & line, int keepnl);
+
+	/**
 	* Reads an article's text after a 220 reply.
 	* \throw SystemError If the server closed the connection before the
 	* 	final "." or the article is larger than _MaxArticleSize (the
