@@ -16,6 +16,7 @@ EXTRA_DIST += tests/e2e/over_flags_test.go
 
 EXTRA_DIST += tests/e2e/concurrency_test.go tests/e2e/replycorpus_test.go
 EXTRA_DIST += tests/e2e/status_deadline_test.go
+EXTRA_DIST += tests/e2e/listgroup_sync_test.go
 EXTRA_DIST += tests/e2e/setup_retry_test.go
 EXTRA_DIST += tests/e2e/post_retry_test.go
 

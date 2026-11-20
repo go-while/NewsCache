@@ -24,6 +24,8 @@ class RNewsgroup;
 class CNewsgroup:public NVNewsgroup {
   protected:
 	nvtime_t _TTLGroup;
+	// false: no retry entries (see retry_pause in CNewsgroup.cc)
+	bool _RetryStamps;
 	RServer *_RServer;
 	// for numbers outside the index; holds one chunk of overview records
 	RNewsgroup *_pass;
@@ -50,12 +52,25 @@ class CNewsgroup:public NVNewsgroup {
 		std::vector < std::string > records;	// the overview records
 	};
 
+	// How a chunk's fetch ended, for storechunk()
+	enum FetchResult {
+		fetch_whole,	// with the news server's whole list (or the
+				// server doesn't do LISTGROUP)
+		fetch_unlisted,	// completed, but the list didn't come whole
+		fetch_failed	// failed half way (an exception)
+	};
+
 	void sUpdateGroupInfo(void);
-	void listgroup(char *lstgrp, artnum_t f, artnum_t l);
+	// false: the list didn't come whole (see CNewsgroup.cc)
+	bool listgroup(char *lstgrp, artnum_t f, artnum_t l);
 	bool synced(artnum_t c, artnum_t l, nvtime_t now);
 	bool chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf);
-	void fetchchunk(ChunkFetch & cf);
-	void storechunk(ChunkFetch & cf, bool complete);
+	bool fetchchunk(ChunkFetch & cf);
+	void storechunk(ChunkFetch & cf, FetchResult result);
+	// the retry pause after an incomplete list (see CNewsgroup.cc)
+	nvtime_t retry_pause(void);
+	bool counts(const SyncEnt & e, nvtime_t now);
+	void setretrysync(artnum_t c, artnum_t through, bool full);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the
 	// news server refused or failed): the caller serves the chunk from
@@ -78,7 +93,8 @@ class CNewsgroup:public NVNewsgroup {
   public:
 	CNewsgroup(RServer * nsrvr, OverviewFmt * fmt,
 		   const char *spooldir, const char *name)
-	: NVNewsgroup(fmt, spooldir, name), _TTLGroup(0), _RServer(nsrvr),
+	: NVNewsgroup(fmt, spooldir, name), _TTLGroup(0), _RetryStamps(true),
+	  _RServer(nsrvr),
 	  _pass(NULL), _FetchLockFile(std::string(spooldir) + "/.fetch.lock")
 	{
 	}
@@ -86,6 +102,12 @@ class CNewsgroup:public NVNewsgroup {
 
 	virtual void setttl(nvtime_t grp) {
 		_TTLGroup = grp;
+	}
+	// false: an incomplete LISTGROUP leaves the chunk unmarked, without
+	// a retry entry (updatenews: one pass per group, no sessions waiting
+	// for its fetches in turn)
+	void setretrystamps(bool on) {
+		_RetryStamps = on;
 	}
 
 	virtual void setsize(artnum_t f, artnum_t l);

@@ -75,13 +75,52 @@ struct ChunkRangeProbe:public CNewsgroup {
 		return ok;
 	}
 	void add_over(const string &line) { pending.records.push_back(line); }
-	void finish() { storechunk(pending, true); }
+	void finish() { storechunk(pending, fetch_whole); }
+	// the fetch completed, but LISTGROUP didn't come whole
+	void finish_unlisted() { storechunk(pending, fetch_unlisted); }
+	// the fetch failed half way
+	void finish_failed() { storechunk(pending, fetch_failed); }
 	bool synced_to(artnum_t n) { return synced(0, n, 100); }
+	bool synced_at(artnum_t n, nvtime_t now) { return synced(0, n, now); }
 	artnum_t synced_through() {
 		NVLock guard(*this, NVcontainer::ShrdLock);
 		SyncEnt ent;
 		getsync(0, &ent);
 		return ent.time ? ent.through : 0;
+	}
+	// the entry's time field as stored (SYNC_RETRY included)
+	uint64_t synced_time() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt ent;
+		getsync(0, &ent);
+		return ent.time;
+	}
+	bool retry() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt ent;
+		getsync(0, &ent);
+		return is_retry(ent);
+	}
+	// when the entry was written
+	uint64_t written() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt ent;
+		getsync(0, &ent);
+		return stamp_time(ent);
+	}
+	// a retry entry written at time t
+	void put_retry(nvtime_t t, artnum_t through) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		setsync(0, SYNC_RETRY | (uint64_t) t, through);
+	}
+	// what freshen() fetches for [f,l] now (into pending)
+	bool range_now(artnum_t f, artnum_t l) {
+		pending.c = 0;
+		pending.now = nvtime(NULL);
+		pending.listed = false;
+		pending.lstgrp.clear();
+		pending.records.clear();
+		return chunkrange(f, l, pending);
 	}
 };
 
@@ -160,6 +199,221 @@ static void chunk_expired_then_restored(const string &dir, OverviewFmt &fmt)
 	g.setsize(1, 100);
 	g.grow(1, 100);
 	CHECK(!g.synced_to(39));
+}
+
+// A fetch whose LISTGROUP didn't come whole (fetch_unlisted) stores what
+// came, removes nothing, and gives the chunk a retry entry: the time it
+// was written, marked with SYNC_RETRY, which counts as synchronized for
+// the reader's retry pause, R = min(60, timeout / 4), not the timeout (it
+// marked the chunk for the whole timeout; without the pause every
+// command synchronized the chunk again while the news server kept
+// failing). A failed fetch doesn't mark it; a whole synchronization that
+// counts and reaches as far is kept; a timeout under 4 s (R = 0), or
+// retry entries off (updatenews), give none.
+static void chunk_retry_pause(const string &dir, OverviewFmt &fmt)
+{
+	const nvtime_t r = 60;	// (ChunkRangeProbe's timeout: 3600)
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretry");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.add_over("10\tsubject\tfrom@x\tdate\t<retry@x>\t\t100\t5");
+		nvtime_t t0 = nvtime(NULL);
+		g.finish_unlisted();
+		nvtime_t t1 = nvtime(NULL);
+		CHECK(g.hasrecord(10));
+		CHECK(g.synced_through() == 100);
+		CHECK(g.retry());
+		CHECK(t0 <= g.written() && g.written() <= t1);
+		CHECK(g.synced_at(100, t1));
+		CHECK(g.synced_at(100, t0 + r));
+		CHECK(!g.synced_at(100, t1 + r + 1));
+		// an older version reads the field as a time still to come,
+		// which it takes as stale (e.time <= nvtime(NULL) fails): it
+		// synchronizes the chunk again
+		CHECK(g.synced_time() > nvtime(NULL));
+	}
+	{
+		// R comes from the reader's timeout: written under 12 s (R =
+		// 3), read under 3600 s (a reload) it counts min(60, 900) = 60
+		// s, not about an hour
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryttl");
+		g.setttl(12);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		nvtime_t t0 = nvtime(NULL);
+		g.finish_unlisted();
+		nvtime_t t1 = nvtime(NULL);
+		CHECK(g.retry());
+		CHECK(g.synced_at(100, t0 + 3));
+		CHECK(!g.synced_at(100, t1 + 4));
+		g.setttl(3600);
+		CHECK(g.synced_at(100, t0 + 60));
+		CHECK(!g.synced_at(100, t1 + 61));
+	}
+	{
+		// a retry entry written "later" than now (the clock was put
+		// back since) doesn't count
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryclock");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		nvtime_t now = nvtime(NULL);
+		g.put_retry(now + 300, 100);
+		CHECK(!g.synced_at(100, now));
+	}
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryfail");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.add_over("10\tsubject\tfrom@x\tdate\t<retryfail@x>\t\t100\t5");
+		g.finish_failed();
+		CHECK(g.hasrecord(10));
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// a whole synchronization of now that reaches as far: kept
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrynewer");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.finish();
+		CHECK(g.synced_time() == now && g.synced_through() == 100);
+		g.finish_unlisted();
+		CHECK(g.synced_time() == now && g.synced_through() == 100);
+	}
+	{
+		// one that reaches less far (60) is replaced by a retry entry
+		// through 100: it counts for the pause, then the chunk is
+		// synchronized in full
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryshorter");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.pending.top = 60;
+		g.finish();
+		CHECK(g.synced_time() == now && g.synced_through() == 60);
+		g.pending.top = 100;
+		g.finish_unlisted();
+		CHECK(g.retry() && g.synced_through() == 100);
+	}
+	{
+		// The convoy of an incremental fetch: a whole synchronization
+		// of 1-60 that counts, then 61-100 fetched with a list that
+		// didn't come whole. The request for 100 right after it isn't
+		// fetched again (the whole entry through 60 was kept, and every
+		// request above 60 asked the news server until it ran out).
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryincr");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.pending.top = 60;
+		g.finish();
+		CHECK(!g.synced_at(100, nvtime(NULL)));
+		CHECK(g.range_now(61, 100));
+		CHECK(!g.pending.full && g.pending.from == 61 && g.pending.top == 100);
+		g.add_over("70\tsubject\tfrom@x\tdate\t<retryincr@x>\t\t100\t5");
+		g.finish_unlisted();
+		CHECK(g.hasrecord(70));
+		CHECK(g.retry() && g.synced_through() == 100);
+		CHECK(g.synced_at(100, nvtime(NULL)));
+		// a later whole incremental fetch keeps the retry entry's
+		// time (and marker): no longer than the pause
+		g.setsize(1, 120);
+		g.grow(1, 120);
+		uint64_t t = g.synced_time();
+		CHECK(g.range_now(101, 120));
+		CHECK(!g.pending.full && g.pending.from == 101 && g.pending.top == 120);
+		g.finish();
+		CHECK(g.synced_time() == t && g.synced_through() == 120);
+	}
+	{
+		// an expired whole entry (time 100) is replaced, and so is a
+		// retry entry (the pause starts again, through the new top)
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryolder");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish();
+		CHECK(g.synced_time() == 100);
+		nvtime_t t0 = nvtime(NULL);
+		g.pending.top = 60;
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() >= t0 && g.synced_through() == 60);
+		g.pending.top = 100;
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() >= t0 && g.synced_through() == 100);
+	}
+	{
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryshort");
+		g.setttl(3);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// retry entries off (updatenews -o): no entry, and a whole one
+		// that still counted is cleared, so the next request
+		// synchronizes the chunk (it was kept)
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretryoff");
+		g.setretrystamps(false);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+		nvtime_t now = nvtime(NULL);
+		g.pending.now = now;
+		g.finish();
+		CHECK(g.synced_time() == now && g.synced_through() == 100);
+		g.finish_unlisted();
+		CHECK(g.synced_time() == 0);
+	}
+	{
+		// Incomplete increments within the pause: the retry entry
+		// reaches further but keeps its time, so it stops counting
+		// when the first pause ends (each increment wrote a new time,
+		// and the full retry could be put off pause after pause).
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrysteps");
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		nvtime_t t = nvtime(NULL) - 30;
+		g.put_retry(t, 60);
+		CHECK(g.range_now(61, 100));
+		CHECK(!g.pending.full && g.pending.from == 61 && g.pending.top == 100);
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() == t && g.synced_through() == 100);
+		g.setsize(1, 120);
+		g.grow(1, 120);
+		CHECK(g.range_now(101, 120));
+		CHECK(!g.pending.full && g.pending.from == 101 && g.pending.top == 120);
+		g.finish_unlisted();
+		CHECK(g.retry() && g.written() == t && g.synced_through() == 120);
+		CHECK(g.synced_at(120, t + r));
+		CHECK(!g.synced_at(120, t + r + 1));
+	}
+	{
+		// a timeout longer than the clock's time: a retry entry of
+		// 60 s all the same
+		ChunkRangeProbe g(&fmt, dir.c_str(), "test.chunkretrylong");
+		g.setttl(nvtime(NULL) + 1000);
+		g.setsize(1, 100);
+		g.grow(1, 100);
+		CHECK(g.snapshot());
+		g.finish_unlisted();
+		CHECK(g.retry());
+		CHECK(g.synced_at(100, nvtime(NULL)));
+	}
 }
 
 #ifdef NEWSCACHE_TEST_DROPBAD_RACE
@@ -340,6 +594,7 @@ int main(void)
 	chunk_range_change(dir, fmt);
 	chunk_range_overlap(dir, fmt);
 	chunk_expired_then_restored(dir, fmt);
+	chunk_retry_pause(dir, fmt);
 	note_older_then_free(dir, fmt);
 
 	if (failures) {

@@ -797,7 +797,12 @@ and @code{OVER} or @code{XOVER} for the records it doesn't have yet),
 not the whole group. Each such step is compared with the news server
 again only after the server's @code{GroupTimeout}; within that time only
 newer articles are fetched. Articles the news server no longer lists
-are removed from the spool then. (Up to version 1.3.21, the first
+are removed from the spool then. When the news server's list doesn't
+come whole (the connection breaks, or it answers with an error such as
+403), nothing is removed, and the step is compared again after a short
+pause: a quarter of the @code{GroupTimeout}, at most a minute (no pause
+for a @code{GroupTimeout} under 4 seconds). After @code{updatenews}, such
+a step is compared again at the next request. (Up to version 1.3.21, the first
 @code{XOVER} on a group fetched the list of the whole group, and the
 spool kept an index with 8 bytes for every article number from the
 group's first to its last: 57 GB for a binary group with numbers from

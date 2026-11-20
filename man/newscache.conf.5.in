@@ -488,7 +488,7 @@ NewsCache post an article to the best matching upstream newsserver. If the artic
 .IP "GroupTimeout \fIseconds\fR"
 specified how long the group information (for instance retrieved with the command GROUP at.linux) is valid (in seconds). Note: if the ServerSpec section contains the Options offline, then the data will be not downloaded from the upstream server. You need
 .BR updatenews(8) .
-The default value is 600 seconds, the range 0 to 2147483647. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for.
+The default value is 600 seconds, the range 0 to 2147483647. The overview records of a part of a group that a client reads again are compared with the upstream server again after this time too; NewsCache fetches them in steps of 10000 article numbers, only for the numbers clients ask for. When the server's list of a step doesn't come whole, nothing is removed and the step is compared again after a quarter of this time, at most a minute (no pause for a GroupTimeout under 4 seconds; after updatenews, at the next request).
 .IP "LimitGroupSize \fInumber\fR"
 Clients see only the newest \fInumber\fR article numbers of each group
 of this server: a larger range is cut at its start. The default is 0, no

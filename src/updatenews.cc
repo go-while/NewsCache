@@ -282,6 +282,11 @@ void update(void)
 	int wi = opt_workers ? 0 : -1;
 
 	cs.setttl(Cfg.ttl_list, Cfg.ttl_desc);
+	// No retry entries after an incomplete LISTGROUP (-o): a run makes
+	// one pass per group, with no sessions waiting for its fetches in
+	// turn, so there is no convoy to stop; the chunk stays unmarked, and
+	// the next session synchronizes it.
+	cs.setretrystamps(false);
 	cs.setmaxarticlesize(Cfg.MaxArticleSize);
 
 	slog.p(Logger::Info) << "posting spooled articles\n";

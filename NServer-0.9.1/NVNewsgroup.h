@@ -75,15 +75,40 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	};
 	struct SyncEnt {
 		uint64_t time;		// last full synchronization, 0 = never
+					// (with SYNC_RETRY: a retry entry)
 		uint64_t through;	// synchronized up to this number
 	};
+	/*
+	 * A retry entry (see CNewsgroup::retry_pause): the time it was
+	 * written, with this bit set, which no real time reaches (nvtime_t
+	 * has 32 or 64 bits; the field has 64 on every build). It counts
+	 * only for the reader's retry pause, not for the group timeout.
+	 * Versions before it read such a time as one still to come, which
+	 * they take as stale (the clock was put back): the chunk is
+	 * synchronized again. Except on a 32-bit build: when the group's
+	 * last number went down, an older version stores the entry again
+	 * through its 32-bit time (setsize), which drops the bit, and the
+	 * entry then counts as a whole synchronization of that time. After
+	 * going back to an older version there, entries are right again
+	 * within one group timeout.
+	 */
+	static const uint64_t SYNC_RETRY = 1ULL << 62;
+	static bool is_retry(const SyncEnt & e) {
+		return (e.time & SYNC_RETRY) != 0;
+	}
+	// the time an entry was written (0 = never), without the marker
+	static uint64_t stamp_time(const SyncEnt & e) {
+		return e.time & ~SYNC_RETRY;
+	}
 	SyncHdr *synchdr(void);
 	// The entries follow the header directly (h->n of them).
 	static SyncEnt *syncents(SyncHdr * h) {
 		return (SyncEnt *) ((char *) h + sizeof(SyncHdr));
 	}
 	int getsync(artnum_t c, SyncEnt * e);
-	void setsync(artnum_t c, nvtime_t time, artnum_t through);
+	// (time is the whole field, SYNC_RETRY included: not an nvtime_t,
+	// which has 32 bits on some builds)
+	void setsync(artnum_t c, uint64_t time, artnum_t through);
 	artnum_t knownlast(void);
 	void setknownlast(artnum_t l);
 	void freerange(unsigned long f, unsigned long l);
