@@ -122,6 +122,23 @@ func overwrite(off, n int, b byte) func(string) error {
 	}
 }
 
+// behindHeader overwrites n bytes right behind the file's NVcontainer header
+// (48 bytes on 64-bit hosts, 28 on 32-bit ones; see nvLayout): the free list
+// entry or index block that newscache placed there.
+func behindHeader(n int, b byte) func(string) error {
+	return func(p string) error {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		l, err := nvLayoutOf(data)
+		if err != nil {
+			return fmt.Errorf("%s: %v", p, err)
+		}
+		return overwrite(int(l.hlen()), n, b)(p)
+	}
+}
+
 // checkMovedAside: name.bad is there, and the log names the file.
 func checkMovedAside(t *testing.T, e *env, path string) {
 	t.Helper()
@@ -144,7 +161,7 @@ func TestCorruptGroupDB(t *testing.T) {
 		{"cut-off", cutHalf},
 		{"header", overwrite(0, 8, 0xff)},
 		{"size-field", overwrite(8, 8, 0x7f)},
-		{"behind-header", overwrite(48, 64, 0xff)},
+		{"behind-header", behindHeader(64, 0xff)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := corruptEnv(t)
@@ -189,7 +206,7 @@ func TestCorruptActiveDB(t *testing.T) {
 		{"short", truncateTo(20)},
 		{"cut-off", cutHalf},
 		{"header", overwrite(0, 8, 0xff)},
-		{"table", overwrite(48, 64, 0xff)},
+		{"table", behindHeader(64, 0xff)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := corruptEnv(t)
@@ -478,7 +495,7 @@ func TestUpdatenewsCorruptDB(t *testing.T) {
 	e.Extra = "PrefetchFile " + prefetch
 	e.writeConf()
 	db := filepath.Join(e.Spool, "test", "alpha", ".db")
-	if err := overwrite(48, 64, 0xff)(db); err != nil {
+	if err := behindHeader(64, 0xff)(db); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-o").CombinedOutput(); err != nil {
@@ -735,6 +752,24 @@ func (l nvLayout) at(b []byte, off uint64) uint64 {
 	return l.order.Uint64(b[off:])
 }
 
+// put writes v as the unsigned long at off.
+func (l nvLayout) put(b []byte, off, v uint64) {
+	if l.word == 4 {
+		l.order.PutUint32(b[off:], uint32(v))
+	} else {
+		l.order.PutUint64(b[off:], v)
+	}
+}
+
+// The header's size and where its fields are: hlen and version (4 bytes
+// each), then size, mtime, freelist, bytes_free and userdata (one unsigned
+// long each).
+func (l nvLayout) hlen() uint64 { return 8 + 5*l.word }
+
+func (l nvLayout) mtimeOff() uint64 { return 8 + l.word }
+
+func (l nvLayout) userdataOff() uint64 { return 8 + 4*l.word }
+
 // nvLayoutOf tells the layout from NVcontainer's header: hlen (4 bytes) is
 // sizeof(Header), two 4-byte fields and five unsigned longs, so 28 or 48;
 // version (4 bytes) is 2. In the other byte order neither value reads as
@@ -747,7 +782,7 @@ func nvLayoutOf(b []byte) (nvLayout, error) {
 	for _, order := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
 		for _, word := range []uint64{4, 8} {
 			l := nvLayout{order, word}
-			hlen := 8 + 5*word
+			hlen := l.hlen()
 			if uint64(order.Uint32(b[0:4])) != hlen || order.Uint32(b[4:8]) != 2 {
 				continue
 			}
@@ -774,8 +809,8 @@ func breakRecordBytes(b []byte, artnum uint64) (nvLayout, error) {
 		return l, err
 	}
 	w := l.word
-	userdata := l.at(b, 8+4*w)
-	if userdata < 8+5*w || userdata > uint64(len(b))-2*w {
+	userdata := l.at(b, l.userdataOff())
+	if userdata < l.hlen() || userdata > uint64(len(b))-2*w {
 		return l, fmt.Errorf("index block at %d outside the file (%s)", userdata, l)
 	}
 	fst := l.at(b, userdata)
@@ -819,13 +854,7 @@ func breakRecord(t *testing.T, path string, b []byte, artnum uint64) {
 // it. It returns the file and each record's offset.
 func nvTestDB(l nvLayout, hlen, udoff, fst uint64, recs [][]byte) ([]byte, []uint64) {
 	w := l.word
-	put := func(b []byte, off, v uint64) {
-		if w == 4 {
-			l.order.PutUint32(b[off:], uint32(v))
-		} else {
-			l.order.PutUint64(b[off:], v)
-		}
-	}
+	put := l.put
 	n := uint64(len(recs))
 	userdata := hlen + w
 	end := userdata + (2+n)*w
@@ -933,5 +962,83 @@ func TestBreakRecordLayouts(t *testing.T) {
 				t.Errorf("the bytes were changed")
 			}
 		})
+	}
+}
+
+// TestNVHeaderFields: the places the other corruption tests change, in each
+// layout: TestActiveStampFromFuture's mtime and behindHeader's damage, which
+// on 32-bit hosts starts at 28. Before, both assumed 8-byte little-endian
+// words: the stamp test skipped elsewhere, and overwrite(48, ...) hit the
+// file 20 bytes past the header on i386. An unknown header is an error that
+// leaves the file alone.
+func TestNVHeaderFields(t *testing.T) {
+	recs := make([][]byte, 5)
+	for i := range recs {
+		recs[i] = []byte(fmt.Sprintf("\x02%d\tSubject %d\tfrom\tdate\t<%d@test>\t\t%d\t1\x00", 1+i, i, i, 100+i))
+	}
+	for _, tc := range []struct {
+		l           nvLayout
+		hlen, mtime uint64
+		stamp       []byte // 0x01020304 as the layout stores it
+	}{
+		{nvLayout{binary.LittleEndian, 8}, 48, 16, []byte{4, 3, 2, 1, 0, 0, 0, 0}},
+		{nvLayout{binary.LittleEndian, 4}, 28, 12, []byte{4, 3, 2, 1}},
+		{nvLayout{binary.BigEndian, 8}, 48, 16, []byte{0, 0, 0, 0, 1, 2, 3, 4}},
+		{nvLayout{binary.BigEndian, 4}, 28, 12, []byte{1, 2, 3, 4}},
+	} {
+		t.Run(tc.l.String(), func(t *testing.T) {
+			// userdata is the header's last field
+			orig, _ := nvTestDB(tc.l, tc.hlen, tc.hlen-tc.l.word, 1, recs)
+			b := append([]byte(nil), orig...)
+			l, err := nvLayoutOf(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l != tc.l || l.hlen() != tc.hlen || l.mtimeOff() != tc.mtime {
+				t.Fatalf("layout %s, hlen %d, mtime at %d; want %s, %d, %d",
+					l, l.hlen(), l.mtimeOff(), tc.l, tc.hlen, tc.mtime)
+			}
+			l.put(b, l.mtimeOff(), 0x01020304)
+			want := append([]byte(nil), orig...)
+			copy(want[tc.mtime:], tc.stamp)
+			if !bytes.Equal(b, want) {
+				t.Errorf("stamp written as % x, want % x at %d", b[:tc.hlen], want[:tc.hlen], tc.mtime)
+			}
+			if got := l.at(b, l.mtimeOff()); got != 0x01020304 {
+				t.Errorf("stamp read back as %#x", got)
+			}
+
+			path := filepath.Join(t.TempDir(), ".db")
+			if err := os.WriteFile(path, orig, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := behindHeader(64, 0xff)(path); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want = append([]byte(nil), orig...)
+			for i := tc.hlen; i < tc.hlen+64; i++ {
+				want[i] = 0xff
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("behindHeader: header % x, then % x; want % x, then % x",
+					got[:tc.hlen], got[tc.hlen:tc.hlen+64], want[:tc.hlen], want[tc.hlen:tc.hlen+64])
+			}
+		})
+	}
+
+	path := filepath.Join(t.TempDir(), ".db")
+	junk := bytes.Repeat([]byte{0xff}, 256) // no layout matches
+	if err := os.WriteFile(path, junk, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := behindHeader(64, 0)(path); err == nil {
+		t.Errorf("behindHeader on an unknown header: no error")
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, junk) {
+		t.Errorf("behindHeader changed a file with an unknown header (%v)", err)
 	}
 }
