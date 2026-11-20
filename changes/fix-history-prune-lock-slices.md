@@ -6,4 +6,6 @@ Bug fixes:
   so the group's readers waited too: up to seconds with a large
   history. newscacheclean now reads a history file in parts of about
   4096 entries and lets go of the lock between them; it checks the
-  entries without the lock. What it drops is unchanged.
+  entries without the lock. What it drops is unchanged. A history file
+  that changes very much while newscacheclean goes through it is left
+  for the next run, with a warning in the log.

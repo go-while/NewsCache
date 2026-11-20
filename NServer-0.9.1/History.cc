@@ -128,8 +128,9 @@ class Shard:public NVHash {
 	// already read may be removed and their space used again by new
 	// records in buckets still ahead, so a sound shard under heavy change
 	// gets there too. It bounds what aliasing that spans slices costs
-	// (each slice reaching the same chain once, which no slice can see):
-	// about one walk of a full file, then the shard is left for this run.
+	// (each slice reaching the same chain once, which no slice can see)
+	// to about one walk of a full file; prune then checks the shard with
+	// verify().
 	int collect(int b, size_t limit, vector < PruneRec > &out,
 		    size_t & visited) {
 		if (!hashtab || hashsz != History::BUCKETS)
@@ -178,6 +179,30 @@ class Shard:public NVHash {
 		}
 		check_unique(seen);
 		return b;
+	}
+
+	// Walks the whole shard, counting the records visited, as prune
+	// did before it read in slices: under one lock nothing changes, so
+	// more than the file has room for is damage (Corrupt), also links
+	// that alias across what would be slices. Needs a lock.
+	void verify(void) {
+		if (!hashtab || hashsz != History::BUCKETS)
+			throw Corrupt();
+		size_t max = mem_sz / sizeof(Record), n = 0;
+		for (int b = 0; b < History::BUCKETS; b++) {
+			nvoff_t t = hashtab[b];
+			if (!t)
+				continue;
+			check(t);
+			Record *tail = o2r(t), *prev = tail, *r;
+			do {
+				check(prev->next);
+				r = o2r(prev->next);
+				prev = r;
+				if (++n > max)
+					throw Corrupt();
+			} while (r != tail);
+		}
 	}
 
 	// Corrupt if an offset is in v twice.
@@ -676,7 +701,15 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 	if (spool.empty())
 		return 0;
 	for (int n = 0; n < SHARDS; n++) {
-		Shard *s = shard(n);
+		Shard *s;
+		try {
+			s = shard(n);
+		}
+		catch(...) {
+			// (std::bad_alloc: a path, or a log line of its own
+			// recovery) this shard is left, the others still pruned
+			s = NULL;
+		}
 		if (!s)
 			continue;
 		/*
@@ -696,9 +729,9 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 		 * checks that the file is still the one under its name, and
 		 * the shard is left for this run if not.
 		 */
-		bool ok = true;
+		bool ok = true, over = false;
 		size_t visited = 0;
-		for (int b = 0; ok && b < BUCKETS;) {
+		for (int b = 0; ok && !over && b < BUCKETS;) {
 			vector < PruneRec > recs;
 			try {
 				s->lock(NVcontainer::ShrdLock);
@@ -722,14 +755,7 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 				break;
 			}
 			catch(Budget &) {
-				// no damage seen: left as it is, for the next run
-				try {
-					slog.p(Logger::Warning) << "history: " << s->path
-					    << " changed too much while it was pruned,"
-					    " left for the next run\n";
-				}
-				catch(...) {
-				}
+				over = true;	// checked below, after the walk
 				break;
 			}
 			catch(...) {
@@ -832,6 +858,46 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 				reset_shard(*s, "failed", false);
 				ok = false;
 			}
+		}
+		if (!over)
+			continue;
+		/*
+		 * The walk visited more records than the file has room for:
+		 * heavy change between slices, or links that alias across
+		 * slices, which no slice sees. One walk of the whole shard
+		 * under one shared lock tells them apart, as prune checked
+		 * every shard before it read in slices. Only in this rare
+		 * case is the shard held for a whole walk (no copies, no
+		 * keep: it only counts).
+		 */
+		try {
+			s->lock(NVcontainer::ShrdLock);
+			try {
+				if (!s->is_named_file())
+					throw Moved();
+				s->verify();
+			}
+			catch(...) {
+				s->lock(NVcontainer::UnLock);
+				throw;
+			}
+			s->lock(NVcontainer::UnLock);
+			try {
+				slog.p(Logger::Warning) << "history: " << s->path
+				    << " changed too much while it was pruned,"
+				    " left for the next run\n";
+			}
+			catch(...) {
+			}
+		}
+		catch(Corrupt &) {
+			reset_shard(*s, "is damaged", true);
+		}
+		catch(Moved &) {
+			reset_shard(*s, "was moved aside", false);
+		}
+		catch(...) {
+			reset_shard(*s, "failed", false);
 		}
 	}
 	return dropped;

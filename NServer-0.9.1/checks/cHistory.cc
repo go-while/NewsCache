@@ -414,6 +414,38 @@ static void prune_detects_aliased_chains(const string & hist)
 	CHECK(locs(id.c_str()) == "");
 }
 
+// The same with a chain longer than a slice: a slice ends right after
+// it, so every slice reaches it once and no slice sees a record twice.
+// The walk runs over its budget; prune then checks the whole shard
+// under one lock, finds the damage, and moves the shard aside.
+static void prune_detects_aliasing_across_slices(const string & hist)
+{
+	string id = id_for_shard(6, 0);
+	History::add(id.c_str(), "g.six", 1);	// shard 6 exists
+	{
+		RawShard raw((hist + "/6").c_str());
+		for (int i = 0; i < History::PRUNE_SLICE + 1000; i++) {
+			char mid[64];
+			snprintf(mid, sizeof(mid), "<long%d@check>", i);
+			string rec(16, 'L');
+			rec += mid;
+			rec += '\0';
+			rec += "g.long:1";
+			rec += '\0';
+			raw.add(1, rec.data(), rec.size());
+		}
+		raw.lock(NVcontainer::ExclLock);
+		nvoff_t *t = raw.table();
+		for (int b = 2; b < History::BUCKETS; b++)
+			if (!t[b])
+				t[b] = t[1];
+		raw.lock(NVcontainer::UnLock);
+	}
+	History::prune(keep, NULL);
+	CHECK(exists(hist + "/6.bad"));
+	CHECK(locs(id.c_str()) == "");
+}
+
 // For prune_survives_churn: message-IDs of shard 15 in bucket order.
 // keep replaces each location it is asked about by the one churn_ahead
 // places further on, in a later bucket. All records have the same size,
@@ -682,6 +714,7 @@ int main(int argc, char **argv)
 	prune_with_concurrent_change(hist, true);
 	prune_survives_keep_failure(hist);
 	prune_detects_aliased_chains(hist);
+	prune_detects_aliasing_across_slices(hist);
 	prune_survives_churn(hist);
 
 	// a damaged shard: moved aside, lookups find nothing, then it works
