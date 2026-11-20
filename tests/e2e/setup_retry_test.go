@@ -541,14 +541,15 @@ func TestUpstreamSetupDrippedOnce(t *testing.T) {
 // TestUpstreamSetupRefusedNotTurnedOff: the news server refuses MODE READER
 // or LIST OVERVIEW.FMT once with a reply that doesn't say the command is
 // unsupported (403, 502; 480 without a login configured; with a login,
-// MODE READER refused again after it). NewsCache turned the command off
-// for the rest of the process: no later connection sent it again. Now a
-// refused MODE READER gives up that connection (the client's command
-// fails: a server that needs MODE READER refuses reader commands without
-// it), and a refused LIST OVERVIEW.FMT leaves the standard overview format
-// for that connection only. Every later connection sends the command
-// again. The server closes the connection at GROUP test.beta once, so that
-// a new one is made.
+// MODE READER refused again after it; for the optional LIST OVERVIEW.FMT
+// also 503, as 400, see TestUpstreamOverviewFmt400Open). NewsCache turned
+// the command off for the rest of the process: no later connection sent
+// it again. Now a refused MODE READER gives up that connection (the
+// client's command fails: a server that needs MODE READER refuses reader
+// commands without it), and a refused LIST OVERVIEW.FMT leaves the
+// standard overview format for that connection only. Every later
+// connection sends the command again. The server closes the connection
+// at GROUP test.beta once, so that a new one is made.
 func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, at string
@@ -561,6 +562,7 @@ func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
 		{"mode reader after login 403", "auth", "mode reader", []string{"480 log in first", "403 not now"}, false},
 		{"list overview.fmt 403", "plain", "list overview.fmt", []string{"403 not now"}, true},
 		{"list overview.fmt 480", "plain", "list overview.fmt", []string{"480 authentication required"}, true},
+		{"list overview.fmt 503", "plain", "list overview.fmt", []string{"503 not supported"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -594,16 +596,14 @@ func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
 }
 
 // TestUpstreamSetupReply400Reconnects: the server answers MODE READER (also
-// the one sent again after a login) or LIST OVERVIEW.FMT with 400, or with
-// 503 ("503 timeout", old INN), and closes the connection. NewsCache took
-// it as "not supported" and turned the command off for the rest of the
-// process: the next connection went without it. It now counts as a closed
-// connection: a new one is made (Retries), and it sends the command again.
-// (For LIST OVERVIEW.FMT a 400 counts as a close only when the close is
-// seen right after it; else the standard format is used and the next
-// command finds the connection closed: the same two connections either
-// way. A 503 counts as a close only when the close is seen right after it,
-// as in issue(); on loopback it comes with the reply.)
+// the one sent again after a login) with 400, or LIST OVERVIEW.FMT with
+// 400 or 503 ("503 timeout", old INN), and closes the connection.
+// NewsCache took it as "not supported" and turned the command off for the
+// rest of the process: the next connection went without it. A 400 to MODE
+// READER now counts as a closed connection: a new one is made (Retries).
+// After the reply to LIST OVERVIEW.FMT the connection is used with the
+// standard format, and the client's command finds it closed and makes a
+// new one. Either way the second connection sends the command again.
 func TestUpstreamSetupReply400Reconnects(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, at string
@@ -613,7 +613,6 @@ func TestUpstreamSetupReply400Reconnects(t *testing.T) {
 		{"mode reader 400", "plain", "mode reader", []string{"400 service unavailable"}, false},
 		{"mode reader after login 400", "auth", "mode reader", []string{"480 log in first", "400 service unavailable"}, false},
 		{"list overview.fmt 400", "plain", "list overview.fmt", []string{"400 service unavailable"}, false},
-		{"mode reader 503 closed", "plain", "mode reader", []string{"503 timeout"}, true},
 		{"list overview.fmt 503 closed", "plain", "list overview.fmt", []string{"503 timeout"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -644,8 +643,8 @@ func TestUpstreamSetupReply400Reconnects(t *testing.T) {
 // error after the first connection and Retries more, and once the server
 // answers again, the next connection sends MODE READER again. NewsCache
 // turned it off at the first 400 and used the server without it. (Not for
-// LIST OVERVIEW.FMT: there a 400 counts as a close only when the close is
-// seen right after it, so the number of connections depends on timing.)
+// LIST OVERVIEW.FMT: a 400 there leaves the standard format, see
+// TestUpstreamSetupReply400Reconnects and TestUpstreamOverviewFmt400Open.)
 func TestUpstreamSetupReply400Always(t *testing.T) {
 	const at = "mode reader"
 	refuse := make([]string, setupRetries+1)
@@ -752,11 +751,14 @@ func TestUpstreamSetupUnexpectedPositive(t *testing.T) {
 
 // TestUpstreamSetupUnsupportedTurnedOff (guard, passes before the fix too):
 // a reply that says MODE READER or LIST OVERVIEW.FMT is unsupported (500,
-// 501, or 503 without closing the connection) still turns the command off:
-// later connections don't send it.
+// 501; for MODE READER 503 too) still turns the command off: later
+// connections don't send it.
 func TestUpstreamSetupUnsupportedTurnedOff(t *testing.T) {
-	for _, at := range []string{"mode reader", "list overview.fmt"} {
-		for _, reply := range []string{"500 unknown command", "501 syntax error", "503 not supported"} {
+	for at, replies := range map[string][]string{
+		"mode reader":       {"500 unknown command", "501 syntax error", "503 not supported"},
+		"list overview.fmt": {"500 unknown command", "501 syntax error"},
+	} {
+		for _, reply := range replies {
 			t.Run(at+" "+reply[:3], func(t *testing.T) {
 				t.Parallel()
 				s := &setupServer{at: at, refuse: []string{reply}}

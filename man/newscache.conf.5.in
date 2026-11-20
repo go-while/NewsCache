@@ -515,22 +515,21 @@ plus 60 seconds), and sends the command again. A connection that the
 server closes, or on which ReadTimeout or a status line's limit runs
 out, while it is set up (at the greeting or at MODE READER, STARTTLS,
 AUTHINFO, COMPRESS or LIST OVERVIEW.FMT) is made again too, up to
-Retries times, and so is one where MODE READER gets 400, or MODE
-READER or LIST OVERVIEW.FMT gets a 400 or 503 with the connection
-closed behind it. A refusal at the greeting, STARTTLS or AUTHINFO (a
-400 there too) fails like a connection that was refused, and isn't
-retried; COMPRESS refused leaves the connection uncompressed. Only
-500, 501, 503 or an unexpected positive reply to MODE READER or LIST
-OVERVIEW.FMT turns that command off for the server for the rest of
-the client session or updatenews run (after a positive reply, which
-may come with lines that aren't for NewsCache, the connection is made
+Retries times, and so is one where MODE READER gets 400. A refusal at
+the greeting, STARTTLS or AUTHINFO (a 400 there too) fails like a
+connection that was refused, and isn't retried; COMPRESS refused
+leaves the connection uncompressed. Only 500, 501 or an unexpected
+positive reply to MODE READER or LIST OVERVIEW.FMT, or a 503 to MODE
+READER, turns that command off for the server for the rest of the
+client session or updatenews run (after a positive reply, which may
+come with lines that aren't for NewsCache, the connection is made
 again without it). Any other refusal of MODE READER (such as 403, 502,
 or 480 without a login) gives up that connection like one that
-couldn't be made; any other refusal of LIST OVERVIEW.FMT (a 400 on a
-connection that stays open too) leaves the standard overview format
-for that connection. The next connection sends the command again. A
-TLS handshake that fails (after the 382 to
-STARTTLS, or with ssl) counts as a connection that couldn't be made. With a login (User
+couldn't be made. Any other reply to LIST OVERVIEW.FMT, 400 and 503
+too, leaves the standard overview format for that connection; if the
+server closed it, the next command makes a new one. The next
+connection sends the command again. A TLS handshake that fails (after
+the 382 to STARTTLS, or with ssl) counts as a connection that couldn't be made. With a login (User
 and Password) each set-up logs in again: a server that closes at
 AUTHINFO gets the login up to Retries + 1 times for each connection
 NewsCache makes, so up to (Retries + 1) x (Retries + 1) times for a

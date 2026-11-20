@@ -1077,10 +1077,9 @@ func TestUpstreamClosedNoDiscontinue(t *testing.T) {
 // connect(), which sent it again: thousands of upstream connections, then
 // a stack overflow (SIGSEGV). Answered with 500 (old servers), issue()
 // threw: the fallback to the standard overview format never ran and the
-// first command of every session failed (GROUP 411). This server keeps
-// the connection open after its reply, so a 400 to LIST OVERVIEW.FMT is a
-// refusal of that optional command, not a close: the standard format, on
-// the same connection.
+// first command of every session failed (GROUP 411). A 400 or 503 to LIST
+// OVERVIEW.FMT is a refusal of that optional command: the standard
+// format, on the same connection.
 func TestUpstreamConnectRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -1116,8 +1115,7 @@ func TestUpstreamConnectRefusals(t *testing.T) {
 				t.Errorf("%d upstream connections (MODE READER), want a few at most", n)
 			}
 			// (the server keeps the connection open after each of these
-			// replies: a 400 to LIST OVERVIEW.FMT on it leaves the
-			// standard format, it isn't taken for a close)
+			// replies, and none of them is taken for a close)
 			if n := e.Upstream.Accepted(); n != 1 {
 				t.Errorf("%d upstream connections, want 1", n)
 			}
