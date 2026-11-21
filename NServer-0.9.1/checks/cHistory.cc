@@ -380,6 +380,10 @@ class RawShard:public NVHash {
 	nvoff_t *table(void) {
 		return hashtab;
 	}
+	// The record size History's walk bounds use (mem_sz / it).
+	static size_t record_size(void) {
+		return sizeof(Record);
+	}
 };
 
 // A damaged shard whose empty buckets all point into one sound chain of
@@ -485,7 +489,40 @@ static bool churn_keep(const string & group, void *)
 static void prune_survives_churn(const string & hist)
 {
 	const int churn_shard = 15;
-	const size_t pool = 32 * History::PRUNE_SLICE;
+	const size_t slice = History::PRUNE_SLICE;
+	// Stand-ins of the same size first: the file's size with
+	// churn_ahead such records gives room, the walk's budget (the file's
+	// size / the record size History uses, which differs on 32 and 64
+	// bits), and the pool is sized from it so the walk goes over it.
+	vector < string > stand;
+	for (int i = 0; stand.size() < (size_t) churn_ahead; i++) {
+		char id[64];
+		snprintf(id, sizeof(id), "<cfill%08d@check>", i);
+		unsigned char dg[16];
+		int sh, b;
+		History::route(id, dg, &sh, &b);
+		if (sh == churn_shard)
+			stand.push_back(id);
+	}
+	{
+		HistoryBatch hb;
+		for (int i = 0; i < churn_ahead; i++)
+			History::add(stand[i].c_str(), churn_group(i).c_str(),
+				     100000 + i);
+	}
+	string base = id_for_shard(churn_shard, 3);
+	History::add(base.c_str(), "g.base", 1);
+	struct stat st;
+	CHECK(stat((hist + "/f").c_str(), &st) == 0);
+	size_t room = st.st_size / RawShard::record_size();
+	{
+		HistoryBatch hb;
+		for (int i = 0; i < churn_ahead; i++)
+			History::remove(stand[i].c_str(), churn_group(i).c_str(),
+					100000 + i);
+	}
+	// over the budget by 2 slices at least, in whole slices
+	size_t pool = (room + churn_ahead + 3 * slice - 1) / slice * slice;
 	vector < pair < int, string > > ids;
 	for (int i = 0; ids.size() < pool; i++) {
 		char id[64];
@@ -500,18 +537,15 @@ static void prune_survives_churn(const string & hist)
 	churn_ids.clear();
 	for (size_t i = 0; i < ids.size(); i++)
 		churn_ids.push_back(ids[i].second);
+	// (in the space of the stand-ins: the file keeps its size)
 	{
 		HistoryBatch hb;
 		for (int i = 0; i < churn_ahead; i++)
 			History::add(churn_ids[i].c_str(),
 				     churn_group(i).c_str(), 100000 + i);
 	}
-	string base = id_for_shard(churn_shard, 3);
-	History::add(base.c_str(), "g.base", 1);
-	struct stat st;
 	CHECK(stat((hist + "/f").c_str(), &st) == 0);
-	// room: what History's walk allows (records of the file's size)
-	size_t room = st.st_size / (2 * sizeof(unsigned long));
+	room = st.st_size / RawShard::record_size();
 	CHECK(room + churn_ahead < pool);
 	CHECK(History::prune(churn_keep, NULL) == 0);
 	CHECK(!exists(hist + "/f.bad"));
