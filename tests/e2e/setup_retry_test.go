@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,15 +34,91 @@ var setupServerLines = fmt.Sprintf("    Retries %d", setupRetries)
 // (statusDrip) and then closes; with cut it writes cut (no line end) before
 // it closes. closeGroup and closePost close the connection, the next n
 // times, at "group test.beta" and before the reply to a posted article.
+// refuse answers the first uses of at, one reply each, in place of the
+// normal reply (counted across connections). After a 400 there the server
+// closes the connection, unless keepOpen; with closeAll it closes after
+// every one of them. With lateBlock, the first reply of refuse is followed
+// two seconds later by these lines (a block that comes after NewsCache has
+// sent its next command). With needReader it is a mode-switching server: a
+// GROUP on a connection without an accepted MODE READER gets "401
+// MODE-READER" (RFC 3977 3.2.1) and is counted in groupNoReader. With
+// tlsReader, MODE READER before STARTTLS gets "483 encryption required".
+// With closeNext the server keeps the connection open after a reply of
+// refuse and closes it, with nothing sent, when the next line comes (that
+// line is recorded). While refuseHeld is true, refuse isn't used.
 type setupServer struct {
-	at         string
-	cut        string
-	drip       bool
-	tlsConf    *tls.Config // STARTTLS with it; nil: 502
-	left       atomic.Int32
-	closeGroup atomic.Int32
-	closePost  atomic.Int32
+	at            string
+	cut           string
+	drip          bool
+	tlsConf       *tls.Config // STARTTLS with it; nil: 502
+	refuse        []string
+	keepOpen      bool
+	closeAll      bool
+	lateBlock     []string
+	needReader    bool
+	tlsReader     bool
+	closeNext     bool
+	refuseHeld    atomic.Bool
+	left          atomic.Int32
+	closeGroup    atomic.Int32
+	closePost     atomic.Int32
+	refused       atomic.Int32
+	groupNoReader atomic.Int32
+	mu            sync.Mutex
+	conns         map[int][]string // each connection's lines (lower case), by Conn.ID
 	*fakeserver.Server
+}
+
+// record notes a line of connection id.
+func (s *setupServer) record(id int, low string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conns == nil {
+		s.conns = make(map[int][]string)
+	}
+	s.conns[id] = append(s.conns[id], low)
+}
+
+// sent tells whether connection id sent the line low.
+func (s *setupServer) sent(id int, low string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, l := range s.conns[id] {
+		if l == low {
+			return true
+		}
+	}
+	return false
+}
+
+// sentAfter tells whether connection id sent the line then after the line
+// first.
+func (s *setupServer) sentAfter(id int, first, then string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := false
+	for _, l := range s.conns[id] {
+		switch {
+		case l == first:
+			seen = true
+		case seen && l == then:
+			return true
+		}
+	}
+	return false
+}
+
+// takeRefusal returns the next reply of refuse and its index; false when
+// they are used up.
+func (s *setupServer) takeRefusal() (string, int, bool) {
+	if len(s.refuse) == 0 || s.refuseHeld.Load() {
+		return "", 0, false
+	}
+	i := int(s.refused.Add(1)) - 1
+	if i >= len(s.refuse) {
+		return "", 0, false
+	}
+	return s.refuse[i], i, true
 }
 
 // takeOne uses up one of n (negative: never used up); false when n is 0.
@@ -66,12 +143,45 @@ var setupStatus = map[string]string{
 }
 
 func (s *setupServer) serve(c *fakeserver.Conn) {
+	reader := false
+	closeOnNext := false
 	for {
 		line, err := c.ReadLine()
 		if err != nil {
 			return
 		}
 		low := strings.ToLower(line)
+		s.record(c.ID(), low)
+		if closeOnNext {
+			return
+		}
+		if low == s.at {
+			if r, i, ok := s.takeRefusal(); ok {
+				if c.WriteLines(r) != nil {
+					return
+				}
+				if i == 0 && s.lateBlock != nil {
+					if !c.Sleep(2 * time.Second) || c.WriteLines(s.lateBlock...) != nil {
+						return
+					}
+				}
+				if s.closeNext {
+					closeOnNext = true
+					continue
+				}
+				if s.closeAll || (strings.HasPrefix(r, "400") && !s.keepOpen) {
+					return
+				}
+				continue
+			}
+		}
+		if s.needReader && !reader && strings.HasPrefix(low, "group ") {
+			s.groupNoReader.Add(1)
+			if c.WriteLines("401 MODE-READER") != nil {
+				return
+			}
+			continue
+		}
 		if low == s.at && takeOne(&s.left) {
 			switch {
 			case s.drip:
@@ -82,7 +192,10 @@ func (s *setupServer) serve(c *fakeserver.Conn) {
 			return
 		}
 		switch {
+		case low == "mode reader" && s.tlsReader && !c.TLS():
+			err = c.WriteLines("483 encryption required")
 		case low == "mode reader":
+			reader = true
 			err = c.WriteLines(setupStatus[low])
 		case low == "starttls":
 			if s.tlsConf == nil {
@@ -457,4 +570,398 @@ func TestUpstreamSetupDrippedOnce(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUpstreamSetupRefusedNotTurnedOff: the news server refuses MODE READER
+// or LIST OVERVIEW.FMT once with a reply that doesn't say the command is
+// unsupported (403, 502; 480 without a login configured; with a login,
+// MODE READER refused again after it; for the optional LIST OVERVIEW.FMT
+// also 503, as 400, see TestUpstreamOverviewFmt400Open). NewsCache turned
+// the command off for the rest of the process: no later connection sent
+// it again. Now a refused MODE READER gives up that connection (the
+// client's command fails: a server that needs MODE READER refuses reader
+// commands without it), and a refused LIST OVERVIEW.FMT leaves the
+// standard overview format for that connection only. Every later
+// connection sends the command again. The server closes the connection
+// at GROUP test.beta once, so that a new one is made.
+func TestUpstreamSetupRefusedNotTurnedOff(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, at string
+		refuse         []string
+		goesOn         bool // the first connection is used without the command
+	}{
+		{"mode reader 403", "plain", "mode reader", []string{"403 not now"}, false},
+		{"mode reader 502", "plain", "mode reader", []string{"502 reading service unavailable"}, false},
+		{"mode reader 480", "plain", "mode reader", []string{"480 authentication required"}, false},
+		{"mode reader 483 without starttls", "plain", "mode reader", []string{"483 encryption required"}, false},
+		{"mode reader after login 403", "auth", "mode reader", []string{"480 log in first", "403 not now"}, false},
+		{"list overview.fmt 403", "plain", "list overview.fmt", []string{"403 not now"}, true},
+		{"list overview.fmt 480", "plain", "list overview.fmt", []string{"480 authentication required"}, true},
+		{"list overview.fmt 503", "plain", "list overview.fmt", []string{"503 not supported"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &setupServer{at: tc.at, refuse: tc.refuse}
+			e := setupEnv(t, s, tc.mode, false)
+			p, c := e.sessionProcess()
+			c.Deadline = 30 * time.Second
+			code, line := c.Cmd("GROUP test.alpha")
+			switch {
+			case tc.goesOn && code != 211:
+				t.Errorf("GROUP with %q refused (%q): %q, want 211 (the standard overview format for that connection)", tc.at, tc.refuse, line)
+			case !tc.goesOn && code < 400:
+				t.Errorf("GROUP with %q refused (%q): %q, want an error (that connection given up)", tc.at, tc.refuse, line)
+			}
+			s.closeGroup.Store(1)
+			if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+				t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+			}
+			n := s.Accepted()
+			if n < 2 {
+				t.Fatalf("%d connections to the news server, want a new one after the refusal", n)
+			}
+			for id := 2; id <= n; id++ {
+				if !s.sent(id, tc.at) {
+					t.Errorf("connection %d of %d sent no %q: the refusal on the first one turned it off", id, n, tc.at)
+				}
+			}
+			quitSession(t, p, c)
+		})
+	}
+}
+
+// TestUpstreamSetupReply400Reconnects: the server answers MODE READER (also
+// the one sent again after a login) with 400, or LIST OVERVIEW.FMT with
+// 400 or 503 ("503 timeout", old INN), and closes the connection.
+// NewsCache took it as "not supported" and turned the command off for the
+// rest of the process: the next connection went without it. A 400 to MODE
+// READER now counts as a closed connection: a new one is made (Retries).
+// A 400 or 503 to LIST OVERVIEW.FMT does so when the close is already
+// there as the reply is read; otherwise the connection is used with the
+// standard format, and the client's command finds it closed and makes a
+// new one. Either way (no group is selected yet, so connect() sends no
+// GROUP of its own) there are two connections, and the second sends the
+// command again.
+func TestUpstreamSetupReply400Reconnects(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, at string
+		refuse         []string
+		closeAll       bool // the server closes after a 503 too
+	}{
+		{"mode reader 400", "plain", "mode reader", []string{"400 service unavailable"}, false},
+		{"mode reader after login 400", "auth", "mode reader", []string{"480 log in first", "400 service unavailable"}, false},
+		{"list overview.fmt 400", "plain", "list overview.fmt", []string{"400 service unavailable"}, false},
+		{"list overview.fmt 503 closed", "plain", "list overview.fmt", []string{"503 timeout"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &setupServer{at: tc.at, refuse: tc.refuse, closeAll: tc.closeAll}
+			e := setupEnv(t, s, tc.mode, false)
+			p, c := e.sessionProcess()
+			c.Deadline = 30 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Errorf("GROUP with %q answered %q and closed on the first connection: %q, want 211 from a new connection", tc.at, tc.refuse, line)
+			}
+			if n := s.Accepted(); n != 2 {
+				t.Errorf("%d connections to the news server, want 2 (the closed one and one more)", n)
+			}
+			if !s.sent(2, tc.at) {
+				t.Errorf("the new connection sent no %q: the reply before the close turned it off", tc.at)
+			}
+			if n := s.Count("GROUP"); n != 1 {
+				t.Errorf("GROUP reached the news server %d times, want once", n)
+			}
+			quitSession(t, p, c)
+		})
+	}
+}
+
+// TestUpstreamSetupReply400Always: a news server that answers MODE READER
+// with 400 and closes on every connection for a while: the client gets an
+// error after the first connection and Retries more, and once the server
+// answers again, the next connection sends MODE READER again. NewsCache
+// turned it off at the first 400 and used the server without it. (Not for
+// LIST OVERVIEW.FMT: a 400 there leaves the standard format, see
+// TestUpstreamSetupReply400Reconnects and TestUpstreamOverviewFmt400Open.)
+func TestUpstreamSetupReply400Always(t *testing.T) {
+	const at = "mode reader"
+	refuse := make([]string, setupRetries+1)
+	for i := range refuse {
+		refuse[i] = "400 service unavailable"
+	}
+	s := &setupServer{at: at, refuse: refuse}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code < 400 {
+		t.Errorf("GROUP with a 400 to %q on every connection: %q, want an error", at, line)
+	}
+	if n := s.Accepted(); n != setupRetries+1 {
+		t.Errorf("%d connections to the news server, want %d (the first and Retries more)", n, setupRetries+1)
+	}
+	if n := s.Count("GROUP"); n != 0 {
+		t.Errorf("GROUP reached the news server %d times, want never", n)
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Fatalf("DATE after the failed GROUP: %q, want 111", line)
+	}
+	accepted := s.Accepted()
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP once the server answers again: %q, want 211", line)
+	}
+	if n := s.Accepted() - accepted; n != 1 {
+		t.Errorf("GROUP once the server answers again made %d new connections, want 1", n)
+	}
+	if !s.sent(s.Accepted(), at) {
+		t.Errorf("the connection after the 400s sent no %q: they turned it off", at)
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamOverviewFmt400Open: a 400 to LIST OVERVIEW.FMT on a
+// connection the server keeps open. LIST OVERVIEW.FMT is optional: the
+// connection is used with the standard overview format, and the next
+// connection asks for the format again. NewsCache turned it off for the
+// rest of the process.
+func TestUpstreamOverviewFmt400Open(t *testing.T) {
+	const at = "list overview.fmt"
+	s := &setupServer{at: at, refuse: []string{"400 not now"}, keepOpen: true}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 400 to %q on an open connection: %q, want 211", at, line)
+	}
+	if n := s.Accepted(); n != 1 {
+		t.Errorf("%d connections to the news server, want 1 (the 400 isn't a close)", n)
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	if n < 2 {
+		t.Fatalf("%d connections to the news server, want a new one", n)
+	}
+	for id := 2; id <= n; id++ {
+		if !s.sent(id, at) {
+			t.Errorf("connection %d of %d sent no %q: the 400 turned it off", id, n, at)
+		}
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamSetupUnexpectedPositive: the server answers MODE READER with
+// a positive reply that isn't 200 or 201 ("215 list follows") and sends
+// its block two seconds later, after NewsCache has sent LIST OVERVIEW.FMT.
+// NewsCache turned MODE READER off and read the block's first line
+// ("500 ...") as the reply to LIST OVERVIEW.FMT, which turned that off
+// too. Now the connection is closed at the unexpected reply and a new one
+// is made: without MODE READER (turned off as before), with LIST
+// OVERVIEW.FMT and its own reply, on that one and on later ones.
+func TestUpstreamSetupUnexpectedPositive(t *testing.T) {
+	s := &setupServer{at: "mode reader", refuse: []string{"215 list follows"},
+		lateBlock: []string{"500 stray line of the block", "."}}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 215 and a late block to MODE READER: %q, want 211", line)
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	if n < 2 {
+		t.Fatalf("%d connections to the news server, want a new one", n)
+	}
+	for id := 2; id <= n; id++ {
+		if s.sent(id, "mode reader") {
+			t.Errorf("connection %d of %d sent MODE READER again after the 215", id, n)
+		}
+		if !s.sent(id, "list overview.fmt") {
+			t.Errorf("connection %d of %d sent no LIST OVERVIEW.FMT: the late block was read as its reply", id, n)
+		}
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamSetupUnsupportedTurnedOff (guard, passes before the fix too):
+// a reply that says MODE READER or LIST OVERVIEW.FMT is unsupported (500,
+// 501; for MODE READER 503 too) still turns the command off: later
+// connections don't send it.
+func TestUpstreamSetupUnsupportedTurnedOff(t *testing.T) {
+	for at, replies := range map[string][]string{
+		"mode reader":       {"500 unknown command", "501 syntax error", "503 not supported"},
+		"list overview.fmt": {"500 unknown command", "501 syntax error"},
+	} {
+		for _, reply := range replies {
+			t.Run(at+" "+reply[:3], func(t *testing.T) {
+				t.Parallel()
+				s := &setupServer{at: at, refuse: []string{reply}}
+				e := setupEnv(t, s, "plain", false)
+				p, c := e.sessionProcess()
+				c.Deadline = 30 * time.Second
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Errorf("GROUP with %q answered %q: %q, want 211", at, reply, line)
+				}
+				s.closeGroup.Store(1)
+				if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+					t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+				}
+				n := s.Accepted()
+				if n < 2 {
+					t.Fatalf("%d connections to the news server, want a new one", n)
+				}
+				for id := 2; id <= n; id++ {
+					if s.sent(id, at) {
+						t.Errorf("connection %d of %d sent %q again after %q", id, n, at, reply)
+					}
+				}
+				quitSession(t, p, c)
+			})
+		}
+	}
+}
+
+// TestUpstreamModeSwitchingRefusal: a mode-switching news server (RFC 3977
+// 3.4.2), which answers reader commands only after MODE READER, refuses
+// MODE READER once with 403. NewsCache turned MODE READER off and sent
+// GROUP without it, on that connection and on every later one: the server
+// refused them all (401 MODE-READER) until NewsCache was restarted. Now
+// the client's first command fails with that connection, the next one
+// gets the group, and no GROUP reaches the server without MODE READER.
+func TestUpstreamModeSwitchingRefusal(t *testing.T) {
+	s := &setupServer{at: "mode reader", refuse: []string{"403 not now"}, needReader: true}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code < 400 {
+		t.Errorf("GROUP with MODE READER refused: %q, want an error", line)
+	}
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP once MODE READER is accepted: %q, want 211", line)
+	}
+	if n := s.groupNoReader.Load(); n != 0 {
+		t.Errorf("%d GROUP commands reached the server without MODE READER on their connection, want none", n)
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamModeReader483BeforeTLS: with Options starttls, a news server
+// that wants TLS before MODE READER answers it with 483 (NewsCache sends
+// MODE READER before STARTTLS). NewsCache turned MODE READER off at the
+// 483 and never sent it on a connection again. Now the connection goes on
+// without it (MODE READER isn't sent after STARTTLS: RFC 3977 5.3.2), and
+// the next connection sends it again, before STARTTLS. (Without Options
+// starttls a 483 is a refusal: see "mode reader 483 without starttls" in
+// TestUpstreamSetupRefusedNotTurnedOff.)
+func TestUpstreamModeReader483BeforeTLS(t *testing.T) {
+	s := &setupServer{tlsReader: true}
+	e := setupEnv(t, s, "starttls", true)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 483 to MODE READER before STARTTLS: %q, want 211", line)
+	}
+	if n := s.Accepted(); n != 1 {
+		t.Errorf("%d connections to the news server, want 1", n)
+	}
+	if s.sentAfter(1, "starttls", "mode reader") {
+		t.Errorf("MODE READER sent after STARTTLS (RFC 3977 5.3.2 forbids it)")
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	if n < 2 {
+		t.Fatalf("%d connections to the news server, want a new one", n)
+	}
+	for id := 2; id <= n; id++ {
+		if !s.sentAfter(id, "mode reader", "starttls") {
+			t.Errorf("connection %d of %d sent no MODE READER before STARTTLS: the 483 turned it off", id, n)
+		}
+		if s.sentAfter(id, "starttls", "mode reader") {
+			t.Errorf("connection %d of %d sent MODE READER after STARTTLS", id, n)
+		}
+	}
+	quitSession(t, p, c)
+}
+
+// TestUpstreamOverviewFmtFallbackGroupClosed: a connection is made again
+// for a client's command while a group is selected (the first one closes at
+// GROUP test.beta). The new one gets 400 (or 503) to LIST OVERVIEW.FMT and
+// is closed by the server only when the next command, the GROUP that
+// connect() selects again, arrives. That GROUP failed connect(), and with
+// Retries 1 the client's command failed. Now connect() makes the
+// connection again itself: three connections (the first, the one closed at
+// its GROUP, one more), the command gets its group, and the third
+// connection asks for LIST OVERVIEW.FMT again.
+func TestUpstreamOverviewFmtFallbackGroupClosed(t *testing.T) {
+	for _, reply := range []string{"400 not now", "503 not supported"} {
+		t.Run(reply[:3], func(t *testing.T) {
+			t.Parallel()
+			const at = "list overview.fmt"
+			s := &setupServer{at: at, refuse: []string{reply}, closeNext: true}
+			s.refuseHeld.Store(true)
+			e := setupEnv(t, s, "plain", false)
+			e.ServerLines = "    Retries 1"
+			p, c := e.sessionProcess()
+			c.Deadline = 30 * time.Second
+			if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+				t.Fatalf("GROUP test.alpha: %q", line)
+			}
+			s.refuseHeld.Store(false)
+			s.closeGroup.Store(1)
+			if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+				t.Errorf("GROUP test.beta with %q to %q and a close at the next GROUP: %q, want 211", reply, at, line)
+			}
+			if n := s.Accepted(); n != 3 {
+				t.Errorf("%d connections to the news server, want 3 (the first, the one closed at its GROUP, one more)", n)
+			}
+			if !s.sent(3, at) {
+				t.Errorf("the third connection sent no %q: the %s turned it off", at, reply[:3])
+			}
+			quitSession(t, p, c)
+		})
+	}
+}
+
+// TestUpstreamModeReader503ThenClose: the server answers MODE READER with
+// 503 and closes the connection when the next set-up command (LIST
+// OVERVIEW.FMT) arrives, as old INN's "503 Timeout" with a close that
+// comes a moment later. NewsCache took the 503 for "not supported" at
+// once: the next connection went without MODE READER. Now the 503 waits
+// for the next reply on that connection; the close drops it, a new
+// connection is made, and it sends MODE READER again. (A 503 on a
+// connection that answers the next command still turns MODE READER off:
+// TestUpstreamSetupUnsupportedTurnedOff.)
+func TestUpstreamModeReader503ThenClose(t *testing.T) {
+	const at = "mode reader"
+	s := &setupServer{at: at, refuse: []string{"503 timeout"}, closeNext: true}
+	e := setupEnv(t, s, "plain", false)
+	p, c := e.sessionProcess()
+	c.Deadline = 30 * time.Second
+	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+		t.Errorf("GROUP with a 503 to MODE READER and a close at the next command: %q, want 211", line)
+	}
+	if n := s.Accepted(); n != 2 {
+		t.Errorf("%d connections to the news server, want 2 (the closed one and one more)", n)
+	}
+	if !s.sent(2, at) {
+		t.Errorf("the second connection sent no MODE READER: the 503 turned it off")
+	}
+	s.closeGroup.Store(1)
+	if code, line := c.Cmd("GROUP test.beta"); code != 211 {
+		t.Errorf("GROUP test.beta: %q, want 211 from a new connection", line)
+	}
+	n := s.Accepted()
+	for id := 2; id <= n; id++ {
+		if !s.sent(id, at) {
+			t.Errorf("connection %d of %d sent no MODE READER", id, n)
+		}
+	}
+	quitSession(t, p, c)
 }
