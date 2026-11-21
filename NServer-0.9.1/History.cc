@@ -36,6 +36,20 @@ namespace {
 struct Corrupt {
 };
 
+// The shard's file is no longer the one under its name (see prune).
+struct Moved {
+};
+
+// prune visited more records in one walk of a shard than its file has
+// room for (see Shard::collect).
+struct Budget {
+};
+
+// A history record copied out of a shard for prune.
+struct PruneRec {
+	string msgid, locs;
+};
+
 class Shard:public NVHash {
   public:
 	string path;
@@ -56,6 +70,7 @@ class Shard:public NVHash {
 
 	using NVHash::lock;
 	using NVHash::Record;
+	using NVHash::is_named_file;
 
 	void check(nvoff_t o) {
 		if (o < 16 || o % sizeof(unsigned long) != 0 ||
@@ -96,10 +111,81 @@ class Shard:public NVHash {
 		return NULL;
 	}
 
-	// Calls f(msgid, locations, arg) for every record (not the format
-	// record), checking the links like sfind. Needs a lock.
-	void each(void (*f) (const string &, const string &, void *),
-		  void *arg) {
+	// Copies the records (not the format record) of whole buckets, from
+	// bucket b on, into out until at least limit records were visited,
+	// and returns the first bucket not copied (BUCKETS at the end).
+	// Checks the links like sfind. Needs a lock.
+	//
+	// Damage (Corrupt): a chain that loops without coming back to its
+	// tail, or longer than the file has room for, or a record reached
+	// twice within the slice. Under one lock nothing changes, and a sound
+	// record is in one chain only, so a record reached twice means links
+	// that alias (buckets pointing into another bucket's chain).
+	//
+	// visited adds up the records visited in all slices of one walk; more
+	// than the file has room for (taken anew at each lock) throws Budget.
+	// That is no proof of damage: between slices, records of buckets
+	// already read may be removed and their space used again by new
+	// records in buckets still ahead, so a sound shard under heavy change
+	// gets there too. It bounds what aliasing that spans slices costs
+	// (each slice reaching the same chain once, which no slice can see)
+	// to about one walk of a full file; prune then checks the shard with
+	// verify().
+	int collect(int b, size_t limit, vector < PruneRec > &out,
+		    size_t & visited) {
+		if (!hashtab || hashsz != History::BUCKETS)
+			throw Corrupt();
+		size_t max = mem_sz / sizeof(Record);
+		vector < nvoff_t > seen;
+		for (; b < History::BUCKETS && seen.size() < limit; b++) {
+			nvoff_t t = hashtab[b];
+			if (!t)
+				continue;
+			check(t);
+			Record *tail = o2r(t), *prev = tail, *r;
+			// a loop that misses the tail, found as in Brent's method
+			Record *mark = tail;
+			size_t n = 0, lap = 0, power = 1;
+			do {
+				check(prev->next);
+				r = o2r(prev->next);
+				if (r != tail && r == mark)
+					throw Corrupt();
+				seen.push_back(prev->next);
+				if (r->szdata >= 18) {
+					const char *id = r->datap() + 16,
+					    *e = r->datap() + r->szdata;
+					size_t idl = strnlen(id, e - id);
+					if (idl > 0 && id + idl < e) {
+						out.push_back(PruneRec());
+						out.back().msgid.assign(id, idl);
+						out.back().locs = locations(r);
+					}
+				}
+				prev = r;
+				if (++n > max)
+					throw Corrupt();
+				if (++lap == power) {
+					mark = r;
+					power *= 2;
+					lap = 0;
+				}
+			} while (r != tail);
+			visited += n;
+			if (visited > max) {
+				check_unique(seen);
+				throw Budget();
+			}
+		}
+		check_unique(seen);
+		return b;
+	}
+
+	// Walks the whole shard, counting the records visited, as prune
+	// did before it read in slices: under one lock nothing changes, so
+	// more than the file has room for is damage (Corrupt), also links
+	// that alias across what would be slices. Needs a lock.
+	void verify(void) {
 		if (!hashtab || hashsz != History::BUCKETS)
 			throw Corrupt();
 		size_t max = mem_sz / sizeof(Record), n = 0;
@@ -112,19 +198,18 @@ class Shard:public NVHash {
 			do {
 				check(prev->next);
 				r = o2r(prev->next);
-				if (r->szdata >= 18) {
-					const char *id = r->datap() + 16,
-					    *e = r->datap() + r->szdata;
-					size_t idl = strnlen(id, e - id);
-					if (idl > 0 && id + idl < e)
-						f(string(id, idl), locations(r),
-						  arg);
-				}
 				prev = r;
 				if (++n > max)
 					throw Corrupt();
 			} while (r != tail);
 		}
+	}
+
+	// Corrupt if an offset is in v twice.
+	static void check_unique(vector < nvoff_t > &v) {
+		sort(v.begin(), v.end());
+		if (adjacent_find(v.begin(), v.end()) != v.end())
+			throw Corrupt();
 	}
 
 	// The locations string of a record ("" if it has none).
@@ -213,8 +298,14 @@ void reset_shard(Shard & s, const char *why, bool damaged)
 		catch(...) {
 		}
 	} else {
-		slog.p(Logger::Notice) << "history: " << s.path << " " << why
-		    << ", reopening\n";
+		// (logging can fail when memory has run out; this is the
+		// recovery, it must not throw)
+		try {
+			slog.p(Logger::Notice) << "history: " << s.path << " "
+			    << why << ", reopening\n";
+		}
+		catch(...) {
+		}
 	}
 	try {
 		s.close();
@@ -610,88 +701,202 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 	if (spool.empty())
 		return 0;
 	for (int n = 0; n < SHARDS; n++) {
-		Shard *s = shard(n);
+		Shard *s;
+		try {
+			s = shard(n);
+		}
+		catch(...) {
+			// (std::bad_alloc: a path, or a log line of its own
+			// recovery) this shard is left, the others still pruned
+			s = NULL;
+		}
 		if (!s)
 			continue;
-		// Collect first, then apply: the records move when changed.
-		PruneCtx ctx;
-		ctx.keep = keep;
-		ctx.arg = arg;
+		/*
+		 * A slice of whole buckets at a time: a session that stores
+		 * into this shard (holding its group's lock meanwhile) waits
+		 * for one slice, not for the walk of the whole shard. Between
+		 * the slices the shard may change and be mapped anew, so only
+		 * copies are kept across locks. A record stays in its bucket
+		 * when it changes, so each one is read once, as it is when its
+		 * bucket is read. Unlocking gives a waiting writer a chance to
+		 * take the shard, not a guarantee (file locks keep no queue);
+		 * the check of a slice without the lock leaves it the time.
+		 *
+		 * Another process that finds the file damaged moves it aside
+		 * without the file's lock, also between two slices: this one
+		 * would go on in the file moved aside. So each lock first
+		 * checks that the file is still the one under its name, and
+		 * the shard is left for this run if not.
+		 */
+		bool ok = true, over = false;
+		size_t visited = 0;
+		for (int b = 0; ok && !over && b < BUCKETS;) {
+			vector < PruneRec > recs;
+			try {
+				s->lock(NVcontainer::ShrdLock);
+				try {
+					if (!s->is_named_file())
+						throw Moved();
+					b = s->collect(b, PRUNE_SLICE, recs, visited);
+				}
+				catch(...) {
+					s->lock(NVcontainer::UnLock);
+					throw;
+				}
+				s->lock(NVcontainer::UnLock);
+			}
+			catch(Corrupt &) {
+				reset_shard(*s, "is damaged", true);
+				break;
+			}
+			catch(Moved &) {
+				reset_shard(*s, "was moved aside", false);
+				break;
+			}
+			catch(Budget &) {
+				over = true;	// checked below, after the walk
+				break;
+			}
+			catch(...) {
+				reset_shard(*s, "failed", false);
+				break;
+			}
+			// Parsed and checked without the lock (keep may stat).
+			// What fails here (std::bad_alloc) ends this shard's
+			// walk, as when the walk itself fails.
+			PruneCtx ctx;
+			ctx.keep = keep;
+			ctx.arg = arg;
+			try {
+				for (size_t i = 0; i < recs.size(); i++)
+					prune_one(recs[i].msgid, recs[i].locs,
+						  &ctx);
+			}
+			catch(...) {
+				reset_shard(*s, "failed", false);
+				break;
+			}
+			vector < Op > &ops = ctx.ops;
+			if (ops.empty())
+				continue;
+#ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
+			// Test-only barrier after the shared-lock snapshot, before applying.
+			{
+				const char *ready = getenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+				const char *go = getenv("NEWSCACHE_TEST_PRUNE_GO_FD");
+				if (ready && go) {
+					char byte = 'x';
+					if (write(atoi(ready), &byte, 1) != 1 ||
+					    read(atoi(go), &byte, 1) != 1)
+						_exit(99);
+					unsetenv("NEWSCACHE_TEST_PRUNE_READY_FD");
+					unsetenv("NEWSCACHE_TEST_PRUNE_GO_FD");
+				}
+			}
+#endif
+			// A group or its location may have been recreated after
+			// collection. Recheck both while holding the shard
+			// exclusively: a concurrent history writer then either
+			// happened before this check or will add its location
+			// after the removal.
+			try {
+				s->lock(NVcontainer::ExclLock);
+				try {
+					if (!s->is_named_file())
+						throw Moved();
+					for (size_t i = 0; i < ops.size(); i++) {
+						const Op &op = ops[i];
+						unsigned char dg[16];
+						int sh, rb;
+						route(op.msgid.c_str(), dg, &sh, &rb);
+						Shard::Record *r =
+						    s->sfind(rb, dg, op.msgid.c_str(), NULL);
+						if (!r)
+							continue;
+						vector < Location > v = parse(s->locations(r));
+						bool same = false;
+						for (size_t j = 0; j < v.size(); j++)
+							if (v[j].group == op.group &&
+							    v[j].nbr == op.nbr) {
+								same = true;
+								break;
+							}
+						if (same && !keep(op.group, arg)) {
+							apply(*s, rb, dg, op);
+							dropped++;
+						}
+					}
+				}
+				catch(...) {
+					s->lock(NVcontainer::UnLock);
+					throw;
+				}
+				s->lock(NVcontainer::UnLock);
+			}
+			catch(Corrupt &) {
+				reset_shard(*s, "is damaged", true);
+				ok = false;
+			}
+			catch(Moved &) {
+				reset_shard(*s, "was moved aside", false);
+				ok = false;
+			}
+			catch(Error & e) {
+				try {
+					slog.p(Logger::Error) << "history: " << s->path
+					    << ": " << e._errtext << "\n";
+				}
+				catch(...) {
+				}
+				reset_shard(*s, "failed", false);
+				ok = false;
+			}
+			catch(...) {
+				// (std::bad_alloc in keep, parse or apply) as in
+				// the walk
+				reset_shard(*s, "failed", false);
+				ok = false;
+			}
+		}
+		if (!over)
+			continue;
+		/*
+		 * The walk visited more records than the file has room for:
+		 * heavy change between slices, or links that alias across
+		 * slices, which no slice sees. One walk of the whole shard
+		 * under one shared lock tells them apart, as prune checked
+		 * every shard before it read in slices. Only in this rare
+		 * case is the shard held for a whole walk (no copies, no
+		 * keep: it only counts).
+		 */
 		try {
 			s->lock(NVcontainer::ShrdLock);
 			try {
-				s->each(prune_one, &ctx);
+				if (!s->is_named_file())
+					throw Moved();
+				s->verify();
 			}
 			catch(...) {
 				s->lock(NVcontainer::UnLock);
 				throw;
 			}
 			s->lock(NVcontainer::UnLock);
+			try {
+				slog.p(Logger::Warning) << "history: " << s->path
+				    << " changed too much while it was pruned,"
+				    " left for the next run\n";
+			}
+			catch(...) {
+			}
 		}
 		catch(Corrupt &) {
 			reset_shard(*s, "is damaged", true);
-			continue;
+		}
+		catch(Moved &) {
+			reset_shard(*s, "was moved aside", false);
 		}
 		catch(...) {
-			reset_shard(*s, "failed", false);
-			continue;
-		}
-		vector < Op > &ops = ctx.ops;
-#ifdef NEWSCACHE_TEST_HISTORY_PRUNE_RACE
-		// Test-only barrier after the shared-lock snapshot, before applying.
-		if (!ops.empty()) {
-			const char *ready = getenv("NEWSCACHE_TEST_PRUNE_READY_FD");
-			const char *go = getenv("NEWSCACHE_TEST_PRUNE_GO_FD");
-			if (ready && go) {
-				char byte = 'x';
-				if (write(atoi(ready), &byte, 1) != 1 ||
-				    read(atoi(go), &byte, 1) != 1)
-					_exit(99);
-				unsetenv("NEWSCACHE_TEST_PRUNE_READY_FD");
-				unsetenv("NEWSCACHE_TEST_PRUNE_GO_FD");
-			}
-		}
-#endif
-		// A group or its location may have been recreated after collection.
-		// Recheck both while holding the shard exclusively: a concurrent
-		// history writer then either happened before this check or will add
-		// its location after the removal.
-		try {
-			s->lock(NVcontainer::ExclLock);
-			try {
-				for (size_t i = 0; i < ops.size(); i++) {
-					const Op &op = ops[i];
-					unsigned char dg[16];
-					int sh, b;
-					route(op.msgid.c_str(), dg, &sh, &b);
-					Shard::Record *r = s->sfind(b, dg, op.msgid.c_str(), NULL);
-					if (!r)
-						continue;
-					vector < Location > v = parse(s->locations(r));
-					bool same = false;
-					for (size_t j = 0; j < v.size(); j++)
-						if (v[j].group == op.group && v[j].nbr == op.nbr) {
-							same = true;
-							break;
-						}
-					if (same && !keep(op.group, arg)) {
-						apply(*s, b, dg, op);
-						dropped++;
-					}
-				}
-			}
-			catch(...) {
-				s->lock(NVcontainer::UnLock);
-				throw;
-			}
-			s->lock(NVcontainer::UnLock);
-		}
-		catch(Corrupt &) {
-			reset_shard(*s, "is damaged", true);
-		}
-		catch(Error & e) {
-			slog.p(Logger::Error) << "history: " << s->path << ": "
-			    << e._errtext << "\n";
 			reset_shard(*s, "failed", false);
 		}
 	}

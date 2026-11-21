@@ -136,6 +136,11 @@ class NVcontainer {
 	 * CorruptDBError.
 	 */
 	void corrupt(const std::string & why);
+	/*
+	 * Whether the open file is still the one under its name: another
+	 * process's corrupt() moves a file aside without the file's lock.
+	 */
+	bool is_named_file(void);
 	virtual void reinit(void) {
 	}
 	/*
