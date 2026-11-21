@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -588,21 +587,23 @@ func TestActiveStampFromFuture(t *testing.T) {
 		t.Fatal("the news server was not asked for the active list")
 	}
 
-	// NVcontainer's header: hlen, version (4 bytes each), size, mtime (8
-	// bytes each, host order).
+	// NVcontainer's header: hlen, version (4 bytes each), size, mtime
+	// (unsigned longs in newscache's layout, see nvLayout).
 	path := filepath.Join(e.Spool, ".active64")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) < 48 || binary.LittleEndian.Uint32(b[0:4]) != 48 {
-		t.Skipf("%s: not the 48-byte little-endian header this test knows", path)
+	l, err := nvLayoutOf(b)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
 	}
+	mtime := l.mtimeOff()
 	now := uint64(time.Now().Unix())
-	if stamp := binary.LittleEndian.Uint64(b[16:24]); stamp+60 < now || stamp > now+60 {
-		t.Skipf("%s: stamp %d is not near now (%d): unknown layout", path, stamp, now)
+	if stamp := l.at(b, mtime); stamp+60 < now || stamp > now+60 {
+		t.Fatalf("%s: stamp %d at %d is not near now (%d) (%s)", path, stamp, mtime, now, l)
 	}
-	binary.LittleEndian.PutUint64(b[16:24], now+86400)
+	l.put(b, mtime, now+86400)
 	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -619,7 +620,7 @@ func TestActiveStampFromFuture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stamp := binary.LittleEndian.Uint64(b[16:24]); stamp > uint64(time.Now().Unix()) {
+	if stamp := l.at(b, mtime); stamp > uint64(time.Now().Unix()) {
 		t.Errorf("the refresh left the stamp in the future: %d", stamp)
 	}
 }
