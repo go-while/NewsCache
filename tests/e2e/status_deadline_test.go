@@ -26,9 +26,9 @@ import (
 // longer than its deadline.
 
 const (
-	statusReadTimeout = 4 // ReadTimeout of the upstream, seconds
-	statusLineSeconds = 2 // STATUS_LINE_SECONDS of the short-limit build
-	statusRetries     = 1 // Retries of the upstream
+	statusReadTimeout = 4                       // ReadTimeout of the upstream, seconds
+	statusLineSeconds = 2                       // STATUS_LINE_SECONDS of the short-limit build
+	statusRetries     = 1                       // Retries of the upstream
 	statusDripGap     = 1000 * time.Millisecond // a quarter of ReadTimeout
 
 	// one status line's deadline

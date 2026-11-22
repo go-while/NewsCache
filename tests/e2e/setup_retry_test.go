@@ -161,7 +161,7 @@ func (s *setupServer) serve(c *fakeserver.Conn) {
 					return
 				}
 				if i == 0 && s.lateBlock != nil {
-					if !c.Sleep(2 * time.Second) || c.WriteLines(s.lateBlock...) != nil {
+					if !c.Sleep(2*time.Second) || c.WriteLines(s.lateBlock...) != nil {
 						return
 					}
 				}
