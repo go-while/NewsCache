@@ -258,7 +258,8 @@ void NVActiveDB::apply(const string & lines, int flags, unsigned int limit,
 		string line = lines.substr(b, e - b);
 		b = e + 1;
 		// Add group. Skip a line we can't parse (e.g. a group name
-		// longer than GroupInfo allows) instead of giving up: that
+		// longer than GroupInfo allows, or with a control byte in
+		// it: GroupInfo::listable_name) instead of giving up: that
 		// left the rest of the list unread on the connection, the
 		// database locked and no groups at all.
 		try {
@@ -437,6 +438,9 @@ void NVActiveDB::write(ostream & os,
 	for (nvhi.first(); nvhi.valid(); nvhi.next()) {
 		nvhi.data(&buf, &bufsz);
 		gd.setraw(buf, bufsz);
+		// (as the client's LIST ACTIVE: see collect_active)
+		if (!GroupInfo::listable_name(gd.name()))
+			continue;
 		if (((!filter) ||
 		     ((matchgroup(filter, gd.name()) > 0))) &&
 		    ctime < gd.ctime()) {

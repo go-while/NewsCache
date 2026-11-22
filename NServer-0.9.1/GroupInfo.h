@@ -80,10 +80,11 @@ class GroupInfo {
 		char *q = _name;
 		unsigned int i = 0;
 
-		// stop at the end too: a line without blanks (from the news
-		// server) was read past its end, up to 512 bytes
-		while (i < sizeof(_name) && *p &&
-		       !isspace((unsigned char) *p)) {
+		// The name ends at a space or tab (RFC 3977 7.6.3 separates
+		// the fields with spaces). Stop at the end too: a line without
+		// blanks (from the news server) was read past its end, up to
+		// 512 bytes.
+		while (i < sizeof(_name) && *p && *p != ' ' && *p != '\t') {
 			*q++ = *p++;
 			++i;
 		}
@@ -91,6 +92,14 @@ class GroupInfo {
 			throw Error("Name of newsgroup too long",
 				    ERROR_LOCATION);
 		*q = '\0';
+		// Any other control byte or DEL in the name refuses the line;
+		// it isn't cut or rewritten. ESC went on to the clients of
+		// LIST ACTIVE, and a name cut at \v or \r (white space, where
+		// the name used to end) was another group's: "a.b\v9 10 1 y"
+		// gave a.b the numbers 9 and 10.
+		if (!listable_name(_name))
+			throw NSError("control byte in the newsgroup name",
+				      ERROR_LOCATION);
 
 		while (isspace((unsigned char) *p))
 			p++;
@@ -116,6 +125,21 @@ class GroupInfo {
 			_flag = 'y';
 
 		nvtime(&_mtime);
+	}
+
+	// Whether a group of this name may be listed to clients (LIST
+	// ACTIVE, LIST ACTIVE.TIMES, NEWGROUPS): not empty, and no byte
+	// below 0x21 and no DEL, which RFC 3977's newsgroup-name doesn't
+	// have either (bytes from 0x80 on are UTF-8 and stay).
+	static bool listable_name(const char *name) {
+		const unsigned char *p = (const unsigned char *) name;
+
+		if (!*p)
+			return false;
+		for (; *p; p++)
+			if (*p < 0x21 || *p == 0x7f)
+				return false;
+		return true;
 	}
 
 	void set(const char *group, artnum_t fst, artnum_t lst, artnum_t n,

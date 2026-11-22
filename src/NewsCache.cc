@@ -2230,11 +2230,27 @@ template < class Format > class active_filter_time {
  * group new for NEWGROUPS) and ended the list early. fn writes to a
  * buffer; the caller sends it after the lock is released, so that a slow
  * client doesn't hold up the sessions that update the list.
+ *
+ * Groups whose name can't be listed (GroupInfo::listable_name: control
+ * bytes, DEL) are left out. The active list refuses such lines now, but
+ * an older version stored them, and a GROUP reply stores the name the
+ * client asked for.
  */
+template < class Fn > class listable_groups {
+	Fn fn;
+      public:
+	listable_groups(Fn fn):fn(fn) {
+	}
+	void operator() (const GroupInfo & gd) {
+		if (GroupInfo::listable_name(gd.name()))
+			fn(gd);
+	}
+};
+
 template < class Fn > static void collect_active(ActiveDB * active, Fn fn)
 {
 	ActiveDBLock lck(active);
-	for_each(active->begin(), active->end(), fn);
+	for_each(active->begin(), active->end(), listable_groups < Fn > (fn));
 }
 
 /*
