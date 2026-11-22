@@ -3,7 +3,10 @@
 // a small number there, so a loop over the chunks of [f, ARTNUM_MAX]
 // started over from 8384 and ran for about 1.8*10^15 chunks. The fake
 // news server of the e2e tests can't send such numbers (int64).
+// Also: an index resize that runs out of disk space after it dropped
+// records (resize_failure).
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +18,7 @@
 
 #include <iostream>
 #include <new>
+#include <sstream>
 #include <string>
 
 #include "Logger.h"
@@ -117,9 +121,20 @@ static std::string closed_port(void)
 	return buf;
 }
 
+// The overview record of article n from ListingServer.
+static std::string over_record(unsigned long long n)
+{
+	char buf[256];
+	snprintf(buf, sizeof(buf), "%llu\tSubject %llu\tposter@example.invalid\t"
+		 "Mon, 01 Jan 2024 00:00:00 +0000\t<%llu@chunk.invalid>\t\t100\t5",
+		 n, n, n);
+	return buf;
+}
+
 // A news server in a child process on a loopback port: GROUP answers 211,
-// LISTGROUP name f-l lists every number of [f,l], anything else 200 (the
-// greeting) or 500. Empty: no socket (the check is then counted as failed).
+// LISTGROUP name f-l lists every number of [f,l], XOVER f-l gives the
+// record of each (over_record), anything else 200 (the greeting) or 500.
+// Empty: no socket (the check is then counted as failed).
 struct ListingServer {
 	pid_t child;
 	std::string port;
@@ -185,6 +200,13 @@ struct ListingServer {
 				for (unsigned long long n = f; n <= l; n++)
 					fprintf(out, "%llu\r\n", n);
 				fputs(".\r\n", out);
+			} else if (sscanf(line, "%*[Xx]%*[Oo]%*[Vv]%*[Ee]%*[Rr] "
+					  "%llu-%llu", &f, &l) == 2) {
+				fputs("224 overview\r\n", out);
+				for (unsigned long long n = f; n <= l; n++)
+					fprintf(out, "%s\r\n",
+						over_record(n).c_str());
+				fputs(".\r\n", out);
 			} else if (sscanf(line, "%*[Gg]%*[Rr]%*[Oo]%*[Uu]%*[Pp]"
 					  " %511s", name) == 1) {
 				fprintf(out, "211 30000 1 30000 %s\r\n", name);
@@ -233,13 +255,8 @@ static void rserver_initialised(void)
 	rs->~RServer();
 }
 
-static void prefetch_sync(void)
+static void prefetch_sync(const string & dir)
 {
-	string dir;
-	if (!test_temp::create("cChunk", dir)) {
-		failures++;
-		return;
-	}
 	ListingServer srv;
 	if (srv.port.empty()) {
 		CHECK(!"a loopback listener for the news server");
@@ -346,6 +363,179 @@ static void prefetch_sync(void)
 	}
 }
 
+// A group whose spool file can't grow while full is set: resize fails as
+// on a full disk (nvalloc calls it when no free block is large enough).
+struct FullDiskProbe:public PrefetchProbe {
+	bool full;
+	int refused;		// the times the file couldn't grow
+	FullDiskProbe(RServer * rs, OverviewFmt * fmt, const char *dir,
+		      const char *name)
+	:PrefetchProbe(rs, fmt, dir, name), full(false), refused(0) {
+	}
+	virtual size_t resize(size_t nsz) {
+		if (full) {
+			refused++;
+			throw SystemError("no space left (check)", ENOSPC,
+					  ERROR_LOCATION);
+		}
+		return PrefetchProbe::resize(nsz);
+	}
+	// Takes every free block of 1 kB or more, the end of the file
+	// included (they stay allocated, unused), so that a larger
+	// allocation needs a larger file, whatever the width of the
+	// index's entries (4 or 8 bytes).
+	void fill(void) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		full = true;
+		try {
+			for (;;)
+				nvalloc(1024);
+		}
+		catch(const SystemError &) {
+		}
+		full = false;
+		refused = 0;
+	}
+	void reindex(unsigned long f, unsigned long l) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		resize_index(f, l);
+	}
+	// chunk c synchronized now, up to through
+	void mark(artnum_t c, artnum_t through) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		setsync(c, nvtime(NULL), through);
+	}
+};
+
+// The lines of a reply text (each ends with CRLF).
+static size_t lines(const string & s)
+{
+	size_t n = 0;
+	for (size_t i = s.find("\r\n"); i != string::npos;
+	     i = s.find("\r\n", i + 2))
+		n++;
+	return n;
+}
+
+// Whether article n's record is one of the lines.
+static bool listed(const string & s, artnum_t n)
+{
+	string r = over_record(n) + "\r\n";
+	size_t i = s.find(r);
+	return i != string::npos && (i == 0 || s[i - 1] == '\n');
+}
+
+// The index was resized after its records outside the new range were
+// freed, and the new table couldn't be allocated (disk full): the old
+// index stayed without those records, and their chunks kept their marks.
+// Within the group's timeout their numbers were served from the index as
+// absent: XOVER ended with "." without them, STAT gave 423. The chunks
+// that lost records must be synchronized again, the others not.
+static void resize_failure(const string & dir)
+{
+	ListingServer srv;
+	if (srv.port.empty()) {
+		CHECK(!"a loopback listener for the news server");
+		return;
+	}
+	MPList list;
+	MPListEntry e;
+	e.hostname = "127.0.0.1";
+	e.servicename = srv.port;
+	e.read = "*";
+	e.postTo = "*";
+	e.retries = 0;
+	e.nntpflags = MPListEntry::F_LISTGROUP | MPListEntry::F_XOVER;
+	list.entries.push_back(e);
+	DbRServer rs(&list, dir + "/.active64");
+	OverviewFmt fmt;
+	artnum_t through, f, l;
+
+	// XOVER 1-100 caches chunk 0 and marks it. XOVER 20001-30000 is far
+	// above: the index starts over at 20000 (cover), so 1-100 are freed,
+	// and the new table (10001 entries) is larger than what they and the
+	// fill leave free: it needs a file that can't grow. Those records
+	// come from the news server.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.above");
+		g.setsize(1, 30000);
+		ostringstream first;
+		g.printoverdb(first, 1, 100);
+		CHECK(lines(first.str()) == 100);
+		CHECK(g.marked(0, &through) && through == 100);
+		g.fill();
+		g.full = true;
+		ostringstream above;
+		g.printoverdb(above, 20001, 30000);
+		g.full = false;
+		CHECK(g.refused > 0);	// (else nothing was tested)
+		CHECK(lines(above.str()) == 10000);
+		g.spoolrange(&f, &l);
+		CHECK(f == 1 && l == 100);	// the old index stayed,
+		CHECK(!g.hasrecord(1) && !g.hasrecord(100));	// without them
+		// XOVER 1-100 again, within the group's timeout: all of them
+		ostringstream again;
+		g.printoverdb(again, 1, 100);
+		CHECK(lines(again.str()) == 100);
+		CHECK(listed(again.str(), 1) && listed(again.str(), 100));
+	}
+	// The index [5000,25999] has records at both ends of each chunk, and
+	// its three chunks are marked. The resize to [15000,29999] drops all
+	// of chunk 0, half of chunk 1, nothing of chunk 2; its table (15000
+	// entries) doesn't fit in what is free.
+	{
+		static const artnum_t gone[] = { 5000, 9999, 10000, 14999 };
+		static const artnum_t kept[] = { 15000, 19999, 20000, 25999 };
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.partial");
+		g.setsize(1, 30000);
+		g.reindex(5000, 25999);
+		for (int i = 0; i < 4; i++) {
+			g.setover(over_record(gone[i]));
+			g.setover(over_record(kept[i]));
+		}
+		g.mark(0, 9999);
+		g.mark(1, 19999);
+		g.mark(2, 25999);
+		nvtime_t t2 = g.stamp(2, &through);
+		CHECK(t2 != 0 && through == 25999);
+		g.fill();
+		g.full = true;
+		bool threw = false;
+		try {
+			g.reindex(15000, 29999);
+		}
+		catch(const SystemError &) {
+			threw = true;
+		}
+		g.full = false;
+		CHECK(threw && g.refused > 0);
+		g.spoolrange(&f, &l);
+		CHECK(f == 5000 && l == 25999);
+		for (int i = 0; i < 4; i++) {
+			CHECK(!g.hasrecord(gone[i]));
+			CHECK(g.hasrecord(kept[i]));
+		}
+		// the chunks that lost records lost their marks: all of chunk 0
+		// went, and half of chunk 1
+		CHECK(!g.marked(0, &through));
+		CHECK(!g.marked(1, &through));
+		// (a guard) chunk 2 lost nothing and keeps its mark: its two
+		// records come from the index, not the news server's 6000
+		CHECK(g.stamp(2, &through) == t2 && through == 25999);
+		ostringstream top;
+		g.printoverdb(top, 20000, 25999);
+		CHECK(lines(top.str()) == 2);
+		CHECK(listed(top.str(), 20000) && listed(top.str(), 25999));
+		// STAT 10000 (the half of chunk 1 that went): not 423
+		CHECK(string(g.getover(10000)) == over_record(10000));
+		// XOVER 5000-9999 (chunk 0): all of them
+		ostringstream low;
+		g.printoverdb(low, 5000, 9999);
+		CHECK(lines(low.str()) == 5000);
+		CHECK(listed(low.str(), 5000) && listed(low.str(), 9999));
+	}
+}
+
 // The number of chunks the loop of CNewsgroup::print / RNewsgroup visits
 // for [f,l], or -1 if it doesn't end within max steps.
 static long long chunks(artnum_t f, artnum_t l, long long max)
@@ -399,7 +589,13 @@ int main()
 	CHECK(ARTNUM_MAX - ARTNUM_LIMIT == 2 * OVERVIEW_CHUNK);
 
 	rserver_initialised();
-	prefetch_sync();
+	string dir;
+	if (test_temp::create("cChunk", dir)) {
+		prefetch_sync(dir);
+		resize_failure(dir);
+	} else {
+		failures++;
+	}
 
 	if (failures) {
 		cerr << failures << " checks failed\n";
