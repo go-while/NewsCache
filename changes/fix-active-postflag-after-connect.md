@@ -5,3 +5,5 @@ Bug fixes:
   that server, such as updatenews -a or a session whose first command
   was LIST ACTIVE, kept the flag the server's list gave (usually y), so
   LIST ACTIVE and NEWGROUPS showed posting as allowed there.
+  A list stored before the upgrade gets the right flag at its next
+  refresh.

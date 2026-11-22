@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -436,6 +437,84 @@ func TestGroupKeepsActiveFlag(t *testing.T) {
 	}
 }
 
+// postFlagHandler is a news server that greets with greeting, answers
+// MODE READER with mode ("" = the greeting's code) and lists one group
+// with flag 'y'.
+func postFlagHandler(greeting, mode, group string) func(*fakeserver.Conn) {
+	if mode == "" {
+		mode = greeting[:4] + "reader"
+	}
+	return func(c *fakeserver.Conn) {
+		c.WriteLines(greeting)
+		for {
+			line, err := c.ReadLine()
+			if err != nil {
+				return
+			}
+			low := strings.ToLower(line)
+			switch {
+			case strings.HasPrefix(low, "mode reader"):
+				c.WriteLines(mode)
+			case low == "list overview.fmt":
+				c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
+			case isListActive(line):
+				c.WriteLines("215 list", group+" 3 1 y", ".")
+			case low == "quit":
+				c.WriteLines("205 bye")
+				return
+			default:
+				c.WriteLines("500 what")
+			}
+		}
+	}
+}
+
+func isListActive(line string) bool {
+	low := strings.ToLower(line)
+	return low == "list active" || strings.HasPrefix(low, "list active ")
+}
+
+// countListActive counts the LIST ACTIVE commands a news server got.
+func countListActive(s *fakeserver.Server) int {
+	n := 0
+	for _, l := range s.Lines() {
+		if isListActive(l) {
+			n++
+		}
+	}
+	return n
+}
+
+// postFlagList runs updatenews -a first unless via is "session", then
+// returns a fresh session's LIST ACTIVE as a map from group to flag.
+func postFlagList(t *testing.T, e *env, via string) map[string]string {
+	t.Helper()
+	if via != "session" {
+		e.writeConf()
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a").CombinedOutput()
+		if err != nil {
+			t.Fatalf("updatenews -a: %v\n%s", err, out)
+		}
+	}
+	p, s := e.sessionProcess()
+	if code, line := s.Cmd("LIST ACTIVE"); code != 215 {
+		t.Fatalf("LIST ACTIVE: %q", line)
+	}
+	lines := s.ReadDotLines()
+	quitSession(t, p, s)
+	flags := map[string]string{}
+	for _, l := range lines {
+		if f := strings.Fields(l); len(f) == 4 {
+			flags[f[0]] = f[3]
+		} else {
+			t.Errorf("LIST ACTIVE line %q", l)
+		}
+	}
+	return flags
+}
+
 // TestActivePostFlagAfterConnect: with setpostflag (the default), the groups
 // of a news server that greets with 201 (no posting) get 'n', also when its
 // LIST ACTIVE says 'y'. The flags for the list were decided before
@@ -443,13 +522,12 @@ func TestGroupKeepsActiveFlag(t *testing.T) {
 // (updatenews -a, a session's first LIST ACTIVE) stored the list's 'y'. A
 // 200 server and not-setpostflag keep the list's flag (guards). The reply
 // to MODE READER replaces the greeting (RFC 3977 5.3): 201 then 200 allows
-// posting (guard), 200 then 201 doesn't.
+// posting (guard), 200 then 201 doesn't. With two servers each gets its
+// own flag. Each case checks that the upstream got one LIST ACTIVE: the
+// session served the list updatenews stored (so updatenews decided the
+// flag), or fetched it itself.
 func TestActivePostFlagAfterConnect(t *testing.T) {
 	const no, yes = "201 fake ready, no posting", "200 fake ready"
-	isListActive := func(line string) bool {
-		low := strings.ToLower(line)
-		return low == "list active" || strings.HasPrefix(low, "list active ")
-	}
 	for _, tc := range []struct {
 		name     string
 		greeting string
@@ -464,69 +542,45 @@ func TestActivePostFlagAfterConnect(t *testing.T) {
 		{"greeting 200, mode reader 201", yes, "201 reader", "", "n"},
 	} {
 		for _, via := range []string{"session", "updatenews -a"} {
-			t.Run(tc.name+"/"+via, func(t *testing.T) {
+			t.Run(tc.name+", "+via, func(t *testing.T) {
 				e := newEnv(t)
 				// the list fetched once stays fresh for the session
 				e.Extra = "Timeouts 3600 3600"
 				e.ServerOptions = tc.options
-				upstreamWith(t, e, fakeserver.Options{NoGreeting: true, Handler: func(c *fakeserver.Conn) {
-					c.WriteLines(tc.greeting)
-					for {
-						line, err := c.ReadLine()
-						if err != nil {
-							return
-						}
-						low := strings.ToLower(line)
-						switch {
-						case strings.HasPrefix(low, "mode reader"):
-							if tc.mode != "" {
-								c.WriteLines(tc.mode)
-							} else {
-								c.WriteLines(tc.greeting[:4] + "reader")
-							}
-						case low == "list overview.fmt":
-							c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
-						case isListActive(line):
-							c.WriteLines("215 list", "test.alpha 3 1 y", ".")
-						case low == "quit":
-							c.WriteLines("205 bye")
-							return
-						default:
-							c.WriteLines("500 what")
-						}
-					}
-				}})
-				if via != "session" {
-					e.writeConf()
-					out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-a").CombinedOutput()
-					if err != nil {
-						t.Fatalf("updatenews -a: %v\n%s", err, out)
-					}
+				upstreamWith(t, e, fakeserver.Options{NoGreeting: true,
+					Handler: postFlagHandler(tc.greeting, tc.mode, "test.alpha")})
+				flags := postFlagList(t, e, via)
+				if len(flags) != 1 || flags["test.alpha"] != tc.want {
+					t.Errorf("LIST ACTIVE flags %v, want test.alpha %s", flags, tc.want)
 				}
-				p, s := e.sessionProcess()
-				if code, line := s.Cmd("LIST ACTIVE"); code != 215 {
-					t.Fatalf("LIST ACTIVE: %q", line)
-				}
-				lines := s.ReadDotLines()
-				quitSession(t, p, s)
-				if f := strings.Fields(strings.Join(lines, "\n")); len(f) != 4 ||
-					f[0] != "test.alpha" || f[3] != tc.want {
-					t.Errorf("LIST ACTIVE: %q, want test.alpha with flag %s", lines, tc.want)
-				}
-				// One fetch: the session served the list updatenews
-				// stored (so updatenews decided the flag), or fetched
-				// it itself.
-				lists := 0
-				for _, l := range e.Upstream.Lines() {
-					if isListActive(l) {
-						lists++
-					}
-				}
-				if lists != 1 {
-					t.Errorf("news server got %d LIST ACTIVE commands, want 1", lists)
+				if n := countListActive(e.Upstream); n != 1 {
+					t.Errorf("news server got %d LIST ACTIVE commands, want 1", n)
 				}
 			})
 		}
+	}
+	// A 200 server (first) and a 201 server: the second server's flag
+	// must come from its own greeting.
+	for _, via := range []string{"session", "updatenews -a"} {
+		t.Run("two servers, "+via, func(t *testing.T) {
+			e := newEnv(t)
+			e.Extra = "Timeouts 3600 3600"
+			e.ServerLines = "    Read test.*"
+			upstreamWith(t, e, fakeserver.Options{NoGreeting: true,
+				Handler: postFlagHandler(yes, "", "test.alpha")})
+			second := fakeserver.New(t, fakeserver.Options{NoGreeting: true,
+				Handler: postFlagHandler(no, "", "other.beta")})
+			e.ExtraServers = serverBlock(second, "other.*")
+			flags := postFlagList(t, e, via)
+			if len(flags) != 2 || flags["test.alpha"] != "y" || flags["other.beta"] != "n" {
+				t.Errorf("LIST ACTIVE flags %v, want test.alpha y, other.beta n", flags)
+			}
+			for _, s := range []*fakeserver.Server{e.Upstream, second} {
+				if n := countListActive(s); n != 1 {
+					t.Errorf("news server %d got %d LIST ACTIVE commands, want 1", s.Port(), n)
+				}
+			}
+		})
 	}
 }
 
