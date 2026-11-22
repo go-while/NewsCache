@@ -438,9 +438,6 @@ void NVActiveDB::write(ostream & os,
 	for (nvhi.first(); nvhi.valid(); nvhi.next()) {
 		nvhi.data(&buf, &bufsz);
 		gd.setraw(buf, bufsz);
-		// (as the client's LIST ACTIVE: see collect_active)
-		if (!GroupInfo::listable_name(gd.name()))
-			continue;
 		if (((!filter) ||
 		     ((matchgroup(filter, gd.name()) > 0))) &&
 		    ctime < gd.ctime()) {
