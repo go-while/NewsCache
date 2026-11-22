@@ -441,7 +441,9 @@ func TestGroupKeepsActiveFlag(t *testing.T) {
 // LIST ACTIVE says 'y'. The flags for the list were decided before
 // connect(), which is where a 201 turns posting off: a fresh process
 // (updatenews -a, a session's first LIST ACTIVE) stored the list's 'y'. A
-// 200 server and not-setpostflag keep the list's flag (guards).
+// 200 server and not-setpostflag keep the list's flag (guards). The reply
+// to MODE READER replaces the greeting (RFC 3977 5.3): 201 then 200 allows
+// posting (guard), 200 then 201 doesn't.
 func TestActivePostFlagAfterConnect(t *testing.T) {
 	const no, yes = "201 fake ready, no posting", "200 fake ready"
 	isListActive := func(line string) bool {
@@ -451,12 +453,15 @@ func TestActivePostFlagAfterConnect(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		greeting string
+		mode     string // reply to MODE READER; "" = the greeting's code
 		options  string
 		want     string
 	}{
-		{"greeting 201", no, "", "n"},
-		{"greeting 200", yes, "", "y"},
-		{"greeting 201, not-setpostflag", no, "not-setpostflag", "y"},
+		{"greeting 201", no, "", "", "n"},
+		{"greeting 200", yes, "", "", "y"},
+		{"greeting 201, not-setpostflag", no, "", "not-setpostflag", "y"},
+		{"greeting 201, mode reader 200", no, "200 reader", "", "y"},
+		{"greeting 200, mode reader 201", yes, "201 reader", "", "n"},
 	} {
 		for _, via := range []string{"session", "updatenews -a"} {
 			t.Run(tc.name+"/"+via, func(t *testing.T) {
@@ -474,8 +479,11 @@ func TestActivePostFlagAfterConnect(t *testing.T) {
 						low := strings.ToLower(line)
 						switch {
 						case strings.HasPrefix(low, "mode reader"):
-							// (the same code as the greeting)
-							c.WriteLines(tc.greeting[:4] + "reader")
+							if tc.mode != "" {
+								c.WriteLines(tc.mode)
+							} else {
+								c.WriteLines(tc.greeting[:4] + "reader")
+							}
 						case low == "list overview.fmt":
 							c.WriteLines("215 order", "Subject:", "From:", "Date:", "Message-ID:", "References:", ":bytes", ":lines", ".")
 						case isListActive(line):
