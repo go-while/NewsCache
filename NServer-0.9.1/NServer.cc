@@ -1925,12 +1925,22 @@ bool RServer::probelisted(const char *gname, artnum_t f, artnum_t l,
  * the range was taken for articles without a record. A server that
  * returns the whole range costs one more request (answered 423) only
  * when the range ends in numbers without articles.
+ *
+ * All the replies count against chunk (see ChunkBudget), which a caller
+ * that asks for several runs of one chunk gives each of them; without
+ * one, [fst,lst] (one chunk at most) gets its own. A server that moves
+ * the next request up by one number at a time can't make the replies
+ * add up to far more than the range, or go on for longer than it.
  */
 void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
-			 artnum_t lst)
+			 artnum_t lst, ReplyBudget * chunk)
 {
+	ChunkBudget own(fst, lst);
+
+	if (!chunk)
+		chunk = &own;
 	for (;;) {
-		artnum_t h = overviewrange(ng, fst, lst);
+		artnum_t h = overviewrange(ng, fst, lst, *chunk);
 		if (h < fst || h >= lst)
 			return;
 		fst = h + 1;
@@ -1938,7 +1948,7 @@ void RServer::overviewdb(Newsgroup * ng, artnum_t fst,
 }
 
 artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
-				artnum_t lst)
+				artnum_t lst, ReplyBudget & chunk)
 {
 	VERB(slog.p(Logger::Debug) << "RServer::overviewrange(*ng,"
 	     << fst << "-" << lst << ")\n");
@@ -1961,6 +1971,14 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 	string refused_cmd, refused;
 
 	selectgroup(ng->name());
+	if (chunk.expired()) {
+		// (in an earlier run or reply of the chunk; nothing was sent,
+		// the connection stays as it is)
+		ReplyLimitError e(chunk, true);
+		slog.p(Logger::Error) << _CurrentServer->hostname
+		    << ": OVER: " << e._errtext << "\n";
+		throw e;
+	}
 	for (;;) {
 		const bool over = (_CurrentServer->nntpflags & MPListEntry::F_OVER)
 		    && !over_refused;
@@ -1984,10 +2002,17 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 		p = resp.c_str();
 		if (NNTP_ISCODE(p, "224")) {
 			artnum_t r;
+			// (no longer than what is left of the chunk's time)
+			unsigned int seconds = chunk.seconds_left();
+			if (seconds > RANGE_REPLY_SECONDS)
+				seconds = RANGE_REPLY_SECONDS;
 			ReplyBudget budget(range_reply_rows(fst, lst), UINT64_MAX,
-					   RANGE_REPLY_SECONDS);
+					   seconds);
+			budget.within(&chunk);
 			try {
-				ReplyReadGuard reply(*_pServerStream, RANGE_REPLY_SECONDS);
+				if (!seconds)
+					throw ReplyLimitError(budget, true);
+				ReplyReadGuard reply(*_pServerStream, seconds);
 				r = ng->readoverdb(*_pServerStream, budget, fst, lst);
 				reply.finish();
 			}
@@ -3234,7 +3259,7 @@ void CServer::listgroup(const char *gname, char *lstgrp,
 }
 
 void CServer::overviewdb(Newsgroup * ng, artnum_t fst,
-			 artnum_t lst)
+			 artnum_t lst, ReplyBudget * chunk)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::overviewdb(*ng,"
 	     << fst << "-" << lst << ")\n");
@@ -3254,13 +3279,13 @@ void CServer::overviewdb(Newsgroup * ng, artnum_t fst,
 		}
 	}
 	if (!field) {
-		RServer::overviewdb(ng, fst, lst);
+		RServer::overviewdb(ng, fst, lst, chunk);
 		return;
 	}
 	XrefRecordFilter xf(this, mpe, ng->name(), field);
 	ng->setrecordfilter(&xf);
 	try {
-		RServer::overviewdb(ng, fst, lst);
+		RServer::overviewdb(ng, fst, lst, chunk);
 	}
 	catch(...) {
 		ng->setrecordfilter(NULL);

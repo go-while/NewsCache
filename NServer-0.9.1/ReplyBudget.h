@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <sstream>
 #include "Error.h"
+#include "readline.h"
 
 // A special build used only by the boundary integration tests; production
 // has no runtime or configuration switch for these limits.
@@ -22,6 +23,7 @@ static const unsigned int ARTICLE_REPLY_SECONDS = 2;
 static const unsigned int ARTICLE_REPLY_BYTES_PER_SECOND = 1U << 30;
 static const unsigned int OVERVIEW_FMT_SECONDS = 2;
 static const unsigned int STATUS_LINE_SECONDS = 2;
+static const unsigned int OVERVIEW_CHUNK_SECONDS = 4;
 #else
 // Full provider active lists normally contain far fewer than one million
 // groups; these limits leave ample headroom without allowing unlimited input.
@@ -50,6 +52,10 @@ static const unsigned int OVERVIEW_FMT_SECONDS = 30;
 // ReadTimeout. The whole line gets ReadTimeout (the server's time to act
 // and start its answer) plus this, see status_line_seconds.
 static const unsigned int STATUS_LINE_SECONDS = 60;
+// All the OVER replies of one chunk together (see ChunkBudget). A real
+// chunk comes in seconds: 10000 records of 1 KB are 10 MB; a whole chunk
+// in one reply already has RANGE_REPLY_SECONDS.
+static const unsigned int OVERVIEW_CHUNK_SECONDS = 5 * 60;
 #endif
 
 // Seconds a whole status line may take with this ReadTimeout: 0 (no
@@ -216,6 +222,47 @@ inline uint64_t range_reply_rows(uint64_t first, uint64_t last)
 	return span + 1 + RANGE_REPLY_SLACK;
 }
 
+/*
+ * One chunk's overview fetch (CNewsgroup::fetchchunk, RNewsgroup::load)
+ * sends an OVER for each run of numbers it lacks, and RServer::overviewdb
+ * asks again above the last record of a reply that stopped short (for
+ * providers that cap a reply). Each reply had only its own budget: a
+ * server that answered every request with the most rows it allows, all
+ * for its first number, moved the next request up by one number, so a
+ * chunk of 10000 numbers took about 5*10^7 rows, each one kept in memory,
+ * with a new deadline per reply, while the chunk's fetch lock was held.
+ * So all the replies of a chunk also count against one budget
+ * (ChunkBudget), with limits no real chunk comes near:
+ * - rows: each number's record once, plus RANGE_REPLY_SLACK stray rows
+ *   for every page of at least that many records: twice the numbers,
+ *   plus the slack;
+ * - bytes: each number's record (and the slack) at the longest line
+ *   NewsCache takes, NNTP_MAXLINE bytes and the "\n": what one reply of
+ *   the whole range may bring now, 10016 * 16385 bytes (156 MiB) for a
+ *   whole chunk. Real records have a few hundred bytes, a few KB with
+ *   long References, but 10000 records of 7 KB are already more than
+ *   64 MiB: a smaller fixed limit would refuse real chunks;
+ * - time: OVERVIEW_CHUNK_SECONDS for all the replies.
+ */
+static const uint64_t OVERVIEW_ROW_BYTES = NNTP_MAXLINE + 1;
+
+inline uint64_t chunk_reply_rows(uint64_t first, uint64_t last)
+{
+	uint64_t r = range_reply_rows(first, last);
+	uint64_t records = r - RANGE_REPLY_SLACK;	// (r is at least the slack)
+	if (r > UINT64_MAX - records)
+		return UINT64_MAX;
+	return r + records;
+}
+
+inline uint64_t chunk_reply_bytes(uint64_t first, uint64_t last)
+{
+	uint64_t r = range_reply_rows(first, last);
+	if (r > UINT64_MAX / OVERVIEW_ROW_BYTES)
+		return UINT64_MAX;
+	return r * OVERVIEW_ROW_BYTES;
+}
+
 // Counts wire bytes (including each line terminator) and every data row,
 // irrespective of whether that row is later accepted. The final dot is not
 // a data row. Callers report the command/server and close on false.
@@ -223,10 +270,13 @@ class ReplyBudget {
 	uint64_t _rows, _bytes, _max_rows, _max_bytes;
 	bool _timed;
 	struct timespec _started, _deadline;
+	const char *_name;	// what it limits, for ReplyLimitError
+	ReplyBudget *_outer;	// see within()
 public:
-	ReplyBudget(uint64_t max_rows, uint64_t max_bytes, unsigned int seconds = 0)
+	ReplyBudget(uint64_t max_rows, uint64_t max_bytes, unsigned int seconds = 0,
+		    const char *name = "upstream reply")
 		: _rows(0), _bytes(0), _max_rows(max_rows), _max_bytes(max_bytes),
-		  _timed(seconds != 0) {
+		  _timed(seconds != 0), _name(name), _outer(NULL) {
 		_started.tv_sec = _started.tv_nsec = 0;
 		_deadline = _started;
 		if (_timed && clock_gettime(CLOCK_MONOTONIC, &_started) == 0) {
@@ -234,7 +284,12 @@ public:
 			_deadline.tv_sec += seconds;
 		}
 	}
+	// Every row and byte counts against outer too, and outer's deadline
+	// ends this reply as well (a reply of a chunk, see ChunkBudget).
+	void within(ReplyBudget *outer) { _outer = outer; }
 	bool expired() const {
+		if (_outer && _outer->expired())
+			return true;
 		if (!_timed)
 			return false;
 		struct timespec now;
@@ -243,19 +298,44 @@ public:
 		return now.tv_sec > _deadline.tv_sec ||
 		    (now.tv_sec == _deadline.tv_sec && now.tv_nsec >= _deadline.tv_nsec);
 	}
+	// Whole seconds until the deadline, rounded up; 0 when it has passed,
+	// UINT_MAX without one. (Outer's deadline isn't looked at.)
+	unsigned int seconds_left() const {
+		if (!_timed)
+			return UINT_MAX;
+		struct timespec now;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+			return 0;
+		long long ns = ((long long) _deadline.tv_sec - now.tv_sec) * 1000000000LL +
+		    ((long long) _deadline.tv_nsec - now.tv_nsec);
+		if (ns <= 0)
+			return 0;
+		long long s = (ns + 999999999LL) / 1000000000LL;
+		return s > (long long) UINT_MAX ? UINT_MAX : (unsigned int) s;
+	}
 	bool add(uint64_t bytes) {
+		const bool outer = !_outer || _outer->add(bytes);
 		if (_rows == UINT64_MAX || bytes > UINT64_MAX - _bytes)
 			return false;
 		++_rows;
 		_bytes += bytes;
-		return _rows <= _max_rows && _bytes <= _max_bytes;
+		return outer && _rows <= _max_rows && _bytes <= _max_bytes;
 	}
 	bool finish(uint64_t bytes) {
+		const bool outer = !_outer || _outer->finish(bytes);
 		if (bytes > UINT64_MAX - _bytes)
 			return false;
 		_bytes += bytes;
-		return _bytes <= _max_bytes;
+		return outer && _bytes <= _max_bytes;
 	}
+	bool over() const { return _rows > _max_rows || _bytes > _max_bytes; }
+	// The budget that ran out: outer's (see within), else this one
+	const ReplyBudget &spent() const {
+		if (_outer && (_outer->over() || _outer->expired()))
+			return *_outer;
+		return *this;
+	}
+	const char *name() const { return _name; }
 	uint64_t rows() const { return _rows; }
 	uint64_t bytes() const { return _bytes; }
 	long long elapsed_ms() const {
@@ -267,11 +347,24 @@ public:
 	}
 };
 
+// The budget of all the OVER replies for [first,last], one chunk at most
+// (see chunk_reply_rows above). Each reply's own budget counts against it
+// (ReplyBudget::within).
+class ChunkBudget: public ReplyBudget {
+public:
+	ChunkBudget(uint64_t first, uint64_t last)
+		: ReplyBudget(chunk_reply_rows(first, last),
+			      chunk_reply_bytes(first, last), OVERVIEW_CHUNK_SECONDS,
+			      "upstream overview chunk") {}
+};
+
 class ReplyLimitError: public SystemError {
 public:
-	static std::string description(const ReplyBudget &budget, bool deadline) {
+	static std::string description(const ReplyBudget &reply, bool deadline) {
+		const ReplyBudget &budget = reply.spent();
 		std::ostringstream out;
-		out << "upstream reply " << (deadline || budget.expired() ? "deadline" : "limit")
+		out << budget.name() << " "
+		    << (deadline || budget.expired() ? "deadline" : "limit")
 		    << " exceeded: rows=" << budget.rows()
 		    << " bytes=" << budget.bytes() << " elapsed_ms=" << budget.elapsed_ms();
 		return out.str();

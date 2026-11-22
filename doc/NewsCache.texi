@@ -445,6 +445,13 @@ nothing is stored, and the log says so. Lines from a news server
 outside articles (status lines, overview records, the active list,
 LISTGROUP) are limited to 16384 bytes each, with the same effect; lines
 in articles count only towards @code{MaxArticleSize}.
+The overview of one chunk of 10000 article numbers, all the OVER
+replies for it together, has its own limits: twice its numbers plus 16
+records, 16385 bytes per number (plus 16), and five minutes. Past them
+the chunk isn't marked as synchronized (what came is kept, one record
+per article) and the log says so; the client gets the records from the
+news server, which has the same limits, or 403. A real chunk stays far
+below them.
 @code{MaxPostSize} is the largest article a client may post (with CRLF
 line ends); a larger one is read to its final @code{.} and refused with
 441. Both default to 1048576 (1 MiB) and take 1024 to 1073741824.

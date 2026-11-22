@@ -302,9 +302,11 @@ class RServer:virtual public NServer {
 	/**
 	* One OVER (or XOVER) request for [fst,lst]: stores the records in
 	* ng and returns the highest article number among them, 0 when
-	* there were none. Throws like overviewdb.
+	* there were none; the reply counts against chunk too (see
+	* ChunkBudget). Throws like overviewdb.
 	*/
-	artnum_t overviewrange(Newsgroup * ng, artnum_t fst, artnum_t lst);
+	artnum_t overviewrange(Newsgroup * ng, artnum_t fst, artnum_t lst,
+			       ReplyBudget & chunk);
 
 	RServer():NServer() {
 		_ServerList = NULL;
@@ -527,7 +529,10 @@ class RServer:virtual public NServer {
 	* \param ng Name of the newsgroup.
 	* \param fst First
 	* \param lst Last
-	* \throw SystemError If the connection to the news server fails.
+	* \param chunk The budget of all the replies for the chunk (see
+	* 	ChunkBudget); NULL: [fst,lst] gets one of its own.
+	* \throw SystemError If the connection to the news server fails;
+	* 	ReplyLimitError when a reply or the chunk's budget is exceeded.
 	* \throw NoNewsServerError If no news server is configured for this
 	* 	group.
 	* \throw NoSuchGroupError If the group does not exist.
@@ -537,7 +542,7 @@ class RServer:virtual public NServer {
 	* \throw NSError If news server does not implement over and xover.
 	*/
 	virtual void overviewdb(Newsgroup * ng, artnum_t fst,
-							artnum_t lst);
+							artnum_t lst, ReplyBudget * chunk = NULL);
 
 	/**
 	* Return a given article of a given newsgroup
@@ -824,7 +829,7 @@ class CServer
 	* \todo Synchronize Description and Code (throw).
 	*/
 	virtual void overviewdb(Newsgroup * ng, artnum_t fst,
-							artnum_t lst);
+							artnum_t lst, ReplyBudget * chunk = NULL);
 
 	/**
 	* Return a given article of a given newsgroup.

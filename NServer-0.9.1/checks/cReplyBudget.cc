@@ -164,6 +164,45 @@ static void short_send_ends_write()
 	close(l);
 }
 
+// All the OVER replies of a chunk count against one budget (ChunkBudget):
+// twice its numbers in rows plus the slack, each number and the slack at
+// the longest line in bytes. A reply within its own limit still fails
+// when the replies before it used up the chunk's.
+static void chunk_budget()
+{
+	CHECK(chunk_reply_rows(1, 30) == 2 * 30 + RANGE_REPLY_SLACK);
+	CHECK(chunk_reply_rows(1, 10000) == 2 * 10000 + RANGE_REPLY_SLACK);
+	CHECK(chunk_reply_rows(42, 41) == RANGE_REPLY_SLACK);
+	CHECK(chunk_reply_rows(0, UINT64_MAX) == UINT64_MAX);
+	CHECK(chunk_reply_bytes(1, 30) ==
+	      (30 + RANGE_REPLY_SLACK) * (NNTP_MAXLINE + 1));
+	CHECK(chunk_reply_bytes(0, UINT64_MAX) == UINT64_MAX);
+	// a whole chunk of the longest lines is more than 64 MiB
+	CHECK(chunk_reply_bytes(0, 9999) > 64ULL * 1024 * 1024);
+
+	ChunkBudget chunk(1, 1);	// 18 rows
+	const uint64_t one = range_reply_rows(1, 1);	// 17 rows
+	ReplyBudget a(one, UINT64_MAX), b(one, UINT64_MAX);
+	a.within(&chunk);
+	b.within(&chunk);
+	for (uint64_t i = 0; i < one; i++)
+		CHECK(a.add(10));
+	CHECK(a.finish(3));
+	CHECK(b.add(10));	// the chunk's 18th row
+	CHECK(!b.add(10));	// its 19th, the reply's second
+	CHECK(chunk.rows() == 19 && chunk.bytes() == 193);
+	CHECK(&b.spent() == &chunk && &a.spent() == &chunk);
+	CHECK(ReplyLimitError(b)._errtext.find(
+	    "upstream overview chunk limit exceeded: rows=19 bytes=193 ") == 0);
+	// a reply gets no more time than the chunk has left (overviewrange)
+	CHECK(chunk.seconds_left() >= 1 &&
+	      chunk.seconds_left() <= OVERVIEW_CHUNK_SECONDS);
+	CHECK(!b.expired());
+	ReplyBudget untimed(1, 1);
+	CHECK(untimed.seconds_left() == UINT_MAX);
+	CHECK(&untimed.spent() == &untimed);
+}
+
 int main()
 {
 #if defined(NEWSCACHE_TEST_SHORT_REPLY_LIMITS)
@@ -207,6 +246,10 @@ int main()
 	ReplyBudget overflow(UINT64_MAX, UINT64_MAX);
 	CHECK(overflow.add(UINT64_MAX));
 	CHECK(!overflow.add(1));
+	// a reply's own limit names the reply, as before
+	CHECK(ReplyLimitError(rows)._errtext.find(
+	    "upstream reply limit exceeded: rows=3 bytes=6 ") == 0);
+	chunk_budget();
 	// Counting normalized text would miss the extra CRs in this wire line.
 	std::istringstream input("group 1 1 y\r\r\r\n.\r\n");
 	std::string line;

@@ -417,16 +417,28 @@ namespace {
  * Takes the overview records that RServer::overviewdb reads into memory
  * instead of into the spool. RNewsgroup::readoverdb reads them with the
  * same reply budget and deadline, conversion and Xref filter as
- * NVNewsgroup::readoverdb.
+ * NVNewsgroup::readoverdb. Only the first record of each number of
+ * [first,last] is kept (storechunk stores no more): a server that sends
+ * one number again and again fills memory with one record of it, not
+ * with every copy. (The copies still count against the chunk's budget.)
  */
 class OverCollector:public RNewsgroup {
 	std::vector < std::string > &_records;
+	artnum_t _first, _last;
+	std::vector < bool > _got;	// _got[n - _first]: n's record is kept
   public:
 	OverCollector(RServer * srvr, OverviewFmt * fmt, const char *name,
+		      artnum_t first, artnum_t last,
 		      std::vector < std::string > &records)
-	: RNewsgroup(srvr, fmt, name), _records(records) {
+	: RNewsgroup(srvr, fmt, name), _records(records), _first(first),
+	    _last(last), _got(last - first + 1, false) {
 	}
 	virtual void setover(const std::string & over) {
+		artnum_t n = leading_artnum(over.c_str());
+
+		if (n < _first || n > _last || _got[n - _first])
+			return;
+		_got[n - _first] = true;
 		_records.push_back(over);
 	}
 };
@@ -437,10 +449,12 @@ class OverCollector:public RNewsgroup {
  * numbers it has, if it supports LISTGROUP, and the overview records the
  * spool doesn't have. Nothing is stored and no lock is held while the
  * news server is waited for; storechunk() stores the result. Throws what
- * the server connection throws (cf keeps what came before). false: the
- * news server's list didn't come whole (see listgroup): the records are
- * fetched as without LISTGROUP, nothing may be removed, and the chunk
- * gets only the retry pause (see retry_pause), not the group's timeout.
+ * the server connection throws (cf keeps what came before), also a
+ * ReplyLimitError when the overview replies together exceed the chunk's
+ * budget (see ChunkBudget). false: the news server's list didn't come
+ * whole (see listgroup): the records are fetched as without LISTGROUP,
+ * nothing may be removed, and the chunk gets only the retry pause (see
+ * retry_pause), not the group's timeout.
  */
 bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 {
@@ -448,7 +462,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 	     << "," << cf.top << ")\n");
 	artnum_t f, l, i, done = 0, f0 = cf.from, l0 = cf.top;
 	std::vector < char > have(l0 - f0 + 1, 0);
-	OverCollector got(_RServer, _OverviewFormat, _NewsgroupName,
+	OverCollector got(_RServer, _OverviewFormat, _NewsgroupName, f0, l0,
 			  cf.records);
 
 	cf.lstgrp.assign(l0 - f0 + 1, 0);
@@ -465,6 +479,8 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 				break;
 		}
 	}
+	// one budget for all the OVER replies below, every run's
+	ChunkBudget budget(f0, l0);
 	if (cf.listed) {
 		// The listed numbers we have no record for, in runs (with
 		// fewer than 8 others in between). Articles the server lists
@@ -478,7 +494,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 				if (!have[i - f0] && cf.lstgrp[i - f0])
 					l = i;
 			}
-			_RServer->overviewdb(&got, f, l);
+			_RServer->overviewdb(&got, f, l, &budget);
 			done = l;
 		}
 	} else {
@@ -496,7 +512,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 				if (!have[i - f0])
 					l = i;
 			}
-			_RServer->overviewdb(&got, f, l);
+			_RServer->overviewdb(&got, f, l, &budget);
 			f = l + 1;
 		}
 	}
@@ -687,6 +703,10 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 			catch(...) {
 				// what came before the failure is kept, as when
 				// the records were stored as they came
+				slog.p(Logger::Notice) << name() << ": "
+				    << cf.records.size() << " overview records of "
+				    << cf.from << "-" << cf.top
+				    << " came before the fetch failed\n";
 				storechunk(cf, fetch_failed);
 				throw;
 			}
