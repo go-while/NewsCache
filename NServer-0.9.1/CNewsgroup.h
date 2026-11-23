@@ -68,15 +68,18 @@ class CNewsgroup:public NVNewsgroup {
 	bool synced(artnum_t c, artnum_t l, nvtime_t now);
 	bool chunkrange(artnum_t f, artnum_t l, ChunkFetch & cf);
 	bool fetchchunk(ChunkFetch & cf);
-	void storechunk(ChunkFetch & cf, FetchResult result);
+	// false: records went meanwhile, the chunk isn't marked and the
+	// caller must not serve it from the index (see CNewsgroup.cc)
+	bool storechunk(ChunkFetch & cf, FetchResult result);
 	// the retry pause after an incomplete list (see CNewsgroup.cc)
 	nvtime_t retry_pause(void);
 	bool counts(const SyncEnt & e, nvtime_t now);
 	void setretrysync(artnum_t c, artnum_t through, bool full);
 	void prefetchchunk(artnum_t a, artnum_t b);
 	// false when the chunk couldn't be synchronized (disk full, the
-	// news server refused or failed): the caller serves the chunk from
-	// the news server instead. A CorruptDBError goes on to the caller.
+	// news server refused or failed, cached records went during the
+	// fetch): the caller serves the chunk from the news server instead.
+	// A CorruptDBError goes on to the caller.
 	bool freshen(artnum_t f, artnum_t l, int *refreshed);
 	// cover(), with an index that can't grow (disk full) taken as
 	// "not covered": the numbers are passed on from the news server

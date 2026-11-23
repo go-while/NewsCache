@@ -230,6 +230,25 @@ struct DbRServer:public RServer {
 	}
 };
 
+// A DbRServer that runs hook (once, with arg) before its next overview
+// request: what another session does while a fetch waits for the news
+// server (after fetchchunk looked at the spool).
+struct HookRServer:public DbRServer {
+	void (*hook) (void *);
+	void *arg;
+	HookRServer(MPList * l, const std::string & db)
+	:DbRServer(l, db), hook(NULL), arg(NULL) {
+	}
+	virtual void overviewdb(Newsgroup * ng, artnum_t fst, artnum_t lst) {
+		if (hook) {
+			void (*h) (void *) = hook;
+			hook = NULL;
+			h(arg);
+		}
+		DbRServer::overviewdb(ng, fst, lst);
+	}
+};
+
 // RServer(MPList *) sets every member, whatever the memory held before:
 // it left _pServerStream unset, and the first command wrote through it
 // (SIGSEGV on FreeBSD, where the stack wasn't zero).
@@ -370,9 +389,28 @@ static void prefetch_sync(const string & dir)
 struct FullDiskProbe:public PrefetchProbe {
 	bool full;
 	int refused;		// the times the file couldn't grow
+	artnum_t give;		// retrievearticle gives an article for it
+	artnum_t fire_at;	// on_fetch runs at its fetch (0: the first)
 	FullDiskProbe(RServer * rs, OverviewFmt * fmt, const char *dir,
 		      const char *name)
-	:PrefetchProbe(rs, fmt, dir, name), full(false), refused(0) {
+	:PrefetchProbe(rs, fmt, dir, name), full(false), refused(0),
+	 give(0), fire_at(0) {
+	}
+	virtual Article *retrievearticle(artnum_t nbr) {
+		if (on_fetch && (!fire_at || nbr == fire_at)) {
+			void (*f) (void *) = on_fetch;
+			on_fetch = NULL;
+			f(arg);
+		}
+		if (!give || nbr != give)
+			return NULL;
+		char t[256];
+		int n = snprintf(t, sizeof(t), "Message-ID: <%llu@chunk.invalid>\r\n"
+				 "Subject: Subject %llu\r\n"
+				 "From: poster@example.invalid\r\n\r\nbody\r\n",
+				 (unsigned long long) nbr,
+				 (unsigned long long) nbr);
+		return new Article(nbr, t, n);
 	}
 	virtual size_t resize(size_t nsz) {
 		if (full) {
@@ -554,7 +592,7 @@ static void resize_failure(const string & dir)
 	e.retries = 0;
 	e.nntpflags = MPListEntry::F_LISTGROUP | MPListEntry::F_XOVER;
 	list.entries.push_back(e);
-	DbRServer rs(&list, dir + "/.active64");
+	HookRServer rs(&list, dir + "/.active64");
 	OverviewFmt fmt;
 	artnum_t through, f, l;
 
@@ -718,6 +756,45 @@ static void resize_failure(const string & dir)
 		CHECK(lines(all.str()) == 100);
 		CHECK(listed(all.str(), 1) && listed(all.str(), 100));
 	}
+	// The racing request itself: XOVER 1-100 finds 1-100 but 50 cached,
+	// and while it asks the news server for 50, another session's resize
+	// frees them and fails. The chunk wasn't marked, but this XOVER still
+	// printed the index: only 50, then ".".
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.racexover");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		rs.hook = resize_far_above_cb;
+		rs.arg = &g;
+		ostringstream all;
+		g.printoverdb(all, 1, 100);
+		CHECK(rs.hook == NULL);	// (the resize happened)
+		rs.hook = NULL;
+		CHECK(!g.hasrecord(1) && !g.hasrecord(100));
+		CHECK(lines(all.str()) == 100);
+		CHECK(listed(all.str(), 1) && listed(all.str(), 100));
+		CHECK(!g.marked(0, &through));
+	}
+	// The same for STAT 7 (getover): it answered 423.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.racestat");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		rs.hook = resize_far_above_cb;
+		rs.arg = &g;
+		string o = g.getover(7);
+		CHECK(rs.hook == NULL);	// (the resize happened)
+		rs.hook = NULL;
+		CHECK(!g.hasrecord(7));
+		CHECK(o == over_record(7));
+		CHECK(!g.marked(0, &through));
+	}
 	// (a guard) The same fetch with nothing in between marks the chunk,
 	// and the records come from the index.
 	{
@@ -755,6 +832,26 @@ static void resize_failure(const string & dir)
 		CHECK(!g.marked(0, &through));
 		// STAT 7: not 423
 		CHECK(string(g.getover(7)) == over_record(7));
+	}
+	// prefetchchunk stores article 1 into an empty part (no record when
+	// it looked), and during the fetch of 2 another session's resize
+	// frees it and fails. Only records found at first counted, so the
+	// chunk was marked through 100 without article 1.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.prefetchnew");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		g.give = 1;
+		g.fire_at = 2;
+		g.on_fetch = resize_far_above_cb;
+		g.arg = &g;
+		g.prefetch(1, 100);
+		CHECK(g.on_fetch == NULL);	// (the resize happened)
+		g.give = 0;
+		CHECK(!g.hasrecord(1));
+		CHECK(!g.marked(0, &through));
+		// STAT 1: not 423
+		CHECK(string(g.getover(1)) == over_record(1));
 	}
 	// (a guard) The same prefetch with nothing in between marks the
 	// chunk.

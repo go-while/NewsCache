@@ -11,5 +11,6 @@ Bug fixes:
   cleared before the articles are removed, so that, if the move fails,
   those parts are fetched from the news server again on the next
   request; a refresh of such a part that was under way at the time
-  (another client's, or updatenews -g) no longer marks it. When the
+  (another client's, or updatenews -g) no longer marks it, and the
+  client's command gets those articles from the news server. When the
   move succeeds, nothing changes.

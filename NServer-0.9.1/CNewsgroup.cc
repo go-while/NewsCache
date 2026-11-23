@@ -504,8 +504,10 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  * come whole; what came is stored, and the chunk gets a retry entry
  * (see retry_pause). fetch_failed: the fetch failed half way; what came
  * is stored, but the chunk isn't marked (its index may lack records).
+ * false: a record that was there when fetchchunk() looked has gone; the
+ * index lacks it, so the caller must get the range from the news server.
  */
-void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
+bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 {
 	// Flush the history batch before releasing the group's lock: a
 	// replacement group may already have stored the same locations
@@ -519,7 +521,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 	// freshen must use its upstream fallback if nothing can be stored.
 	require_named();
 	if (arrfst > arrlst)
-		return;
+		return true;
 	if (top > arrlst)
 		top = arrlst;
 	if (_ghave && top > _glast)
@@ -531,7 +533,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
 	if (first > top)
-		return;
+		return true;
 	for (std::vector < std::string >::const_iterator r = cf.records.begin();
 	     r != cf.records.end(); ++r) {
 		artnum_t n = leading_artnum(r->c_str());
@@ -576,7 +578,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 	if (result == fetch_failed || lost) {
 		if (!cf.records.empty())
 			setmtime(cf.now);
-		return;
+		return !lost;
 	}
 	getsync(cf.c, &e);
 	if (cf.full) {
@@ -607,6 +609,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			setsync(cf.c, e.time, top);
 	}
 	setmtime(cf.now);
+	return true;
 }
 
 /*
@@ -715,7 +718,11 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 				throw;
 			}
 		}
-		storechunk(cf, result);
+		// Records the fetch didn't ask for, since the index had
+		// them, went meanwhile (another session's resize_index that
+		// failed): the chunk isn't marked, and the index lacks them
+		if (!storechunk(cf, result))
+			return false;
 	}
 	catch(const CorruptDBError &) {
 		// NVcontainer has moved the database aside and started a new
@@ -1138,6 +1145,13 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 					// (a session may have stored it meanwhile)
 					if (!spooled(f))
 						setarticle(art);
+					// what is there now counts for the
+					// check before the mark below: a
+					// failed resize during a later fetch
+					// can free it too
+					NVArray::sget(f, &data, &szdata);
+					if (data)
+						kind[f - a] = *data;
 				}
 				catch(...) {
 					delete art;
@@ -1175,9 +1189,9 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
 	// Nor when a listed number's record that was there when kind was
-	// taken has gone meanwhile (as in storechunk: another session's
-	// resize_index freed it and then failed for want of space): it
-	// wasn't fetched, and marked, the chunk served it as absent.
+	// taken, or that was stored above, has gone meanwhile (as in
+	// storechunk: another session's resize_index freed it and then
+	// failed for want of space): marked, the chunk served it as absent.
 	bool lost = false;
 	for (f = first; whole && a <= f && f <= top; f++) {
 		if (lstgrp[f - a] && kind[f - a] && !NVArray::shas_element(f)) {
