@@ -10,6 +10,6 @@ Bug fixes:
   skipped them. The marks of the parts that lose articles are now
   cleared before the articles are removed, so that, if the move fails,
   those parts are fetched from the news server again on the next
-  request; a refresh of such a part by another client that was under
-  way meanwhile no longer marks it. When the move succeeds,
-  nothing changes.
+  request; a refresh of such a part that was under way at the time
+  (another client's, or updatenews -g) no longer marks it. When the
+  move succeeds, nothing changes.

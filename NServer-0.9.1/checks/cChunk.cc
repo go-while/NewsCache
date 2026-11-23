@@ -514,6 +514,12 @@ static void resize_far_above(FullDiskProbe & g)
 	failed_resize(g, 20000, 30000);
 }
 
+// The same as PrefetchProbe::on_fetch (arg: the probe)
+static void resize_far_above_cb(void *g)
+{
+	resize_far_above(*(FullDiskProbe *) g);
+}
+
 // Whether the index holds exactly the three_recs in [f,l].
 static bool holds(FullDiskProbe & g, artnum_t f, artnum_t l)
 {
@@ -727,6 +733,40 @@ static void resize_failure(const string & dir)
 		ostringstream all;
 		g.printoverdb(all, 1, 100);
 		CHECK(lines(all.str()) == 100);
+	}
+	// The same in updatenews -g (prefetchchunk): it found the overview
+	// records of 1-100 but 50 and asks for the articles one by one;
+	// during the first, another session's resize frees 1-100 and fails.
+	// The chunk was marked through 100.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.prefetch");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		g.on_fetch = resize_far_above_cb;
+		g.arg = &g;
+		g.prefetch(1, 100);
+		CHECK(g.on_fetch == NULL);	// (the resize happened)
+		g.spoolrange(&f, &l);
+		CHECK(f == 1 && l == 100);
+		CHECK(!g.hasrecord(1) && !g.hasrecord(100));
+		CHECK(!g.marked(0, &through));
+		// STAT 7: not 423
+		CHECK(string(g.getover(7)) == over_record(7));
+	}
+	// (a guard) The same prefetch with nothing in between marks the
+	// chunk.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.prefetched");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		g.prefetch(1, 100);
+		CHECK(g.marked(0, &through) && through == 100);
 	}
 	// (a guard) The same resize as for "partial", with room: it
 	// succeeds, and the chunks it keeps keep their entries in the new

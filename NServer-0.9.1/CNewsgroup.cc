@@ -1174,7 +1174,20 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		first = arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
-	if (whole && a <= first && first <= top &&
+	// Nor when a listed number's record that was there when kind was
+	// taken has gone meanwhile (as in storechunk: another session's
+	// resize_index freed it and then failed for want of space): it
+	// wasn't fetched, and marked, the chunk served it as absent.
+	bool lost = false;
+	for (f = first; whole && a <= f && f <= top; f++) {
+		if (lstgrp[f - a] && kind[f - a] && !NVArray::shas_element(f)) {
+			lost = true;
+			break;
+		}
+		if (f == top)
+			break;
+	}
+	if (whole && !lost && a <= first && first <= top &&
 	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
 		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
 	setmtime(nvtime(NULL));
