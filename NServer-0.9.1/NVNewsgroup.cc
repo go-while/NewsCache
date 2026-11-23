@@ -444,6 +444,23 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 	_ghave = 1;
 
 	NVLock guard(*this, NVcontainer::ExclLock);	// (resize_index allocates)
+	// An offline group and a cached group share the same index. When
+	// either drops the newest records, their synchronization must end
+	// at l too, so an online refresh fetches them if the range recovers.
+	artnum_t previous = knownlast();
+	if (l < previous && arrfst <= arrlst) {
+		if (l < arrfst) {
+			slog.p(Logger::Notice) << name()
+			    << ": the news server's last article number went "
+			    << "down from " << previous << " to " << l
+			    << ", below the cached articles: dropping them\n";
+		} else {
+			SyncEnt e;
+			artnum_t c = l / OVERVIEW_CHUNK;
+			if (getsync(c, &e) && e.through > l)
+				setsync(c, e.time, l);
+		}
+	}
 	if (arrfst <= arrlst) {
 		lo = arrfst;
 		hi = arrlst;
@@ -465,6 +482,12 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 				resize_index(lo, hi);
 		}
 	}
+	// Only an online group needs to create a synchronization header.
+	// Reading a legacy index offline must not allocate a replacement
+	// table just to record a change in the advertised upper bound.
+	SyncHdr *h = synchdr();
+	if (h && h->glast != l)
+		h->glast = l;
 }
 
 bool NVNewsgroup::spooled(artnum_t nbr)

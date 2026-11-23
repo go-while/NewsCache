@@ -45,6 +45,14 @@ struct StoredGroup:public NVNewsgroup {
 	void grow(artnum_t f, artnum_t l) {
 		cover(f, l);
 	}
+	void make_legacy_index(unsigned long f, unsigned long l) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		NVArray::ssetsize(f, l);
+	}
+	bool has_sync_header() {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		return synchdr() != NULL;
+	}
 	void free_one(artnum_t n) {
 		NVLock guard(*this, NVcontainer::ExclLock);
 		freerange(n, n);
@@ -199,6 +207,41 @@ static void chunk_expired_then_restored(const string &dir, OverviewFmt &fmt)
 	g.setsize(1, 100);
 	g.grow(1, 100);
 	CHECK(!g.synced_to(39));
+}
+
+// An offline reader opens a plain NVNewsgroup using a newer active
+// listing. The next updater sees the range restored and needs just the
+// records that reader discarded, even within the original group timeout.
+static void offline_shrink_then_restore(const string &dir, OverviewFmt &fmt)
+{
+	{
+		StoredGroup legacy(&fmt, dir.c_str(), "test.offlinelegacy");
+		legacy.make_legacy_index(1, 60);
+		legacy.setsize(1, 100);
+		CHECK(!legacy.has_sync_header());
+		ChunkRangeProbe online(&fmt, dir.c_str(), "test.offlinelegacy");
+		online.setsize(1, 100);
+		CHECK(legacy.has_sync_header());
+	}
+	const char *name = "test.offlineshrink";
+	ChunkRangeProbe online(&fmt, dir.c_str(), name);
+	online.setsize(1, 100);
+	online.grow(1, 100);
+	CHECK(online.snapshot());
+	online.pending.now = nvtime(NULL);
+	online.add_over("90\tsubject\tfrom@x\tdate\t<ninety@x>\t\t100\t5");
+	online.finish();
+	CHECK(online.hasrecord(90));
+	{
+		NVNewsgroup offline(&fmt, dir.c_str(), name);
+		offline.setsize(1, 60);
+		CHECK(!offline.hasrecord(90));
+	}
+	online.setsize(1, 100);
+	online.grow(1, 100);
+	CHECK(online.range_now(1, 100));
+	CHECK(!online.pending.full && online.pending.from == 61 &&
+	      online.pending.top == 100);
 }
 
 // A fetch whose LISTGROUP didn't come whole (fetch_unlisted) stores what
@@ -594,6 +637,7 @@ int main(void)
 	chunk_range_change(dir, fmt);
 	chunk_range_overlap(dir, fmt);
 	chunk_expired_then_restored(dir, fmt);
+	offline_shrink_then_restore(dir, fmt);
 	chunk_retry_pause(dir, fmt);
 	note_older_then_free(dir, fmt);
 
