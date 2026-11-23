@@ -1,5 +1,5 @@
 Bug fixes:
-* An offline reader that saw a group's last article number fall removed
-  the newer overview records but kept their synchronization mark. If the
-  numbers returned before the group timeout, updatenews could skip those
-  records. The mark now ends at the last number the offline reader kept.
+* When an offline reader sees a lower last article number advertised for
+  a group, NewsCache caps the overview synchronization mark at that number.
+  If the range grows again before the group timeout, updatenews and
+  online readers fetch the missing overview records.

@@ -482,9 +482,8 @@ void NVNewsgroup::setsize(artnum_t f, artnum_t l)
 				resize_index(lo, hi);
 		}
 	}
-	// Only an online group needs to create a synchronization header.
-	// Reading a legacy index offline must not allocate a replacement
-	// table just to record a change in the advertised upper bound.
+	// Record the advertised high in an existing synchronization header.
+	// A legacy index without one can wait until its next resize.
 	SyncHdr *h = synchdr();
 	if (h && h->glast != l)
 		h->glast = l;
