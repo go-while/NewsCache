@@ -445,13 +445,6 @@ nothing is stored, and the log says so. Lines from a news server
 outside articles (status lines, overview records, the active list,
 LISTGROUP) are limited to 16384 bytes each, with the same effect; lines
 in articles count only towards @code{MaxArticleSize}.
-The overview of one chunk of 10000 article numbers, all the OVER
-replies for it together, has its own limits: twice its numbers plus 16
-records, 16385 bytes per number (plus 16), and five minutes. Past them
-the chunk isn't marked as synchronized (what came is kept, one record
-per article) and the log says so; the client gets the records from the
-news server, which has the same limits, or 403. A real chunk stays far
-below them.
 @code{MaxPostSize} is the largest article a client may post (with CRLF
 line ends); a larger one is read to its final @code{.} and refused with
 441. Both default to 1048576 (1 MiB) and take 1024 to 1073741824.
@@ -872,6 +865,22 @@ Only one session fetches a range at a time; a second one that wants the
 same range waits for it and then serves what the first one stored. The lock for that is the file
 @file{.fetch.lock} in the spool directory. It holds no data,
 newscacheclean leaves it alone, and backups can skip it.
+
+The overview replies for one such range of 10000 numbers have limits
+for all of them together, however many requests they take: twice its
+numbers plus 16 records, 16385 bytes per number (plus 16), and five
+minutes. Typical records have a few hundred bytes, a few KB with long
+References, so a real range stays far below these limits; a session
+holds at most about 160 MB of records for one range (10000 numbers of
+at most 16384 bytes each). Past a limit the range isn't marked as
+synchronized and the log says so (@samp{upstream overview chunk limit
+exceeded}, or @samp{deadline}). The records that arrived before it are
+kept, one per article, so the next request continues from there.
+NewsCache then asks the news server once more, directly, with the same
+limits; the client gets the records or 403. (Each reply had only its
+own limits before: a news server that sent the first record of the
+range again and again could make NewsCache ask 10000 times for one
+range and hold 50 million records.)
 
 The group database (@file{.db}) never shrinks. A spool written by an
 older version may hold a large one; remove the group's directory to get

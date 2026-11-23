@@ -1970,15 +1970,15 @@ artnum_t RServer::overviewrange(Newsgroup * ng, artnum_t fst,
 	bool over_refused = false;
 	string refused_cmd, refused;
 
-	selectgroup(ng->name());
 	if (chunk.expired()) {
-		// (in an earlier run or reply of the chunk; nothing was sent,
-		// the connection stays as it is)
+		// (in an earlier run or reply of the chunk) Before GROUP too:
+		// nothing is sent, the connection stays as it is.
 		ReplyLimitError e(chunk, true);
-		slog.p(Logger::Error) << _CurrentServer->hostname
-		    << ": OVER: " << e._errtext << "\n";
+		slog.p(Logger::Error) << ng->name() << ": OVER: " << e._errtext
+		    << "\n";
 		throw e;
 	}
+	selectgroup(ng->name());
 	for (;;) {
 		const bool over = (_CurrentServer->nntpflags & MPListEntry::F_OVER)
 		    && !over_refused;

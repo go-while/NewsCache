@@ -702,11 +702,14 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 			}
 			catch(...) {
 				// what came before the failure is kept, as when
-				// the records were stored as they came
-				slog.p(Logger::Notice) << name() << ": "
-				    << cf.records.size() << " overview records of "
-				    << cf.from << "-" << cf.top
-				    << " came before the fetch failed\n";
+				// the records were stored as they came (the next
+				// request asks only for the others)
+				if (!cf.records.empty())
+					slog.p(Logger::Notice) << name() << ": "
+					    << cf.records.size()
+					    << " overview records of " << cf.from
+					    << "-" << cf.top << " came before the "
+					    "fetch failed, they are kept\n";
 				storechunk(cf, fetch_failed);
 				throw;
 			}

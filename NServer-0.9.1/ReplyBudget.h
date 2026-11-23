@@ -233,9 +233,11 @@ inline uint64_t range_reply_rows(uint64_t first, uint64_t last)
  * with a new deadline per reply, while the chunk's fetch lock was held.
  * So all the replies of a chunk also count against one budget
  * (ChunkBudget), with limits no real chunk comes near:
- * - rows: each number's record once, plus RANGE_REPLY_SLACK stray rows
- *   for every page of at least that many records: twice the numbers,
- *   plus the slack;
+ * - rows: 2n + RANGE_REPLY_SLACK for the n numbers, all the replies
+ *   together: as many as one reply of the whole range may have (n +
+ *   RANGE_REPLY_SLACK), and n more for the stray rows that pages may
+ *   have (RANGE_REPLY_SLACK per page when each page holds at least that
+ *   many records); every row counts, also one that is dropped;
  * - bytes: each number's record (and the slack) at the longest line
  *   NewsCache takes, NNTP_MAXLINE bytes and the "\n": what one reply of
  *   the whole range may bring now, 10016 * 16385 bytes (156 MiB) for a
