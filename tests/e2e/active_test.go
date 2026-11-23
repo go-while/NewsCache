@@ -493,7 +493,9 @@ func postFlagList(t *testing.T, e *env, via string) map[string]string {
 		e.writeConf()
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a").CombinedOutput()
+		cmd := exec.CommandContext(ctx, updatenewsBin(t, e), "-c", e.Conf, "-a")
+		cmd.WaitDelay = 5 * time.Second
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("updatenews -a: %v\n%s", err, out)
 		}
@@ -506,10 +508,12 @@ func postFlagList(t *testing.T, e *env, via string) map[string]string {
 	quitSession(t, p, s)
 	flags := map[string]string{}
 	for _, l := range lines {
-		if f := strings.Fields(l); len(f) == 4 {
-			flags[f[0]] = f[3]
-		} else {
+		if f := strings.Fields(l); len(f) != 4 {
 			t.Errorf("LIST ACTIVE line %q", l)
+		} else if _, dup := flags[f[0]]; dup {
+			t.Errorf("LIST ACTIVE lists %s twice: %q", f[0], lines)
+		} else {
+			flags[f[0]] = f[3]
 		}
 	}
 	return flags
@@ -523,7 +527,7 @@ func postFlagList(t *testing.T, e *env, via string) map[string]string {
 // 200 server and not-setpostflag keep the list's flag (guards). The reply
 // to MODE READER replaces the greeting (RFC 3977 5.3): 201 then 200 allows
 // posting (guard), 200 then 201 doesn't. With two servers each gets its
-// own flag. Each case checks that the upstream got one LIST ACTIVE: the
+// own flag, in either order. Each case checks that the upstream got one LIST ACTIVE: the
 // session served the list updatenews stored (so updatenews decided the
 // flag), or fetched it itself.
 func TestActivePostFlagAfterConnect(t *testing.T) {
@@ -559,28 +563,37 @@ func TestActivePostFlagAfterConnect(t *testing.T) {
 			})
 		}
 	}
-	// A 200 server (first) and a 201 server: the second server's flag
-	// must come from its own greeting.
-	for _, via := range []string{"session", "updatenews -a"} {
-		t.Run("two servers, "+via, func(t *testing.T) {
-			e := newEnv(t)
-			e.Extra = "Timeouts 3600 3600"
-			e.ServerLines = "    Read test.*"
-			upstreamWith(t, e, fakeserver.Options{NoGreeting: true,
-				Handler: postFlagHandler(yes, "", "test.alpha")})
-			second := fakeserver.New(t, fakeserver.Options{NoGreeting: true,
-				Handler: postFlagHandler(no, "", "other.beta")})
-			e.ExtraServers = serverBlock(second, "other.*")
-			flags := postFlagList(t, e, via)
-			if len(flags) != 2 || flags["test.alpha"] != "y" || flags["other.beta"] != "n" {
-				t.Errorf("LIST ACTIVE flags %v, want test.alpha y, other.beta n", flags)
-			}
-			for _, s := range []*fakeserver.Server{e.Upstream, second} {
-				if n := countListActive(s); n != 1 {
-					t.Errorf("news server %d got %d LIST ACTIVE commands, want 1", s.Port(), n)
+	// Two servers, in both orders: each must get the flag of its own
+	// greeting, and a 201 server's 'n' must not reach the other one.
+	for _, order := range []struct {
+		name                string
+		first, second       string // greetings
+		wantAlpha, wantBeta string
+	}{
+		{"200 then 201", yes, no, "y", "n"},
+		{"201 then 200", no, yes, "n", "y"},
+	} {
+		for _, via := range []string{"session", "updatenews -a"} {
+			t.Run("two servers, "+order.name+", "+via, func(t *testing.T) {
+				e := newEnv(t)
+				e.Extra = "Timeouts 3600 3600"
+				e.ServerLines = "    Read test.*"
+				upstreamWith(t, e, fakeserver.Options{NoGreeting: true,
+					Handler: postFlagHandler(order.first, "", "test.alpha")})
+				second := fakeserver.New(t, fakeserver.Options{NoGreeting: true,
+					Handler: postFlagHandler(order.second, "", "other.beta")})
+				e.ExtraServers = serverBlock(second, "other.*")
+				flags := postFlagList(t, e, via)
+				if len(flags) != 2 || flags["test.alpha"] != order.wantAlpha || flags["other.beta"] != order.wantBeta {
+					t.Errorf("LIST ACTIVE flags %v, want test.alpha %s, other.beta %s", flags, order.wantAlpha, order.wantBeta)
 				}
-			}
-		})
+				for _, s := range []*fakeserver.Server{e.Upstream, second} {
+					if n := countListActive(s); n != 1 {
+						t.Errorf("news server %d got %d LIST ACTIVE commands, want 1", s.Port(), n)
+					}
+				}
+			})
+		}
 	}
 }
 
