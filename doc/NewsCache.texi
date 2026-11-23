@@ -870,7 +870,7 @@ The overview replies for one such range of 10000 numbers have limits
 for all of them together, however many requests they take: twice its
 numbers plus 16 records, 16385 bytes per number (plus 16), and five
 minutes. Typical records have a few hundred bytes, a few KB with long
-References, so a real range stays far below these limits; a session
+References, so a typical range stays far below the row and byte limits; a session
 holds at most about 160 MB of records for one range (10000 numbers of
 at most 16384 bytes each). Past a limit the range isn't marked as
 synchronized and the log says so (@samp{upstream overview chunk limit
@@ -878,10 +878,12 @@ exceeded}, or @samp{deadline}). The records that arrived before it are
 kept, one per article, so the next request continues from there.
 NewsCache then asks the news server once more, directly, with the same
 limits; the client gets the records or 403.
-A single client request can take up to about twice the five minutes
-(the refresh, then the direct request with its own limits), plus the
-waits for status lines (at most @code{ReadTimeout} plus 60 seconds
-each).
+For each range of 10000 numbers a request asks for, that can take up
+to about twice the five minutes (the refresh, then the direct request
+with its own limits), plus the waits for status lines (at most
+@code{ReadTimeout} plus 60 seconds each when @code{ReadTimeout} is
+set), plus any wait for another session that is fetching the same
+range.
 (Each reply had only its
 own limits before: a news server that sent the first record of the
 range again and again could make NewsCache ask 10000 times for one

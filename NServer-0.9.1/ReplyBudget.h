@@ -232,7 +232,7 @@ inline uint64_t range_reply_rows(uint64_t first, uint64_t last)
  * chunk of 10000 numbers took about 5*10^7 rows, each one kept in memory,
  * with a new deadline per reply, while the chunk's fetch lock was held.
  * So all the replies of a chunk also count against one budget
- * (ChunkBudget), with limits no real chunk comes near:
+ * (ChunkBudget), with row and byte limits a typical chunk doesn't come near:
  * - rows: 2n + RANGE_REPLY_SLACK for the n numbers, all the replies
  *   together: as many as one reply of the whole range may have (n +
  *   RANGE_REPLY_SLACK), and n more for the stray rows that pages may
