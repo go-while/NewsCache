@@ -20,6 +20,7 @@
 #include "Logger.h"
 #include "Article.h"
 #include "ArtSpooler.h"
+#include "NServer.h"
 #include "ObjLock.h"
 #include "TestTempDir.h"
 
@@ -117,8 +118,38 @@ static Article *next(ArtSpooler & sp, string & name, bool & threw)
 	}
 }
 
+// An offline post may have no Message-ID and an empty body, but the
+// blank line which ends its headers must still be present.
+static void check_post_headers()
+{
+	MPList servers;
+	MPListEntry entry;
+	entry.hostname = "offline.invalid";
+	entry.postTo = "*";
+	entry.flags |= MPListEntry::F_OFFLINE | MPListEntry::F_DONTGENMSGID;
+	servers.entries.push_back(entry);
+	RServer server(&servers);
+	Article a;
+	const string headers = "Newsgroups: g\r\nFrom: a@example.invalid\r\nSubject: s";
+	a.settext(headers + "\r\n");
+	bool refused = false;
+	try {
+		server.post(&a);
+	} catch(const InvalidArticleError &) {
+		refused = true;
+	}
+	CHECK(refused);
+	// The field parser accepts LF or CRLF on either side of the separator.
+	const char *const endings[] = { "\r\n\r\n", "\n\n", "\n\r\n", "\r\n\n" };
+	for (size_t i = 0; i < sizeof(endings) / sizeof(endings[0]); ++i) {
+		a.settext(headers + endings[i]);
+		CHECK(server.post(&a) == -1); // ready to queue
+	}
+}
+
 int main(void)
 {
+	check_post_headers();
 	string dir;
 	if (!test_temp::create("cArtSpooler", dir))
 		return 1;

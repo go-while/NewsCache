@@ -134,6 +134,58 @@ func spooledIn(t *testing.T, e *env, dir string) []string {
 	return m
 }
 
+func TestPostSpooledInvalidHeaders(t *testing.T) {
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.ServerOptions = "offline dontgenmsgid"
+	p, c := e.sessionProcess()
+	if code, line := c.Cmd("POST"); code != 340 {
+		t.Fatalf("POST: %q", line)
+	}
+	// The blank line ends the headers of a valid article with an empty body.
+	if err := c.Send("Newsgroups: test.alpha\r\nFrom: client@newscache.test\r\nSubject: empty body\r\n\r\n.\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := c.ReadStatus(); err != nil || code != 240 {
+		t.Fatalf("POST of an empty body: %q %v, want 240", line, err)
+	}
+	quitSession(t, p, c)
+
+	queued := spooledIn(t, e, ".artSpool")
+	if len(queued) != 1 {
+		t.Fatalf("queued %v, want the accepted article", queued)
+	}
+	article, err := os.ReadFile(queued[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(article, []byte("\r\n\r\n")) {
+		t.Fatalf("queued empty-body article lacks its final blank line: %q", article)
+	}
+	// Older versions could queue these same headers without the blank line.
+	// Leave the accepted article in place so one run must handle both.
+	incomplete := bytes.TrimSuffix(article, []byte("\r\n"))
+	if err := os.WriteFile(filepath.Join(e.Spool, ".artSpool", "art_old"), incomplete, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Fatalf("updatenews: %v\n%s", err, out)
+	}
+	if left := spooledIn(t, e, ".artSpool"); len(left) != 0 {
+		t.Errorf("queue still contains %v", left)
+	}
+	bad := spooledIn(t, e, ".badArticles")
+	if len(bad) != 1 {
+		t.Fatalf("quarantined %v, want the incomplete article", bad)
+	}
+	if got, err := os.ReadFile(bad[0]); err != nil || !bytes.Equal(got, incomplete) {
+		t.Errorf("quarantined article: %q %v", got, err)
+	}
+	if got := len(e.Store.Posted()); got != 1 {
+		t.Errorf("upstream received %d articles, want 1", got)
+	}
+}
+
 // TestPostSpooled covers unreachable, accepting and refusing servers with
 // explicit IDs and with an article whose ID must not be generated. Only
 // refused articles go to .badArticles; retries neither lose nor duplicate posts.

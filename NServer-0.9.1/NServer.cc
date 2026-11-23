@@ -2354,6 +2354,13 @@ int RServer::post(Article * article)
 	if (article->has_bare_cr_or_nul())
 		throw InvalidArticleError("NUL or CR outside CRLF in the article",
 					  ERROR_LOCATION);
+	// Even an empty body follows a blank line. Check before choosing a
+	// destination: an offline server may queue the article without
+	// looking up any field beyond the required ones.
+	const char *text = article->c_str();
+	if (!strstr(text, "\n\r\n") && !strstr(text, "\n\n"))
+		throw InvalidArticleError("no blank line after article headers",
+					  ERROR_LOCATION);
 	try {
 		if (!article->has_field("from:"))
 			throw InvalidArticleError("no from field",
@@ -3192,11 +3199,11 @@ void CServer::postspooled(void)
 					pSpool->storeBadArt(*pA);
 				}
 			}
-			catch(const InvalidArticleError &) {
-				slog.p(Logger::Error)
-				    << "CServer::postspooled(): RServer::post\
-				throw InvalidArticleError; ID: "
-				    << logged_msgid(pA) << "\n";
+			catch(const InvalidArticleError & e) {
+				// Parsing the rejected article for a Message-ID can
+				// throw again before it reaches .badArticles.
+				slog.p(Logger::Error) << "invalid spooled article "
+				    << name << ": " << e._errtext << "\n";
 				// (an exception from this handler isn't
 				// caught by the catch(...) below)
 				try {
