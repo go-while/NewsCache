@@ -5,4 +5,5 @@ Bug fixes:
   and a name that ended at a vertical tab, form feed or carriage return
   was taken for another group's, which got that line's numbers. Such
   names stored by an older version, or by a GROUP command, are not shown
-  in LIST ACTIVE, LIST ACTIVE.TIMES or NEWGROUPS either.
+  in LIST ACTIVE, LIST ACTIVE.TIMES or NEWGROUPS either. A line that
+  starts with a blank (an empty name) is skipped too.
