@@ -101,12 +101,14 @@ class Article {
 	bool has_bare_cr_or_nul(void) const;
 
 	/*
-	 * Return a header field of the article.
+	 * Return a field for the overview. Bytes: is the computed size.
 	 * \param ifld The name of the field to be extracted including `:'
 	 * \throw NoSuchFieldError raised, if fld is not part of the
 	 * 	overview database
 	 */
 	std::string getfield(const char *ifld, int Full = 0) const;
+	// Read the actual header, including a literal Bytes: if present.
+	std::string getheader(const char *ifld, int Full = 0) const;
 
 	void setfield(const char *ifld, const char *field_data);
 

@@ -214,6 +214,48 @@ func TestHdr(t *testing.T) {
 	}
 }
 
+func TestHdrLiteralBytesByID(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "test group")
+	for _, tc := range []struct {
+		id      string
+		number  int
+		literal string
+	}{
+		{"<has-bytes@upstream.test>", 1, "17"},
+		{"<no-bytes@upstream.test>", 2, ""},
+	} {
+		headers := []string{"Newsgroups: test.alpha", "Subject: literal Bytes"}
+		if tc.literal != "" {
+			headers = append(headers, "Bytes: "+tc.literal)
+		}
+		e.Store.AddArticle("test.alpha", fakeserver.Article{
+			Number: int64(tc.number), MessageID: tc.id, Headers: headers, Body: []string{"body"},
+		})
+		c := e.session()
+		if code, line := c.Cmd("ARTICLE %s", tc.id); code != 220 {
+			t.Fatalf("ARTICLE %s: %q", tc.id, line)
+		}
+		size := 0
+		for _, line := range c.ReadDotLines() {
+			size += len(line) + 2 // each article line has CRLF
+		}
+		for _, field := range []string{"Bytes", ":bytes"} {
+			want := tc.literal
+			if field == ":bytes" {
+				want = strconv.Itoa(size)
+			}
+			if code, line := c.Cmd("HDR %s %s", field, tc.id); code != 225 {
+				t.Fatalf("HDR %s %s: %q", field, tc.id, line)
+			}
+			if got := hdrLines(c.ReadDotLines()); got != "0 "+want {
+				t.Errorf("HDR %s %s: %q, want %q", field, tc.id, got, "0 "+want)
+			}
+		}
+		c.Cmd("QUIT")
+	}
+}
+
 func TestListHeaders(t *testing.T) {
 	e := newEnv(t)
 	c := e.session()

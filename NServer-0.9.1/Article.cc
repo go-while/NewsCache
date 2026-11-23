@@ -266,9 +266,6 @@ const char* Article::find_field(const char *ifld) const
 
 string Article::getfield(const char *ifld, int Full) const
 {
-	string rfld;
-	const char *p, *fld;
-
 	if (strcasecmp(ifld, "bytes:") == 0) {
 #ifdef HAVE_SSTREAM
 		stringstream sb;
@@ -278,6 +275,13 @@ string Article::getfield(const char *ifld, int Full) const
 		sb << bytes();
 		return sb.rdbuf()->str();
 	}
+	return getheader(ifld, Full);
+}
+
+string Article::getheader(const char *ifld, int Full) const
+{
+	string rfld;
+	const char *p, *fld;
 
 	fld = find_field(ifld);
 	if (*fld == '\r' || *fld == '\n') {

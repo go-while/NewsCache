@@ -3338,7 +3338,7 @@ int ns_hdr(ClientData * clt, int argc, char *argv[])
 			return -1;
 		} else {
 			try {
-				val = a.getfield(Newsgroup::
+				val = a.getheader(Newsgroup::
 						 headerfield(argv[1]).c_str(), 0);
 			}
 			catch(const NoSuchFieldError & nsfe) {
