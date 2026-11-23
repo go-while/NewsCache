@@ -2782,7 +2782,9 @@ static int read_post_article(istream & is, string & text, size_t max)
 			len++;
 			if (!over) {
 				line += (char) c;
-				if (total + line.size() > max) {
+				// The final "." (possibly followed by CR) is framing.
+				// Count short lines once we know which kind they are.
+				if (line.size() > 2 && total + line.size() > max) {
 					over = true;
 					string().swap(line);
 					string().swap(text);

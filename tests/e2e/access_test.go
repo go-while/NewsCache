@@ -328,6 +328,37 @@ func TestPostSizeLimit(t *testing.T) {
 	t.Run("MaxPostSize 100000", func(t *testing.T) { testPostSizeLimit(t, "MaxPostSize 100000", 100, 90) })
 }
 
+func TestPostSizeLimitBoundary(t *testing.T) {
+	e := newEnv(t)
+	const limit = 1024
+	e.Extra = "MaxPostSize 1024"
+	e.addArticles("test.alpha", 1)
+	c := e.session()
+	for _, size := range []int{limit - 2, limit - 1, limit, limit + 1} {
+		header := fmt.Sprintf("From: client@newscache.test\r\nNewsgroups: test.alpha\r\nSubject: boundary\r\nMessage-ID: <size%d@client.test>\r\n\r\n", size)
+		article := header + strings.Repeat("x", size-len(header)-2) + "\r\n"
+		if code, line := c.Cmd("POST"); code != 340 {
+			t.Fatalf("POST: %q", line)
+		}
+		if err := c.Send(article + ".\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		want := 240
+		if size > limit {
+			want = 441
+		}
+		if code, line, err := c.ReadStatus(); err != nil || code != want {
+			t.Errorf("%d-byte article: %q %v, want %d", size, line, err, want)
+		}
+	}
+	if code, line := c.Cmd("DATE"); code != 111 {
+		t.Errorf("DATE after articles: %q, want 111", line)
+	}
+	if got := len(e.Store.Posted()); got != 3 {
+		t.Errorf("upstream received %d articles, want 3", got)
+	}
+}
+
 // testPostSizeLimit posts an article of tooLarge KB, which must get 441,
 // and then one of fits KB, which must be posted.
 func testPostSizeLimit(t *testing.T, extra string, tooLarge, fits int) {
