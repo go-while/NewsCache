@@ -5177,13 +5177,11 @@ void nntpd()
 		block_fork_signals(&old_mask);
 		// One host could take every session (idle connections until
 		// ClientTimeout, then the next ones): MaxConnectionsPerHost
-		string host;
-		bool host_full = false;
-		if (Cfg.MaxConnectionsPerHost > 0) {
-			host = client_host(clt_fd);
-			host_full = !host.empty() &&
-			    host_sessions(host) >= Cfg.MaxConnectionsPerHost;
-		}
+		// Keep the host even with the limit off: a reload can enable it
+		// while this session is still running.
+		const string host = client_host(clt_fd);
+		const bool host_full = Cfg.MaxConnectionsPerHost > 0 &&
+		    !host.empty() && host_sessions(host) >= Cfg.MaxConnectionsPerHost;
 		const bool full = nntp_connections >= Cfg.MaxConnections;
 		if (full || host_full || (clt_pid = fork()) < 0) {
 			sigprocmask(SIG_SETMASK, &old_mask, NULL);

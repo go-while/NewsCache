@@ -82,3 +82,27 @@ func TestMaxConnectionsPerHost(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestMaxConnectionsPerHostEnabledOnReload(t *testing.T) {
+	e := newEnv(t)
+	requireFileLog(e)
+	e.Extra = "MaxConnectionsPerHost 0"
+	p := e.standalone()
+	first := e.dial()
+	defer first.Close()
+
+	e.Extra = "MaxConnectionsPerHost 1"
+	// New clients are also denied by the access list. The refusal tells us
+	// whether the master counted the existing session before handing off.
+	e.AccessList = accessEntry("10.0.0.0/8")
+	e.writeConf()
+	reloadLog(t, e, p)
+	second := e.dialRaw()
+	defer second.Close()
+	if second.Greeting != "400 too many connections from your host" {
+		t.Errorf("second connection after reload: %q, want per-host refusal", second.Greeting)
+	}
+	if code, line := first.Cmd("DATE"); code != 111 {
+		t.Errorf("original connection after reload: %q, want 111", line)
+	}
+}
