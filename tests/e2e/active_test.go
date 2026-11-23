@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -206,6 +207,76 @@ func TestLongGroupName(t *testing.T) {
 	if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
 		t.Errorf("GROUP test.alpha: %q", line)
 	}
+}
+
+// TestActiveNameControls: the upstream's active list has rows whose group
+// name holds ESC, DEL or a \v, between two good groups. The ESC and DEL
+// names went to the clients of LIST ACTIVE as they came (ESC acts on a
+// terminal), and the name cut at the \v was test.alpha, which got that
+// row's numbers. Now these rows are left out and the good ones are listed
+// as before. A bad name already in the active database (stored here by
+// GROUP, which stores the name it was asked for, as the active list of an
+// older version stored them) isn't listed by LIST ACTIVE, LIST
+// ACTIVE.TIMES or NEWGROUPS either.
+func TestActiveNameControls(t *testing.T) {
+	const (
+		esc   = "test.esc\x1b[2Jname"
+		del   = "test.del\x7fname"
+		alias = "test.alpha\v9"
+	)
+	e := newEnv(t)
+	e.addArticles("test.alpha", 1)
+	e.addArticles("test.zulu", 1)
+	for _, g := range []string{esc, del, alias} {
+		e.Store.AddGroup(g, "")
+	}
+	want := []string{"test.alpha 1 1 y", "test.zulu 1 1 y"}
+	since := time.Unix(time.Now().Unix()-2, 0).UTC().Format("20060102 150405")
+	c := e.session()
+	// (the lists come in the database's hash order)
+	same := func(got, want []string) bool {
+		got = append([]string(nil), got...)
+		sort.Strings(got)
+		return strings.Join(got, "\n") == strings.Join(want, "\n")
+	}
+	listActive := func(when string) {
+		t.Helper()
+		if code, line := c.Cmd("LIST ACTIVE"); code != 215 {
+			t.Fatalf("LIST ACTIVE %s: %q, want 215", when, line)
+		}
+		if got := c.ReadDotLines(); !same(got, want) {
+			t.Fatalf("LIST ACTIVE %s: %q, want %q", when, got, want)
+		}
+		// still in step after the list
+		if code, line := c.Cmd("DATE"); code != 111 {
+			t.Fatalf("DATE after LIST ACTIVE %s: %q, want 111", when, line)
+		}
+	}
+	listActive("from the news server's list")
+
+	for _, g := range []string{esc, del} {
+		if code, line := c.Cmd("GROUP %s", g); code != 211 {
+			t.Fatalf("GROUP %q: %q, want 211 (the record is stored by it)", g, line)
+		}
+	}
+	listActive("with the bad names stored")
+	if code, line := c.Cmd("LIST ACTIVE.TIMES"); code != 215 {
+		t.Fatalf("LIST ACTIVE.TIMES: %q, want 215", line)
+	}
+	var names []string
+	for _, l := range c.ReadDotLines() {
+		names = append(names, strings.SplitN(l, " ", 2)[0])
+	}
+	if !same(names, []string{"test.alpha", "test.zulu"}) {
+		t.Errorf("LIST ACTIVE.TIMES lists %q, want test.alpha and test.zulu", names)
+	}
+	if code, line := c.Cmd("NEWGROUPS %s GMT", since); code != 231 {
+		t.Fatalf("NEWGROUPS: %q, want 231", line)
+	}
+	if got := c.ReadDotLines(); !same(got, want) {
+		t.Errorf("NEWGROUPS: %q, want %q", got, want)
+	}
+	c.Cmd("QUIT")
 }
 
 func containsPrefix(lines []string, prefix string) bool {

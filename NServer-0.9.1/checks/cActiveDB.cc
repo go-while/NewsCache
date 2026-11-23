@@ -2,7 +2,7 @@
 // NVActiveDB::convert_v1: a database written with 32-bit numbers
 // (NewsCache 1.3.21 and older) is converted, and each group keeps its
 // numbers, flag and creation time. Also GroupInfo::set on upstream active
-// lines that end early.
+// lines that end early or whose group name has control bytes.
 
 #include <stddef.h>
 #include <stdio.h>
@@ -118,6 +118,27 @@ int main()
 	CHECK(set_at_page_end(gi, "de.test 20 10") == 0);
 	CHECK(strcmp(gi.name(), "de.test") == 0);
 	CHECK(gi.first() == 10 && gi.last() == 20 && gi.flags() == 'y');
+
+	// A control byte or DEL in the name refuses the line. ESC and DEL
+	// were stored as they came; \v and \r ended the name, so the line
+	// gave de.test the numbers 9 and 10. An empty name was stored too.
+	CHECK(set_at_page_end(gi, "a\x1b[2Jb 10 1 y") == 1);
+	CHECK(set_at_page_end(gi, "a.b\x7f 10 1 y") == 1);
+	CHECK(set_at_page_end(gi, "de.test\v9 10 1 y") == 1);
+	CHECK(set_at_page_end(gi, "de.test\r9 10 1 y") == 1);
+	CHECK(set_at_page_end(gi, " 10 1 y") == 1);
+	// tabs still separate the fields, UTF-8 names stay
+	CHECK(set_at_page_end(gi, "de.test\t20\t10\tm") == 0);
+	CHECK(strcmp(gi.name(), "de.test") == 0);
+	CHECK(gi.first() == 10 && gi.last() == 20 && gi.flags() == 'm');
+	CHECK(set_at_page_end(gi, "de.t\xc3\xa9" "st 20 10 y") == 0);
+	CHECK(strcmp(gi.name(), "de.t\xc3\xa9" "st") == 0);
+	CHECK(GroupInfo::listable_name("a.b"));
+	CHECK(GroupInfo::listable_name("\xff"));
+	CHECK(!GroupInfo::listable_name(""));
+	CHECK(!GroupInfo::listable_name("a b"));
+	CHECK(!GroupInfo::listable_name("a\x1f"));
+	CHECK(!GroupInfo::listable_name("a\x7f"));
 
 	{
 		OldActiveDB old(oldfn.c_str());
