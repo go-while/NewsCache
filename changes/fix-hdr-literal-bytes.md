@@ -1,4 +1,6 @@
 Bug fixes:
-* HDR Bytes by Message-ID returns the article's Bytes header, or an
-  empty value when the header is absent. HDR :bytes returns the article
-  size. Both commands used to return the size.
+* By Message-ID, HDR Bytes and XHDR Bytes return the article's Bytes
+  header, and XPAT Bytes matches against that header. When it is absent,
+  HDR returns an empty value, XHDR returns (none), and XPAT returns no
+  matches. These commands used to substitute the article size. HDR :bytes
+  returns the article size.

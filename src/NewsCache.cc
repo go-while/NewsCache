@@ -3156,8 +3156,8 @@ int ns_xover(ClientData * clt, int argc, char *argv[])
 				return -1;
 			string val;
 			try {
-				val = a.getfield(Newsgroup::headerfield(argv[1]).
-						 c_str(), 0);
+				val = a.getheader(Newsgroup::headerfield(argv[1]).
+						  c_str(), 0);
 			}
 			catch(const NoSuchFieldError & nsfe) {
 				val = "(none)";
@@ -3276,7 +3276,7 @@ int ns_xpat(ClientData * clt, int argc, char *argv[])
 		(*clt->co) << "221 " << argv[1] << " matches follow\r\n";
 		try {
 			string fld =
-			    a.getfield(Newsgroup::headerfield(argv[1]).c_str(), 0);
+			    a.getheader(Newsgroup::headerfield(argv[1]).c_str(), 0);
 			if (Newsgroup::headermatch(fld, pat.c_str())) {
 				Newsgroup::scrub_header(fld);
 				(*clt->co) << argv[2] << " " << fld << "\r\n";

@@ -3,6 +3,7 @@ package e2e
 import (
 	"errors"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -240,16 +241,33 @@ func TestHdrLiteralBytesByID(t *testing.T) {
 		for _, line := range c.ReadDotLines() {
 			size += len(line) + 2 // each article line has CRLF
 		}
-		for _, field := range []string{"Bytes", ":bytes"} {
-			want := tc.literal
-			if field == ":bytes" {
-				want = strconv.Itoa(size)
+		computed := strconv.Itoa(size)
+		xhdr := "(none)"
+		var matches []string
+		if tc.literal != "" {
+			if tc.literal == computed {
+				t.Fatal("fixture needs a Bytes header different from the article size")
 			}
-			if code, line := c.Cmd("HDR %s %s", field, tc.id); code != 225 {
-				t.Fatalf("HDR %s %s: %q", field, tc.id, line)
+			xhdr = tc.literal
+			matches = []string{tc.id + " " + tc.literal}
+		}
+		for _, check := range []struct {
+			cmd  string
+			code int
+			rows []string
+		}{
+			{"HDR Bytes " + tc.id, 225, []string{"0 " + tc.literal}},
+			{"HDR :bytes " + tc.id, 225, []string{"0 " + computed}},
+			{"XHDR Bytes " + tc.id, 221, []string{tc.id + " " + xhdr}},
+			{"XPAT Bytes " + tc.id + " *", 221, matches},
+			{"XPAT Bytes " + tc.id + " 17", 221, matches},
+			{"XPAT Bytes " + tc.id + " " + computed, 221, nil},
+		} {
+			if code, line := c.Cmd("%s", check.cmd); code != check.code {
+				t.Fatalf("%s: %q, want %d", check.cmd, line, check.code)
 			}
-			if got := hdrLines(c.ReadDotLines()); got != "0 "+want {
-				t.Errorf("HDR %s %s: %q, want %q", field, tc.id, got, "0 "+want)
+			if got := c.ReadDotLines(); !slices.Equal(got, check.rows) {
+				t.Errorf("%s: %q, want %q", check.cmd, got, check.rows)
 			}
 		}
 		c.Cmd("QUIT")
