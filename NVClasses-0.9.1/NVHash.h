@@ -44,7 +44,7 @@ class NVHash:public NVListBase {
 	 * Open an NVHash object.
 	 * \param dbname Name of the file, where the hash-table is stored.
 	 * \param hashsz Size of the hash-table, if a new one is created.
-	 * \param flags Ignored at the moment.
+	 * \param flags ExistingOnly to open without creating a missing file.
 	 */
 	void open(const char *dbname, unsigned long hashsz = 97, int flags = 0);
 

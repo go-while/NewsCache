@@ -528,6 +528,17 @@ func TestHistorySpoolSize(t *testing.T) {
 		}
 	}
 
+	t.Run("empty spool", func(t *testing.T) {
+		e := historyEnv(t)
+		e.Extra += "SpoolSize 1024\n"
+		for i := 0; i < 2; i++ {
+			clean(t, e)
+			if files := historyFiles(t, e); len(files) != 0 {
+				t.Fatalf("cleaning an empty spool created %d history shards", len(files))
+			}
+		}
+	})
+
 	t.Run("within SpoolSize", func(t *testing.T) {
 		e := historyEnv(t)
 		fill(t, e)
