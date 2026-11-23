@@ -98,8 +98,8 @@ class GroupInfo {
 		// the name used to end) was another group's: "a.b\v9 10 1 y"
 		// gave a.b the numbers 9 and 10.
 		if (!listable_name(_name))
-			throw NSError("control byte in the newsgroup name",
-				      ERROR_LOCATION);
+			throw NSError(*_name ? "control byte in the newsgroup name" :
+				      "empty newsgroup name", ERROR_LOCATION);
 
 		while (isspace((unsigned char) *p))
 			p++;
