@@ -431,7 +431,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 	VERB(slog.p(Logger::Debug) << "CNewsgroup::fetchchunk(" << cf.from
 	     << "," << cf.top << ")\n");
 	artnum_t f, l, i, done = 0, f0 = cf.from, l0 = cf.top;
-	std::vector < char > have(l0 - f0 + 1, 0);
+	std::vector < char > &have = cf.have;
 	OverCollector got(_RServer, _OverviewFormat, _NewsgroupName, f0, l0,
 			  cf.records);
 
@@ -443,6 +443,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 	{
 		// the records the spool has now (storechunk checks again)
 		GroupLock guard(*this, NVcontainer::ShrdLock);
+		have.assign(l0 - f0 + 1, 0);
 		for (f = f0;; f++) {
 			have[f - f0] = NVArray::shas_element(f) ? 1 : 0;
 			if (f == l0)
@@ -496,7 +497,9 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  * resizing the index or storing articles), so everything is checked
  * again here: records go only where the index still is and has none, a
  * number the server no longer lists goes only if it is still there, and
- * the chunk is marked synchronized only as far as the fetch covered it.
+ * the chunk is marked synchronized only as far as the fetch covered it,
+ * and not at all when a record that was there when fetchchunk() looked
+ * (so it wasn't asked for) has gone meanwhile.
  * fetch_unlisted: the fetch completed, but the news server's list didn't
  * come whole; what came is stored, and the chunk gets a retry entry
  * (see retry_pause). fetch_failed: the fetch failed half way; what came
@@ -537,6 +540,24 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 		// (stores only where there is no record yet)
 		NVNewsgroup::setover(*r);
 	}
+	// A record that was there when fetchchunk() looked, so it wasn't
+	// asked for, can have gone meanwhile: another session's
+	// resize_index freed it and then failed for want of space (it
+	// clears the chunk's mark first, see there), or it was dropped as
+	// unreadable. Marked now, the chunk served it as absent until the
+	// group timeout ran out ("." without it, 423). It isn't marked
+	// then, as after a failed fetch: the next request fetches it again.
+	bool lost = false;
+	if (!cf.have.empty()) {
+		for (f = first; f <= top; f++) {
+			if (cf.have[f - cf.from] && !NVArray::shas_element(f)) {
+				lost = true;
+				break;
+			}
+			if (f == top)
+				break;
+		}
+	}
 	if (cf.listed && !cf.lstgrp.empty()) {
 		// We have these articles, but the news server has deleted
 		// them (freerange removes a big article's file too)
@@ -548,7 +569,11 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 				break;
 		}
 	}
-	if (result == fetch_failed) {
+	if (lost)
+		slog.p(Logger::Notice) << name() << ": records of " << first
+		    << "-" << top << " went while the news server was asked,"
+		    << " not marked as synchronized\n";
+	if (result == fetch_failed || lost) {
 		if (!cf.records.empty())
 			setmtime(cf.now);
 		return;

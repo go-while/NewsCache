@@ -426,6 +426,27 @@ struct FullDiskProbe:public PrefetchProbe {
 		getsync(c, &e);
 		return e.time == 0 && e.through == 0;
 	}
+	// freshen's steps for the chunk of [f,l], without the fetch lock;
+	// between() is what another session does while the news server is
+	// asked: after fetchchunk() looked at the spool, before storechunk()
+	void fetch_store(artnum_t f, artnum_t l,
+			 void (*between) (FullDiskProbe &)) {
+		ChunkFetch cf;
+		cf.c = f / OVERVIEW_CHUNK;
+		cf.now = nvtime(NULL);
+		cf.from = 1;
+		cf.top = 0;
+		cf.full = false;
+		cf.listed = false;
+		if (!chunkrange(f, l, cf)) {
+			CHECK(!"chunkrange: the range is in the index");
+			return;
+		}
+		FetchResult r = fetchchunk(cf) ? fetch_whole : fetch_unlisted;
+		if (between)
+			between(*this);
+		storechunk(cf, r);
+	}
 };
 
 // The lines of a reply text (each ends with CRLF).
@@ -484,6 +505,13 @@ static void failed_resize(FullDiskProbe & g, unsigned long f, unsigned long l)
 	CHECK(threw && g.refused > 0);	// (else nothing was tested)
 	g.spoolrange(&f1, &l1);
 	CHECK(f1 == f0 && l1 == l0);
+}
+
+// Another session's resize far above (cover's, for XOVER 20001-30000)
+// on a full disk.
+static void resize_far_above(FullDiskProbe & g)
+{
+	failed_resize(g, 20000, 30000);
 }
 
 // Whether the index holds exactly the three_recs in [f,l].
@@ -657,6 +685,48 @@ static void resize_failure(const string & dir)
 		CHECK(lines(top.str()) == 2);
 		// STAT 15000 (chunk 1): not 423
 		CHECK(string(g.getover(15000)) == over_record(15000));
+	}
+	// A fetch in flight: fetchchunk() found the records of 1-100 but 50
+	// and asked the news server only for 50; meanwhile another session's
+	// resize freed 1-100 and failed (the old index stays, chunk 0's mark
+	// cleared). storechunk() marked chunk 0 through 100 all the same:
+	// the 99 records it never fetched were served as absent.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.inflight");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		g.fetch_store(1, 100, resize_far_above);
+		g.spoolrange(&f, &l);
+		CHECK(f == 1 && l == 100);
+		CHECK(g.hasrecord(50));		// what came is stored
+		CHECK(!g.hasrecord(1) && !g.hasrecord(100));
+		CHECK(!g.marked(0, &through));
+		// STAT 7: not 423
+		CHECK(string(g.getover(7)) == over_record(7));
+		// XOVER 1-100: all of them
+		ostringstream all;
+		g.printoverdb(all, 1, 100);
+		CHECK(lines(all.str()) == 100);
+		CHECK(listed(all.str(), 1) && listed(all.str(), 100));
+	}
+	// (a guard) The same fetch with nothing in between marks the chunk,
+	// and the records come from the index.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.fetched");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		g.fetch_store(1, 100, NULL);
+		CHECK(g.marked(0, &through) && through == 100);
+		CHECK(g.hasrecord(50));
+		ostringstream all;
+		g.printoverdb(all, 1, 100);
+		CHECK(lines(all.str()) == 100);
 	}
 	// (a guard) The same resize as for "partial", with room: it
 	// succeeds, and the chunks it keeps keep their entries in the new

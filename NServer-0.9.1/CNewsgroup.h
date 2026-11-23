@@ -49,6 +49,8 @@ class CNewsgroup:public NVNewsgroup {
 		bool listed;		// the news server listed the numbers it has
 					// (LISTGROUP), so the others can go
 		std::vector < char > lstgrp;	// lstgrp[n - from]: n is listed
+		std::vector < char > have;	// have[n - from]: the spool had
+					// n's record when fetchchunk looked
 		std::vector < std::string > records;	// the overview records
 	};
 
