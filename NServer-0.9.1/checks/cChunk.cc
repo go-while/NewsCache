@@ -581,10 +581,11 @@ static void resize_failure(const string & dir)
 		CHECK(lines(low.str()) == 5000);
 		CHECK(listed(low.str(), 5000) && listed(low.str(), 9999));
 	}
-	// Records above l (as when the news server's last number goes down,
-	// NVNewsgroup::setsize): the resize to [5000,14999] drops half of
-	// chunk 1 and all of chunk 2, nothing of chunk 0. The new table is
-	// smaller than the old one, but larger than any free block.
+	// Records above l: resize_index is called directly, as
+	// NVNewsgroup::setsize calls it when the news server's last number
+	// goes down. The resize to [5000,14999] drops half of chunk 1 and
+	// all of chunk 2, nothing of chunk 0. The new table is smaller than
+	// the old one, but larger than any free block.
 	{
 		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.below");
 		cached_three(g);
@@ -636,6 +637,50 @@ static void resize_failure(const string & dir)
 		g.printoverdb(top, 20000, 25999);
 		CHECK(lines(top.str()) == 6000);
 		CHECK(listed(top.str(), 20000) && listed(top.str(), 25999));
+	}
+	// f on a chunk's first number: the resize to [20000,29999] drops all
+	// of chunks 0 and 1, nothing of chunk 2.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.start");
+		cached_three(g);
+		nvtime_t t2 = g.stamp(2, &through);
+		CHECK(t2 != 0 && through == 25999);
+		failed_resize(g, 20000, 29999);
+		CHECK(holds(g, 20000, 25999));
+		CHECK(!g.marked(0, &through));
+		CHECK(!g.marked(1, &through));
+		// (guards) chunk 2 keeps its mark: its two records come from
+		// the index
+		CHECK(g.stamp(2, &through) == t2 && through == 25999);
+		ostringstream top;
+		g.printoverdb(top, 20000, 25999);
+		CHECK(lines(top.str()) == 2);
+		// STAT 15000 (chunk 1): not 423
+		CHECK(string(g.getover(15000)) == over_record(15000));
+	}
+	// (a guard) The same resize as for "partial", with room: it
+	// succeeds, and the chunks it keeps keep their entries in the new
+	// table, also chunk 1, which lost records below 15000 (the entries
+	// are cleared in the old table only, after they were copied).
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.room");
+		cached_three(g);
+		nvtime_t t1 = g.stamp(1, &through);
+		CHECK(t1 != 0 && through == 19999);
+		nvtime_t t2 = g.stamp(2, &through);
+		CHECK(t2 != 0 && through == 25999);
+		g.reindex(15000, 29999);
+		CHECK(g.refused == 0);
+		g.spoolrange(&f, &l);
+		CHECK(f == 15000 && l == 29999);
+		CHECK(holds(g, 15000, 25999));
+		CHECK(g.stamp(1, &through) == t1 && through == 19999);
+		CHECK(g.stamp(2, &through) == t2 && through == 25999);
+		// chunk 1's two records come from the index
+		ostringstream mid;
+		g.printoverdb(mid, 15000, 19999);
+		CHECK(lines(mid.str()) == 2);
+		CHECK(listed(mid.str(), 15000) && listed(mid.str(), 19999));
 	}
 }
 
