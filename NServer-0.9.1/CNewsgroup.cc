@@ -497,15 +497,18 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  * resizing the index or storing articles), so everything is checked
  * again here: records go only where the index still is and has none, a
  * number the server no longer lists goes only if it is still there, and
- * the chunk is marked synchronized only as far as the fetch covered it,
- * and not at all when a record that was there when fetchchunk() looked
- * (so it wasn't asked for) has gone meanwhile.
+ * the chunk is marked synchronized only as far as the fetch covered it.
+ * It isn't marked at all when the index lacks records it should have:
+ * one that was there when fetchchunk() looked and wasn't fetched again
+ * has gone meanwhile, or (a fetch of only the numbers above the
+ * synchronized ones) the chunk's entry no longer vouches for the
+ * numbers below the fetch.
  * fetch_unlisted: the fetch completed, but the news server's list didn't
  * come whole; what came is stored, and the chunk gets a retry entry
  * (see retry_pause). fetch_failed: the fetch failed half way; what came
  * is stored, but the chunk isn't marked (its index may lack records).
- * false: a record that was there when fetchchunk() looked has gone; the
- * index lacks it, so the caller must get the range from the news server.
+ * false: one of those two; the index can't serve the range, so the
+ * caller must get it from the news server.
  */
 bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 {
@@ -542,13 +545,16 @@ bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 		// (stores only where there is no record yet)
 		NVNewsgroup::setover(*r);
 	}
-	// A record that was there when fetchchunk() looked, so it wasn't
-	// asked for, can have gone meanwhile: another session's
-	// resize_index freed it and then failed for want of space (it
-	// clears the chunk's mark first, see there), or it was dropped as
-	// unreadable. Marked now, the chunk served it as absent until the
-	// group timeout ran out ("." without it, 423). It isn't marked
-	// then, as after a failed fetch: the next request fetches it again.
+	// A record that was there when fetchchunk() looked can have gone
+	// meanwhile: another session's resize_index freed it and then
+	// failed for want of space (it clears the chunk's mark first, see
+	// there), or it was dropped as unreadable. fetchchunk() asked for
+	// runs of numbers without a record; a run takes in the cached
+	// numbers between them, and those records came again and were put
+	// back above. So one still missing now wasn't fetched. Marked now,
+	// the chunk served it as absent until the group timeout ran out
+	// ("." without it, 423). It isn't marked then, as after a failed
+	// fetch: the next request fetches it again.
 	bool lost = false;
 	if (!cf.have.empty()) {
 		for (f = first; f <= top; f++) {
@@ -595,11 +601,20 @@ bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			else
 				setsync(cf.c, cf.now, top);
 		}
-	} else if (e.through + 1 >= cf.from && top > e.through) {
-		// The new numbers above the synchronized ones; unless a lower
-		// last number cut the synchronized part below where this
-		// fetch began meanwhile (the numbers in between weren't
-		// fetched). e.time is kept, the marker included: after a retry
+	} else if (!counts(e, cf.now) || e.through + 1 < cf.from) {
+		// Only the numbers above the synchronized ones were fetched,
+		// but the entry no longer vouches for those below: another
+		// session's resize_index cleared it (it freed records and then
+		// failed for want of space), or a lower last number cut it
+		// below where this fetch began. (cf.now, when the fetch began:
+		// an entry that merely ran out during the fetch still counts.)
+		// The index may lack records there, so no mark, and the caller
+		// asks the news server.
+		setmtime(cf.now);
+		return false;
+	} else if (top > e.through) {
+		// The new numbers above the synchronized ones. e.time is
+		// kept, the marker included: after a retry
 		// entry (see retry_pause) the numbers up to top count only for
 		// the rest of its pause, and then the chunk is synchronized in
 		// full, as it should after an incomplete list.
@@ -718,8 +733,8 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 				throw;
 			}
 		}
-		// Records the fetch didn't ask for, since the index had
-		// them, went meanwhile (another session's resize_index that
+		// Records the fetch relied on, since the index had them,
+		// went meanwhile (another session's resize_index that
 		// failed): the chunk isn't marked, and the index lacks them
 		if (!storechunk(cf, result))
 			return false;

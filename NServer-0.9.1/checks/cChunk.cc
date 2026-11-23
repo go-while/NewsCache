@@ -788,11 +788,38 @@ static void resize_failure(const string & dir)
 				g.setover(over_record(n));
 		rs.hook = resize_far_above_cb;
 		rs.arg = &g;
+		// (getover grows the index to the chunk, [1,9999], before
+		// the fetch and so before the hook)
 		string o = g.getover(7);
 		CHECK(rs.hook == NULL);	// (the resize happened)
 		rs.hook = NULL;
 		CHECK(!g.hasrecord(7));
 		CHECK(o == over_record(7));
+		CHECK(!g.marked(0, &through));
+	}
+	// A fetch of only the new numbers: chunk 0 is marked through 100,
+	// XOVER 1-200 asks the news server for 101-200, and meanwhile another
+	// session's resize frees 1-100 and fails (it clears the mark). The
+	// chunk wasn't marked, but this XOVER printed the index: 101-200
+	// and ".", without 1-100.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.raceinc");
+		g.setsize(1, 30000);
+		g.reindex(1, 200);
+		for (artnum_t n = 1; n <= 100; n++)
+			g.setover(over_record(n));
+		g.mark(0, 100);
+		rs.hook = resize_far_above_cb;
+		rs.arg = &g;
+		ostringstream all;
+		g.printoverdb(all, 1, 200);
+		CHECK(rs.hook == NULL);	// (the resize happened)
+		rs.hook = NULL;
+		CHECK(!g.hasrecord(1) && !g.hasrecord(100));
+		CHECK(g.hasrecord(101) && g.hasrecord(200));	// what came
+		CHECK(lines(all.str()) == 200);
+		CHECK(listed(all.str(), 1) && listed(all.str(), 100));
+		CHECK(listed(all.str(), 101) && listed(all.str(), 200));
 		CHECK(!g.marked(0, &through));
 	}
 	// (a guard) The same fetch with nothing in between marks the chunk,
