@@ -6,7 +6,8 @@ Bug fixes:
   were already removed, but the range stayed where it was and was still
   marked as synchronized. Until the group timeout ran out, XOVER, OVER,
   XHDR, HDR and XPAT left those articles out of the list and still
-  ended it with ".", and STAT, NEXT and LAST took them as missing (STAT
-  answered 423). Their part of the range is now marked as not
-  synchronized before they are removed, so the next request gets them
-  from the news server again.
+  ended it with ".", STAT answered 423 for them, and NEXT and LAST
+  skipped them. The marks of the parts that lose articles are now
+  cleared before the articles are removed, so that, if the move fails,
+  those parts are fetched from the news server again on the next
+  request. When the move succeeds, nothing changes.

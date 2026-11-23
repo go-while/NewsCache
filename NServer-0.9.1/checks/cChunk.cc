@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 
 #include <iostream>
@@ -405,6 +407,25 @@ struct FullDiskProbe:public PrefetchProbe {
 		NVLock guard(*this, NVcontainer::ExclLock);
 		setsync(c, nvtime(NULL), through);
 	}
+	// the same with a retry entry (see CNewsgroup::retry_pause)
+	void mark_retry(artnum_t c, artnum_t through) {
+		NVLock guard(*this, NVcontainer::ExclLock);
+		setsync(c, SYNC_RETRY | (uint64_t) nvtime(NULL), through);
+	}
+	// chunk c's entry is a retry entry
+	bool retry(artnum_t c) {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt e;
+		getsync(c, &e);
+		return is_retry(e);
+	}
+	// chunk c's entry is cleared (time and number)
+	bool cleared(artnum_t c) {
+		NVLock guard(*this, NVcontainer::ShrdLock);
+		SyncEnt e;
+		getsync(c, &e);
+		return e.time == 0 && e.through == 0;
+	}
 };
 
 // The lines of a reply text (each ends with CRLF).
@@ -425,12 +446,64 @@ static bool listed(const string & s, artnum_t n)
 	return i != string::npos && (i == 0 || s[i - 1] == '\n');
 }
 
+// The records of cached_three: two in each chunk of [5000,25999], at
+// the ends of the halves that the resizes below cut off.
+static const artnum_t three_recs[] = {
+	5000, 9999, 10000, 14999, 15000, 19999, 20000, 25999
+};
+
+// The index [5000,25999] with three_recs, its three chunks marked.
+static void cached_three(FullDiskProbe & g)
+{
+	g.setsize(1, 30000);
+	g.reindex(5000, 25999);
+	for (int i = 0; i < 8; i++)
+		g.setover(over_record(three_recs[i]));
+	g.mark(0, 9999);
+	g.mark(1, 19999);
+	g.mark(2, 25999);
+}
+
+// resize_index(f,l) on a full disk, after fill: it must throw from the
+// allocation of the new table and leave the index's range as it was.
+static void failed_resize(FullDiskProbe & g, unsigned long f, unsigned long l)
+{
+	artnum_t f0, l0, f1, l1;
+
+	g.spoolrange(&f0, &l0);
+	g.fill();
+	g.full = true;
+	bool threw = false;
+	try {
+		g.reindex(f, l);
+	}
+	catch(const SystemError &) {
+		threw = true;
+	}
+	g.full = false;
+	CHECK(threw && g.refused > 0);	// (else nothing was tested)
+	g.spoolrange(&f1, &l1);
+	CHECK(f1 == f0 && l1 == l0);
+}
+
+// Whether the index holds exactly the three_recs in [f,l].
+static bool holds(FullDiskProbe & g, artnum_t f, artnum_t l)
+{
+	for (int i = 0; i < 8; i++) {
+		artnum_t n = three_recs[i];
+		if ((g.hasrecord(n) != 0) != (f <= n && n <= l))
+			return false;
+	}
+	return true;
+}
+
 // The index was resized after its records outside the new range were
 // freed, and the new table couldn't be allocated (disk full): the old
 // index stayed without those records, and their chunks kept their marks.
 // Within the group's timeout their numbers were served from the index as
 // absent: XOVER ended with "." without them, STAT gave 423. The chunks
-// that lost records must be synchronized again, the others not.
+// that lost records must be synchronized again; the chunks that lost no
+// record keep their marks and are served from the index.
 static void resize_failure(const string & dir)
 {
 	ListingServer srv;
@@ -479,42 +552,16 @@ static void resize_failure(const string & dir)
 		CHECK(lines(again.str()) == 100);
 		CHECK(listed(again.str(), 1) && listed(again.str(), 100));
 	}
-	// The index [5000,25999] has records at both ends of each chunk, and
-	// its three chunks are marked. The resize to [15000,29999] drops all
-	// of chunk 0, half of chunk 1, nothing of chunk 2; its table (15000
-	// entries) doesn't fit in what is free.
+	// Records below f: the resize to [15000,29999] drops all of chunk 0,
+	// half of chunk 1, nothing of chunk 2; its table (15000 entries)
+	// doesn't fit in what is free.
 	{
-		static const artnum_t gone[] = { 5000, 9999, 10000, 14999 };
-		static const artnum_t kept[] = { 15000, 19999, 20000, 25999 };
 		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.partial");
-		g.setsize(1, 30000);
-		g.reindex(5000, 25999);
-		for (int i = 0; i < 4; i++) {
-			g.setover(over_record(gone[i]));
-			g.setover(over_record(kept[i]));
-		}
-		g.mark(0, 9999);
-		g.mark(1, 19999);
-		g.mark(2, 25999);
+		cached_three(g);
 		nvtime_t t2 = g.stamp(2, &through);
 		CHECK(t2 != 0 && through == 25999);
-		g.fill();
-		g.full = true;
-		bool threw = false;
-		try {
-			g.reindex(15000, 29999);
-		}
-		catch(const SystemError &) {
-			threw = true;
-		}
-		g.full = false;
-		CHECK(threw && g.refused > 0);
-		g.spoolrange(&f, &l);
-		CHECK(f == 5000 && l == 25999);
-		for (int i = 0; i < 4; i++) {
-			CHECK(!g.hasrecord(gone[i]));
-			CHECK(g.hasrecord(kept[i]));
-		}
+		failed_resize(g, 15000, 29999);
+		CHECK(holds(g, 15000, 25999));
 		// the chunks that lost records lost their marks: all of chunk 0
 		// went, and half of chunk 1
 		CHECK(!g.marked(0, &through));
@@ -533,6 +580,62 @@ static void resize_failure(const string & dir)
 		g.printoverdb(low, 5000, 9999);
 		CHECK(lines(low.str()) == 5000);
 		CHECK(listed(low.str(), 5000) && listed(low.str(), 9999));
+	}
+	// Records above l (as when the news server's last number goes down,
+	// NVNewsgroup::setsize): the resize to [5000,14999] drops half of
+	// chunk 1 and all of chunk 2, nothing of chunk 0. The new table is
+	// smaller than the old one, but larger than any free block.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.below");
+		cached_three(g);
+		nvtime_t t0 = g.stamp(0, &through);
+		CHECK(t0 != 0 && through == 9999);
+		failed_resize(g, 5000, 14999);
+		CHECK(holds(g, 5000, 14999));
+		CHECK(!g.marked(1, &through));
+		CHECK(!g.marked(2, &through));
+		// (a guard) chunk 0 keeps its mark: its two records come from
+		// the index
+		CHECK(g.stamp(0, &through) == t0 && through == 9999);
+		ostringstream low;
+		g.printoverdb(low, 5000, 9999);
+		CHECK(lines(low.str()) == 2);
+		// STAT 15000 (the half of chunk 1 that went): not 423
+		CHECK(string(g.getover(15000)) == over_record(15000));
+		// XOVER 20000-25999 (chunk 2): all of them
+		ostringstream top;
+		g.printoverdb(top, 20000, 25999);
+		CHECK(lines(top.str()) == 6000);
+		CHECK(listed(top.str(), 20000) && listed(top.str(), 25999));
+	}
+	// l on a chunk's last number: the resize to [5000,19999] drops only
+	// chunk 2, whose entry is a retry entry (it counts for the retry
+	// pause, as a mark does for the group's timeout): it goes too.
+	// Chunks 0 and 1 lose nothing.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.edge");
+		cached_three(g);
+		g.mark_retry(2, 25999);
+		CHECK(g.retry(2));
+		nvtime_t t0 = g.stamp(0, &through);
+		CHECK(t0 != 0 && through == 9999);
+		nvtime_t t1 = g.stamp(1, &through);
+		CHECK(t1 != 0 && through == 19999);
+		failed_resize(g, 5000, 19999);
+		CHECK(holds(g, 5000, 19999));
+		CHECK(g.cleared(2));
+		// (guards) chunks 0 and 1 keep their marks: chunk 1's four
+		// records come from the index
+		CHECK(g.stamp(0, &through) == t0 && through == 9999);
+		CHECK(g.stamp(1, &through) == t1 && through == 19999);
+		ostringstream mid;
+		g.printoverdb(mid, 10000, 19999);
+		CHECK(lines(mid.str()) == 4);
+		// XOVER 20000-25999 (chunk 2): all of them
+		ostringstream top;
+		g.printoverdb(top, 20000, 25999);
+		CHECK(lines(top.str()) == 6000);
+		CHECK(listed(top.str(), 20000) && listed(top.str(), 25999));
 	}
 }
 
@@ -592,7 +695,13 @@ int main()
 	string dir;
 	if (test_temp::create("cChunk", dir)) {
 		prefetch_sync(dir);
-		resize_failure(dir);
+		// its own directory below (test_temp makes one per program,
+		// and removes it with what is in it)
+		string sub = dir + "/resize";
+		if (mkdir(sub.c_str(), 0755) == 0)
+			resize_failure(sub);
+		else
+			CHECK(!"a directory for resize_failure");
 	} else {
 		failures++;
 	}
