@@ -445,8 +445,10 @@ nothing is stored, and the log says so. Lines from a news server
 outside articles (status lines, overview records, the active list,
 LISTGROUP) are limited to 16384 bytes each, with the same effect; lines
 in articles count only towards @code{MaxArticleSize}.
-@code{MaxPostSize} is the largest article a client may post (with CRLF
-line ends); a larger one is read to its final @code{.} and refused with
+@code{MaxPostSize} is the largest article a client may post, counted as
+stored with CRLF line ends and any extra leading dots sent for
+dot-stuffing. The terminating @code{.} line is excluded.
+A larger article is read to its terminator and refused with
 441. Both default to 1048576 (1 MiB) and take 1024 to 1073741824.
 
 @example

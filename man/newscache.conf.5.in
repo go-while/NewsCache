@@ -159,7 +159,7 @@ With on (or yes), keep a history of the articles in the spool (the directory .hi
 The largest article NewsCache takes from a news server. A larger one is an error: NewsCache closes the connection to that server (the rest of the article is unread on it), the client gets 403, nothing is stored, and the log says so. The default is 1048576 (1 MiB), the range 1024 to 1073741824. A session holds an article in memory as a whole. Lines from a news server outside articles (status lines, overview records, the active list, LISTGROUP) are limited to 16384 bytes each, with the same effect; lines in articles count only towards MaxArticleSize.
 .TP
 .I "MaxPostSize bytes"
-The largest article a client may post (counted with CRLF line ends). A larger one is read to its final "." and refused with 441; the session goes on. The default is 1048576 (1 MiB), the range 1024 to 1073741824.
+The largest article a client may post, counted as stored with CRLF line ends and any extra leading dots sent for dot-stuffing. The terminating "." line is excluded. A larger article is read to its terminator and refused with 441. The session goes on. The default is 1048576 (1 MiB), the range 1024 to 1073741824.
 .TP
 .I "MaxConnections number"
 Maximal number of simultanous connections. This Parameter works only in standalone mode. The default number is 32.
