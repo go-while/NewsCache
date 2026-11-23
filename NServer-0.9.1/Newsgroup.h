@@ -124,6 +124,9 @@ class Newsgroup {
 	const char *name(void) {
 		return _NewsgroupName;
 	}
+	// Whether the next group command should reopen a replacement spool
+	// database. Remote groups have no file to reopen.
+	virtual bool needs_reopen(bool reselect) { return false; }
 	virtual void getsize(artnum_t *f, artnum_t *l) = 0;
 	virtual void setsize(artnum_t f, artnum_t l) = 0;
 	virtual artnum_t firstnbr() = 0;

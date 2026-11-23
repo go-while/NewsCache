@@ -204,13 +204,10 @@ static void test_pause_before_unlink(const string & path)
 #endif
 
 /*
- * The lock a session holds while it puts a new file under the name path:
- * NVNewsgroup::setarticle renames .art<n>.tmp over .art<n> with the
- * group database's exclusive lock, NVcontainer::corrupt moves a database
- * aside (.db over .db.bad) and starts a new one with an exclusive flock
- * on its directory. Returns the descriptor to close, or -1 (no lock).
- * Never both locks at once: corrupt() waits for the new database's lock
- * while it holds the directory's.
+ * The exclusive group database lock protects both article publication
+ * and retirement of the database that owns those articles. For other
+ * files such as a corruption backup, use the directory flock held by
+ * NVcontainer::corrupt. Returns the descriptor to close, or -1.
  */
 static int lock_for_unlink(const string & path)
 {
@@ -220,13 +217,23 @@ static int lock_for_unlink(const string & path)
 	string dir = path.substr(0, sl);
 	int fd, r;
 
-	if (path.compare(sl + 1, 4, ".art") == 0) {
-		fd = open((dir + "/.db").c_str(), O_RDWR | O_NOFOLLOW);
+	if (path.compare(sl + 1, 4, ".art") == 0 ||
+	    path.compare(sl + 1, string::npos, ".db") == 0) {
+		string db = dir + "/.db";
+		fd = open(db.c_str(), O_RDWR | O_NOFOLLOW);
 		if (fd < 0)
 			return -1;
 		while ((r = nvflock(fd, NVcontainer::ExclLock,
 				    NVcontainer::Block)) != 0 && errno == EINTR)
 			;
+		// A different database could have replaced the one we opened
+		// while we waited. Its files change under a different lock.
+		struct stat locked, named;
+		if (r == 0 && (fstat(fd, &locked) != 0 ||
+			       lstat(db.c_str(), &named) != 0 ||
+			       locked.st_dev != named.st_dev ||
+			       locked.st_ino != named.st_ino))
+			r = -1;
 	} else {
 		fd = open(dir.c_str(), O_RDONLY);
 		if (fd < 0)
@@ -348,6 +355,11 @@ void remove_elements(long long max_blocks, struct cache_statistic *pS)
 #ifdef NEWSCACHE_TEST_CLEAN_RACE
 			test_pause_before_unlink(path);
 #endif
+		}
+		if (isDb && lfd < 0) {
+			slog.p(Logger::Error) << "cannot lock scanned " << path
+			    << " for removal\n";
+			continue;
 		}
 		if (!removed)
 			r = unlink(path.c_str());

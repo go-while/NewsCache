@@ -416,6 +416,115 @@ func TestNewscachecleanExpiryHidesArticle(t *testing.T) {
 	}
 }
 
+// A long-lived reader still holds the unlinked database while a second
+// reader has repopulated its group. Moving the old reader's index window
+// must not delete the second reader's external body.
+func TestRetiredGroupPreservesReplacementBody(t *testing.T) {
+	const group = "test.retired"
+	e := newEnv(t)
+	e.Extra = "History off\nSpoolSize 0"
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.Store.AddGroup(group, "a sparse group")
+	one := groupArticle(group, 1, bigBody())
+	e.Store.AddArticle(group, one)
+	e.Store.AddArticle(group, groupArticle(group, 2, []string{"new inline body"}))
+	e.Store.AddArticle(group, groupArticle(group, 30001, []string{"far body"}))
+	selectGroup := func(c *client.Conn) {
+		t.Helper()
+		if code, line := c.Cmd("GROUP %s", group); code != 211 {
+			t.Fatal(line)
+		}
+	}
+	read := func(c *client.Conn, n int) string {
+		t.Helper()
+		if code, line := c.Cmd("ARTICLE %d", n); code != 220 {
+			t.Fatal(line)
+		}
+		return strings.Join(c.ReadDotLines(), "\n")
+	}
+
+	warm := e.session()
+	selectGroup(warm)
+	want := read(warm, 1)
+	warm.Cmd("QUIT")
+	// STAT materializes the group but needs only the stored overview.
+	// This reader has not opened article 1's history shard, so its
+	// later removal would reach the replacement group's live location.
+	e.Extra = "History on\nSpoolSize 0"
+	old := e.session()
+	selectGroup(old)
+	if code, line := old.Cmd("STAT 1"); code != 223 {
+		t.Fatal(line)
+	}
+	// Keep an offline session on the same old database, too.
+	e.ServerOptions = "offline"
+	offline := e.session()
+	selectGroup(offline)
+	if code, line := offline.Cmd("STAT 1"); code != 223 {
+		t.Fatal(line)
+	}
+	e.ServerOptions = ""
+	db := filepath.Join(e.Spool, "test", "retired", ".db")
+	first, err := os.Stat(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(clean, "-c", e.Conf).CombinedOutput(); err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(db); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected database eviction, stat: %v", err)
+	}
+	fresh := e.session()
+	selectGroup(fresh)
+	if got := read(fresh, 1); got != want {
+		t.Fatal("replacement group fetched different article content")
+	}
+	if !strings.Contains(read(fresh, 2), "new inline body") {
+		t.Fatal("replacement group did not cache article 2")
+	}
+	second, err := os.Stat(db)
+	if err != nil || os.SameFile(first, second) {
+		t.Fatalf("expected a new group database, stat: %v", err)
+	}
+	body := filepath.Join(filepath.Dir(db), ".art1")
+	before, err := os.Stat(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read(old, 30001)
+	if code, line := old.Cmd("STAT 30001"); code != 223 {
+		t.Fatalf("STAT on the retired online group: %s", line)
+	}
+	expectOver(t, old, 30001, 30001, 30001)
+	after, err := os.Stat(body)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("old reader removed or replaced the new body, stat: %v", err)
+	}
+	// A numeric read can add a missing history entry. Check the offline
+	// lookup by Message-ID before that read gets a chance to repair it.
+	if code, line := offline.Cmd("ARTICLE %s", one.MessageID); code != 220 {
+		t.Fatalf("offline read through the replacement history entry: %s", line)
+	}
+	offline.ReadDotLines()
+	if got := read(offline, 2); !strings.Contains(got, "new inline body") {
+		t.Fatal("open offline reader missed the replacement's inline article")
+	}
+	if got := read(offline, 1); got != want {
+		t.Fatal("open offline reader missed the replacement's external body")
+	}
+	offline.Cmd("QUIT")
+	requests := e.Upstream.Count("ARTICLE")
+	if got := read(fresh, 1); got != want || e.Upstream.Count("ARTICLE") != requests {
+		t.Fatal("replacement group did not serve its cached article")
+	}
+	old.Cmd("QUIT")
+	fresh.Cmd("QUIT")
+}
+
 // TestNewscachecleanWhileArticleIsFetched: newscacheclean can run while a
 // live NewsCache session is fetching an article into a group's spool
 // directory. The directory and article must still be usable after both

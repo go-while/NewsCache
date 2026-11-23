@@ -100,6 +100,12 @@ class CNewsgroup:public NVNewsgroup {
 	}
 	virtual ~CNewsgroup();
 
+	// An online reader passes requests on while its old group is still
+	// selected. Moving its old window must not evict the replacement's
+	// cached articles.
+	bool needs_reopen(bool reselect) override {
+		return reselect && !is_named_file(true);
+	}
 	virtual void setttl(nvtime_t grp) {
 		_TTLGroup = grp;
 	}

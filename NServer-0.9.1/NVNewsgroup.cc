@@ -231,7 +231,7 @@ void NVNewsgroup::dropbad(artnum_t nbr, const string &bad)
 			    << " unreadable, dropped\n";
 			std::string id = recordmsgid(data, szdata);
 			NVArray::sdel(nbr - arrfst);
-			if (!id.empty() && History::enabled()) {
+			if (!id.empty() && History::enabled() && is_named_file(true)) {
 				try {
 					History::remove(id.c_str(), name(), nbr);
 				}
@@ -256,6 +256,11 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 		f = arrfst;
 	if (l > arrlst)
 		l = arrlst;
+	// The cleaner and corruption recovery take this same database's
+	// exclusive lock to retire it. Its records may still be freed
+	// after that, but its external files and history names are now
+	// owned by the replacement database.
+	bool named = is_named_file(true);
 	HistoryBatch hb;
 	for (i = f; i <= l; i++) {
 		nvoff_t *slot = &arrtab[i - arrfst];
@@ -264,12 +269,12 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 			size_t szdata;
 
 			NVArray::sget(i, &data, &szdata);	// (checks the record)
-			if (History::enabled()) {
+			if (named && History::enabled()) {
 				std::string id = recordmsgid(data, szdata);
 				if (!id.empty())
 					History::remove(id.c_str(), name(), i);
 			}
-			if (*data == bigarticle) {
+			if (named && *data == bigarticle) {
 				artfile(fn, sizeof(fn), i);
 				unlink(fn);
 			}
@@ -379,6 +384,8 @@ artnum_t NVNewsgroup::cover(artnum_t f, artnum_t l)
 		want = l - MAX_INDEX_SPAN + 1;
 
 	NVLock guard(*this, NVcontainer::ExclLock);	// (resize_index allocates)
+	if (!is_named_file(true))
+		return 0;	// a retired index no longer covers live requests
 	if (arrfst > arrlst || arrlst < gf || (_ghave && arrfst > _glast)) {
 		// no index yet, or none with anything of the group in it
 		lo = chunk_start(want);
@@ -485,7 +492,7 @@ bool NVNewsgroup::spooled(artnum_t nbr)
 				char fn[MAXPATHLEN];
 				struct stat st;
 				artfile(fn, sizeof(fn), nbr);
-				r = stat(fn, &st) == 0;
+				r = is_named_file(true) && stat(fn, &st) == 0;
 			}
 		}
 	}
@@ -507,7 +514,7 @@ bool NVNewsgroup::lookup_stored(artnum_t nbr, stored_copy & got)
 	if (nbr < f || nbr > l)
 		return true;
 	NVArray::sget(nbr, &data, &szdata);
-	if (!data)
+	if (!data || !is_named_file(true))
 		return true;
 	if (*data == article) {
 		// szdata ... Size of article including type and the trailing \0
@@ -664,8 +671,10 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 	if (art && from_spool && History::enabled()) {
 		// a spool of an older version has no history entries
 		try {
-			History::note(art->getfield("Message-ID:").c_str(),
-				      name(), nbr);
+			NVLock guard(*this, NVcontainer::ShrdLock);
+			if (is_named_file(true))
+				History::note(art->getfield("Message-ID:").c_str(),
+					      name(), nbr);
 		}
 		catch(...) {
 		}
@@ -712,6 +721,7 @@ void NVNewsgroup::setarticle(Article * art)
 		return;
 	}
 	NVLock guard(*this, NVcontainer::ExclLock);	// (nvalloc may throw)
+	require_named();
 	NVArray::getsize(&f, &l);
 	if (f <= nbr && nbr <= l) {
 		char *data;
@@ -964,11 +974,11 @@ artnum_t NVNewsgroup::readoverdb(istream & is, ReplyBudget &budget,
 	string line1, line2;
 	time_t now;
 	artnum_t n, high = 0;
-	HistoryBatch hb;	// one history lock per shard for the reply
-
 	bool done = false;
 
 	NVLock guard(*this, NVcontainer::ExclLock);
+	HistoryBatch hb;	// commit before releasing the group's lock
+	require_named();	// a store failure invalidates the upstream reply
 	for (;;) {
 		size_t wire_bytes = 0;
 		nlreadline(is, line1, 0, NNTP_MAXLINE, &wire_bytes);

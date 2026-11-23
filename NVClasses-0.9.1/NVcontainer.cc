@@ -897,6 +897,14 @@ void NVcontainer::open(const char *dbname, int flags)
 		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
 	}
 	if (st.st_size == 0) {
+		// A creator may have waited for a cleaner holding this fd's
+		// lock. In particular, a failed write must never unlink a
+		// replacement that appeared while it waited.
+		if (lock_for_retirement() && !is_named_file(true)) {
+			close();
+			throw SystemError(string("database was retired: ") + dbname,
+					  ENOENT, ERROR_LOCATION);
+		}
 		Header hdr;
 		FreeList fl;
 		hdr.freelist = hdr.hlen;
@@ -1037,12 +1045,34 @@ static int lock_dir(const string & fn)
 	return fd;
 }
 
-bool NVcontainer::is_named_file(void)
+bool NVcontainer::is_named_file(bool report_errors)
 {
 	struct stat ours, named;
-	return mem_fd >= 0 && mem_fn[0] && fstat(mem_fd, &ours) == 0 &&
-	    stat(mem_fn, &named) == 0 && ours.st_dev == named.st_dev &&
-	    ours.st_ino == named.st_ino;
+	if (mem_fd < 0 || !mem_fn[0])
+		return false;
+	if (fstat(mem_fd, &ours) != 0) {
+		if (report_errors)
+			throw SystemError(string("cannot stat open ") + mem_fn,
+					  errno, ERROR_LOCATION);
+		return false;
+	}
+	if (stat(mem_fn, &named) != 0) {
+		if (report_errors && errno != ENOENT && errno != ENOTDIR)
+			throw SystemError(string("cannot stat ") + mem_fn,
+					  errno, ERROR_LOCATION);
+		return false;
+	}
+	return ours.st_dev == named.st_dev && ours.st_ino == named.st_ino;
+}
+
+// A group lock used outside the container's lock stack during recovery.
+static int retirement_lock(int fd, int command)
+{
+	int r;
+	do {
+		r = nvflock(fd, command, NVcontainer::Block);
+	} while (r < 0 && errno == EINTR);
+	return r;
 }
 
 void NVcontainer::corrupt(const std::string & why)
@@ -1060,14 +1090,19 @@ void NVcontainer::corrupt(const std::string & why)
 
 	// Which file we have mapped, then drop it. The callers' locks go
 	// with it; their UnLock calls are let through (lck_orphans). Our
-	// fd is closed before we wait for the directory lock, so we hold
-	// no lock on any database file while we wait.
+	// original lock is given up before we wait for the directory.
 	struct stat ours, named;
 	bool have_ours = mem_fd >= 0 && fstat(mem_fd, &ours) == 0;
+	bool group_file = lock_for_retirement();
+	int retired_fd = -1;
 	if (mem_p)
 		munmap(mem_p, mem_sz);
-	if (mem_fd >= 0)
-		::close(mem_fd);
+	if (mem_fd >= 0) {
+		if (group_file && retirement_lock(mem_fd, UnLock) == 0)
+			retired_fd = mem_fd;	// pins this inode through the rename
+		else
+			::close(mem_fd);
+	}
 	lck_orphans += NVcontainer_LOCKSTACKSIZE - lck_stackp;
 	if (lck_orphans > 4 * NVcontainer_LOCKSTACKSIZE) {
 		// UnLock calls that never came (their callers left by an
@@ -1088,15 +1123,32 @@ void NVcontainer::corrupt(const std::string & why)
 	// under the name then.
 	int dfd = lock_dir(fn);
 	bool gone = false;
-	if (have_ours && stat(fn.c_str(), &named) == 0 &&
-	    (ours.st_dev != named.st_dev || ours.st_ino != named.st_ino)) {
-		// replaced by another process already: use the new file
-	} else if (::rename(fn.c_str(), bad.c_str()) != 0 && errno != ENOENT) {
+	// The group's data lock serializes retirement with external-body
+	// and history operations, also where flock on a directory isn't
+	// supported. Reuse our old descriptor (closing another descriptor
+	// for this inode could release this process's fcntl lock). Close
+	// it before open() takes the replacement's lock.
+	bool replace = true;
+	if (group_file && (retired_fd < 0 || !have_ours ||
+			   retirement_lock(retired_fd, ExclLock) != 0)) {
+		slog.p(Logger::Error) << "cannot lock group database to replace "
+		    << fn << "\n";
+		gone = true;
+		replace = false;
+	} else if (have_ours && stat(fn.c_str(), &named) == 0) {
+		replace = ours.st_dev == named.st_dev && ours.st_ino == named.st_ino;
+	} else if (group_file) {
+		// Never move a name whose ownership we could not establish.
+		gone = errno != ENOENT;
+		replace = false;
+	}
+	if (replace && ::rename(fn.c_str(), bad.c_str()) != 0 && errno != ENOENT) {
 		slog.p(Logger::Error) << "cannot rename " << fn << ": "
 			<< strerror(errno) << "; removing it\n";
-		if (unlink(fn.c_str()) != 0)
-			gone = true;
+		gone = unlink(fn.c_str()) != 0;
 	}
+	if (retired_fd >= 0)
+		::close(retired_fd);
 	if (!gone) {
 		try {
 			open(fn.c_str());

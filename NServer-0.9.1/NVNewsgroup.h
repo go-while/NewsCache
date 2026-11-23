@@ -31,6 +31,12 @@
  */
 class NVNewsgroup:public Newsgroup, protected NVArray {
   protected:
+	bool lock_for_retirement() const override { return true; }
+	void require_named() {
+		if (!is_named_file(true))
+			throw SystemError(std::string("group database was retired: ") + name(),
+					  ENOENT, ERROR_LOCATION);
+	}
 	void sprintover(std::ostream & os, artnum_t nbr);
 	std::string recordmsgid(const char *data, size_t szdata);
 	void dropbad(artnum_t nbr, const std::string &bad);
@@ -172,6 +178,9 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 #ifdef ENABLE_ASSERTIONS
 	virtual void testdb(void);
 #endif
+	// An offline session needs the currently named database to read
+	// the bodies and records that other sessions have cached there.
+	bool needs_reopen(bool reselect) override { return !is_named_file(true); }
 	// The group's range once setsize was called (the server side),
 	// else the range of the spool's index (newscacheclean).
 	virtual void getsize(artnum_t *f, artnum_t *l) {

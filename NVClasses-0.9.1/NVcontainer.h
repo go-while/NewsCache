@@ -140,7 +140,10 @@ class NVcontainer {
 	 * Whether the open file is still the one under its name: another
 	 * process's corrupt() moves a file aside without the file's lock.
 	 */
-	bool is_named_file(void);
+	bool is_named_file(bool report_errors = false);
+	// A group database owns external article files and history entries
+	// under its data lock. Its removal must take that same lock.
+	virtual bool lock_for_retirement() const { return false; }
 	virtual void reinit(void) {
 	}
 	/*

@@ -534,13 +534,17 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  */
 void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 {
-	// (as in readoverdb: the history entries are added in one go per
-	// shard, after the group's lock is given back)
-	HistoryBatch hb;
+	// Flush the history batch before releasing the group's lock: a
+	// replacement group may already have stored the same locations
+	// once the cleaner retires this database.
 	GroupLock guard(*this, NVcontainer::ExclLock);
+	HistoryBatch hb;
 	artnum_t f, top = cf.top, first;
 	SyncEnt e;
 
+	// The cleaner may have retired the group while fetchchunk waited.
+	// freshen must use its upstream fallback if nothing can be stored.
+	require_named();
 	if (arrfst > arrlst)
 		return;
 	if (top > arrlst)
