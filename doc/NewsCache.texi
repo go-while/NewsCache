@@ -877,7 +877,12 @@ synchronized and the log says so (@samp{upstream overview chunk limit
 exceeded}, or @samp{deadline}). The records that arrived before it are
 kept, one per article, so the next request continues from there.
 NewsCache then asks the news server once more, directly, with the same
-limits; the client gets the records or 403. (Each reply had only its
+limits; the client gets the records or 403.
+A single client request can take up to about twice the five minutes
+(the refresh, then the direct request with its own limits), plus the
+waits for status lines (at most @code{ReadTimeout} plus 60 seconds
+each).
+(Each reply had only its
 own limits before: a news server that sent the first record of the
 range again and again could make NewsCache ask 10000 times for one
 range and hold 50 million records.)

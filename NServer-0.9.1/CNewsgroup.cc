@@ -424,21 +424,21 @@ namespace {
  */
 class OverCollector:public RNewsgroup {
 	std::vector < std::string > &_records;
-	artnum_t _first, _last;
-	std::vector < bool > _got;	// _got[n - _first]: n's record is kept
+	artnum_t _f0, _l0;	// the fetch's range (see fetchchunk)
+	std::vector < bool > _got;	// _got[n - _f0]: n's record is kept
   public:
 	OverCollector(RServer * srvr, OverviewFmt * fmt, const char *name,
 		      artnum_t first, artnum_t last,
 		      std::vector < std::string > &records)
-	: RNewsgroup(srvr, fmt, name), _records(records), _first(first),
-	    _last(last), _got(last - first + 1, false) {
+	: RNewsgroup(srvr, fmt, name), _records(records), _f0(first),
+	    _l0(last), _got(last - first + 1, false) {
 	}
 	virtual void setover(const std::string & over) {
 		artnum_t n = leading_artnum(over.c_str());
 
-		if (n < _first || n > _last || _got[n - _first])
+		if (n < _f0 || n > _l0 || _got[n - _f0])
 			return;
-		_got[n - _first] = true;
+		_got[n - _f0] = true;
 		_records.push_back(over);
 	}
 };
@@ -703,13 +703,15 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 			catch(...) {
 				// what came before the failure is kept, as when
 				// the records were stored as they came (the next
-				// request asks only for the others)
+				// request asks only for the others); storechunk
+				// checks the index again
 				if (!cf.records.empty())
 					slog.p(Logger::Notice) << name() << ": "
 					    << cf.records.size()
 					    << " overview records of " << cf.from
 					    << "-" << cf.top << " came before the "
-					    "fetch failed, they are kept\n";
+					    "fetch failed, they are stored where "
+					    "the index still holds the range\n";
 				storechunk(cf, fetch_failed);
 				throw;
 			}
