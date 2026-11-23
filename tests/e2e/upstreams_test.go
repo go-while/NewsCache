@@ -619,6 +619,91 @@ func TestArticleIDServerDown(t *testing.T) {
 	}
 }
 
+// ARTICLE by ID searches every online provider. A failure at one of them
+// must not conceal a good copy elsewhere or turn into a definitive miss.
+func TestArticleIDProviderReplies(t *testing.T) {
+	const id = "<Wanted@test.invalid>"
+	const wrong = "<wanted@test.invalid>" // Message-IDs are case-sensitive
+	article := func(envelope, header, body string) []string {
+		lines := []string{"220 7 " + envelope + " article", "Newsgroups: test.alpha"}
+		if header != "" {
+			lines = append(lines, "Message-ID: "+header)
+		}
+		return append(lines, "", body, ".")
+	}
+	ok := article(id, id, "right article")
+	other := article(wrong, wrong, "different article")
+	missing := []string{"430 no article"}
+	failed := []string{"403 temporarily unavailable"}
+	for _, tc := range []struct {
+		name     string
+		first    []string
+		second   []string
+		selected bool
+		want     int
+	}{
+		{"wrong ID", other, nil, true, 403},
+		{"temporary refusal", failed, nil, false, 403},
+		{"both missing", missing, missing, false, 430},
+		{"refusal then missing", failed, missing, true, 403},
+		{"refusal then article", failed, ok, true, 220},
+		{"wrong ID then article", other, ok, false, 220},
+		{"matching ID", ok, nil, false, 220},
+		{"assigned ID without header", article(id, "", "right article"), nil, false, 220},
+		{"assigned ID with original header", article(id, wrong, "right article"), nil, false, 220},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			ids := e.addArticles("test.alpha", 1)
+			replies := func(lines []string) fakeserver.Options {
+				return fakeserver.Options{Store: e.Store, Faults: fakeserver.Faults{
+					OverrideLine: map[string][]string{"ARTICLE " + id: lines},
+				}}
+			}
+			upstreamWith(t, e, replies(tc.first))
+			if tc.second != nil {
+				e.ExtraServers = serverBlock(fakeserver.New(t, replies(tc.second)), "test.beta")
+			}
+			c := e.session()
+			if tc.selected {
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP: %q", line)
+				}
+			}
+			code, line := c.Cmd("ARTICLE %s", id)
+			if code != tc.want {
+				t.Fatalf("ARTICLE %s: %q, want %d", id, line, tc.want)
+			}
+			if code == 220 {
+				if fields := strings.Fields(line); len(fields) < 3 || fields[2] != id {
+					t.Errorf("ARTICLE %s returned %q", id, line)
+				}
+				block := c.ReadDotLines()
+				if !containsLine(block, "right article") {
+					t.Errorf("ARTICLE %s returned %q", id, block)
+				}
+				reply := tc.first
+				if tc.second != nil {
+					reply = tc.second
+				}
+				// Only the status uses the NNTP identifier. The headers
+				// and body follow exactly as supplied by the provider.
+				if strings.Join(block, "\n") != strings.Join(reply[1:len(reply)-1], "\n") {
+					t.Errorf("article changed in transit: %q", block)
+				}
+			}
+			// Another upstream request also checks that the rejected
+			// article body did not get read as this command's response.
+			if code, line := c.Cmd("ARTICLE %s", ids[0]); code != 220 {
+				t.Fatalf("follow-up ARTICLE: %q", line)
+			}
+			if !containsLine(c.ReadDotLines(), "body of article 1") {
+				t.Error("wrong follow-up article")
+			}
+		})
+	}
+}
+
 // TestUpstreamOverviewBareCR: an overview record from the upstream with
 // a lone CR in a field was stored and sent to clients as it came, a bare
 // CR inside the line (RFC 3977 3.1). A reader that takes a CR as a line

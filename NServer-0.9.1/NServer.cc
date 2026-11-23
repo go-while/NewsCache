@@ -3328,98 +3328,79 @@ void CServer::article(const char *gname, artnum_t nbr, Article * art)
 	filter_xref(art, mpe, gname);
 }
 
-/*
- * Sends cmd (ARTICLE <id>) to the current server and returns 1 with its
- * reply in resp, or 0 (and sets unreachable) if the server can't be
- * reached or the connection fails.
- */
-int CServer::ask_article(const char *cmd, string & resp, bool & unreachable)
+// Match the opaque NNTP identifier in "220 number <id> [text]". A
+// server can assign it independently of the article's Message-ID header.
+static bool article_reply_matches(const string &resp, const char *id)
+{
+	const char *p = resp.c_str() + 3;
+	artnum_t number;
+	if ((*p != ' ' && *p != '\t') || !next_artnum(&p, &number) ||
+	    (*p != ' ' && *p != '\t'))
+		return false;
+	string::size_type b = resp.find_first_not_of(" \t", p - resp.c_str());
+	if (b == string::npos)
+		return false;
+	return resp.compare(b, resp.find_first_of(" \t", b) - b, id) == 0;
+}
+
+// Only 430 is a definite miss. Any other failure is remembered until
+// the remaining providers have had a chance to return the article.
+bool CServer::ask_article(const char *id, Article *art, bool &failed)
 {
 	try {
 		connect();
-		resp = issue(cmd, NULL);
-		return 1;
+		const string cmd = string("article ") + id + "\r\n";
+		const string resp = issue(cmd.c_str(), NULL);
+		if (resp == "430" || resp.compare(0, 4, "430 ") == 0 ||
+		    resp.compare(0, 4, "430\t") == 0)
+			return false;
+		if (NNTP_ISCODE(resp.c_str(), "220") && article_reply_matches(resp, id)) {
+			readarticle(art);
+			art->setnbr(0);
+			return true;
+		}
+		slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
+		    << ": unexpected reply to ARTICLE " << id << ": " << resp << "\n";
+		// A wrong 220 has an unread body, as may other unexpected
+		// positive replies. Close it before the next command.
+		reply_unexpected(resp);
 	}
-	catch(const SystemError &) {
+	catch(const SystemError &e) {
+		slog.p(Logger::Warning) << _CurrentServer->hostname
+		    << ": ARTICLE " << id << " failed: " << e._errtext << "\n";
 	}
-	catch(const ResponseError &) {
+	catch(const ResponseError &e) {
+		slog.p(Logger::Warning) << _CurrentServer->hostname
+		    << ": ARTICLE " << id << " failed: " << e._got << "\n";
 	}
-	slog.p(Logger::Warning) << "news server " << _CurrentServer->hostname
-	    << ":" << _CurrentServer->servicename
-	    << " unreachable for a message-ID, trying the others\n";
-	unreachable = true;
-	return 0;
+	failed = true;
+	return false;
 }
 
 void CServer::article(const char *id, Article * art)
 {
 	VERB(slog.p(Logger::Debug) << "CServer::article(" << id << ")\n");
-	const char *p;
-	string resp;
-
-	const char * const gname =
-	  (_CurrentGroup.name()[0] != '\0') ? _CurrentGroup.name() : NULL;
-
-	// Not a fixed buffer, see RServer::article(id)
-	const string cmd = string("article ") + id + "\r\n";
-	const char * const buf = cmd.c_str();
-
-	// A server that can't be reached is skipped, not the end of the
-	// search: the article may be on one of the others. Only if none of
-	// them has it is that passed on (403), instead of 430.
-	bool unreachable = false;
-
-	if (_CurrentServer
-	    && !(_CurrentServer->flags & MPListEntry::F_OFFLINE)
-	    && ask_article(buf, resp, unreachable)) {
-		p = resp.c_str();
-		if (strncmp(p, "220", 3) == 0) {
-			readarticle(art);
-			art->setnbr(0);
-			filter_xref(art, gname ? _CurrentServer : NULL, gname);
-			return;
-		}
-		// 412 cannot happen since we specified the article id
-		// 420 -"- since we specified the article id
-		// 423 -"- since we specified the article id, not the art nbr
-		if (strncmp(p, "430", 3) != 0) {
-			slog.p(Logger::Notice)
-			    <<
-			    "illegal response code to <article <id>> request\n"
-			    << p;
-			reply_unexpected(resp);
-		}
-	}
-	// check whether the article can be found at one of the other
-	// news servers
+	bool failed = false;
 	MPListEntry *cs = _CurrentServer;
+	if (cs && !(cs->flags & MPListEntry::F_OFFLINE) && ask_article(id, art, failed)) {
+		const char *gname = _CurrentGroup.name()[0] ? _CurrentGroup.name() : NULL;
+		filter_xref(art, gname ? cs : NULL, gname);
+		return;
+	}
 	for (unsigned int i = 0; i < _ServerList->entries.size(); i++) {
-		if (cs == &(_ServerList->entries[i]) ||
-		    !_ServerList->entries[i].hostname[0] ||
-		    _ServerList->entries[i].flags & MPListEntry::F_OFFLINE)
+		MPListEntry *server = &_ServerList->entries[i];
+		if (server == cs || !server->hostname[0] ||
+		    (server->flags & MPListEntry::F_OFFLINE))
 			continue;
-		setserver(&(_ServerList->entries[i]));
-		if (!ask_article(buf, resp, unreachable))
-			continue;
-		p = resp.c_str();
-		if (strncmp(p, "220", 3) == 0) {
-			readarticle(art);
-			art->setnbr(0);
+		setserver(server);
+		if (ask_article(id, art, failed)) {
 			filter_xref(art, NULL);
 			return;
 		}
-		if (strncmp(p, "430", 3) != 0) {
-			slog.p(Logger::Notice)
-			    <<
-			    "illegal response code to <article <id>> request\n"
-			    << p;
-			reply_unexpected(resp);
-		}
 	}
-	if (unreachable)
-		throw SystemError("article not found, a news server was "
-				  "unreachable", -1, ERROR_LOCATION);
-	throw NoSuchArticleError(resp, ERROR_LOCATION);
+	if (failed)
+		throw SystemError("article lookup failed on a news server", -1, ERROR_LOCATION);
+	throw NoSuchArticleError(id, ERROR_LOCATION);
 }
 
 /*
