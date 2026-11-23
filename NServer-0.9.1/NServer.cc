@@ -1389,6 +1389,12 @@ ActiveDB *RServer::active(bool)
 			    flags & (MPListEntry::F_OFFLINE | MPListEntry::
 				     F_SEMIOFFLINE))
 				continue;
+
+			connect();
+			// After connect(): a 201 greeting (or MODE READER
+			// reply) clears F_POST there. Decided before it, a
+			// fresh process (updatenews -a, a session's first
+			// list) stored the list's 'y' for a read-only server.
 			flags =
 			    ((_CurrentServer->
 			      nntpflags & MPListEntry::F_POST)
@@ -1397,8 +1403,6 @@ ActiveDB *RServer::active(bool)
 				  F_SETPOSTFLAG)) ? 0 : ActiveDB::
 			    F_STORE_READONLY;
 			flags |= ActiveDB::F_DEFER_MTIME;
-
-			connect();
 			if (_CurrentServer->
 			    nntpflags & MPListEntry::
 			    F_LIST_ACTIVE_WILDMAT) {
