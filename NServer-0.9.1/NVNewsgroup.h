@@ -38,6 +38,7 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 					  ENOENT, ERROR_LOCATION);
 	}
 	void sprintover(std::ostream & os, artnum_t nbr);
+	bool stored_over(artnum_t nbr, std::string &over);
 	std::string recordmsgid(const char *data, size_t szdata);
 	void dropbad(artnum_t nbr, const std::string &bad);
 
@@ -237,6 +238,9 @@ class NVNewsgroup:public Newsgroup, protected NVArray {
 	}
 
 	virtual const char *getover(artnum_t nbr);
+	// Check a history location against this group's stored record. Remove
+	// a stale location while the same group is still locked.
+	bool history_over(const char *id, artnum_t nbr, std::string &over);
 	virtual void setover(const std::string & over);
 	virtual void printover(std::ostream & os, artnum_t nbr) {
 		NVLock guard(*this, NVcontainer::ShrdLock);

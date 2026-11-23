@@ -867,62 +867,59 @@ void NVNewsgroup::setarticle(Article * art)
 	ASSERT2(testdb());
 }
 
-//FIX! Possibly, we should throw an exception, if the overview record
-//FIX! cannot be found.
-const char *NVNewsgroup::getover(artnum_t nbr)
+// True if the caller's group lock stayed held throughout the read,
+// including when the slot was absent. False if dropbad upgraded it.
+bool NVNewsgroup::stored_over(artnum_t nbr, string &over)
 {
-	//  VERB(slog.p(Logger::Debug) << "NVNewsgroup::getover(over)\n"); 
-
 	char *data;
 	size_t szdata;
-	unsigned long f, l;
-	static string over;
 
-	over = "";
-	// (a guard: bad_alloc from the copies below kept the shared lock
-	// until the session ended, and every writer of the group waited)
-	NVLock guard(*this, NVcontainer::ShrdLock);
-	NVArray::getsize(&f, &l);
-	if (f <= nbr && nbr <= l) {
-		NVArray::sget(nbr, &data, &szdata);
-		if (data) {
-			if (*data == article) {
-				Article *art;
-				//FIX! This is inefficient!
-				//FIX! The article is copied and all the overview data is copied 
-				//FIX! again. We should allow Articles to use externally provided 
-				//FIX! memory (eg. memory from the NVNewsgroup).
-				// szdata ... Size of article+1 including the trailing \0
-				art =
-				    new Article(nbr, data + sizeof(char),
-						szdata - sizeof(char) - 1);
-				bool bad = false;
-				try {
-					_OverviewFormat->convert(*art, over);
-				}
-				catch(const InvalidArticleError & e) {
-					bad = true;
-				}
-				delete art;
-				if (bad) {
-					over = "";
-					dropbad(nbr, string(data, szdata));
-				}
-			} else if (*data == bigarticle
-				   || *data == overview) {
-				over = data + sizeof(char);
-				scrub_over(over);
-			} else {
-				// Impossible
-				VERB(slog.
-				     p(Logger::
-				       Critical) <<
-				     "NVNewsgroup::getover. Oops, reached ?dead? code 936!!!\n");
-			}
+	over.clear();
+	if (nbr < arrfst || nbr > arrlst)
+		return true;
+	NVArray::sget(nbr, &data, &szdata);
+	if (!data)
+		return true;
+	if (*data == article) {
+		Article art(nbr, data + 1, szdata - 2);
+		try {
+			_OverviewFormat->convert(art, over);
 		}
+		catch(const InvalidArticleError &) {
+			over.clear();
+			dropbad(nbr, string(data, szdata));
+			return false;
+		}
+	} else {
+		// sget validated the record type: bigarticle or overview.
+		over = data + 1;
+		scrub_over(over);
 	}
+	return true;
+}
+
+const char *NVNewsgroup::getover(artnum_t nbr)
+{
+	static string over;
+	NVLock guard(*this, NVcontainer::ShrdLock);
+	stored_over(nbr, over);
 	guard.release();
 	return over.c_str();
+}
+
+bool NVNewsgroup::history_over(const char *id, artnum_t nbr, string &over)
+{
+	NVLock guard(*this, NVcontainer::ShrdLock);
+	require_named();
+	bool verified = stored_over(nbr, over);
+	bool found = verified && !over.empty() &&
+	    _OverviewFormat->getfield(over.c_str(), "Message-ID:", 0) == id;
+	// A writer can restore this exact location. Hold the group lock
+	// through the shard update, in the same order as the writer.
+	if (verified && !found)
+		History::remove(id, name(), nbr);
+	guard.release();
+	return found;
 }
 
 void NVNewsgroup::setover(const string & over)

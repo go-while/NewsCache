@@ -1467,33 +1467,25 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
 		return 0;
 	// the current group first, then the groups the client may read
 	std::stable_sort(locs.begin(), locs.end(), LocationOrder(clt));
-	OverviewFmt *of = clt->srvr->overviewfmt();
 	for (size_t i = 0; i < locs.size(); i++) {
 		Newsgroup *g = NULL;
-		bool own = false, failed = false;
-		string o;
+		bool own = false, found = false;
 		try {
 			g = open_group(clt, locs[i].group, &own);
-			// the spool's record only: no synchronization
 			NVNewsgroup *nvg = dynamic_cast < NVNewsgroup * >(g);
-			const char *p;
-			if (nvg && (p = nvg->NVNewsgroup::getover(locs[i].nbr)))
-				o = p;
+			if (nvg)
+				found = nvg->history_over(id, locs[i].nbr, over);
 		}
 		catch(...) {
-			failed = true;
+			// Could not verify this location. Try the next one.
 		}
 		if (own && g)
 			clt->srvr->freegroup(g);
-		if (failed)
-			continue;	// not known to be gone: keep the entry
-		if (!o.empty() && of->getfield(o.c_str(), "Message-ID:", 0) == id) {
+		if (found) {
 			group = locs[i].group;
 			nbr = locs[i].nbr;
-			over = o;
 			return 1;
 		}
-		History::remove(id, locs[i].group.c_str(), locs[i].nbr);
 	}
 	return 0;
 }
