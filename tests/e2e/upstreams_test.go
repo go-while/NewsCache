@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -675,7 +676,7 @@ func TestArticleIDProviderReplies(t *testing.T) {
 				t.Fatalf("ARTICLE %s: %q, want %d", id, line, tc.want)
 			}
 			if code == 220 {
-				if fields := strings.Fields(line); len(fields) < 3 || fields[2] != id {
+				if fields := strings.Fields(line); len(fields) < 3 || fields[1] != "0" || fields[2] != id {
 					t.Errorf("ARTICLE %s returned %q", id, line)
 				}
 				block := c.ReadDotLines()
@@ -691,9 +692,30 @@ func TestArticleIDProviderReplies(t *testing.T) {
 				if strings.Join(block, "\n") != strings.Join(reply[1:len(reply)-1], "\n") {
 					t.Errorf("article changed in transit: %q", block)
 				}
+				separator := slices.Index(reply, "")
+				for _, part := range []struct {
+					command string
+					code    int
+					lines   []string
+				}{
+					{"HEAD", 221, reply[1:separator]},
+					{"BODY", 222, reply[separator+1 : len(reply)-1]},
+					{"STAT", 223, nil},
+				} {
+					code, line := c.Cmd("%s %s", part.command, id)
+					fields := strings.Fields(line)
+					if code != part.code || len(fields) < 3 || fields[1] != "0" || fields[2] != id {
+						t.Fatalf("%s %s: %q, want %d 0 %s", part.command, id, line, part.code, id)
+					}
+					if part.command != "STAT" {
+						if got := c.ReadDotLines(); !slices.Equal(got, part.lines) {
+							t.Errorf("%s %s: %q, want %q", part.command, id, got, part.lines)
+						}
+					}
+				}
 			}
-			// Another upstream request also checks that the rejected
-			// article body did not get read as this command's response.
+			// The next command must start at its own response, after
+			// either the single-line STAT or a rejected upstream reply.
 			if code, line := c.Cmd("ARTICLE %s", ids[0]); code != 220 {
 				t.Fatalf("follow-up ARTICLE: %q", line)
 			}
