@@ -2354,9 +2354,8 @@ int RServer::post(Article * article)
 	if (article->has_bare_cr_or_nul())
 		throw InvalidArticleError("NUL or CR outside CRLF in the article",
 					  ERROR_LOCATION);
-	// Even an empty body follows a blank line. Check before choosing a
-	// destination: an offline server may queue the article without
-	// looking up any field beyond the required ones.
+	// An offline destination may queue the article after checking only
+	// the required fields. Reject posts with no blank line anywhere.
 	const char *text = article->c_str();
 	if (!strstr(text, "\n\r\n") && !strstr(text, "\n\n"))
 		throw InvalidArticleError("no blank line after article headers",
