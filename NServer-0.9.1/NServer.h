@@ -871,8 +871,7 @@ class CServer
 	virtual void article(const char *id, Article * art);
 
   private:
-	int ask_article(const char *cmd, std::string & resp,
-			bool & unreachable);
+	bool ask_article(const char *id, Article *art, bool &failed);
 };
 
 inline void CServer::invalidateActiveDB (void)

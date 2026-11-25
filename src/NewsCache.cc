@@ -1608,10 +1608,9 @@ static int fetch_readable(ClientData * clt, const char *id, Article & a)
 	return 0;
 }
 
-void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a)
+void nsh_particle(ClientData * clt, char *cmnd, artnum_t nbr, Article * a,
+		  const string &aid)
 {
-	string aid = a->getfield("Message-ID:");
-
 	switch (cmnd[0]) {
 	case 'a':
 		(*clt->co) << "220 " << nbr << " " << aid
@@ -1831,7 +1830,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		try {
-			nsh_particle(clt, argv[0], nbr, a);
+			nsh_particle(clt, argv[0], nbr, a, a->getfield("Message-ID:"));
 		}
 		catch(...) {
 			clt->grp->freearticle(a);
@@ -1850,7 +1849,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 		Article a;
 		if (fetch_readable(clt, argv[1], a) < 0)
 			return -1;
-		nsh_particle(clt, argv[0], 0, &a);
+		nsh_particle(clt, argv[0], 0, &a, argv[1]);
 		clt->stat_artingrp++;
 		clt->stat_articles++;
 		return 0;
@@ -1945,8 +1944,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 		Article a;
 		if (fetch_readable(clt, argv[1], a) < 0)
 			return -1;
-		string mid = a.getfield("Message-ID:");
-		(*clt->co) << "223 0 " << mid << " status\r\n";
+		(*clt->co) << "223 0 " << argv[1] << " status\r\n";
 		return 0;
 	}
 	// error

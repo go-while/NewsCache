@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -616,6 +617,112 @@ func TestArticleIDServerDown(t *testing.T) {
 	// none has it: 430 only if every server could be asked
 	if code, line := c.Cmd("ARTICLE <none@upstream.test>"); code != 403 {
 		t.Errorf("ARTICLE <none@upstream.test> with a server down: %q, want 403", line)
+	}
+}
+
+// ARTICLE by ID searches every online provider. A failure at one of them
+// must not conceal a good copy elsewhere or turn into a definitive miss.
+func TestArticleIDProviderReplies(t *testing.T) {
+	const id = "<Wanted@test.invalid>"
+	const wrong = "<wanted@test.invalid>" // Message-IDs are case-sensitive
+	article := func(envelope, header, body string) []string {
+		lines := []string{"220 7 " + envelope + " article", "Newsgroups: test.alpha"}
+		if header != "" {
+			lines = append(lines, "Message-ID: "+header)
+		}
+		return append(lines, "", body, ".")
+	}
+	ok := article(id, id, "right article")
+	other := article(wrong, wrong, "different article")
+	missing := []string{"430 no article"}
+	failed := []string{"403 temporarily unavailable"}
+	for _, tc := range []struct {
+		name     string
+		first    []string
+		second   []string
+		selected bool
+		want     int
+	}{
+		{"wrong ID", other, nil, true, 403},
+		{"temporary refusal", failed, nil, false, 403},
+		{"both missing", missing, missing, false, 430},
+		{"refusal then missing", failed, missing, true, 403},
+		{"refusal then article", failed, ok, true, 220},
+		{"wrong ID then article", other, ok, false, 220},
+		{"matching ID", ok, nil, false, 220},
+		{"assigned ID without header", article(id, "", "right article"), nil, false, 220},
+		{"assigned ID with original header", article(id, wrong, "right article"), nil, false, 220},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			ids := e.addArticles("test.alpha", 1)
+			replies := func(lines []string) fakeserver.Options {
+				return fakeserver.Options{Store: e.Store, Faults: fakeserver.Faults{
+					OverrideLine: map[string][]string{"ARTICLE " + id: lines},
+				}}
+			}
+			upstreamWith(t, e, replies(tc.first))
+			if tc.second != nil {
+				e.ExtraServers = serverBlock(fakeserver.New(t, replies(tc.second)), "test.beta")
+			}
+			c := e.session()
+			if tc.selected {
+				if code, line := c.Cmd("GROUP test.alpha"); code != 211 {
+					t.Fatalf("GROUP: %q", line)
+				}
+			}
+			code, line := c.Cmd("ARTICLE %s", id)
+			if code != tc.want {
+				t.Fatalf("ARTICLE %s: %q, want %d", id, line, tc.want)
+			}
+			if code == 220 {
+				if fields := strings.Fields(line); len(fields) < 3 || fields[1] != "0" || fields[2] != id {
+					t.Errorf("ARTICLE %s returned %q", id, line)
+				}
+				block := c.ReadDotLines()
+				if !containsLine(block, "right article") {
+					t.Errorf("ARTICLE %s returned %q", id, block)
+				}
+				reply := tc.first
+				if tc.second != nil {
+					reply = tc.second
+				}
+				// Only the status uses the NNTP identifier. The headers
+				// and body follow exactly as supplied by the provider.
+				if strings.Join(block, "\n") != strings.Join(reply[1:len(reply)-1], "\n") {
+					t.Errorf("article changed in transit: %q", block)
+				}
+				separator := slices.Index(reply, "")
+				for _, part := range []struct {
+					command string
+					code    int
+					lines   []string
+				}{
+					{"HEAD", 221, reply[1:separator]},
+					{"BODY", 222, reply[separator+1 : len(reply)-1]},
+					{"STAT", 223, nil},
+				} {
+					code, line := c.Cmd("%s %s", part.command, id)
+					fields := strings.Fields(line)
+					if code != part.code || len(fields) < 3 || fields[1] != "0" || fields[2] != id {
+						t.Fatalf("%s %s: %q, want %d 0 %s", part.command, id, line, part.code, id)
+					}
+					if part.command != "STAT" {
+						if got := c.ReadDotLines(); !slices.Equal(got, part.lines) {
+							t.Errorf("%s %s: %q, want %q", part.command, id, got, part.lines)
+						}
+					}
+				}
+			}
+			// The next command must start at its own response, after
+			// either the single-line STAT or a rejected upstream reply.
+			if code, line := c.Cmd("ARTICLE %s", ids[0]); code != 220 {
+				t.Fatalf("follow-up ARTICLE: %q", line)
+			}
+			if !containsLine(c.ReadDotLines(), "body of article 1") {
+				t.Error("wrong follow-up article")
+			}
+		})
 	}
 }
 
