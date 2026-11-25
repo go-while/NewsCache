@@ -868,9 +868,9 @@ void NVcontainer::open(const char *dbname, int flags)
 
 	struct stat st;
 
-	flags = 0;
+	int oflags = (flags & ExistingOnly) ? O_RDWR : O_RDWR | O_CREAT;
 	memcpy(mem_fn, dbname, namelen + 1);
-	if ((mem_fd =::open(mem_fn, O_RDWR | O_CREAT, 0644)) < 0) {
+	if ((mem_fd =::open(mem_fn, oflags, 0644)) < 0) {
 		int e = errno;
 		mem_fn[0] = '\0';	// not open (a later open() must try again)
 		errno = e;
@@ -881,8 +881,8 @@ void NVcontainer::open(const char *dbname, int flags)
 #endif
 		sb << "NVcontainer::open(): cannot open("
 		   << " mem_fn: " << dbname
-		   << ",O_RDWR|O_CREAT)";
-		throw SystemError(sb.rdbuf()->str(), errno, ERROR_LOCATION);
+		   << ((oflags & O_CREAT) ? ",O_RDWR|O_CREAT)" : ",O_RDWR)");
+		throw SystemError(sb.rdbuf()->str(), e, ERROR_LOCATION);
 	}
 
 	open_lock(ExclLock);

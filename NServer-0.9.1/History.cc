@@ -242,9 +242,17 @@ class Shard:public NVHash {
 		sadd(b, data.data(), data.size());
 	}
 
-	void open_checked(void) {
+	bool open_checked(bool existing_only) {
 		static const unsigned char zero[16] = { 0 };
-		NVHash::open(path.c_str(), History::BUCKETS);
+		try {
+			NVHash::open(path.c_str(), History::BUCKETS,
+				     existing_only ? ExistingOnly : 0);
+		}
+		catch(const SystemError &e) {
+			if (existing_only && e._errno == ENOENT)
+				return false;
+			throw;
+		}
 		lock(ExclLock);
 		try {
 			if (gethashsz() != History::BUCKETS)
@@ -263,6 +271,7 @@ class Shard:public NVHash {
 			throw;
 		}
 		lock(UnLock);
+		return true;
 	}
 };
 
@@ -317,7 +326,7 @@ void reset_shard(Shard & s, const char *why, bool damaged)
 }
 
 // The shard, open in this process, or NULL if it can't be used.
-Shard *shard(int n)
+Shard *shard(int n, bool existing_only = false)
 {
 	Shard & s = shards[n];
 	if (spool.empty())
@@ -347,7 +356,10 @@ Shard *shard(int n)
 	s.path = spool + "/.history/" + name;
 	for (int attempt = 0; attempt < 2; attempt++) {
 		try {
-			s.open_checked();
+			if (!s.open_checked(existing_only)) {
+				s.pid = 0;
+				return NULL;
+			}
 			s.usable = true;
 			return &s;
 		}
@@ -703,7 +715,9 @@ long History::prune(bool (*keep) (const string & group, void *arg),
 	for (int n = 0; n < SHARDS; n++) {
 		Shard *s;
 		try {
-			s = shard(n);
+			// Pruning happens after the cleaner accounts for the spool.
+			// Only a writer needs to allocate a missing shard here.
+			s = shard(n, true);
 		}
 		catch(...) {
 			// (std::bad_alloc: a path, or a log line of its own

@@ -178,6 +178,7 @@ class NVcontainer {
 
 	// Not virtual: every caller calls its own class's open(), and
 	// NVHash/NVActiveDB have open()s with other parameters.
+	enum { ExistingOnly = 1 };
 	void open(const char *dbname, int flags = 0);
 	virtual int is_open(void);
 	
