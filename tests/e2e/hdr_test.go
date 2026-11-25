@@ -3,6 +3,7 @@ package e2e
 import (
 	"errors"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,6 +212,65 @@ func TestHdr(t *testing.T) {
 		if len(got) != 1 || len(strings.Fields(got[0])) != 2 || strings.Fields(got[0])[1] == "0" {
 			t.Errorf("%s: %q, want one line \"n size\"", cmd, got)
 		}
+	}
+}
+
+func TestHdrLiteralBytesByID(t *testing.T) {
+	e := newEnv(t)
+	e.Store.AddGroup("test.alpha", "test group")
+	for _, tc := range []struct {
+		id      string
+		number  int
+		literal string
+	}{
+		{"<has-bytes@upstream.test>", 1, "17"},
+		{"<no-bytes@upstream.test>", 2, ""},
+	} {
+		headers := []string{"Newsgroups: test.alpha", "Subject: literal Bytes"}
+		if tc.literal != "" {
+			headers = append(headers, "Bytes: "+tc.literal)
+		}
+		e.Store.AddArticle("test.alpha", fakeserver.Article{
+			Number: int64(tc.number), MessageID: tc.id, Headers: headers, Body: []string{"body"},
+		})
+		c := e.session()
+		if code, line := c.Cmd("ARTICLE %s", tc.id); code != 220 {
+			t.Fatalf("ARTICLE %s: %q", tc.id, line)
+		}
+		size := 0
+		for _, line := range c.ReadDotLines() {
+			size += len(line) + 2 // each article line has CRLF
+		}
+		computed := strconv.Itoa(size)
+		xhdr := "(none)"
+		var matches []string
+		if tc.literal != "" {
+			if tc.literal == computed {
+				t.Fatal("fixture needs a Bytes header different from the article size")
+			}
+			xhdr = tc.literal
+			matches = []string{tc.id + " " + tc.literal}
+		}
+		for _, check := range []struct {
+			cmd  string
+			code int
+			rows []string
+		}{
+			{"HDR Bytes " + tc.id, 225, []string{"0 " + tc.literal}},
+			{"HDR :bytes " + tc.id, 225, []string{"0 " + computed}},
+			{"XHDR Bytes " + tc.id, 221, []string{tc.id + " " + xhdr}},
+			{"XPAT Bytes " + tc.id + " *", 221, matches},
+			{"XPAT Bytes " + tc.id + " 17", 221, matches},
+			{"XPAT Bytes " + tc.id + " " + computed, 221, nil},
+		} {
+			if code, line := c.Cmd("%s", check.cmd); code != check.code {
+				t.Fatalf("%s: %q, want %d", check.cmd, line, check.code)
+			}
+			if got := c.ReadDotLines(); !slices.Equal(got, check.rows) {
+				t.Errorf("%s: %q, want %q", check.cmd, got, check.rows)
+			}
+		}
+		c.Cmd("QUIT")
 	}
 }
 
