@@ -1308,6 +1308,18 @@ int check_authentication(ClientData * clt)
 }
 
 
+// An offline session keeps its selected group and article number, but
+// reads from the replacement when the cleaner retired its open database.
+static void load_current_group(ClientData *clt)
+{
+	if (clt->grp && clt->grp->needs_reopen(false)) {
+		clt->srvr->freegroup(clt->grp);
+		clt->grp = NULL;
+	}
+	if (!clt->grp)
+		clt->grp = clt->srvr->getgroup(clt->groupname);
+}
+
 GroupInfo *selectgroup(ClientData * clt, const char *group)
 {
 	GroupInfo *gi;
@@ -1353,6 +1365,9 @@ GroupInfo *selectgroup(ClientData * clt, const char *group)
 			clt->stat_artingrp = 0;
 		}
 		strcpy(clt->groupname, group);
+	} else if (clt->grp && clt->grp->needs_reopen(true)) {
+		clt->srvr->freegroup(clt->grp);
+		clt->grp = NULL;
 	} else {
 		//FIXME! NServer has to maintain a list of all the allocated
 		//FIXME! newsgroups and should call this function itself!!!
@@ -1408,7 +1423,10 @@ static Newsgroup *open_group(ClientData * clt, const string & group,
 			     bool * own)
 {
 	*own = false;
-	if (clt->grp && group == clt->groupname)
+	// History points into the named database. If this connection still
+	// holds the retired one, inspect the live group just as we do for
+	// a location in a different group.
+	if (clt->grp && group == clt->groupname && !clt->grp->needs_reopen(true))
 		return clt->grp;
 	Newsgroup *g = clt->srvr->getgroup(group.c_str());
 	*own = true;
@@ -1449,33 +1467,25 @@ static int spool_locate(ClientData * clt, const char *id, string & group,
 		return 0;
 	// the current group first, then the groups the client may read
 	std::stable_sort(locs.begin(), locs.end(), LocationOrder(clt));
-	OverviewFmt *of = clt->srvr->overviewfmt();
 	for (size_t i = 0; i < locs.size(); i++) {
 		Newsgroup *g = NULL;
-		bool own = false, failed = false;
-		string o;
+		bool own = false, found = false;
 		try {
 			g = open_group(clt, locs[i].group, &own);
-			// the spool's record only: no synchronization
 			NVNewsgroup *nvg = dynamic_cast < NVNewsgroup * >(g);
-			const char *p;
-			if (nvg && (p = nvg->NVNewsgroup::getover(locs[i].nbr)))
-				o = p;
+			if (nvg)
+				found = nvg->history_over(id, locs[i].nbr, over);
 		}
 		catch(...) {
-			failed = true;
+			// Could not verify this location. Try the next one.
 		}
 		if (own && g)
 			clt->srvr->freegroup(g);
-		if (failed)
-			continue;	// not known to be gone: keep the entry
-		if (!o.empty() && of->getfield(o.c_str(), "Message-ID:", 0) == id) {
+		if (found) {
 			group = locs[i].group;
 			nbr = locs[i].nbr;
-			over = o;
 			return 1;
 		}
-		History::remove(id, locs[i].group.c_str(), locs[i].nbr);
 	}
 	return 0;
 }
@@ -1795,9 +1805,7 @@ int ns_article(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		try {
-			if (!clt->grp)
-				clt->grp =
-				    clt->srvr->getgroup(clt->groupname);
+			load_current_group(clt);
 		}
 		catch(const NoSuchGroupError & nsge) {
 			(*clt->co) << "412 current group no longer exists\r\n";
@@ -1884,9 +1892,7 @@ int ns_stat(ClientData * clt, int argc, char *argv[])
 			return -1;
 		}
 		try {
-			if (!clt->grp)
-				clt->grp =
-				    clt->srvr->getgroup(clt->groupname);
+			load_current_group(clt);
 		}
 		catch(const NoSuchGroupError & nsge) {
 			(*clt->co) << "412 current group no longer exists\r\n";
@@ -2063,8 +2069,7 @@ int ns_lastnext(ClientData * clt, int argc, char *argv[])
 		return -1;
 	}
 	try {
-		if (!clt->grp)
-			clt->grp = clt->srvr->getgroup(clt->groupname);
+		load_current_group(clt);
 	}
 	catch(const NoSuchGroupError & nsge) {
 		(*clt->co) << "412 current group no longer exists\r\n";
@@ -2551,8 +2556,7 @@ int ns_listgroup(ClientData * clt, int argc, char *argv[])
 	// (gi points to static data, which getgroup may change)
 	GroupInfo ginfo = *gi;
 	try {
-		if (!clt->grp)
-			clt->grp = clt->srvr->getgroup(clt->groupname);
+		load_current_group(clt);
 	}
 	catch(const NoSuchGroupError & nsge) {
 		if (argc >= 2)
@@ -3115,8 +3119,7 @@ static int parse_range(const char *s, artnum_t * fst, artnum_t * lst)
 static int current_group(ClientData * clt)
 {
 	try {
-		if (!clt->grp)
-			clt->grp = clt->srvr->getgroup(clt->groupname);
+		load_current_group(clt);
 	}
 	catch(const NoSuchGroupError & nsge) {
 		(*clt->co) << "412 current group no longer exists\r\n";

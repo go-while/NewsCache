@@ -286,6 +286,21 @@ func TestMessageIDUpstreamDown(t *testing.T) {
 	c.ReadDotLines()
 	c.Cmd("QUIT")
 
+	// A reader configured not to cache the group must go upstream. It
+	// cannot inspect the on-disk record to discard its history location.
+	e.ServerOptions = "not-cached"
+	remote := e.session()
+	before := upstreamByID(e, ids[1])
+	if code, line := remote.Cmd("ARTICLE %s", ids[1]); code != 220 {
+		t.Fatalf("ARTICLE %s with caching disabled: %q", ids[1], line)
+	}
+	remote.ReadDotLines()
+	remote.Cmd("QUIT")
+	if got := upstreamByID(e, ids[1]); got != before+1 {
+		t.Fatalf("requests upstream for %s with caching disabled: %d -> %d, want +1", ids[1], before, got)
+	}
+
+	e.ServerOptions = ""
 	e.Upstream.Close()
 	c2 := e.session()
 	if code, line := c2.Cmd("ARTICLE %s", ids[1]); code != 220 {
