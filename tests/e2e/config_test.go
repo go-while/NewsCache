@@ -253,6 +253,46 @@ func TestPrintServerOptions(t *testing.T) {
 	}
 }
 
+// Both flags default to on. Reusing the Options line from a configuration
+// dump must preserve each disabled flag independently.
+func TestPrintDisabledServerOptions(t *testing.T) {
+	for _, options := range []string{"not-cached", "not-setpostflag", "not-cached not-setpostflag"} {
+		t.Run(options, func(t *testing.T) {
+			e := newEnv(t)
+			e.ServerOptions = options
+			printOptions := func() string {
+				t.Helper()
+				e.writeConf()
+				out, err := exec.Command(e.Bin, "-c", e.Conf, "-p").CombinedOutput()
+				if err != nil {
+					t.Fatalf("newscache -p: %v\n%s", err, out)
+				}
+				for _, line := range strings.Split(string(out), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) > 0 && fields[0] == "Options" {
+						return strings.Join(fields[1:], " ")
+					}
+				}
+				t.Fatal("no Options line")
+				return ""
+			}
+			e.ServerOptions = printOptions()
+			for _, flag := range []string{"cached", "setpostflag"} {
+				want := flag
+				if strings.Contains(options, "not-"+flag) {
+					want = "not-" + flag
+				}
+				if !strings.Contains(" "+e.ServerOptions+" ", " "+want+" ") {
+					t.Fatalf("printed Options %q lacks %q", e.ServerOptions, want)
+				}
+			}
+			if again := printOptions(); again != e.ServerOptions {
+				t.Errorf("Options %q read back as %q", e.ServerOptions, again)
+			}
+		})
+	}
+}
+
 const denyAll = `AccessList {
   Default {
     allow none

@@ -88,12 +88,8 @@ void MPListEntry::printParameters (std::ostream *pOut)
 	}
 	*pOut << "\t\tGroupTimeout " << groupTimeout << std::endl;
 	*pOut << "\t\tOptions";
-	if (flags & F_SETPOSTFLAG) {
-		*pOut << " setpostflag";
-	}
-	if (flags & F_CACHED) {
-		*pOut << " cached";
-	}
+	*pOut << (flags & F_SETPOSTFLAG ? " setpostflag" : " not-setpostflag");
+	*pOut << (flags & F_CACHED ? " cached" : " not-cached");
 	if (flags & F_OFFLINE) {
 		*pOut << " offline";
 	}
