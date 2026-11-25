@@ -237,39 +237,9 @@ void CNewsgroup::sUpdateGroupInfo(void)
 
 void CNewsgroup::setsize(artnum_t f, artnum_t l)
 {
-	artnum_t kl;
-
 	if (l > ARTNUM_LIMIT)
 		l = ARTNUM_LIMIT;
-	GroupLock guard(*this, NVcontainer::ExclLock);	// (the index may grow)
-	/*
-	 * The news server's last number went down: its newest articles went
-	 * (cancelled or expired), or this connection reached a server of a
-	 * farm that lags behind. NVNewsgroup::setsize drops the records above
-	 * l, as before the index window; the chunk of l counts as
-	 * synchronized up to l at most, so the numbers above are asked for
-	 * again when they come back. (Every cached article used to go: the
-	 * drop was taken for a renumbered group.) Only a last number below
-	 * every cached one empties the index; that covers a renumbering to
-	 * smaller numbers. A server renumbered into the cached range can't
-	 * be told apart from expiry by the numbers alone: remove the group's
-	 * spool directory after such a move (see the manual).
-	 */
-	kl = knownlast();
-	if (kl && l < kl && arrfst <= arrlst) {
-		if (l < arrfst) {
-			slog.p(Logger::Notice) << name()
-			    << ": the news server's last article number went "
-			    << "down from " << kl << " to " << l
-			    << ", below the cached articles: dropping them\n";
-		} else {
-			SyncEnt e;
-			artnum_t c = l / OVERVIEW_CHUNK;
-			// (e.time as it is: a retry entry stays one)
-			if (getsync(c, &e) && e.through > l)
-				setsync(c, e.time, l);
-		}
-	}
+	GroupLock guard(*this, NVcontainer::ExclLock);
 	NVNewsgroup::setsize(f, l);
 	if (l != knownlast())
 		setknownlast(l);

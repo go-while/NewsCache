@@ -709,6 +709,67 @@ func TestUpdatenewsGroupTimeout(t *testing.T) {
 	}
 }
 
+// An offline reader opens the group while a lagging upstream advertises
+// fewer articles. When its high number recovers, an online XOVER must
+// fetch the missing row so later offline readers can see it again.
+func TestOfflineOverviewRangeRecovers(t *testing.T) {
+	const group = "test.offline"
+	e := newEnv(t)
+	e.Store.AddGenerated(group, "", fakeserver.Generator{Low: 1, High: 3})
+	prefetch := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(prefetch, []byte(group+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.ServerOptions = "offline"
+	e.GroupTimeout = 86400
+	e.Extra = "PrefetchFile " + prefetch
+	e.writeConf()
+	update := func(flags ...string) {
+		t.Helper()
+		args := append([]string{"-c", e.Conf}, flags...)
+		out, err := exec.Command(filepath.Join(filepath.Dir(e.Bin), "updatenews"), args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("updatenews %v: %v\n%s", flags, err, out)
+		}
+	}
+	readRows := func(want ...int64) {
+		t.Helper()
+		p, c := e.sessionProcess()
+		high := want[len(want)-1]
+		prefix := fmt.Sprintf("211 %d 1 %d %s ", len(want), high, group)
+		if code, line := c.Cmd("GROUP %s", group); code != 211 || !strings.HasPrefix(line, prefix) {
+			t.Fatalf("GROUP: %q, want %q", line, prefix)
+		}
+		wantNumbers(t, "XOVER 1-3", xover(t, c, 1, 3), want...)
+		quitSession(t, p, c)
+	}
+
+	update("-a", "-o")
+	readRows(1, 2, 3)
+
+	// A same-second active refresh keeps the higher number. Rebuild
+	// the active catalog while the readers and updater are stopped.
+	if err := os.Remove(filepath.Join(e.Spool, ".active64")); err != nil {
+		t.Fatal(err)
+	}
+	e.Store.SetGeneratedHigh(group, 2)
+	update("-a")
+	readRows(1, 2)
+
+	e.Store.SetGeneratedHigh(group, 3)
+	update("-a")
+	// XOVER uses the configured group timeout. Rows 1 and 2 are still
+	// fresh, so the upstream should receive requests for row 3 only.
+	e.ServerOptions = ""
+	from := len(e.Upstream.Lines())
+	readRows(1, 2, 3)
+	if requests := checkUp(t, e, from, 3, 3); len(requests) == 0 {
+		t.Error("online XOVER did not request the restored article")
+	}
+	e.ServerOptions = "offline"
+	readRows(1, 2, 3)
+}
+
 // TestPrefetchLastLineNoNewline: the last line of the prefetch file counts
 // when the file doesn't end with a newline. updatenews used to drop it, so a
 // final "!pattern" was ignored and the excluded groups were prefetched.
