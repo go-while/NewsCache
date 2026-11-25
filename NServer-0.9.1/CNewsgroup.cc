@@ -1128,16 +1128,16 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		}
 	}
 	for (f = a;; f++) {
-		if (lstgrp[f - a] && (!kind[f - a] || kind[f - a] == overview)) {
-			// the news server has it, we have no more than its
-			// overview record
+		// The cleaner can evict an external body and leave its overview
+		// and bigarticle tag. Check the file under the group lock.
+		if (lstgrp[f - a] && kind[f - a] != article &&
+		    (kind[f - a] != bigarticle || !spooled(f))) {
 			Article *art = retrievearticle(f);
 			if (art) {
 				try {
 					GroupLock artlock(*this, NVcontainer::ExclLock);
 					// (a session may have stored it meanwhile)
-					NVArray::sget(f, &data, &szdata);
-					if (!data || *data == overview)
+					if (!spooled(f))
 						setarticle(art);
 				}
 				catch(...) {

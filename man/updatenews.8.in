@@ -102,6 +102,11 @@ de.*
 comp.lang.[cg]o
 at.test
 .fi
+.PP
+If the articles selected for prefetch take more space than SpoolSize
+allows, newscacheclean can evict bodies between runs. The next
+.B updatenews \-g
+downloads those bodies again if they are still available upstream.
 
 .SH FILES
 @SYSCONFDIR@/newscache.conf

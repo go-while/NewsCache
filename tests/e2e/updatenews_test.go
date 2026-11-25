@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -328,6 +329,100 @@ func TestPostSpooledServerDown(t *testing.T) {
 			}
 		}
 	}
+}
+
+// When the cleaner removes only .art1, the surviving index still has
+// bigarticle tags for both numbers. Prefetch must restore just body 1.
+func TestPrefetchEvictedBody(t *testing.T) {
+	const group = "test.prefetch"
+	e := newEnv(t)
+	clean := filepath.Join(filepath.Dir(e.Bin), "newscacheclean")
+	if _, err := os.Stat(clean); err != nil {
+		t.Skipf("newscacheclean not found next to %s", e.Bin)
+	}
+	e.Store.AddGroup(group, "large articles")
+	// Give the oldest body enough allocated blocks to leave a generous
+	// margin around the quota, even on a compressed filesystem.
+	body := make([]string, 4096)
+	for i := range body {
+		body[i] = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprint(i))))
+	}
+	e.Store.AddArticle(group, groupArticle(group, 1, body))
+	e.Store.AddArticle(group, groupArticle(group, 2, bigBody()))
+	file := filepath.Join(e.Dir, "prefetch")
+	if err := os.WriteFile(file, []byte(group+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.Extra = "History off\nPrefetchFile " + file
+	e.ServerOptions = "offline"
+	e.writeConf()
+	run := func() {
+		t.Helper()
+		if out, err := exec.Command(updatenewsBin(t, e), "-c", e.Conf, "-a", "-g").CombinedOutput(); err != nil {
+			t.Fatalf("updatenews: %v\n%s", err, out)
+		}
+	}
+	run()
+	dir := filepath.Join(e.Spool, "test", "prefetch")
+	path := filepath.Join(dir, ".art1")
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cold := time.Unix(1500000000, 0)
+	if err := os.Chtimes(path, cold, cold); err != nil {
+		t.Fatal(err)
+	}
+	stat := func(name string) os.FileInfo {
+		t.Helper()
+		st, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	// SpoolSize is in KiB and st_blocks counts 512-byte blocks. Keep
+	// .db and .art2, plus space for only half the oldest body.
+	syscall.Sync()
+	db, kept := stat(".db"), stat(".art2")
+	blocks := func(st os.FileInfo) int64 { return st.Sys().(*syscall.Stat_t).Blocks }
+	kib := (blocks(db) + blocks(kept) + blocks(stat(".art1"))/2) / 2
+	e.Extra += fmt.Sprintf("\nSpoolSize %d", kib)
+	e.writeConf()
+	out, err := exec.Command(clean, "-c", e.Conf, "-s").CombinedOutput()
+	if err != nil {
+		t.Fatalf("newscacheclean: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected cleaner to evict .art1 at %d KiB, stat error: %v\n%s", kib, err, out)
+	}
+	if !os.SameFile(db, stat(".db")) || !os.SameFile(kept, stat(".art2")) {
+		t.Fatalf("cleaner did not retain the original .db and .art2\n%s", out)
+	}
+	before := len(e.Upstream.Lines())
+	run()
+	var requests []string
+	for _, line := range e.Upstream.Lines()[before:] {
+		if fields := strings.Fields(line); len(fields) > 0 && strings.EqualFold(fields[0], "ARTICLE") {
+			requests = append(requests, line)
+		}
+	}
+	if len(requests) != 1 || !strings.EqualFold(requests[0], "ARTICLE 1") {
+		t.Errorf("prefetch requested %q, want only ARTICLE 1", requests)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("prefetch did not restore the original body: %v", err)
+	}
+	c := e.session()
+	if code, line := c.Cmd("GROUP %s", group); code != 211 {
+		t.Fatal(line)
+	}
+	if code, line := c.Cmd("ARTICLE 1"); code != 220 {
+		t.Fatalf("offline ARTICLE 1: %s", line)
+	}
+	c.ReadDotLines()
+	c.Cmd("QUIT")
 }
 
 // TestUpdatenewsSingleInstance: two prefetch runs (-g) that overlap
