@@ -597,9 +597,11 @@ bool History::has_location(const char *msgid, const char *group)
 
 void History::note(const char *msgid, const char *group, artnum_t nbr)
 {
-	// An existing group location makes this a no-op at the shared-lock
-	// snapshot. A later removal is ordered after the note. In a batch,
+	// An existing group location makes this a no-op: nothing is written,
+	// so it needs no ordering against a later removal. In a batch,
 	// earlier queued operations are not visible yet, so skip this check.
+	// (getarticle asks has_location first without the group lock and calls
+	// note only under the shared group lock, for a still named database.)
 	if (batch_depth == 0 && has_location(msgid, group))
 		return;
 	// If it was absent, check again while adding under the shard's
