@@ -1,13 +1,17 @@
 package e2e
 
 import (
+	"crypto/md5"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
@@ -385,6 +389,111 @@ func TestMessageIDHistoryRefill(t *testing.T) {
 	if n := e.Upstream.Count("ARTICLE"); n != before {
 		t.Errorf("upstream ARTICLE count %d -> %d, want the article from the spool", before, n)
 	}
+}
+
+// A cached read waiting for a history shard must let a different reader
+// select and read the same group through a different shard.
+func TestHistoryShardWaitAllowsGroupReads(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux /proc/locks to observe the blocked reader")
+	}
+	if _, err := os.ReadFile("/proc/locks"); err != nil {
+		t.Skipf("cannot inspect file locks: %v", err)
+	}
+	e := historyEnv(t)
+	e.GroupTimeout = 86400
+	const group = "test.historywait"
+	ids := e.addArticles(group, 8)
+	shard := func(id string) byte { return md5.Sum([]byte(id))[0] >> 4 }
+	other := 1
+	for other < len(ids) && shard(ids[other]) == shard(ids[0]) {
+		other++
+	}
+	if other == len(ids) {
+		t.Fatal("fixture must put two articles in different history shards")
+	}
+	p, first := e.sessionProcess()
+	if code, line := first.Cmd("GROUP %s", group); code != 211 {
+		t.Fatal(line)
+	}
+	for _, article := range []int{1, other + 1} {
+		if code, line := first.Cmd("ARTICLE %d", article); code != 220 {
+			t.Fatal(line)
+		}
+		first.ReadDotLines()
+	}
+	p2, second := e.sessionProcess()
+
+	path := filepath.Join(e.Spool, ".history", fmt.Sprintf("%x", shard(ids[0])))
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	lk := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0}
+	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk); err != nil {
+		t.Fatal(err)
+	}
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inode := ":" + strconv.FormatUint(uint64(st.Sys().(*syscall.Stat_t).Ino), 10)
+	holds := func(pid int, blocked bool) bool {
+		b, err := os.ReadFile("/proc/locks")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 1 && fields[1] == "->" {
+				if !blocked {
+					continue
+				}
+				fields = fields[1:]
+			} else if blocked {
+				continue
+			}
+			if len(fields) >= 6 && fields[1] == "POSIX" &&
+				fields[4] == strconv.Itoa(pid) && strings.HasSuffix(fields[5], inode) {
+				return true
+			}
+		}
+		return false
+	}
+	if !holds(os.Getpid(), false) {
+		t.Skip("the fixture's history lock is not visible in /proc/locks")
+	}
+	if err := first.Send("ARTICLE 1\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !holds(p.Pid(), true) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first reader did not wait for the held history shard")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	second.Deadline = 5 * time.Second
+	if code, line, err := second.TryCmd("GROUP %s", group); err != nil || code != 211 {
+		t.Fatalf("second reader could not select %s while history was locked: %q, %v", group, line, err)
+	}
+	if code, line := second.Cmd("ARTICLE %d", other+1); code != 220 {
+		t.Fatal(line)
+	}
+	if body := second.ReadDotLines(); !containsLine(body, "Message-ID: "+ids[other]) {
+		t.Fatalf("second reader got %q, want %s", body, ids[other])
+	}
+	lk.Type = syscall.F_UNLCK
+	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk); err != nil {
+		t.Fatal(err)
+	}
+	if code, line, err := first.ReadStatus(); err != nil || code != 220 {
+		t.Fatalf("first reader did not resume after the shard was unlocked: %q, %v", line, err)
+	}
+	first.ReadDotLines()
+	quitSession(t, p, first)
+	quitSession(t, p2, second)
 }
 
 // TestHistoryConfig: History takes on/off (yes/no), is off by default,

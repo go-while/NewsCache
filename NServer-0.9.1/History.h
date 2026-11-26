@@ -58,6 +58,8 @@ class History {
 	// for spool reads, so older spools acquire history without overwriting a
 	// location at another number. The check and add share a shard lock.
 	static void note(const char *msgid, const char *group, artnum_t nbr);
+	// Read-only check for spool reads that already have a history location.
+	static bool has_location(const char *msgid, const char *group);
 	// Removes the location only if its number still matches nbr, and the
 	// record when no location is left.
 	static void remove(const char *msgid, const char *group, artnum_t nbr);
