@@ -124,7 +124,8 @@ int NVArray::shas_element(unsigned long i)
 {
 	if (i < arrfst || i > arrlst)
 		return 0;
-	return arrtab[i - arrfst];
+	// (an offset, 64 bits on LP64: as an int its low half could be 0)
+	return arrtab[i - arrfst] != 0;
 }
 
 void NVArray::sget(unsigned long i, char **data, size_t * szdata)
