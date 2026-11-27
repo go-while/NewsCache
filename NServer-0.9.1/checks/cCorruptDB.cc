@@ -294,7 +294,38 @@ struct OffArray:public NVArray {
 	nvoff_t off(unsigned long i) {
 		return arrtab[i];
 	}
+	void setoff(unsigned long i, nvoff_t o) {
+		arrtab[i - arrfst] = o;
+	}
+	int has(unsigned long i) {
+		return shas_element(i);
+	}
 };
+
+// An offset is 64 bits on LP64. A record at an offset whose low 32 bits
+// are all zero (possible in a database over 4 GiB) must not read as
+// absent. The slot is set by hand: no 4 GiB file is needed.
+static void offset_truncation(const string & dir)
+{
+	if (sizeof(nvoff_t) <= sizeof(int))
+		return;
+	string fn = dir + "/offset.db";
+	OffArray a(fn.c_str());
+	// (set() and off() take the index; from 0 it is the number)
+	a.setsize(0, 3);
+	a.set(2, "x", 1);
+	nvoff_t real = a.off(2);
+	CHECK(real != 0 && a.has(2) != 0);
+	a.setoff(2, (nvoff_t) 1 << 32);
+	CHECK(a.has(2) != 0);
+	a.setoff(2, (nvoff_t) 2 << 32);
+	CHECK(a.has(2) != 0);
+	a.setoff(2, real);
+	CHECK(a.has(2) != 0);
+	CHECK(a.has(1) == 0);
+	a.close();
+	unlink(fn.c_str());
+}
 
 static void free_overlap(const string & dir)
 {
@@ -889,6 +920,7 @@ int main(int argc, char *argv[])
 		long_record(dir);
 		objlock_eintr(dir);
 		free_overlap(dir);
+		offset_truncation(dir);
 		map_fails(dir);
 		outer_remap_fails(dir);
 		lock_eintr(dir);
