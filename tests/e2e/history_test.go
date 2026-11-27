@@ -430,9 +430,14 @@ func TestHistoryShardWaitAllowsGroupReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
+	// Hold both lock families: the server uses POSIX record locks, or
+	// BSD flock when built with USE_FLOCK. On Linux they are independent.
 	lk := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0}
 	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk); err != nil {
 		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Skipf("cannot hold flock next to the record lock here: %v", err)
 	}
 	st, err := f.Stat()
 	if err != nil {
@@ -454,7 +459,7 @@ func TestHistoryShardWaitAllowsGroupReads(t *testing.T) {
 			} else if blocked {
 				continue
 			}
-			if len(fields) >= 6 && fields[1] == "POSIX" &&
+			if len(fields) >= 6 && (fields[1] == "POSIX" || fields[1] == "FLOCK") &&
 				fields[4] == strconv.Itoa(pid) && strings.HasSuffix(fields[5], inode) {
 				return true
 			}
@@ -486,6 +491,9 @@ func TestHistoryShardWaitAllowsGroupReads(t *testing.T) {
 	}
 	lk.Type = syscall.F_UNLCK
 	if err := syscall.FcntlFlock(f.Fd(), syscall.F_SETLK, &lk); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
 	if code, line, err := first.ReadStatus(); err != nil || code != 220 {
