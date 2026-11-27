@@ -288,7 +288,9 @@ void NVNewsgroup::freerange(unsigned long f, unsigned long l)
 
 // Sets the index to [f,l] (f <= l): drops the records outside, keeps
 // the ones inside and the synchronization entries of their chunks.
-// Needs the exclusive lock.
+// When it throws (no room for the new table), the old index stays,
+// without the records outside [f,l], and the chunks that held any of
+// them have no entry. Needs the exclusive lock.
 void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
 {
 	VERB(slog.p(Logger::Debug) << "NVNewsgroup::resize_index(" << f
@@ -308,6 +310,18 @@ void NVNewsgroup::resize_index(unsigned long f, unsigned long l)
 			uint64_t c = h->first + k;
 			if (first <= c && c - first < n)
 				ents[c - first] = e[k];
+			// The records below f and above l are freed before
+			// the new table is allocated, which can fail (disk
+			// full): the old index then stays without them. So
+			// their chunks lose their entries in the old table
+			// first; left there, an entry vouched for its chunk
+			// until the group timeout ran out, and the missing
+			// records were served as absent ("." without them,
+			// 423). ents keeps them for the new table. (A header
+			// means arrfst <= arrlst.)
+			if ((arrfst < f && c <= (f - 1) / OVERVIEW_CHUNK) ||
+			    (l < arrlst && c >= (l + 1) / OVERVIEW_CHUNK))
+				e[k].time = e[k].through = 0;
 		}
 	}
 	// A saved first-chunk mark covers only the old index. Growing down

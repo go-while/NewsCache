@@ -431,7 +431,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 	VERB(slog.p(Logger::Debug) << "CNewsgroup::fetchchunk(" << cf.from
 	     << "," << cf.top << ")\n");
 	artnum_t f, l, i, done = 0, f0 = cf.from, l0 = cf.top;
-	std::vector < char > have(l0 - f0 + 1, 0);
+	std::vector < char > &have = cf.have;
 	OverCollector got(_RServer, _OverviewFormat, _NewsgroupName, f0, l0,
 			  cf.records);
 
@@ -443,6 +443,7 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
 	{
 		// the records the spool has now (storechunk checks again)
 		GroupLock guard(*this, NVcontainer::ShrdLock);
+		have.assign(l0 - f0 + 1, 0);
 		for (f = f0;; f++) {
 			have[f - f0] = NVArray::shas_element(f) ? 1 : 0;
 			if (f == l0)
@@ -497,12 +498,19 @@ bool CNewsgroup::fetchchunk(ChunkFetch & cf)
  * again here: records go only where the index still is and has none, a
  * number the server no longer lists goes only if it is still there, and
  * the chunk is marked synchronized only as far as the fetch covered it.
+ * It isn't marked at all when the index lacks records it should have:
+ * one that was there when fetchchunk() looked and wasn't fetched again
+ * has gone meanwhile, or (a fetch of only the numbers above the
+ * synchronized ones) the chunk's entry no longer vouches for the
+ * numbers below the fetch.
  * fetch_unlisted: the fetch completed, but the news server's list didn't
  * come whole; what came is stored, and the chunk gets a retry entry
  * (see retry_pause). fetch_failed: the fetch failed half way; what came
  * is stored, but the chunk isn't marked (its index may lack records).
+ * false: one of those two; the index can't serve the range, so the
+ * caller must get it from the news server.
  */
-void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
+bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 {
 	// Flush the history batch before releasing the group's lock: a
 	// replacement group may already have stored the same locations
@@ -515,20 +523,23 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 	// The cleaner may have retired the group while fetchchunk waited.
 	// freshen must use its upstream fallback if nothing can be stored.
 	require_named();
+	// The index or group range can move completely past the fetched
+	// interval while the database lock is released (another session's
+	// resize, say for a request far above). Then nothing in it can be
+	// stored or stamped, and the index can't serve the range: false, so
+	// that the caller asks the news server instead of answering from an
+	// index without those numbers (STAT 423, NEXT skipping them).
 	if (arrfst > arrlst)
-		return;
+		return false;
 	if (top > arrlst)
 		top = arrlst;
 	if (_ghave && top > _glast)
 		top = _glast;
-	// The index or group range can move completely past the fetched
-	// interval while the database lock is released. Do not stamp that
-	// old interval as synchronized when nothing in it can be stored.
 	first = cf.from > arrfst ? cf.from : arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
 	if (first > top)
-		return;
+		return false;
 	for (std::vector < std::string >::const_iterator r = cf.records.begin();
 	     r != cf.records.end(); ++r) {
 		artnum_t n = leading_artnum(r->c_str());
@@ -536,6 +547,27 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			continue;
 		// (stores only where there is no record yet)
 		NVNewsgroup::setover(*r);
+	}
+	// A record that was there when fetchchunk() looked can have gone
+	// meanwhile: another session's resize_index freed it and then
+	// failed for want of space (it clears the chunk's mark first, see
+	// there), or it was dropped as unreadable. fetchchunk() asked for
+	// runs of numbers without a record; a run takes in the cached
+	// numbers between them, and those records came again and were put
+	// back above. So one still missing now wasn't fetched. Marked now,
+	// the chunk served it as absent until the group timeout ran out
+	// ("." without it, 423). It isn't marked then, as after a failed
+	// fetch: the next request fetches it again.
+	bool lost = false;
+	if (!cf.have.empty()) {
+		for (f = first; f <= top; f++) {
+			if (cf.have[f - cf.from] && !NVArray::shas_element(f)) {
+				lost = true;
+				break;
+			}
+			if (f == top)
+				break;
+		}
 	}
 	if (cf.listed && !cf.lstgrp.empty()) {
 		// We have these articles, but the news server has deleted
@@ -548,10 +580,14 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 				break;
 		}
 	}
-	if (result == fetch_failed) {
+	if (lost)
+		slog.p(Logger::Notice) << name() << ": records of " << first
+		    << "-" << top << " went while the news server was asked,"
+		    << " not marked as synchronized\n";
+	if (result == fetch_failed || lost) {
 		if (!cf.records.empty())
 			setmtime(cf.now);
-		return;
+		return !lost;
 	}
 	getsync(cf.c, &e);
 	if (cf.full) {
@@ -568,11 +604,20 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			else
 				setsync(cf.c, cf.now, top);
 		}
-	} else if (e.through + 1 >= cf.from && top > e.through) {
-		// The new numbers above the synchronized ones; unless a lower
-		// last number cut the synchronized part below where this
-		// fetch began meanwhile (the numbers in between weren't
-		// fetched). e.time is kept, the marker included: after a retry
+	} else if (!counts(e, cf.now) || e.through + 1 < cf.from) {
+		// Only the numbers above the synchronized ones were fetched,
+		// but the entry no longer vouches for those below: another
+		// session's resize_index cleared it (it freed records and then
+		// failed for want of space), or a lower last number cut it
+		// below where this fetch began. (cf.now, when the fetch began:
+		// an entry that merely ran out during the fetch still counts.)
+		// The index may lack records there, so no mark, and the caller
+		// asks the news server.
+		setmtime(cf.now);
+		return false;
+	} else if (top > e.through) {
+		// The new numbers above the synchronized ones. e.time is
+		// kept, the marker included: after a retry
 		// entry (see retry_pause) the numbers up to top count only for
 		// the rest of its pause, and then the chunk is synchronized in
 		// full, as it should after an incomplete list.
@@ -582,6 +627,7 @@ void CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 			setsync(cf.c, e.time, top);
 	}
 	setmtime(cf.now);
+	return true;
 }
 
 /*
@@ -690,7 +736,12 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 				throw;
 			}
 		}
-		storechunk(cf, result);
+		// Records the fetch relied on, since the index had them,
+		// went meanwhile (another session's resize_index that
+		// failed), or the index moved past the range: the chunk
+		// isn't marked, and the index lacks them
+		if (!storechunk(cf, result))
+			return false;
 	}
 	catch(const CorruptDBError &) {
 		// NVcontainer has moved the database aside and started a new
@@ -1113,6 +1164,13 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 					// (a session may have stored it meanwhile)
 					if (!spooled(f))
 						setarticle(art);
+					// what is there now counts for the
+					// check before the mark below: a
+					// failed resize during a later fetch
+					// can free it too
+					NVArray::sget(f, &data, &szdata);
+					if (data)
+						kind[f - a] = *data;
 				}
 				catch(...) {
 					delete art;
@@ -1149,7 +1207,20 @@ void CNewsgroup::prefetchchunk(artnum_t a, artnum_t b)
 		first = arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
-	if (whole && a <= first && first <= top &&
+	// Nor when a listed number's record that was there when kind was
+	// taken, or that was stored above, has gone meanwhile (as in
+	// storechunk: another session's resize_index freed it and then
+	// failed for want of space): marked, the chunk served it as absent.
+	bool lost = false;
+	for (f = first; whole && a <= f && f <= top; f++) {
+		if (lstgrp[f - a] && kind[f - a] && !NVArray::shas_element(f)) {
+			lost = true;
+			break;
+		}
+		if (f == top)
+			break;
+	}
+	if (whole && !lost && a <= first && first <= top &&
 	    (_RServer->getnntpflags() & MPListEntry::F_LISTGROUP))
 		setsync(a / OVERVIEW_CHUNK, nvtime(NULL), top);
 	setmtime(nvtime(NULL));
