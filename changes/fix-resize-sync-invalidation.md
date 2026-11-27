@@ -14,3 +14,6 @@ Bug fixes:
   (another client's, or updatenews -g) no longer marks it, and the
   client's command gets those articles from the news server. When the
   move succeeds, nothing changes.
+  A STAT, NEXT or LAST that waited for the news server while another
+  client's request moved the cached range past it no longer answers 423
+  for an article the server has.

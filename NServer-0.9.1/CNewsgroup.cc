@@ -523,20 +523,23 @@ bool CNewsgroup::storechunk(ChunkFetch & cf, FetchResult result)
 	// The cleaner may have retired the group while fetchchunk waited.
 	// freshen must use its upstream fallback if nothing can be stored.
 	require_named();
+	// The index or group range can move completely past the fetched
+	// interval while the database lock is released (another session's
+	// resize, say for a request far above). Then nothing in it can be
+	// stored or stamped, and the index can't serve the range: false, so
+	// that the caller asks the news server instead of answering from an
+	// index without those numbers (STAT 423, NEXT skipping them).
 	if (arrfst > arrlst)
-		return true;
+		return false;
 	if (top > arrlst)
 		top = arrlst;
 	if (_ghave && top > _glast)
 		top = _glast;
-	// The index or group range can move completely past the fetched
-	// interval while the database lock is released. Do not stamp that
-	// old interval as synchronized when nothing in it can be stored.
 	first = cf.from > arrfst ? cf.from : arrfst;
 	if (_ghave && first < _gfirst)
 		first = _gfirst;
 	if (first > top)
-		return true;
+		return false;
 	for (std::vector < std::string >::const_iterator r = cf.records.begin();
 	     r != cf.records.end(); ++r) {
 		artnum_t n = leading_artnum(r->c_str());
@@ -735,7 +738,8 @@ bool CNewsgroup::freshen(artnum_t f, artnum_t l, int *refreshed)
 		}
 		// Records the fetch relied on, since the index had them,
 		// went meanwhile (another session's resize_index that
-		// failed): the chunk isn't marked, and the index lacks them
+		// failed), or the index moved past the range: the chunk
+		// isn't marked, and the index lacks them
 		if (!storechunk(cf, result))
 			return false;
 	}
