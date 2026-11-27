@@ -559,6 +559,13 @@ static void resize_far_above_cb(void *g)
 	resize_far_above(*(FullDiskProbe *) g);
 }
 
+// Another session's resize far above that succeeds: the index moves
+// past the chunk being fetched (arg: the probe).
+static void moved_far_above_cb(void *g)
+{
+	((FullDiskProbe *) g)->reindex(20000, 30000);
+}
+
 // Whether the index holds exactly the three_recs in [f,l].
 static bool holds(FullDiskProbe & g, artnum_t f, artnum_t l)
 {
@@ -795,6 +802,26 @@ static void resize_failure(const string & dir)
 		CHECK(rs.hook == NULL);	// (the resize happened)
 		rs.hook = NULL;
 		CHECK(!g.hasrecord(7));
+		CHECK(o == over_record(7));
+		CHECK(!g.marked(0, &through));
+	}
+	// STAT 7 while another session's resize succeeds and moves the index
+	// past chunk 0 (a request far above): storechunk found nothing it
+	// could store, and getover answered from the index without 7: 423.
+	{
+		FullDiskProbe g(&rs, &fmt, dir.c_str(), "test.resize.racemoved");
+		g.setsize(1, 30000);
+		g.reindex(1, 100);
+		for (artnum_t n = 1; n <= 100; n++)
+			if (n != 50)
+				g.setover(over_record(n));
+		rs.hook = moved_far_above_cb;
+		rs.arg = &g;
+		string o = g.getover(7);
+		CHECK(rs.hook == NULL);	// (the resize happened)
+		rs.hook = NULL;
+		g.spoolrange(&f, &l);
+		CHECK(f == 20000 && l == 30000);	// (it moved)
 		CHECK(o == over_record(7));
 		CHECK(!g.marked(0, &through));
 	}
