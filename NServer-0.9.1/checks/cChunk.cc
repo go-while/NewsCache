@@ -239,13 +239,14 @@ struct HookRServer:public DbRServer {
 	HookRServer(MPList * l, const std::string & db)
 	:DbRServer(l, db), hook(NULL), arg(NULL) {
 	}
-	virtual void overviewdb(Newsgroup * ng, artnum_t fst, artnum_t lst) {
+	void overviewdb(Newsgroup * ng, artnum_t fst, artnum_t lst,
+			ReplyBudget * chunk = NULL) override {
 		if (hook) {
 			void (*h) (void *) = hook;
 			hook = NULL;
 			h(arg);
 		}
-		DbRServer::overviewdb(ng, fst, lst);
+		DbRServer::overviewdb(ng, fst, lst, chunk);
 	}
 };
 
