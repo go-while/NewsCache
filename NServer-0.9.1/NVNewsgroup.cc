@@ -691,12 +691,17 @@ Article *NVNewsgroup::getarticle(artnum_t nbr)
 	}
 
 	if (art && from_spool && History::enabled()) {
-		// a spool of an older version has no history entries
 		try {
-			NVLock guard(*this, NVcontainer::ShrdLock);
-			if (is_named_file(true))
-				History::note(art->getfield("Message-ID:").c_str(),
-					      name(), nbr);
+			string id = art->getfield("Message-ID:");
+			// An indexed article needs no write. Wait for the history
+			// shard without blocking changes to the group's database.
+			if (!History::has_location(id.c_str(), name())) {
+				// An older spool can be missing history. Backfill only
+				// while this database is still the named one.
+				NVLock guard(*this, NVcontainer::ShrdLock);
+				if (is_named_file(true))
+					History::note(id.c_str(), name(), nbr);
+			}
 		}
 		catch(...) {
 		}

@@ -583,19 +583,27 @@ void History::add(const char *msgid, const char *group, artnum_t nbr)
 	queue_op(true, msgid, group, nbr);
 }
 
+bool History::has_location(const char *msgid, const char *group)
+{
+	if (!group || !valid_group(group))
+		return false;
+	vector < Location > v;
+	lookup(msgid, v);
+	for (size_t i = 0; i < v.size(); i++)
+		if (v[i].group == group)
+			return true;
+	return false;
+}
+
 void History::note(const char *msgid, const char *group, artnum_t nbr)
 {
-	// An existing group location makes this a no-op at the shared-lock
-	// snapshot. A later removal is ordered after the note. In a batch,
+	// An existing group location makes this a no-op: nothing is written,
+	// so it needs no ordering against a later removal. In a batch,
 	// earlier queued operations are not visible yet, so skip this check.
-	if (batch_depth == 0 && !spool.empty() && msgid && group &&
-	    valid_msgid(msgid) && valid_group(group)) {
-		vector < Location > v;
-		lookup(msgid, v);
-		for (size_t i = 0; i < v.size(); i++)
-			if (v[i].group == group)
-				return;
-	}
+	// (getarticle asks has_location first without the group lock and calls
+	// note only under the shared group lock, for a still named database.)
+	if (batch_depth == 0 && has_location(msgid, group))
+		return;
 	// If it was absent, check again while adding under the shard's
 	// exclusive lock, so another writer's location is not replaced.
 	queue_op(true, msgid, group, nbr, true);
